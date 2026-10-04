@@ -59,6 +59,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.core.Gender
 import io.github.springthief1123.lovelyspace.core.Room
+import io.github.springthief1123.lovelyspace.core.RoomAction
 import io.github.springthief1123.lovelyspace.settings.ThemeMode
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -67,10 +68,14 @@ import kotlinx.coroutines.launch
 fun RoomListScreen(
     themeMode: ThemeMode,
     onThemeModeChange: (ThemeMode) -> Unit,
+    onEnterRoom: (Room) -> Unit,
+    /** 値が変わるたびに一覧を取り直す（チャットから戻ったときなど）。0 は何もしない。 */
+    refreshKey: Int = 0,
 ) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val vm: RoomListViewModel = viewModel(factory = viewModelFactory { initializer { RoomListViewModel(app.client) } })
     val state by vm.state.collectAsStateWithLifecycle()
+    LaunchedEffect(refreshKey) { vm.onRefreshKey(refreshKey) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
@@ -103,9 +108,18 @@ fun RoomListScreen(
                 RoomList(
                     state = state,
                     onRoomClick = { room ->
-                        scope.launch {
-                            snackbar.currentSnackbarData?.dismiss()
-                            snackbar.showSnackbar("${room.name ?: "この部屋"}への入室は次のフェーズで対応します")
+                        val notice = when (room.action) {
+                            RoomAction.ENTER -> null
+                            RoomAction.PEEK -> "公開ルームの閲覧は今後のフェーズで対応します"
+                            RoomAction.NONE -> "満室の非公開ルームには入れません"
+                        }
+                        if (notice == null) {
+                            onEnterRoom(room)
+                        } else {
+                            scope.launch {
+                                snackbar.currentSnackbarData?.dismiss()
+                                snackbar.showSnackbar(notice)
+                            }
                         }
                     },
                     onLoadMore = vm::loadMore,

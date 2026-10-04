@@ -5,10 +5,10 @@ import androidx.lifecycle.viewModelScope
 import io.github.springthief1123.lovelyspace.core.Gender
 import io.github.springthief1123.lovelyspace.core.Genre
 import io.github.springthief1123.lovelyspace.core.Genres
-import io.github.springthief1123.lovelyspace.core.HttpStatusException
 import io.github.springthief1123.lovelyspace.core.Room
 import io.github.springthief1123.lovelyspace.core.RoomQuery
 import io.github.springthief1123.lovelyspace.core.ShaloveClient
+import io.github.springthief1123.lovelyspace.ui.describeError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,7 +16,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.io.IOException
 
 data class RoomListUiState(
     val genre: Genre = Genres.default,
@@ -81,6 +80,18 @@ class RoomListViewModel(private val client: ShaloveClient) : ViewModel() {
         loadJob = viewModelScope.launch { load(page = 1, force = force) }
     }
 
+    private var handledRefreshKey = 0
+
+    /**
+     * 画面から渡される取り直しの合図。画面に戻るたびに同じ値で呼ばれるので、
+     * 値が変わったときだけ取り直す（チャットから戻ったときなど）。
+     */
+    fun onRefreshKey(key: Int) {
+        if (key == handledRefreshKey) return
+        handledRefreshKey = key
+        refresh(force = true)
+    }
+
     fun loadMore() {
         val s = _state.value
         if (!s.canLoadMore || s.isLoadingMore || s.isRefreshing) return
@@ -109,14 +120,8 @@ class RoomListViewModel(private val client: ShaloveClient) : ViewModel() {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            _state.update { it.copy(isRefreshing = false, isLoadingMore = false, error = describe(e), errorOnLoadMore = page > 1) }
+            _state.update { it.copy(isRefreshing = false, isLoadingMore = false, error = describeError(e), errorOnLoadMore = page > 1) }
         }
-    }
-
-    private fun describe(e: Exception): String = when (e) {
-        is HttpStatusException -> "ラブルームから応答エラーが返りました（${e.code}）"
-        is IOException -> "通信できませんでした。電波の状態を確認してください"
-        else -> "読み込みに失敗しました（${e.javaClass.simpleName}）"
     }
 
     private companion object {
