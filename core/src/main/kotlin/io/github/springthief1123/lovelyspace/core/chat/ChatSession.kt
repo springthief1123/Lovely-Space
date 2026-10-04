@@ -37,6 +37,7 @@ class ChatSession internal constructor(
     var state: ChatState = initialState
         private set
 
+    /** 更新間隔。発言と取得の両方から変更するので [lock] の中でだけ触る。 */
     private val schedule = PollSchedule(initialState)
 
     /** 応答の反映と発言を直列にする。通信の待ち時間中は持たない。 */
@@ -58,12 +59,13 @@ class ChatSession internal constructor(
                 // 発言のあとは、発言側で決めた間隔が過ぎるまで取りに行かない。
                 // 取得の後の sleep 中に発言があった場合もここで待つ。
                 awaitPollAllowed()
-                schedule.onPollStarted(state)
+                // PollSchedule は発言側からも変更されるので、すべて lock の中で触る。
+                lock.withLock { schedule.onPollStarted(state) }
                 // null は発言で中断された・取得の直前に発言があった。発言の応答が新着を含むので取り直さずに待つ。
                 val update = poll() ?: continue
                 emit(update)
                 if (update.endMessage != null) return@flow
-                sleep(schedule.onResponse(update))
+                sleep(lock.withLock { schedule.onResponse(update) })
             }
         } finally {
             collecting.set(false)
