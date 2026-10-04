@@ -14,6 +14,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -50,25 +51,39 @@ class ChatSession internal constructor(
      * 失敗（通信エラー）は例外として流すので、呼び出し側で retry するか終了する。
      */
     fun updates(): Flow<ChatUpdate> = flow {
-        while (true) {
-            schedule.onPollStarted(state)
-            val update = poll()
-            if (update == null) {
-                // 発言で中断された。発言の応答が新着を含んでいるので、次の取得は発言側の間隔に従う。
-                sleep(nextDelayAfterSend)
-                continue
+        // flow は集めるたびに別のループになるので、同時に 2 つ集めて取得が 2 本にならないようにする。
+        check(collecting.compareAndSet(false, true)) { "updates() は同時に 1 か所でしか集められません" }
+        try {
+            while (true) {
+                schedule.onPollStarted(state)
+                val update = poll()
+                if (update == null) {
+                    // 発言で中断された。発言は lock を持ったまま応答を待つので、終わるのを待ってから
+                    // 発言側で決めた間隔で次を取る（発言中に古い fromSize で取りに行かない）。
+                    sleep(lock.withLock { nextDelayAfterSend })
+                    continue
+                }
+                emit(update)
+                if (update.endMessage != null) return@flow
+                sleep(schedule.onResponse(update))
             }
-            emit(update)
-            if (update.endMessage != null) return@flow
-            sleep(schedule.onResponse(update))
+        } finally {
+            collecting.set(false)
         }
     }
 
-    @Volatile
+    private val collecting = AtomicBoolean(false)
+
+    /** 発言のあと次の取得までの待ち時間。[lock] の中で読み書きする。 */
     private var nextDelayAfterSend = 0L
 
+    /** 取得を 1 本に保つ。 */
+    private val pollLock = Mutex()
+
     /** 1 回だけ新着を取る。発言で中断されたら null。 */
-    suspend fun poll(live: Boolean = true): ChatUpdate? {
+    suspend fun poll(live: Boolean = true): ChatUpdate? = pollLock.withLock { pollOnce(live) }
+
+    private suspend fun pollOnce(live: Boolean): ChatUpdate? {
         val from = state.fromSize
         val call = http.newCall(ajaxRequest(from, live = live, chat = null))
         pending = call
@@ -95,8 +110,14 @@ class ChatSession internal constructor(
         lastSendAt = clock()
         pending?.cancel()
         schedule.onSend()
-        val body = http.newCall(ajaxRequest(state.fromSize, live = false, chat = text)).await()
-        apply(body).also { nextDelayAfterSend = schedule.onResponse(it) }
+        try {
+            val body = http.newCall(ajaxRequest(state.fromSize, live = false, chat = text)).await()
+            apply(body).also { nextDelayAfterSend = schedule.onResponse(it) }
+        } catch (e: Throwable) {
+            // 送れなくても、中断した取得は再開させる。
+            nextDelayAfterSend = schedule.onFailure()
+            throw e
+        }
     }
 
     private fun apply(body: String): ChatUpdate {

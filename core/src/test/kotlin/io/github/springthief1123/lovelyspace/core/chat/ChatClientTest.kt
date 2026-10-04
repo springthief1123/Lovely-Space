@@ -2,6 +2,8 @@ package io.github.springthief1123.lovelyspace.core.chat
 
 import io.github.springthief1123.lovelyspace.core.ShaloveClient
 import io.github.springthief1123.lovelyspace.core.fixture
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
@@ -90,6 +92,7 @@ class ChatClientTest {
         assertTrue(result is EntryResult.Rejected)
         val fields = form(requests.last().second)
         assertEquals("tok", fields["cf-turnstile-response"])
+        assertEquals("tok", fields["h-captcha-response"])
         assertEquals("", fields["years"])
     }
 
@@ -129,6 +132,18 @@ class ChatClientTest {
         assertEquals("タロウ", update.newLines.single().speaker)
         // 連続発言は本家と同じく 1.5 秒空ける。
         assertEquals(listOf(ChatSession.MIN_SEND_INTERVAL_MS), sleeps)
+    }
+
+    @Test
+    fun updatesCanOnlyBeCollectedOnce() = runTest {
+        respond(fixture("chat/ajax_cleared_and_ended.txt"))
+        val session = client.chatSession(page(fromSize = 540))
+        val first = launch { session.updates().collect { awaitCancellation() } }
+        testScheduler.advanceUntilIdle()
+        val error = runCatching { session.updates().collect {} }.exceptionOrNull()
+        assertTrue(error is IllegalStateException)
+        first.cancel()
+        assertEquals("取得は 1 本だけ", 1, requests.size)
     }
 
     @Test
