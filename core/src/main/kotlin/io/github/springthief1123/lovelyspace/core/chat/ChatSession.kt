@@ -77,6 +77,10 @@ class ChatSession internal constructor(
     /** 発言のあと次の取得までの待ち時間。[lock] の中で読み書きする。 */
     private var nextDelayAfterSend = 0L
 
+    /** 発言の回数。[lock] の中で増やす。 */
+    @Volatile
+    private var sendCount = 0L
+
     /** 取得を 1 本に保つ。 */
     private val pollLock = Mutex()
 
@@ -84,9 +88,17 @@ class ChatSession internal constructor(
     suspend fun poll(live: Boolean = true): ChatUpdate? = pollLock.withLock { pollOnce(live) }
 
     private suspend fun pollOnce(live: Boolean): ChatUpdate? {
-        val from = state.fromSize
-        val call = http.newCall(ajaxRequest(from, live = live, chat = null))
-        pending = call
+        val seenSends = sendCount
+        // 取得の開始は発言と同じ lock の中で行う。発言の POST 中に古い fromSize で取りに行かず、
+        // 発言側は登録済みの取得を必ず中断できる。
+        val (call, from) = lock.withLock {
+            // lock を待つ間に発言があった。発言の応答が新着を含むので、発言側の間隔に従う。
+            if (sendCount != seenSends) return null
+            val from = state.fromSize
+            val call = http.newCall(ajaxRequest(from, live = live, chat = null))
+            pending = call
+            call to from
+        }
         val body = try {
             call.await()
         } catch (e: IOException) {
@@ -108,6 +120,7 @@ class ChatSession internal constructor(
             if (wait > 0) sleep(wait)
         }
         lastSendAt = clock()
+        sendCount++
         pending?.cancel()
         schedule.onSend()
         try {

@@ -1,8 +1,13 @@
 package io.github.springthief1123.lovelyspace.core.chat
 
+import io.github.springthief1123.lovelyspace.core.HttpStatusException
 import io.github.springthief1123.lovelyspace.core.ShaloveClient
 import io.github.springthief1123.lovelyspace.core.fixture
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import okhttp3.Interceptor
@@ -138,12 +143,25 @@ class ChatClientTest {
     fun updatesCanOnlyBeCollectedOnce() = runTest {
         respond(fixture("chat/ajax_cleared_and_ended.txt"))
         val session = client.chatSession(page(fromSize = 540))
-        val first = launch { session.updates().collect { awaitCancellation() } }
-        testScheduler.advanceUntilIdle()
+        val received = CompletableDeferred<Unit>()
+        val first = launch { session.updates().collect { received.complete(Unit); awaitCancellation() } }
+        // 通信は OkHttp のスレッドで返るので、実時間で最初の応答を待つ。
+        withContext(Dispatchers.Default) { withTimeout(5_000) { received.await() } }
         val error = runCatching { session.updates().collect {} }.exceptionOrNull()
         assertTrue(error is IllegalStateException)
         first.cancel()
         assertEquals("取得は 1 本だけ", 1, requests.size)
+    }
+
+    @Test
+    fun httpErrorDoesNotLeakPwd() = runTest {
+        responses += { code(500).message("Server Error") }
+        val session = client.chatSession(page(fromSize = 540))
+        val error = runCatching { session.poll() }.exceptionOrNull() as HttpStatusException
+        assertEquals(500, error.code)
+        assertTrue(room.pwd !in error.url)
+        assertTrue(room.pwd !in error.message.orEmpty())
+        assertTrue("pwd=***" in error.url)
     }
 
     @Test
