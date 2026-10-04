@@ -36,6 +36,17 @@ data class RoomListUiState(
     val canLoadMore: Boolean get() = page in 1 until lastPage
 }
 
+/** 条件を変えたときに、前の条件の結果（部屋・件数・ページ・エラー）を消す。 */
+private fun RoomListUiState.resetResults() = copy(
+    rooms = emptyList(),
+    waitingCount = null,
+    fullCount = null,
+    page = 0,
+    lastPage = 1,
+    error = null,
+    errorOnLoadMore = false,
+)
+
 class RoomListViewModel(private val client: ShaloveClient) : ViewModel() {
     private val _state = MutableStateFlow(RoomListUiState())
     val state: StateFlow<RoomListUiState> = _state.asStateFlow()
@@ -48,13 +59,13 @@ class RoomListViewModel(private val client: ShaloveClient) : ViewModel() {
 
     fun selectGenre(genre: Genre) {
         if (genre == _state.value.genre) return
-        _state.update { it.copy(genre = genre, rooms = emptyList(), page = 0, lastPage = 1, error = null) }
+        _state.update { it.copy(genre = genre).resetResults() }
         refresh(force = false)
     }
 
     fun selectSex(sex: Gender?) {
         if (sex == _state.value.sex) return
-        _state.update { it.copy(sex = sex, rooms = emptyList(), page = 0, lastPage = 1, error = null) }
+        _state.update { it.copy(sex = sex).resetResults() }
         refresh(force = false)
     }
 

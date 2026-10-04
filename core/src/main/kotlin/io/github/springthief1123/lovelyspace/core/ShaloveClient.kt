@@ -34,24 +34,30 @@ class ShaloveClient(
     private val sleep: suspend (Long) -> Unit = { delay(it) },
 ) {
     private val gate = Mutex()
+    private val listGate = Mutex()
     private var lastRequestAt: Long? = null
-    private val listCache: MutableMap<String, Pair<Long, RoomListPage>> =
-        java.util.Collections.synchronizedMap(mutableMapOf())
+    private val listCache = mutableMapOf<String, Pair<Long, RoomListPage>>()
 
+    /**
+     * 一覧を取得する。キャッシュの確認から保存までを [listGate] の中で行うので、
+     * 同じ URL を同時に呼んでも本家へのアクセスは 1 回になる。
+     * [forceRefresh] でも、呼び出し後に別の呼び出しが取得し終えていればその結果を使う。
+     */
     suspend fun fetchRoomList(query: RoomQuery, forceRefresh: Boolean = false): RoomListPage {
         val url = query.toUrl()
-        if (!forceRefresh) {
-            cached(url)?.let { return it }
+        val calledAt = clock()
+        return listGate.withLock {
+            val entry = listCache[url]
+            if (entry != null) {
+                val (at, page) = entry
+                val fresh = clock() - at < listCacheTtl.inWholeMilliseconds
+                if ((!forceRefresh && fresh) || at > calledAt) return@withLock page
+            }
+            val html = get(url)
+            val page = RoomListParser.parse(html, query.genre.key, query.page, url)
+            listCache[url] = clock() to page
+            page
         }
-        val html = get(url)
-        val page = RoomListParser.parse(html, query.genre.key, query.page, url)
-        listCache[url] = clock() to page
-        return page
-    }
-
-    private fun cached(url: String): RoomListPage? {
-        val (at, page) = listCache[url] ?: return null
-        return if (clock() - at < listCacheTtl.inWholeMilliseconds) page else null
     }
 
     /** レート制限付きの GET。レスポンス本文をサイトの文字コードで文字列にして返す。 */
