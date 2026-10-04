@@ -72,8 +72,8 @@ private fun Uri.toChatRoom(genreKey: String): ChatRoomRef? {
     if (scheme != "https" || path?.endsWith("/2shot.php") != true) return null
     val roomId = getQueryParameter("room_id")?.toLongOrNull() ?: return null
     val pwd = getQueryParameter("pwd")?.takeIf { it.isNotEmpty() } ?: return null
-    val host = host?.takeIf { it.endsWith(".shalove.net") } ?: return null
-    return ChatRoomRef(host, roomId, pwd, genreKey)
+    val siteHost = host?.takeIf { it.endsWith(".shalove.net") } ?: return null
+    return ChatRoomRef(siteHost, roomId, pwd, genreKey)
 }
 
 private fun prefillScript(profile: EntryProfile): String {
