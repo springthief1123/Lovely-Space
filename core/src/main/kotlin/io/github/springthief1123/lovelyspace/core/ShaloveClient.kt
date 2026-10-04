@@ -5,8 +5,17 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import io.github.springthief1123.lovelyspace.core.chat.ChatPage
+import io.github.springthief1123.lovelyspace.core.chat.ChatPageParser
+import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
+import io.github.springthief1123.lovelyspace.core.chat.ChatSession
+import io.github.springthief1123.lovelyspace.core.chat.EntryForm
+import io.github.springthief1123.lovelyspace.core.chat.EntryFormParser
+import io.github.springthief1123.lovelyspace.core.chat.EntryProfile
+import io.github.springthief1123.lovelyspace.core.chat.EntryResult
 import okhttp3.Cookie
 import okhttp3.CookieJar
+import okhttp3.FormBody
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -24,6 +33,9 @@ import kotlin.time.Duration.Companion.seconds
  * - リクエスト同士の間隔を [minInterval] 以上空ける
  * - 同じ一覧 URL は [listCacheTtl] の間は再取得しない
  * をここで強制する。
+ *
+ * 入室後のチャット（[ChatSession]）は本家のページと同じ規則（新着取得は常に 1 本・間隔は本家の計算式・
+ * 発言は 1.5 秒以上空ける）で通信し、ページ操作用の最小間隔とは別に管理する。
  */
 class ShaloveClient(
     private val http: OkHttpClient = defaultHttpClient(),
@@ -63,21 +75,127 @@ class ShaloveClient(
     }
 
     /** レート制限付きの GET。レスポンス本文をサイトの文字コードで文字列にして返す。 */
-    suspend fun get(url: String): String = gate.withLock {
+    suspend fun get(url: String): String = gated {
+        http.newCall(Request.Builder().url(url).header("User-Agent", USER_AGENT).build()).execute().use { res ->
+            if (!res.isSuccessful) throw HttpStatusException(res.code, url)
+            decodeBody(res)
+        }
+    }
+
+    /** ページの読み込みやフォーム送信など、人の操作 1 回に当たる通信。前の通信から [minInterval] 以上空ける。 */
+    private suspend fun <T> gated(block: () -> T): T = gate.withLock {
         lastRequestAt?.let { last ->
             val wait = last + minInterval.inWholeMilliseconds - clock()
             if (wait > 0) sleep(wait)
         }
         lastRequestAt = clock()
-        withContext(Dispatchers.IO) {
+        withContext(Dispatchers.IO) { block() }
+    }
+
+    // ---- 入室・チャット ----
+
+    /** 入室前画面を開く。部屋が埋まった・閉じられた場合など、フォームが無ければ null。 */
+    suspend fun openEntry(host: String, roomId: Long, genreKey: String): EntryForm? {
+        val url = "https://$host/PreEnterRoom?room_id=$roomId&genre_key=$genreKey"
+        return gated {
             http.newCall(Request.Builder().url(url).header("User-Agent", USER_AGENT).build()).execute().use { res ->
                 if (!res.isSuccessful) throw HttpStatusException(res.code, url)
-                decodeBody(res)
+                val bytes = res.body?.bytes() ?: ByteArray(0)
+                val charset = detectCharset(res.header("Content-Type"), bytes)
+                EntryFormParser.parse(String(bytes, charset), host, url)?.copy(formCharset = charset.name())
             }
         }
     }
 
+    /**
+     * 入室する。成功するとサイトが本人用の pwd を付けた `2shot.php` へ転送するので、その URL から部屋を特定する。
+     * [captchaToken] はロボット除け認証が求められたとき（[EntryForm.requiresCaptcha]）に WebView で得た値。
+     */
+    suspend fun enter(form: EntryForm, profile: EntryProfile, captchaToken: String? = null): EntryResult {
+        val charset = runCatching { Charset.forName(form.formCharset) }.getOrDefault(Charsets.UTF_8)
+        val body = FormBody.Builder(charset)
+            .add("room_id", form.roomId.toString())
+            .add("pwd", form.pwd)
+            .add("genre_key", form.genreKey)
+            .add("shotact", "entry")
+            .add("name", profile.name)
+            .add("sex", profile.sex.toString())
+            .add("years", profile.years?.toString().orEmpty())
+            .apply {
+                if (captchaToken != null) {
+                    add("cf-turnstile-response", captchaToken)
+                    add("g-recaptcha-response", captchaToken)
+                }
+            }
+            .build()
+        val url = "https://${form.host}/PreEnterRoom"
+        return gated {
+            val request = Request.Builder().url(url).post(body)
+                .header("User-Agent", USER_AGENT)
+                .header("Referer", "$url?room_id=${form.roomId}&genre_key=${form.genreKey}")
+                .build()
+            noRedirectHttp.newCall(request).execute().use { res ->
+                val location = res.header("Location")
+                if (res.isRedirect && location != null) {
+                    val target = res.request.url.resolve(location)
+                    val pwd = target?.queryParameter("pwd")
+                    val roomId = target?.queryParameter("room_id")?.toLongOrNull()
+                    if (target != null && target.encodedPath.endsWith("/2shot.php") && pwd != null && roomId != null) {
+                        return@use EntryResult.Entered(ChatRoomRef(target.host, roomId, pwd, form.genreKey))
+                    }
+                    return@use EntryResult.Rejected("入室できませんでした")
+                }
+                if (!res.isSuccessful) throw HttpStatusException(res.code, url)
+                EntryResult.Rejected(EntryFormParser.errorMessage(decodeBody(res)))
+            }
+        }
+    }
+
+    /** 待機画面・チャット画面を開き、初期状態（直近のログ・読み出し位置など）を得る。 */
+    suspend fun openChat(room: ChatRoomRef): ChatPage = ChatPageParser.parse(get(room.pageUrl), room)
+
+    /** 開いた部屋の新着取得・発言用のセッションを作る。 */
+    fun chatSession(page: ChatPage): ChatSession =
+        ChatSession(longPollHttp, page.room, page.state, clock, sleep)
+
+    /** 退室する（作成者は [close] で部屋ごと閉じる）。 */
+    suspend fun leave(room: ChatRoomRef) = postRoomAction(room, "bye")
+
+    /** 部屋を閉鎖する（作成者のみ）。 */
+    suspend fun close(room: ChatRoomRef) = postRoomAction(room, "close")
+
+    private suspend fun postRoomAction(room: ChatRoomRef, action: String) {
+        val url = "https://${room.host}/2shot.php"
+        val body = FormBody.Builder()
+            .add("room_id", room.roomId.toString())
+            .add("pwd", room.pwd)
+            .add("genre_key", room.genreKey)
+            .add("shotact", action)
+            .build()
+        gated {
+            val request = Request.Builder().url(url).post(body)
+                .header("User-Agent", USER_AGENT)
+                .header("Referer", room.pageUrl)
+                .build()
+            noRedirectHttp.newCall(request).execute().use { res ->
+                if (!res.isSuccessful && !res.isRedirect) throw HttpStatusException(res.code, url)
+            }
+        }
+    }
+
+    private val noRedirectHttp: OkHttpClient by lazy {
+        http.newBuilder().followRedirects(false).followSslRedirects(false).build()
+    }
+
+    /** `ajax.php?live=1` はサーバーが新着まで応答を保留するので、読み取りの待ち時間を長く取る。 */
+    private val longPollHttp: OkHttpClient by lazy {
+        http.newBuilder().readTimeout(LONG_POLL_TIMEOUT_SECONDS, TimeUnit.SECONDS).build()
+    }
+
     companion object {
+        /** live 取得の応答待ちの上限。超えたら取り直す。 */
+        const val LONG_POLL_TIMEOUT_SECONDS = 120L
+
         /**
          * パーサが PC 版レイアウトを前提にしているため、PC の Chrome として振る舞う。
          * スマホ版レイアウトの解析に対応したら変更する。
