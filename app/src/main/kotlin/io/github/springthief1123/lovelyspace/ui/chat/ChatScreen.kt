@@ -136,6 +136,11 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit) {
                 }
                 Connection.CONNECTED -> Unit
             }
+            state.leaveError?.let {
+                Banner(it) {
+                    OutlinedButton(onClick = vm::leave, enabled = !state.isLeaving) { Text("もう一度閉じる") }
+                }
+            }
             if (state.isWaitingForPartner) {
                 Banner("相手の入室を待っています。この画面を開いている間、入室を確認し続けます")
             }

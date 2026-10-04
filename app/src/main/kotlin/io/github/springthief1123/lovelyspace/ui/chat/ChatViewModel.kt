@@ -42,6 +42,8 @@ data class ChatUiState(
     val isSending: Boolean = false,
     val sendError: String? = null,
     val isLeaving: Boolean = false,
+    /** 部屋を閉じられなかった理由。作成者は閉じるまで部屋に残る。 */
+    val leaveError: String? = null,
     /** 退室が済んだ。画面はこれを見て一覧へ戻る。 */
     val left: Boolean = false,
 ) {
@@ -170,18 +172,27 @@ class ChatViewModel(
         }
     }
 
-    /** 退室する（作成者は部屋を閉じる）。終了済みの部屋や通信エラーでも画面は閉じる。 */
+    /**
+     * 退室する（作成者は部屋を閉じる）。終了済みの部屋や、入室者の退室の通信エラーでも画面は閉じる。
+     * 作成者が閉じられなかったときは、部屋が一覧に残ってしまうので画面に留まり、やり直せるようにする。
+     */
     fun leave() {
         if (_state.value.isLeaving) return
         updatesJob?.cancel()
-        _state.update { it.copy(isLeaving = true) }
+        _state.update { it.copy(isLeaving = true, leaveError = null) }
         viewModelScope.launch {
-            if (_state.value.endMessage == null && session != null) {
+            val s = _state.value
+            if (s.endMessage == null && session != null) {
                 try {
-                    if (_state.value.isOwner) client.close(room) else client.leave(room)
+                    if (s.isOwner) client.close(room) else client.leave(room)
                 } catch (e: CancellationException) {
                     throw e
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    if (s.isOwner) {
+                        _state.update { it.copy(isLeaving = false, leaveError = "部屋を閉じられませんでした。${describeError(e)}") }
+                        startUpdates()
+                        return@launch
+                    }
                     // 退室の通知が届かなくても、部屋は無言の時間切れでサイト側が閉じる。
                 }
             }
