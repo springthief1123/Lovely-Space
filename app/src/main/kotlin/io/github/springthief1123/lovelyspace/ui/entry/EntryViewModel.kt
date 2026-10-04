@@ -62,7 +62,14 @@ class EntryViewModel(
     fun load() {
         _state.update { it.copy(isLoading = true, loadError = null) }
         viewModelScope.launch {
-            val last = settings.lastEntryProfile.first()
+            // 前回の値は入力の手間を省くためだけのもの。読めなくても入室前画面は開く。
+            val last = try {
+                settings.lastEntryProfile.first()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
             try {
                 val form = client.openEntry(host, roomId, genreKey)
                 _state.update { s ->
@@ -95,7 +102,7 @@ class EntryViewModel(
         val profile = EntryProfile(name = s.name.trim(), sex = s.sex, years = s.yearsValue)
         _state.update { it.copy(isEntering = true, entryError = null) }
         viewModelScope.launch {
-            settings.setLastEntryProfile(profile)
+            saveProfileQuietly(profile)
             try {
                 when (val result = client.enter(form, profile)) {
                     is EntryResult.Entered -> _state.update { it.copy(isEntering = false, entered = result.room) }
@@ -116,7 +123,17 @@ class EntryViewModel(
     /** ブラウザ画面（ロボット確認）へ進む前に、入力した値を次回用に残す。 */
     fun saveProfile() {
         val s = _state.value
-        viewModelScope.launch { settings.setLastEntryProfile(EntryProfile(s.name.trim(), s.sex, s.yearsValue)) }
+        viewModelScope.launch { saveProfileQuietly(EntryProfile(s.name.trim(), s.sex, s.yearsValue)) }
+    }
+
+    /** 次回用の保存。失敗しても入室は止めない。 */
+    private suspend fun saveProfileQuietly(profile: EntryProfile) {
+        try {
+            settings.setLastEntryProfile(profile)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
     }
 
     /** ブラウザ画面（ロボット確認）で入室できたとき。 */
