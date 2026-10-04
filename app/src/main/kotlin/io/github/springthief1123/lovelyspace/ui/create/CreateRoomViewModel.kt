@@ -30,7 +30,7 @@ data class CreateRoomUiState(
     val yearsValid: Boolean get() = years.isEmpty() || (yearsValue ?: 0) in MIN_YEARS..MAX_YEARS
 
     /** サイトの数え方（半角 1、全角 2）での待機メッセージの長さ。 */
-    val messageWidth: Int get() = message.sumOf { if (it.isHalfWidth()) 1 else 2 }
+    val messageWidth: Int get() = message.fold(0) { width, c -> width + if (c.isHalfWidth()) 1 else 2 }
     val messageValid: Boolean get() = messageWidth <= MESSAGE_MAX_WIDTH
 
     val canContinue: Boolean get() = isLoaded && name.isNotBlank() && yearsValid && messageValid
