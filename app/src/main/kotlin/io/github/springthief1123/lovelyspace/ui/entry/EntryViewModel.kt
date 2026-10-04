@@ -86,7 +86,8 @@ class EntryViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _state.update { it.copy(isLoading = false, loadError = describeError(e)) }
+                // 使用済みのトークンを持つ古いフォームは捨て、エラーと再読み込みを出す。
+                _state.update { it.copy(isLoading = false, form = null, loadError = describeError(e)) }
             }
         }
     }
