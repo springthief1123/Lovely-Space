@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -24,7 +23,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -60,8 +58,6 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.core.Gender
-import io.github.springthief1123.lovelyspace.core.Genre
-import io.github.springthief1123.lovelyspace.core.Genres
 import io.github.springthief1123.lovelyspace.core.Room
 import io.github.springthief1123.lovelyspace.settings.ThemeMode
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -91,8 +87,9 @@ fun RoomListScreen(
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
-            GenreChips(
+            GenreBar(
                 selected = state.genre,
+                recent = state.recentGenres,
                 counts = state.genreCounts,
                 onSelect = vm::selectGenre,
             )
@@ -150,25 +147,6 @@ private fun themeIcon(mode: ThemeMode) = when (mode) {
     ThemeMode.SYSTEM -> Icons.Outlined.Contrast
     ThemeMode.LIGHT -> Icons.Outlined.LightMode
     ThemeMode.DARK -> Icons.Outlined.DarkMode
-}
-
-@Composable
-private fun GenreChips(selected: Genre, counts: Map<String, Int>, onSelect: (Genre) -> Unit) {
-    val listState = rememberLazyListState()
-    LazyRow(
-        state = listState,
-        contentPadding = PaddingValues(horizontal = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        items(Genres.all, key = { it.key }) { genre ->
-            val count = counts[genre.key]
-            FilterChip(
-                selected = genre == selected,
-                onClick = { onSelect(genre) },
-                label = { Text(if (count != null) "${genre.label} $count" else genre.label) },
-            )
-        }
-    }
 }
 
 @Composable

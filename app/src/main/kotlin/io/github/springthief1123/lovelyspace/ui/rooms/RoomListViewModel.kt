@@ -20,6 +20,8 @@ import java.io.IOException
 
 data class RoomListUiState(
     val genre: Genre = Genres.default,
+    /** 直前まで見ていたジャンル（新しい順、選択中は除く）。上部のすぐ切り替えられる候補に出す。 */
+    val recentGenres: List<Genre> = emptyList(),
     val sex: Gender? = null,
     val rooms: List<Room> = emptyList(),
     val waitingCount: Int? = null,
@@ -59,7 +61,10 @@ class RoomListViewModel(private val client: ShaloveClient) : ViewModel() {
 
     fun selectGenre(genre: Genre) {
         if (genre == _state.value.genre) return
-        _state.update { it.copy(genre = genre).resetResults() }
+        _state.update {
+            val recent = (listOf(it.genre) + it.recentGenres).filter { g -> g != genre }.distinct().take(RECENT_GENRES)
+            it.copy(genre = genre, recentGenres = recent).resetResults()
+        }
         refresh(force = false)
     }
 
@@ -112,5 +117,9 @@ class RoomListViewModel(private val client: ShaloveClient) : ViewModel() {
         is HttpStatusException -> "ラブルームから応答エラーが返りました（${e.code}）"
         is IOException -> "通信できませんでした。電波の状態を確認してください"
         else -> "読み込みに失敗しました（${e.javaClass.simpleName}）"
+    }
+
+    private companion object {
+        const val RECENT_GENRES = 3
     }
 }
