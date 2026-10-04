@@ -12,7 +12,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.springthief1123.lovelyspace.settings.ThemeMode
-import io.github.springthief1123.lovelyspace.ui.rooms.RoomListScreen
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpaceTheme
 import kotlinx.coroutines.launch
 
@@ -37,7 +36,7 @@ class MainActivity : ComponentActivity() {
             }
             val scope = rememberCoroutineScope()
             LovelySpaceTheme(themeMode = themeMode) {
-                RoomListScreen(
+                AppNavHost(
                     themeMode = themeMode,
                     onThemeModeChange = { mode -> scope.launch { app.settings.setThemeMode(mode) } },
                 )
