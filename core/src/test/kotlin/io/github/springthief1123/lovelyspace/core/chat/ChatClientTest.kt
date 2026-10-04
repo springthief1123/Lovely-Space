@@ -6,6 +6,7 @@ import io.github.springthief1123.lovelyspace.core.fixture
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.launch
@@ -137,6 +138,28 @@ class ChatClientTest {
         assertEquals("タロウ", update.newLines.single().speaker)
         // 連続発言は本家と同じく 1.5 秒空ける。
         assertEquals(listOf(ChatSession.MIN_SEND_INTERVAL_MS), sleeps)
+    }
+
+    @Test
+    fun pollWaitsForIntervalAfterSend() = runTest {
+        respond(fixture("chat/ajax_send.txt"))
+        respond(fixture("chat/ajax_no_new.txt"))
+        val session = client.chatSession(page(fromSize = 690))
+
+        // 取得の後の sleep 中に発言した場合と同じ状況: 発言が先に済んでから次の取得に入る。
+        session.send("こんばんは")
+        val sentAt = now
+        assertEquals("発言後の間隔が空くまでは取りに行かない", null, session.poll())
+        assertEquals(1, requests.size)
+
+        session.updates().first()
+
+        assertEquals(2, requests.size)
+        assertEquals("1", requests[1].first.url.queryParameter("live"))
+        assertEquals("726", requests[1].first.url.queryParameter("fromsize"))
+        // 発言の応答（2 人そろって新着あり）なので、本家と同じく 2 秒空けてから取る。
+        assertEquals(listOf(2_000L), sleeps)
+        assertTrue(now >= sentAt + 2_000)
     }
 
     @Test
