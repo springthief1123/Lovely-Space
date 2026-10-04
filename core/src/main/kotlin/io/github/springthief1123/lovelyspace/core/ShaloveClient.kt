@@ -123,7 +123,9 @@ class ShaloveClient(
             .add("years", profile.years?.toString().orEmpty())
             .apply {
                 if (captchaToken != null) {
+                    // どの認証が出たかでフィールド名が違うので、すべてに入れる（ブラウザも該当欄だけを送る）。
                     add("cf-turnstile-response", captchaToken)
+                    add("h-captcha-response", captchaToken)
                     add("g-recaptcha-response", captchaToken)
                 }
             }
