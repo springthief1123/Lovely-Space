@@ -55,14 +55,12 @@ class ChatSession internal constructor(
         check(collecting.compareAndSet(false, true)) { "updates() は同時に 1 か所でしか集められません" }
         try {
             while (true) {
+                // 発言のあとは、発言側で決めた間隔が過ぎるまで取りに行かない。
+                // 取得の後の sleep 中に発言があった場合もここで待つ。
+                awaitPollAllowed()
                 schedule.onPollStarted(state)
-                val update = poll()
-                if (update == null) {
-                    // 発言で中断された。発言は lock を持ったまま応答を待つので、終わるのを待ってから
-                    // 発言側で決めた間隔で次を取る（発言中に古い fromSize で取りに行かない）。
-                    sleep(lock.withLock { nextDelayAfterSend })
-                    continue
-                }
+                // null は発言で中断された・取得の直前に発言があった。発言の応答が新着を含むので取り直さずに待つ。
+                val update = poll() ?: continue
                 emit(update)
                 if (update.endMessage != null) return@flow
                 sleep(schedule.onResponse(update))
@@ -74,26 +72,33 @@ class ChatSession internal constructor(
 
     private val collecting = AtomicBoolean(false)
 
-    /** 発言のあと次の取得までの待ち時間。[lock] の中で読み書きする。 */
-    private var nextDelayAfterSend = 0L
+    /**
+     * 次の取得を始めてよい時刻（[clock] の値）。発言の応答（または失敗）のときに、
+     * 本家と同じ「発言後の間隔」を足して決める。[lock] の中で読み書きする。
+     */
+    private var pollNotBefore = Long.MIN_VALUE
 
-    /** 発言の回数。[lock] の中で増やす。 */
-    @Volatile
-    private var sendCount = 0L
+    private suspend fun awaitPollAllowed() {
+        while (true) {
+            // 発言中は lock を持っているので、ここで発言の完了も待つ。
+            val wait = lock.withLock { pollNotBefore - clock() }
+            if (wait <= 0) return
+            sleep(wait)
+        }
+    }
 
     /** 取得を 1 本に保つ。 */
     private val pollLock = Mutex()
 
-    /** 1 回だけ新着を取る。発言で中断されたら null。 */
+    /** 1 回だけ新着を取る。発言で中断された、または発言後の間隔がまだ空いていなければ null。 */
     suspend fun poll(live: Boolean = true): ChatUpdate? = pollLock.withLock { pollOnce(live) }
 
     private suspend fun pollOnce(live: Boolean): ChatUpdate? {
-        val seenSends = sendCount
         // 取得の開始は発言と同じ lock の中で行う。発言の POST 中に古い fromSize で取りに行かず、
         // 発言側は登録済みの取得を必ず中断できる。
         val (call, from) = lock.withLock {
-            // lock を待つ間に発言があった。発言の応答が新着を含むので、発言側の間隔に従う。
-            if (sendCount != seenSends) return null
+            // 発言後の間隔が空いていない（lock を待つ間に発言があったなど）。
+            if (clock() < pollNotBefore) return null
             val from = state.fromSize
             val call = http.newCall(ajaxRequest(from, live = live, chat = null))
             pending = call
@@ -120,15 +125,14 @@ class ChatSession internal constructor(
             if (wait > 0) sleep(wait)
         }
         lastSendAt = clock()
-        sendCount++
         pending?.cancel()
         schedule.onSend()
         try {
             val body = http.newCall(ajaxRequest(state.fromSize, live = false, chat = text)).await()
-            apply(body).also { nextDelayAfterSend = schedule.onResponse(it) }
+            apply(body).also { pollNotBefore = clock() + schedule.onResponse(it) }
         } catch (e: Throwable) {
-            // 送れなくても、中断した取得は再開させる。
-            nextDelayAfterSend = schedule.onFailure()
+            // 送れなくても、中断した取得は間隔を空けて再開させる。
+            pollNotBefore = clock() + schedule.onFailure()
             throw e
         }
     }
