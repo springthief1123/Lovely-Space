@@ -244,7 +244,13 @@ private fun RoomList(
                 }
             }
         } else if (state.error != null && state.rooms.isNotEmpty()) {
-            item { MessageBlock(state.error, actionLabel = "もう一度読む", onAction = onLoadMore) }
+            item {
+                MessageBlock(
+                    state.error,
+                    actionLabel = "もう一度読む",
+                    onAction = if (state.errorOnLoadMore) onLoadMore else onRetry,
+                )
+            }
         }
     }
 }

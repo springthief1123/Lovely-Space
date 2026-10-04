@@ -29,11 +29,12 @@ class ShaloveClient(
     private val http: OkHttpClient = defaultHttpClient(),
     private val minInterval: Duration = 3.seconds,
     private val listCacheTtl: Duration = 20.seconds,
-    private val clock: () -> Long = System::currentTimeMillis,
+    /** 経過時間の計測用（ミリ秒）。端末の時計合わせの影響を受けないよう単調増加の時計を使う。 */
+    private val clock: () -> Long = { System.nanoTime() / 1_000_000 },
     private val sleep: suspend (Long) -> Unit = { delay(it) },
 ) {
     private val gate = Mutex()
-    private var lastRequestAt = 0L
+    private var lastRequestAt: Long? = null
     private val listCache: MutableMap<String, Pair<Long, RoomListPage>> =
         java.util.Collections.synchronizedMap(mutableMapOf())
 
@@ -55,8 +56,10 @@ class ShaloveClient(
 
     /** レート制限付きの GET。レスポンス本文をサイトの文字コードで文字列にして返す。 */
     suspend fun get(url: String): String = gate.withLock {
-        val wait = lastRequestAt + minInterval.inWholeMilliseconds - clock()
-        if (lastRequestAt != 0L && wait > 0) sleep(wait)
+        lastRequestAt?.let { last ->
+            val wait = last + minInterval.inWholeMilliseconds - clock()
+            if (wait > 0) sleep(wait)
+        }
         lastRequestAt = clock()
         withContext(Dispatchers.IO) {
             http.newCall(Request.Builder().url(url).header("User-Agent", USER_AGENT).build()).execute().use { res ->

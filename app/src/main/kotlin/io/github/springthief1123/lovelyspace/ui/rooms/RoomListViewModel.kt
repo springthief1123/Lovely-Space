@@ -30,6 +30,8 @@ data class RoomListUiState(
     val isRefreshing: Boolean = false,
     val isLoadingMore: Boolean = false,
     val error: String? = null,
+    /** [error] が次ページの読み込みで起きたものなら true（再試行は次ページを読み直す）。 */
+    val errorOnLoadMore: Boolean = false,
 ) {
     val canLoadMore: Boolean get() = page in 1 until lastPage
 }
@@ -91,7 +93,7 @@ class RoomListViewModel(private val client: ShaloveClient) : ViewModel() {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            _state.update { it.copy(isRefreshing = false, isLoadingMore = false, error = describe(e)) }
+            _state.update { it.copy(isRefreshing = false, isLoadingMore = false, error = describe(e), errorOnLoadMore = page > 1) }
         }
     }
 
