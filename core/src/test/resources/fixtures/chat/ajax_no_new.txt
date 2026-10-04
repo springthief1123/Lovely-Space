@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+gRoomVars.fromsize = size = 900;
+gMaxCountTime = 600;
+gRoomVars.mugonLimit = 28799;
+gRoomVars.roomLimit = 28761;
+gRoomVars.isFilledRoom = 1;
+gRoomVars.loadAverage = 368;
+gReloadCountTimeIni = 5;loglines = new Array();not_show_rom = 1;aj_is_public=1;dolive=1;information='';

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+gRoomVars.fromsize = size = 900;
+gMaxCountTime = 600;
+gRoomVars.mugonLimit = 28799;
+gRoomVars.roomLimit = 28761;
+gRoomVars.isFilledRoom = 1;
+gRoomVars.loadAverage = 368;
+gReloadCountTimeIni = 5;loglines = new Array('<div class="hello"\x3e<table style=" margin:0; padding:0;" border="0" cellspasing="0" cellpadding="0"\x3e<tr\x3e<td valign="top" style="min-width:68px; text-align:right; white-space: nowrap;"\x3e<b\x3e<font class="chatcolor_f" color="#aa0088"\x3eミナ<\/font\x3e<\/b\x3e<\/td\x3e<td valign="top" class="usume"\x3e&nbsp;&gt;&nbsp;<\/td\x3e<td valign="top" style=""\x3e<font class="chatcolor_f" color="#aa0088"\x3e古い発言<\/font\x3e&nbsp;<small class="choiusu"\x3e (23:00:00)<\/small\x3e<\/td\x3e<\/tr\x3e<\/table\x3e<\/div\x3e', '', '<div class="hello"\x3e<table style=" margin:0; padding:0;" border="0" cellspasing="0" cellpadding="0"\x3e<tr\x3e<td valign="top" style="min-width:68px; text-align:right; white-space: nowrap;"\x3eおしらせ<\/td\x3e<td valign="top" class="usume"\x3e&nbsp;&gt;&nbsp;<\/td\x3e<td valign="top" style=""\x3eルーム作成者（待機者）によって発言がクリアされました。&nbsp;<small class="choiusu"\x3e (23:12:00)<\/small\x3e<\/td\x3e<\/tr\x3e<\/table\x3e<\/div\x3e');die_msg = '<b\x3eこの部屋は閉鎖されました<\/b\x3e';information='';

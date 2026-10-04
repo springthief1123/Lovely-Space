@@ -6,3 +6,4 @@
 - テスト用 HTML（`core/src/test/resources/fixtures`）は本家の構造を再現した合成データ。リポジトリは公開なので、本家から取得した実データ（他の利用者の名前・募集文・room の pwd）はコミットしない。
 - 一覧は PC 版レイアウトを前提に解析しているため、`ShaloveClient.USER_AGENT` は PC の Chrome。
 - Google Maven に届かない環境では `LS_JVM_ONLY=1 ./gradlew :core:test` で core のみ検証できる。app のビルドは CI（.github/workflows/android.yml）で確認する。
+- チャット中の通信（`ajax.php` の新着取得・発言）は `ChatSession` がブラウザの `2shot.js` と同じ規則（`PollSchedule`、発言の 1.5 秒間隔、取得は常に 1 本）で行う。規則を本家より攻撃的にしない。
