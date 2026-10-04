@@ -4,6 +4,7 @@ package io.github.springthief1123.lovelyspace.ui.create
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -38,6 +40,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
@@ -105,6 +108,9 @@ fun CreateRoomScreen(genre: Genre, onBack: () -> Unit, onCreated: (ChatRoomRef) 
                 onRoomOpened = vm::onCreated,
                 modifier = modifier,
             )
+        } else if (!state.isLoaded) {
+            // 前回の値を読み終えるまでは入力欄を出さない（読み込みで入力が上書きされないように）。
+            Box(modifier, contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         } else {
             CreateRoomForm(state, vm, onContinue = { vm.saveInputs(); showBrowser = true }, modifier = modifier)
         }
