@@ -2,6 +2,10 @@ package io.github.springthief1123.lovelyspace
 
 import android.net.Uri
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -28,6 +32,8 @@ private object Routes {
 @Composable
 fun AppNavHost(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
     val nav = rememberNavController()
+    // チャットから戻ったら、入っていた部屋の状態が変わっているので一覧を取り直す。
+    var roomsRefreshKey by rememberSaveable { mutableIntStateOf(0) }
     val roomArgs = listOf(
         navArgument("host") { type = NavType.StringType },
         navArgument("genre") { type = NavType.StringType },
@@ -38,6 +44,7 @@ fun AppNavHost(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
             RoomListScreen(
                 themeMode = themeMode,
                 onThemeModeChange = onThemeModeChange,
+                refreshKey = roomsRefreshKey,
                 onEnterRoom = { room ->
                     val host = Genres[room.genreKey]?.host ?: return@RoomListScreen
                     nav.navigate(Routes.entry(host, room.genreKey, room.id)) { launchSingleTop = true }
@@ -68,7 +75,13 @@ fun AppNavHost(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
                 pwd = args.getString("pwd")!!,
                 genreKey = args.getString("genre")!!,
             )
-            ChatScreen(room = room, onExit = { nav.popBackStack(Routes.ROOMS, inclusive = false) })
+            ChatScreen(
+                room = room,
+                onExit = {
+                    roomsRefreshKey++
+                    nav.popBackStack(Routes.ROOMS, inclusive = false)
+                },
+            )
         }
     }
 }

@@ -35,8 +35,9 @@ data class EntryUiState(
 ) {
     val yearsValue: Int? get() = years.toIntOrNull()
     val yearsValid: Boolean get() = years.isEmpty() || (yearsValue ?: 0) in MIN_YEARS..MAX_YEARS
+    /** 入室前画面の取り直し中は、使用済みのトークンで送らないよう押せなくする。 */
     val canEnter: Boolean
-        get() = form != null && !form.requiresCaptcha && name.isNotBlank() && yearsValid && !isEntering && entered == null
+        get() = form != null && !isLoading && !form.requiresCaptcha && name.isNotBlank() && yearsValid && !isEntering && entered == null
 
     companion object {
         const val MIN_YEARS = 18

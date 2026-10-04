@@ -2,6 +2,7 @@
 
 package io.github.springthief1123.lovelyspace.ui.entry
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -66,6 +67,9 @@ fun EntryScreen(
     )
     val state by vm.state.collectAsStateWithLifecycle()
     var showBrowser by rememberSaveable { mutableStateOf(false) }
+
+    // 端末の戻る操作も、ツールバーの矢印と同じくロボット確認の画面から入力画面へ戻す。
+    BackHandler(enabled = showBrowser) { showBrowser = false }
 
     LaunchedEffect(state.entered) {
         state.entered?.let(onEntered)

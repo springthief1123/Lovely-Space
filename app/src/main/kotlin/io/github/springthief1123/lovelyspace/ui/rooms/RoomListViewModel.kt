@@ -80,6 +80,18 @@ class RoomListViewModel(private val client: ShaloveClient) : ViewModel() {
         loadJob = viewModelScope.launch { load(page = 1, force = force) }
     }
 
+    private var handledRefreshKey = 0
+
+    /**
+     * 画面から渡される取り直しの合図。画面に戻るたびに同じ値で呼ばれるので、
+     * 値が変わったときだけ取り直す（チャットから戻ったときなど）。
+     */
+    fun onRefreshKey(key: Int) {
+        if (key == handledRefreshKey) return
+        handledRefreshKey = key
+        refresh(force = true)
+    }
+
     fun loadMore() {
         val s = _state.value
         if (!s.canLoadMore || s.isLoadingMore || s.isRefreshing) return
