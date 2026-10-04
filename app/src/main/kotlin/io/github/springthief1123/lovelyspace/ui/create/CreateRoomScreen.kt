@@ -101,6 +101,7 @@ fun CreateRoomScreen(genre: Genre, onBack: () -> Unit, onCreated: (ChatRoomRef) 
                         "message" to state.message.trim(),
                     ),
                 ),
+                scriptPath = "/PreMakeRoom",
                 onRoomOpened = vm::onCreated,
                 modifier = modifier,
             )

@@ -6,6 +6,7 @@ import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
 import io.github.springthief1123.lovelyspace.core.chat.EntryProfile
 import io.github.springthief1123.lovelyspace.settings.RoomDetails
 import io.github.springthief1123.lovelyspace.settings.SettingsRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -50,8 +51,9 @@ class CreateRoomViewModel(private val settings: SettingsRepository) : ViewModel(
 
     init {
         viewModelScope.launch {
-            val profile = settings.lastEntryProfile.first()
-            val details = settings.lastRoomDetails.first()
+            // 前回の値は入力の手間を省くためだけのもの。読めなくても空欄で始める。
+            val profile = quietly { settings.lastEntryProfile.first() }
+            val details = quietly { settings.lastRoomDetails.first() } ?: RoomDetails(null, "")
             _state.update {
                 it.copy(
                     isLoaded = true,
@@ -77,9 +79,18 @@ class CreateRoomViewModel(private val settings: SettingsRepository) : ViewModel(
     fun saveInputs() {
         val s = _state.value
         viewModelScope.launch {
-            settings.setLastEntryProfile(EntryProfile(s.name.trim(), s.sex, s.yearsValue))
-            settings.setLastRoomDetails(RoomDetails(s.prefecture, s.message.trim()))
+            quietly { settings.setLastEntryProfile(EntryProfile(s.name.trim(), s.sex, s.yearsValue)) }
+            quietly { settings.setLastRoomDetails(RoomDetails(s.prefecture, s.message.trim())) }
         }
+    }
+
+    /** 設定の読み書きの失敗で画面を止めない。 */
+    private suspend fun <T> quietly(block: suspend () -> T): T? = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        null
     }
 
     fun onCreated(room: ChatRoomRef) = _state.update { it.copy(created = room) }

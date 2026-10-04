@@ -158,6 +158,9 @@ class ChatViewModel(
             try {
                 apply(session.send(text))
                 _state.update { it.copy(isSending = false) }
+                // 受信が止まっている（つなぎ直しを諦めた）なら、発言できた今のうちに受信を再開する。
+                // apply() が表示を「接続中」に戻すので、実際の受信と表示を一致させる。
+                if (updatesJob?.isActive != true && _state.value.endMessage == null) startUpdates()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

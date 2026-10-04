@@ -98,6 +98,7 @@ fun EntryScreen(
                     "entry",
                     mapOf("name" to state.name.trim(), "sex" to state.sex.toString(), "years" to state.yearsValue?.toString().orEmpty()),
                 ),
+                scriptPath = "/PreEnterRoom",
                 onRoomOpened = vm::onEnteredInBrowser,
                 modifier = modifier,
             )

@@ -28,8 +28,12 @@ fun SiteWebView(
     url: String,
     genreKey: String,
     modifier: Modifier = Modifier,
-    /** ページを読み終えるたびに実行する JavaScript（フォームの入力済み化など）。 */
+    /**
+     * ページを読み終えるたびに実行する JavaScript（フォームの入力済み化など）。
+     * プロフィールを含むので、ラブルームのうちパスが [scriptPath] で終わるページでだけ実行する。
+     */
     onLoadScript: String? = null,
+    scriptPath: String? = null,
     onRoomOpened: ((ChatRoomRef) -> Unit)? = null,
 ) {
     val currentOnRoomOpened = rememberUpdatedState(onRoomOpened)
@@ -73,7 +77,10 @@ fun SiteWebView(
                     }
 
                     override fun onPageFinished(view: WebView, url: String?) {
-                        currentScript.value?.let { view.evaluateJavascript(it, null) }
+                        val script = currentScript.value ?: return
+                        val uri = url?.let(Uri::parse) ?: return
+                        val path = scriptPath ?: return
+                        if (uri.isShalove() && uri.path?.endsWith(path) == true) view.evaluateJavascript(script, null)
                     }
                 }
                 loadUrl(url)

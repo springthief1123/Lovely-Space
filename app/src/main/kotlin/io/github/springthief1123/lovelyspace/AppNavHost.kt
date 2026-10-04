@@ -2,17 +2,18 @@ package io.github.springthief1123.lovelyspace
 
 import android.net.Uri
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import io.github.springthief1123.lovelyspace.core.Genres
-import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
 import io.github.springthief1123.lovelyspace.settings.ThemeMode
 import io.github.springthief1123.lovelyspace.ui.chat.ChatScreen
 import io.github.springthief1123.lovelyspace.ui.create.CreateRoomScreen
@@ -23,7 +24,8 @@ import io.github.springthief1123.lovelyspace.ui.web.PublicRoomScreen
 private object Routes {
     const val ROOMS = "rooms"
     const val ENTRY = "entry/{host}/{genre}/{roomId}"
-    const val CHAT = "chat/{host}/{genre}/{roomId}/{pwd}"
+    /** pwd は route に載せず、[ActiveRooms] の一時 ID だけを渡す。 */
+    const val CHAT = "chat/{session}"
     const val CREATE = "create/{genre}"
     const val PUBLIC = "public/{host}/{genre}/{roomId}"
 
@@ -33,12 +35,12 @@ private object Routes {
 
     fun public(host: String, genre: String, roomId: Long) = "public/${Uri.encode(host)}/${Uri.encode(genre)}/$roomId"
 
-    fun chat(room: ChatRoomRef) =
-        "chat/${Uri.encode(room.host)}/${Uri.encode(room.genreKey)}/${room.roomId}/${Uri.encode(room.pwd)}"
+    fun chat(sessionId: String) = "chat/$sessionId"
 }
 
 @Composable
 fun AppNavHost(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
+    val app = LocalContext.current.applicationContext as LovelySpaceApp
     val nav = rememberNavController()
     // チャットから戻ったら、入っていた部屋の状態が変わっているので一覧を取り直す。
     var roomsRefreshKey by rememberSaveable { mutableIntStateOf(0) }
@@ -73,7 +75,7 @@ fun AppNavHost(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
                 onBack = { nav.popBackStack() },
                 onEntered = { room ->
                     // 入室前画面は戻り先に残さない（戻ると一覧へ）。
-                    nav.navigate(Routes.chat(room)) {
+                    nav.navigate(Routes.chat(app.activeRooms.register(room))) {
                         popUpTo(Routes.ROOMS)
                         launchSingleTop = true
                     }
@@ -86,7 +88,7 @@ fun AppNavHost(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
                 genre = genre,
                 onBack = { nav.popBackStack() },
                 onCreated = { room ->
-                    nav.navigate(Routes.chat(room)) {
+                    nav.navigate(Routes.chat(app.activeRooms.register(room))) {
                         popUpTo(Routes.ROOMS)
                         launchSingleTop = true
                     }
@@ -102,21 +104,21 @@ fun AppNavHost(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
                 onBack = { nav.popBackStack() },
             )
         }
-        composable(Routes.CHAT, arguments = roomArgs + navArgument("pwd") { type = NavType.StringType }) { entry ->
-            val args = entry.arguments!!
-            val room = ChatRoomRef(
-                host = args.getString("host")!!,
-                roomId = args.getLong("roomId"),
-                pwd = args.getString("pwd")!!,
-                genreKey = args.getString("genre")!!,
-            )
-            ChatScreen(
-                room = room,
-                onExit = {
-                    roomsRefreshKey++
-                    nav.popBackStack(Routes.ROOMS, inclusive = false)
-                },
-            )
+        composable(Routes.CHAT, arguments = listOf(navArgument("session") { type = NavType.StringType })) { entry ->
+            val sessionId = entry.arguments!!.getString("session")!!
+            val room = app.activeRooms[sessionId]
+            val exit = {
+                app.activeRooms.remove(sessionId)
+                roomsRefreshKey++
+                nav.popBackStack(Routes.ROOMS, inclusive = false)
+                Unit
+            }
+            if (room == null) {
+                // プロセスが終了して部屋の情報が消えた。pwd は保存していないので一覧へ戻る。
+                LaunchedEffect(Unit) { exit() }
+            } else {
+                ChatScreen(room = room, onExit = exit)
+            }
         }
     }
 }
