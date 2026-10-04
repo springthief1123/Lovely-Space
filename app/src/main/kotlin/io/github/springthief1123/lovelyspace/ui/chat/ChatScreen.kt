@@ -80,10 +80,14 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit) {
     if (confirmLeave) {
         AlertDialog(
             onDismissRequest = { confirmLeave = false },
-            title = { Text("退室しますか？") },
-            text = { Text("退室すると、この部屋には戻れません。") },
+            title = { Text(if (state.isOwner) "部屋を閉じますか？" else "退室しますか？") },
+            text = {
+                Text(if (state.isOwner) "閉じると部屋がなくなり、一覧からも消えます。" else "退室すると、この部屋には戻れません。")
+            },
             confirmButton = {
-                TextButton(onClick = { confirmLeave = false; vm.leave() }) { Text("退室する") }
+                TextButton(onClick = { confirmLeave = false; vm.leave() }) {
+                    Text(if (state.isOwner) "閉じる" else "退室する")
+                }
             },
             dismissButton = {
                 TextButton(onClick = { confirmLeave = false }) { Text("続ける") }
@@ -109,7 +113,9 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit) {
                 },
                 actions = {
                     if (!canLeaveSilently && !state.isLoading) {
-                        TextButton(onClick = { confirmLeave = true }, enabled = !state.isLeaving) { Text("退室") }
+                        TextButton(onClick = { confirmLeave = true }, enabled = !state.isLeaving) {
+                            Text(if (state.isOwner) "閉じる" else "退室")
+                        }
                     }
                 },
             )
@@ -129,6 +135,9 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit) {
                     OutlinedButton(onClick = vm::startUpdates) { Text("つなぎ直す") }
                 }
                 Connection.CONNECTED -> Unit
+            }
+            if (state.isWaitingForPartner) {
+                Banner("相手の入室を待っています。この画面を開いている間、入室を確認し続けます")
             }
             if (state.information.isNotBlank()) {
                 Banner(state.information)

@@ -109,6 +109,16 @@ class ChatParsersTest {
     }
 
     @Test
+    fun detectsOwnerFromCloseFormWhenAuthIsMissing() {
+        val page = ChatPageParser.parse(fixture("chat/chat_page_owner.html"), room)
+        assertTrue(page.isOwner)
+        assertFalse(page.state.isFilledRoom)
+        assertEquals(120L, page.state.fromSize)
+        assertEquals("タロウ", page.myName)
+        assertTrue(page.lines.single().isNotice)
+    }
+
+    @Test
     fun parsesEntryForm() {
         val form = EntryFormParser.parse(fixture("chat/preenter.html"), "2shot.chat.shalove.net", "https://2shot.chat.shalove.net/PreEnterRoom")!!
         assertEquals(900000002L, form.roomId)
