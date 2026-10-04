@@ -231,7 +231,16 @@ class ShaloveClient(
     }
 }
 
-class HttpStatusException(val code: Int, val url: String) : IOException("HTTP $code: $url")
+/** [url] はログに残っても困らないよう、部屋の pwd を伏せた形で持つ。 */
+class HttpStatusException(val code: Int, url: String) : IOException("HTTP $code: ${redact(url)}") {
+    val url: String = redact(url)
+
+    companion object {
+        private val PWD = Regex("""([?&]pwd=)[^&#]*""")
+
+        internal fun redact(url: String): String = PWD.replace(url, "$1***")
+    }
+}
 
 /**
  * サブドメイン（chat. / 2shot.chat. / lr.chat.）間で共有されるメモリ上の Cookie。
