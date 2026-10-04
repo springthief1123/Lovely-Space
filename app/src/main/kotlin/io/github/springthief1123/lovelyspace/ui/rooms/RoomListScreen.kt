@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Contrast
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.LightMode
@@ -23,6 +24,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -58,6 +60,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.core.Gender
+import io.github.springthief1123.lovelyspace.core.Genre
 import io.github.springthief1123.lovelyspace.core.Room
 import io.github.springthief1123.lovelyspace.core.RoomAction
 import io.github.springthief1123.lovelyspace.settings.ThemeMode
@@ -69,6 +72,8 @@ fun RoomListScreen(
     themeMode: ThemeMode,
     onThemeModeChange: (ThemeMode) -> Unit,
     onEnterRoom: (Room) -> Unit,
+    onPeekRoom: (Room) -> Unit,
+    onCreateRoom: (Genre) -> Unit,
     /** 値が変わるたびに一覧を取り直す（チャットから戻ったときなど）。0 は何もしない。 */
     refreshKey: Int = 0,
 ) {
@@ -90,6 +95,13 @@ fun RoomListScreen(
             )
         },
         snackbarHost = { SnackbarHost(snackbar) },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = { onCreateRoom(state.genre) },
+                icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
+                text = { Text("部屋を作る") },
+            )
+        },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             GenreBar(
@@ -108,17 +120,12 @@ fun RoomListScreen(
                 RoomList(
                     state = state,
                     onRoomClick = { room ->
-                        val notice = when (room.action) {
-                            RoomAction.ENTER -> null
-                            RoomAction.PEEK -> "公開ルームの閲覧は今後のフェーズで対応します"
-                            RoomAction.NONE -> "満室の非公開ルームには入れません"
-                        }
-                        if (notice == null) {
-                            onEnterRoom(room)
-                        } else {
-                            scope.launch {
+                        when (room.action) {
+                            RoomAction.ENTER -> onEnterRoom(room)
+                            RoomAction.PEEK -> onPeekRoom(room)
+                            RoomAction.NONE -> scope.launch {
                                 snackbar.currentSnackbarData?.dismiss()
-                                snackbar.showSnackbar(notice)
+                                snackbar.showSnackbar("満室の非公開ルームには入れません")
                             }
                         }
                     },
@@ -218,7 +225,8 @@ private fun RoomList(
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 24.dp),
+        // 下端は「部屋を作る」ボタンに隠れないよう空ける。
+        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (state.error != null && state.rooms.isEmpty()) {

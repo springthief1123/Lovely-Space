@@ -16,16 +16,24 @@ import androidx.navigation.navArgument
 import io.github.springthief1123.lovelyspace.core.Genres
 import io.github.springthief1123.lovelyspace.settings.ThemeMode
 import io.github.springthief1123.lovelyspace.ui.chat.ChatScreen
+import io.github.springthief1123.lovelyspace.ui.create.CreateRoomScreen
 import io.github.springthief1123.lovelyspace.ui.entry.EntryScreen
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomListScreen
+import io.github.springthief1123.lovelyspace.ui.web.PublicRoomScreen
 
 private object Routes {
     const val ROOMS = "rooms"
     const val ENTRY = "entry/{host}/{genre}/{roomId}"
     /** pwd は route に載せず、[ActiveRooms] の一時 ID だけを渡す。 */
     const val CHAT = "chat/{session}"
+    const val CREATE = "create/{genre}"
+    const val PUBLIC = "public/{host}/{genre}/{roomId}"
 
     fun entry(host: String, genre: String, roomId: Long) = "entry/${Uri.encode(host)}/${Uri.encode(genre)}/$roomId"
+
+    fun create(genre: String) = "create/${Uri.encode(genre)}"
+
+    fun public(host: String, genre: String, roomId: Long) = "public/${Uri.encode(host)}/${Uri.encode(genre)}/$roomId"
 
     fun chat(sessionId: String) = "chat/$sessionId"
 }
@@ -51,6 +59,11 @@ fun AppNavHost(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
                     val host = Genres[room.genreKey]?.host ?: return@RoomListScreen
                     nav.navigate(Routes.entry(host, room.genreKey, room.id)) { launchSingleTop = true }
                 },
+                onPeekRoom = { room ->
+                    val host = Genres[room.genreKey]?.host ?: return@RoomListScreen
+                    nav.navigate(Routes.public(host, room.genreKey, room.id)) { launchSingleTop = true }
+                },
+                onCreateRoom = { genre -> nav.navigate(Routes.create(genre.key)) { launchSingleTop = true } },
             )
         }
         composable(Routes.ENTRY, arguments = roomArgs) { entry ->
@@ -67,6 +80,28 @@ fun AppNavHost(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
                         launchSingleTop = true
                     }
                 },
+            )
+        }
+        composable(Routes.CREATE, arguments = listOf(navArgument("genre") { type = NavType.StringType })) { entry ->
+            val genre = Genres[entry.arguments!!.getString("genre")!!] ?: Genres.default
+            CreateRoomScreen(
+                genre = genre,
+                onBack = { nav.popBackStack() },
+                onCreated = { room ->
+                    nav.navigate(Routes.chat(app.activeRooms.register(room))) {
+                        popUpTo(Routes.ROOMS)
+                        launchSingleTop = true
+                    }
+                },
+            )
+        }
+        composable(Routes.PUBLIC, arguments = roomArgs) { entry ->
+            val args = entry.arguments!!
+            PublicRoomScreen(
+                host = args.getString("host")!!,
+                genreKey = args.getString("genre")!!,
+                roomId = args.getLong("roomId"),
+                onBack = { nav.popBackStack() },
             )
         }
         composable(Routes.CHAT, arguments = listOf(navArgument("session") { type = NavType.StringType })) { entry ->

@@ -28,6 +28,10 @@ data class ChatUiState(
     val loadError: String? = null,
     val title: String = "",
     val myName: String? = null,
+    /** 自分が部屋の作成者か。作成者の退室は部屋の閉鎖になる。 */
+    val isOwner: Boolean = false,
+    /** 2 人そろっているか。作成者は相手が来るまで待機する。 */
+    val isFilled: Boolean = true,
     /** 新しい順。 */
     val lines: List<UiLine> = emptyList(),
     val information: String = "",
@@ -38,9 +42,14 @@ data class ChatUiState(
     val isSending: Boolean = false,
     val sendError: String? = null,
     val isLeaving: Boolean = false,
+    /** 部屋を閉じられなかった理由。作成者は閉じるまで部屋に残る。 */
+    val leaveError: String? = null,
     /** 退室が済んだ。画面はこれを見て一覧へ戻る。 */
     val left: Boolean = false,
 ) {
+    /** 作成者として相手の入室を待っている。 */
+    val isWaitingForPartner: Boolean get() = isOwner && !isFilled && endMessage == null
+
     /** 相手の名前。最後に発言した自分以外の人。 */
     val partnerName: String?
         get() = lines.firstOrNull { !it.isMine && !it.line.isNotice }?.line?.speaker
@@ -85,6 +94,8 @@ class ChatViewModel(
                 isLoading = false,
                 title = page.title,
                 myName = page.myName,
+                isOwner = page.isOwner,
+                isFilled = page.state.isFilledRoom,
                 // ページのログは新しい順なので、古いほうから番号を振る。
                 lines = page.lines.asReversed().map { line -> uiLine(line, page.myName) }.asReversed(),
             )
@@ -128,6 +139,7 @@ class ChatViewModel(
                 lines = if (update.clearLog) added else added + s.lines,
                 information = update.information,
                 endMessage = update.endMessage ?: s.endMessage,
+                isFilled = update.state.isFilledRoom,
                 connection = Connection.CONNECTED,
             )
         }
@@ -160,18 +172,27 @@ class ChatViewModel(
         }
     }
 
-    /** 退室する。終了済みの部屋や通信エラーでも画面は閉じる。 */
+    /**
+     * 退室する（作成者は部屋を閉じる）。終了済みの部屋や、入室者の退室の通信エラーでも画面は閉じる。
+     * 作成者が閉じられなかったときは、部屋が一覧に残ってしまうので画面に留まり、やり直せるようにする。
+     */
     fun leave() {
         if (_state.value.isLeaving) return
         updatesJob?.cancel()
-        _state.update { it.copy(isLeaving = true) }
+        _state.update { it.copy(isLeaving = true, leaveError = null) }
         viewModelScope.launch {
-            if (_state.value.endMessage == null && session != null) {
+            val s = _state.value
+            if (s.endMessage == null && session != null) {
                 try {
-                    client.leave(room)
+                    if (s.isOwner) client.close(room) else client.leave(room)
                 } catch (e: CancellationException) {
                     throw e
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    if (s.isOwner) {
+                        _state.update { it.copy(isLeaving = false, leaveError = "部屋を閉じられませんでした。${describeError(e)}") }
+                        startUpdates()
+                        return@launch
+                    }
                     // 退室の通知が届かなくても、部屋は無言の時間切れでサイト側が閉じる。
                 }
             }

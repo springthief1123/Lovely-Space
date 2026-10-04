@@ -51,7 +51,9 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
-import io.github.springthief1123.lovelyspace.core.chat.EntryProfile
+import io.github.springthief1123.lovelyspace.core.SitePages
+import io.github.springthief1123.lovelyspace.ui.web.SiteWebView
+import io.github.springthief1123.lovelyspace.ui.web.prefillFormScript
 
 @Composable
 fun EntryScreen(
@@ -89,12 +91,15 @@ fun EntryScreen(
     ) { padding ->
         val modifier = Modifier.fillMaxSize().padding(padding)
         when {
-            showBrowser -> CaptchaEntryView(
-                host = host,
+            showBrowser -> SiteWebView(
+                url = SitePages.preEnter(host, genreKey, roomId),
                 genreKey = genreKey,
-                roomId = roomId,
-                profile = EntryProfile(state.name.trim(), state.sex, state.yearsValue),
-                onEntered = vm::onEnteredInBrowser,
+                onLoadScript = prefillFormScript(
+                    "entry",
+                    mapOf("name" to state.name.trim(), "sex" to state.sex.toString(), "years" to state.yearsValue?.toString().orEmpty()),
+                ),
+                scriptPath = "/PreEnterRoom",
+                onRoomOpened = vm::onEnteredInBrowser,
                 modifier = modifier,
             )
             state.isLoading && state.form == null -> Box(modifier, contentAlignment = Alignment.Center) {

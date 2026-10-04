@@ -22,6 +22,8 @@ class SettingsRepository(private val context: Context) {
     private val entryNameKey = stringPreferencesKey("entry_name")
     private val entrySexKey = intPreferencesKey("entry_sex")
     private val entryYearsKey = intPreferencesKey("entry_years")
+    private val roomPrefectureKey = intPreferencesKey("room_prefecture")
+    private val roomMessageKey = stringPreferencesKey("room_message")
 
     val themeMode: Flow<ThemeMode> = context.dataStore.data.map { prefs ->
         prefs[themeKey]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.SYSTEM
@@ -45,4 +47,19 @@ class SettingsRepository(private val context: Context) {
             if (years != null) it[entryYearsKey] = years else it.remove(entryYearsKey)
         }
     }
+
+    /** 前回の部屋作成で使った都道府県（null は秘密）と待機メッセージ。 */
+    val lastRoomDetails: Flow<RoomDetails> = context.dataStore.data.map { prefs ->
+        RoomDetails(prefecture = prefs[roomPrefectureKey], message = prefs[roomMessageKey].orEmpty())
+    }
+
+    suspend fun setLastRoomDetails(details: RoomDetails) {
+        context.dataStore.edit {
+            val prefecture = details.prefecture
+            if (prefecture != null) it[roomPrefectureKey] = prefecture else it.remove(roomPrefectureKey)
+            it[roomMessageKey] = details.message
+        }
+    }
 }
+
+data class RoomDetails(val prefecture: Int?, val message: String)

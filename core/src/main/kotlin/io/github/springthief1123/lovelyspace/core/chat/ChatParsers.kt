@@ -85,7 +85,9 @@ object ChatPageParser {
             room = room,
             title = doc.title().substringBefore(" - ").trim(),
             myName = myName,
-            isOwner = vars["_auth"] == "owner",
+            // _auth が無い場合は、作成者だけに出る「部屋を閉鎖」フォームで判断する。
+            isOwner = vars["_auth"]?.let { it == "owner" }
+                ?: (doc.selectFirst("input[name=shotact][value=close]") != null),
             isPublic = vars["_is_public"] == "1",
             lines = lines,
             state = state,
