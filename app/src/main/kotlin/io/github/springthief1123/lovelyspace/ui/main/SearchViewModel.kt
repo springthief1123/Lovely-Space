@@ -49,7 +49,7 @@ class SearchViewModel(private val repository: RoomListSource) : ViewModel() {
         job?.cancel()
         _state.update { SearchUiState(genre = value, criteria = it.criteria, minAgeInput = it.minAgeInput, maxAgeInput = it.maxAgeInput) }
     }
-    fun refresh() = load(1, true)
+    fun refresh() = load(1, _state.value.page > 0)
     fun more() { if (_state.value.canLoadMore) load(_state.value.page + 1, false) }
     private fun load(page: Int, force: Boolean) {
         job?.cancel()

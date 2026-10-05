@@ -39,6 +39,21 @@ class SearchViewModelTest {
             assertEquals(2, vm.state.value.page)
         } finally { Dispatchers.resetMain() }
     }
+    @Test fun initialSearchUsesCacheAndOnlyLaterUpdateIsForced() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val forced = mutableListOf<Boolean>()
+            val vm = SearchViewModel(RoomListSource { query, force ->
+                forced += force
+                page(query.genre.key, 1, listOf(room(1)))
+            })
+            vm.refresh(); runCurrent()
+            vm.refresh(); runCurrent()
+            vm.genre(Genres["talk"]!!)
+            vm.refresh(); runCurrent()
+            assertEquals(listOf(false, true, false), forced)
+        } finally { Dispatchers.resetMain() }
+    }
     @Test fun genreChangeCancelsPreviousRequestAndClearsItsScope() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {
