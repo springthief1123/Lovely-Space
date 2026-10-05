@@ -8,12 +8,16 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -95,7 +99,8 @@ fun RoomListScreen(
             hostState = snackbar,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = LovelySpacing.bottomContentInset),
+                .navigationBarsPadding()
+                .padding(bottom = 164.dp),
         )
 
     }
@@ -163,6 +168,7 @@ private fun RoomList(
     onRetry: () -> Unit,
 ) {
     val listState = rememberLazyListState()
+    val topContentPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 76.dp
 
     // 末尾に近づいたら次のページを読む。
     LaunchedEffect(listState, state.canLoadMore) {
@@ -180,7 +186,7 @@ private fun RoomList(
         contentPadding = PaddingValues(
             start = LovelySpacing.screenHorizontal,
             end = LovelySpacing.screenHorizontal,
-            top = LovelySpacing.topContentInset,
+            top = topContentPadding,
             bottom = 132.dp,
         ),
         verticalArrangement = Arrangement.spacedBy(0.dp),
