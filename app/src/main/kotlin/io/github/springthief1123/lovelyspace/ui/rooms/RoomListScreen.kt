@@ -67,7 +67,7 @@ fun RoomListScreen(
     refreshKey: Int = 0,
 ) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
-    val vm: RoomListViewModel = viewModel(factory = viewModelFactory { initializer { RoomListViewModel(app.client) } })
+    val vm: RoomListViewModel = viewModel(factory = viewModelFactory { initializer { RoomListViewModel(app.roomLists) } })
     val state by vm.state.collectAsStateWithLifecycle()
     LaunchedEffect(refreshKey) { vm.onRefreshKey(refreshKey) }
     LaunchedEffect(state.genre) { onGenreChanged(state.genre) }

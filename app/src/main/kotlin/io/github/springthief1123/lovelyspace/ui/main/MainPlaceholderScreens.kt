@@ -15,21 +15,9 @@ import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
 import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentTopPadding
 
 @Composable
-fun SearchScreen() = MainSectionScreen(
-    title = "さがす",
-    description = "名前・待機メッセージと検索条件から、話したい相手の部屋を探します。",
-)
-
-@Composable
 fun FavoritesScreen() = MainSectionScreen(
     title = "お気に入り",
     description = "ピン留めした部屋と、追跡・巡回している条件をここにまとめます。",
-)
-
-@Composable
-fun ProfileScreen() = MainSectionScreen(
-    title = "マイページ",
-    description = "プロフィールプリセットと待機メッセージプリセットを管理します。",
 )
 
 @Composable

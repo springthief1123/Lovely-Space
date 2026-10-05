@@ -163,6 +163,20 @@ class ChatClientTest {
     }
 
     @Test
+    fun firstUpdateDoesNotSleepBeforePolling() = runTest {
+        // 実際の単調時計は原点が任意。正・負のどちらでも、初回には待機期限がない。
+        for (initialClock in listOf(1_000_000L, -1_000_000L)) {
+            now = initialClock
+            respond(fixture("chat/ajax_cleared_and_ended.txt"))
+            val session = client.chatSession(page(fromSize = 540))
+            session.updates().first()
+            assertTrue("初回取得前にsleepしてはいけない: $initialClock / $sleeps", sleeps.isEmpty())
+            assertEquals("sleepで時計が変化してはいけない", initialClock, now)
+        }
+        assertEquals(2, requests.size)
+    }
+
+    @Test
     fun updatesCanOnlyBeCollectedOnce() = runTest {
         respond(fixture("chat/ajax_cleared_and_ended.txt"))
         val session = client.chatSession(page(fromSize = 540))

@@ -30,6 +30,9 @@ jobs:
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --stacktrace
 
+      - name: Android unit tests and Lint
+        run: ./gradlew :app:testDebugUnitTest :app:lintDebug --stacktrace
+
       - name: Upload APK
         uses: actions/upload-artifact@v6
         with:
@@ -37,9 +40,19 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
           retention-days: 30
 
+      - name: Upload Room schemas
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: room-schemas
+          path: app/schemas/
+
       - name: Upload test reports
         if: failure()
         uses: actions/upload-artifact@v6
         with:
           name: test-reports
-          path: core/build/reports/tests/
+          path: |
+            core/build/reports/tests/
+            app/build/reports/tests/
+            app/build/reports/lint-results-debug.*
