@@ -19,8 +19,8 @@ class PresetViewModel(val repository: PresetRepository) : ViewModel() {
     private val _working = MutableStateFlow(false)
     val working = _working.asStateFlow()
     private val refresh = MutableStateFlow(0)
-    val profiles = refresh.flatMapLatest { repository.profiles.catch { _error.value = describeError(it); emit(emptyList()) } }
-    val messages = refresh.flatMapLatest { repository.messages.catch { _error.value = describeError(it); emit(emptyList()) } }
+    val profiles = refresh.flatMapLatest { repository.profiles.catch { if (it !is Exception) throw it; _error.value = describeError(it); emit(emptyList()) } }
+    val messages = refresh.flatMapLatest { repository.messages.catch { if (it !is Exception) throw it; _error.value = describeError(it); emit(emptyList()) } }
     init { reload() }
     fun reload() = action { repository.initialize(); refresh.value += 1 }
 
