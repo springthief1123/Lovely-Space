@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
@@ -54,6 +55,7 @@ fun AppNavHost(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
     val currentRoute = backStackEntry?.destination?.route
     val mainRoutes = setOf(Routes.ROOMS, Routes.SEARCH, Routes.FAVORITES, Routes.PROFILE)
     var roomsRefreshKey by rememberSaveable { mutableIntStateOf(0) }
+    var createGenreKey by rememberSaveable { mutableStateOf(Genres.default.key) }
 
     val roomArgs = listOf(
         navArgument("host") { type = NavType.StringType },
@@ -74,6 +76,8 @@ fun AppNavHost(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
             }
         },
         onOpenSettings = { nav.navigate(Routes.SETTINGS) { launchSingleTop = true } },
+        showCreateFab = currentRoute == Routes.ROOMS,
+        onCreateRoom = { nav.navigate(Routes.create(createGenreKey)) { launchSingleTop = true } },
     ) {
         NavHost(navController = nav, startDestination = Routes.ROOMS) {
             composable(Routes.ROOMS) {
@@ -87,7 +91,7 @@ fun AppNavHost(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
                         val host = Genres[room.genreKey]?.host ?: return@RoomListScreen
                         nav.navigate(Routes.public(host, room.genreKey, room.id)) { launchSingleTop = true }
                     },
-                    onCreateRoom = { genre -> nav.navigate(Routes.create(genre.key)) { launchSingleTop = true } },
+                    onGenreChanged = { createGenreKey = it.key },
                 )
             }
             composable(Routes.SEARCH) { SearchScreen() }
