@@ -1,0 +1,70 @@
+package io.github.springthief1123.lovelyspace.ui.main
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import io.github.springthief1123.lovelyspace.core.*
+import io.github.springthief1123.lovelyspace.data.RoomListSource
+import io.github.springthief1123.lovelyspace.ui.describeError
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.ensureActive
+
+data class SearchUiState(
+    val genre: Genre = Genres.default,
+    val criteria: RoomSearchCriteria = RoomSearchCriteria(),
+    val minAgeInput: String = "",
+    val maxAgeInput: String = "",
+    val rooms: List<Room> = emptyList(),
+    val page: Int = 0,
+    val lastPage: Int = 1,
+    val loading: Boolean = false,
+    val error: String? = null,
+    val errorOnMore: Boolean = false,
+) {
+    val validAges: Boolean get() = (minAgeInput.isEmpty() || minAgeInput.toIntOrNull()?.let { it in 18..99 } == true) &&
+        (maxAgeInput.isEmpty() || maxAgeInput.toIntOrNull()?.let { it in 18..99 } == true) && criteria.isValid
+    val results: List<Room> get() = if (validAges) searchRooms(rooms, criteria) else emptyList()
+    val canLoadMore: Boolean get() = page in 1 until lastPage && !loading
+}
+
+class SearchViewModel(private val repository: RoomListSource) : ViewModel() {
+    private val _state = MutableStateFlow(SearchUiState())
+    val state = _state.asStateFlow()
+    private var job: Job? = null
+    fun criteria(value: RoomSearchCriteria) = _state.update { it.copy(criteria = value) }
+    fun minAge(value: String) {
+        val input = value.filter(Char::isDigit).take(2)
+        _state.update { it.copy(minAgeInput = input, criteria = it.criteria.copy(minAge = input.toIntOrNull())) }
+    }
+    fun maxAge(value: String) {
+        val input = value.filter(Char::isDigit).take(2)
+        _state.update { it.copy(maxAgeInput = input, criteria = it.criteria.copy(maxAge = input.toIntOrNull())) }
+    }
+    fun genre(value: Genre) {
+        if (value == _state.value.genre) return
+        job?.cancel()
+        _state.update { SearchUiState(genre = value, criteria = it.criteria, minAgeInput = it.minAgeInput, maxAgeInput = it.maxAgeInput) }
+    }
+    fun refresh() = load(1, true)
+    fun more() { if (_state.value.canLoadMore) load(_state.value.page + 1, false) }
+    private fun load(page: Int, force: Boolean) {
+        job?.cancel()
+        val genre = _state.value.genre
+        _state.update { it.copy(loading = true, error = null) }
+        job = viewModelScope.launch {
+            try {
+                // AND/OR・除外・並び替えは取得済み一覧に適用。入力ごとに通信しない。
+                val result = repository.fetch(RoomQuery(genre, page = page), force)
+                ensureActive()
+                if (_state.value.genre != genre) return@launch
+                _state.update { it.copy(rooms = if (page == 1) result.rooms else (it.rooms + result.rooms).distinctBy(::roomIdentity),
+                    page = result.page, lastPage = result.lastPage, loading = false, errorOnMore = false) }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { _state.update { it.copy(loading = false, error = describeError(e), errorOnMore = page > 1) } }
+        }
+    }
+}

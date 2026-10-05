@@ -94,7 +94,16 @@ fun AppNavHost(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
                     onGenreChanged = { createGenreKey = it.key },
                 )
             }
-            composable(Routes.SEARCH) { SearchScreen() }
+            composable(Routes.SEARCH) {
+                SearchScreen(
+                    onEnterRoom = { room ->
+                        Genres[room.genreKey]?.host?.let { host -> nav.navigate(Routes.entry(host, room.genreKey, room.id)) { launchSingleTop = true } }
+                    },
+                    onPeekRoom = { room ->
+                        Genres[room.genreKey]?.host?.let { host -> nav.navigate(Routes.public(host, room.genreKey, room.id)) { launchSingleTop = true } }
+                    },
+                )
+            }
             composable(Routes.FAVORITES) { FavoritesScreen() }
             composable(Routes.PROFILE) { ProfileScreen() }
             composable(Routes.SETTINGS) {
