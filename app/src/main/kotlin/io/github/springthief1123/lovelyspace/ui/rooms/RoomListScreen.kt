@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -43,7 +42,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
-import io.github.springthief1123.lovelyspace.ui.components.LovelyGlassFab
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
 import io.github.springthief1123.lovelyspace.core.Gender
 import io.github.springthief1123.lovelyspace.core.Genre
@@ -56,7 +54,7 @@ import kotlinx.coroutines.launch
 fun RoomListScreen(
     onEnterRoom: (Room) -> Unit,
     onPeekRoom: (Room) -> Unit,
-    onCreateRoom: (Genre) -> Unit,
+    onGenreChanged: (Genre) -> Unit,
     /** 値が変わるたびに一覧を取り直す（チャットから戻ったときなど）。0 は何もしない。 */
     refreshKey: Int = 0,
 ) {
@@ -64,6 +62,7 @@ fun RoomListScreen(
     val vm: RoomListViewModel = viewModel(factory = viewModelFactory { initializer { RoomListViewModel(app.client) } })
     val state by vm.state.collectAsStateWithLifecycle()
     LaunchedEffect(refreshKey) { vm.onRefreshKey(refreshKey) }
+    LaunchedEffect(state.genre) { onGenreChanged(state.genre) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     Box(Modifier.fillMaxSize()) {
@@ -98,13 +97,6 @@ fun RoomListScreen(
                 .padding(bottom = LovelySpacing.bottomContentInset),
         )
 
-        LovelyGlassFab(
-            onClick = { onCreateRoom(state.genre) },
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .navigationBarsPadding()
-                .padding(end = 20.dp, bottom = 92.dp),
-        )
     }
 }
 
