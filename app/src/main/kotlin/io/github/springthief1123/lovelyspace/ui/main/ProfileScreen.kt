@@ -8,6 +8,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
@@ -34,10 +35,10 @@ fun ProfileScreen() {
     val messages by vm.messages.collectAsStateWithLifecycle(initialValue = emptyList())
     val error by vm.error.collectAsStateWithLifecycle()
     val working by vm.working.collectAsStateWithLifecycle()
-    var profileEditor by remember { mutableStateOf(false) }
-    var messageEditor by remember { mutableStateOf(false) }
-    var profile by remember { mutableStateOf<ProfilePreset?>(null) }
-    var message by remember { mutableStateOf<MessagePreset?>(null) }
+    var profileEditor by rememberSaveable { mutableStateOf(false) }
+    var messageEditor by rememberSaveable { mutableStateOf(false) }
+    var profile by rememberSaveable(stateSaver = ProfilePresetSaver) { mutableStateOf<ProfilePreset?>(null) }
+    var message by rememberSaveable(stateSaver = MessagePresetSaver) { mutableStateOf<MessagePreset?>(null) }
     var deleting by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -150,3 +151,14 @@ private fun MessageEditor(preset: MessagePreset?, working: Boolean, error: Strin
         onSave(MessagePreset(id = preset?.id ?: java.util.UUID.randomUUID().toString(), label = label, message = message, isDefault = isDefault))
     }) { Text("保存") } }, dismissButton = { TextButton(onClick = onDismiss, enabled = !working) { Text("キャンセル") } })
 }
+
+// 一覧の非同期読み込みより先に、編集中の対象と入力欄を復元できるよう保存する。
+internal val ProfilePresetSaver = listSaver<ProfilePreset?, Any>(
+    save = { p -> if (p == null) emptyList() else listOf(p.id, p.label, p.name, p.sex, p.years ?: -1, p.prefecture ?: -1, p.isDefault) },
+    restore = { values -> if (values.isEmpty()) null else ProfilePreset(values[0] as String, values[1] as String, values[2] as String,
+        values[3] as Int, (values[4] as Int).takeIf { it >= 0 }, (values[5] as Int).takeIf { it >= 0 }, values[6] as Boolean) },
+)
+internal val MessagePresetSaver = listSaver<MessagePreset?, Any>(
+    save = { m -> if (m == null) emptyList() else listOf(m.id, m.label, m.message, m.isDefault) },
+    restore = { values -> if (values.isEmpty()) null else MessagePreset(values[0] as String, values[1] as String, values[2] as String, values[3] as Boolean) },
+)
