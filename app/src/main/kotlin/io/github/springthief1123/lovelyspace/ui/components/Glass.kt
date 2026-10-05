@@ -29,6 +29,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
 import io.github.springthief1123.lovelyspace.ui.theme.LocalLovelyColors
 
@@ -48,14 +50,25 @@ fun LovelyGlassSurface(
 ) {
     val lovely = LocalLovelyColors.current
     val hazeState = LocalLovelyHazeState.current
-    val glassModifier = if (hazeState != null) Modifier.hazeEffect(state = hazeState) else Modifier
+    val glassModifier = if (hazeState != null) {
+        Modifier.hazeEffect(
+            state = hazeState,
+            style = HazeStyle(
+                backgroundColor = MaterialTheme.colorScheme.background,
+                tint = HazeTint(lovely.glassTint.copy(alpha = 0.55f)),
+                blurRadius = 24.dp,
+                noiseFactor = 0f,
+            ),
+        )
+    } else {
+        Modifier.background(lovely.glassTint)
+    }
 
     Box(
         modifier = modifier
             .shadow(8.dp, shape, clip = false)
             .clip(shape)
             .then(glassModifier)
-            .background(lovely.glassTint)
             .border(BorderStroke(1.dp, lovely.glassBorder), shape),
         contentAlignment = contentAlignment,
         content = content,
