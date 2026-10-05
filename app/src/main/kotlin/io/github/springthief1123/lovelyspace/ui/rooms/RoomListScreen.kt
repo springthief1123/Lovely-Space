@@ -2,6 +2,8 @@
 
 package io.github.springthief1123.lovelyspace.ui.rooms
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,13 +18,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -123,17 +123,35 @@ fun RoomListScreen(
 @Composable
 private fun SexFilter(selected: Gender?, onSelect: (Gender?) -> Unit) {
     val options = listOf<Pair<Gender?, String>>(null to "すべて", Gender.FEMALE to "女性", Gender.MALE to "男性")
-    SingleChoiceSegmentedButtonRow(
+    Row(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp),
+            .padding(horizontal = LovelySpacing.screenHorizontal, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        options.forEachIndexed { index, (sex, label) ->
-            SegmentedButton(
-                selected = sex == selected,
-                onClick = { onSelect(sex) },
-                shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
-            ) { Text(label) }
+        options.forEach { (sex, label) ->
+            val active = sex == selected
+            Column(
+                Modifier
+                    .clickable { onSelect(sex) }
+                    .padding(vertical = 6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(4.dp))
+                Box(
+                    Modifier
+                        .size(width = 22.dp, height = 2.dp)
+                        .background(
+                            if (active) MaterialTheme.colorScheme.primary else androidx.compose.ui.graphics.Color.Transparent,
+                            RoundedCornerShape(50),
+                        ),
+                )
+            }
         }
     }
 }
