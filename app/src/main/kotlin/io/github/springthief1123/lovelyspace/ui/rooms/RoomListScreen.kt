@@ -114,7 +114,7 @@ private fun SexFilter(selected: Gender?, onSelect: (Gender?) -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = LovelySpacing.screenHorizontal, vertical = 6.dp),
+            .padding(vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         options.forEach { (sex, label) ->
@@ -156,7 +156,7 @@ private fun SummaryLine(state: RoomListUiState) {
         parts.joinToString("・"),
         style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        modifier = Modifier.padding(vertical = 4.dp),
     )
 }
 
