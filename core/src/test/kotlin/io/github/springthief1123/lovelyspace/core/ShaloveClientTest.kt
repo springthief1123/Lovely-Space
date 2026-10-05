@@ -87,18 +87,18 @@ class ShaloveClientTest {
 
     @Test
     fun cancellingListBeforeHeadersCancelsHttpAndAllowsNextGenre() {
-        assertListCancellation(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE), waitForHeaders = false)
+        assertListCancellation(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE), waitForBody = false)
     }
 
     @Test
     fun cancellingListWhileReadingBodyCancelsHttpAndAllowsNextGenre() {
-        assertListCancellation(MockResponse().setBody("<html></html>").setBodyDelay(30, TimeUnit.SECONDS), waitForHeaders = true)
+        assertListCancellation(MockResponse().setBody("<html></html>").throttleBody(1, 1, TimeUnit.SECONDS), waitForBody = true)
     }
 
     /** 実際のOkHttp Callとローカルサーバーで、取消・一覧ロック・キャッシュ・間隔をまとめて確認。 */
-    private fun assertListCancellation(firstResponse: MockResponse, waitForHeaders: Boolean) = runBlocking {
+    private fun assertListCancellation(firstResponse: MockResponse, waitForBody: Boolean) = runBlocking {
         val calls = CopyOnWriteArrayList<Call>()
-        val headers = CompletableDeferred<Unit>()
+        val bodyStarted = CompletableDeferred<Unit>()
         val http = OkHttpClient.Builder()
             .addInterceptor { chain ->
                 // 本家には通信せず、同じCallの接続先だけを合成データのローカルサーバーへ向ける。
@@ -106,7 +106,7 @@ class ShaloveClientTest {
             }
             .eventListener(object : EventListener() {
                 override fun callStart(call: Call) { calls += call }
-                override fun responseHeadersEnd(call: Call, response: Response) { headers.complete(Unit) }
+                override fun responseBodyStart(call: Call) { bodyStarted.complete(Unit) }
             })
             .build()
         val client = ShaloveClient(http = http, clock = { now }, sleep = { ms -> sleeps += ms; now += ms })
@@ -115,7 +115,7 @@ class ShaloveClientTest {
         val original = RoomQuery(Genres.default)
         val obsolete = async { client.fetchRoomList(original) }
         assertNotNull(withContext(Dispatchers.IO) { server.takeRequest(5, TimeUnit.SECONDS) })
-        if (waitForHeaders) withTimeout(5_000) { headers.await() }
+        if (waitForBody) withTimeout(5_000) { bodyStarted.await() }
         withTimeout(5_000) { obsolete.cancelAndJoin() }
         assertTrue("Coroutineの取消が実際のCallへ伝わる", calls.first().isCanceled())
 
