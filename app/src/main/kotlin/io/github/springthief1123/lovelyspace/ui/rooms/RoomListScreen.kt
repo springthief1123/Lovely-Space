@@ -31,6 +31,8 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -71,11 +73,21 @@ fun RoomListScreen(
     LaunchedEffect(state.genre) { onGenreChanged(state.genre) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val refreshState = rememberPullToRefreshState()
+    val refreshTopPadding = lovelyMainContentTopPadding()
     Box(Modifier.fillMaxSize()) {
         PullToRefreshBox(
             isRefreshing = state.isRefreshing,
             onRefresh = { vm.refresh(force = true) },
+            state = refreshState,
             modifier = Modifier.fillMaxSize(),
+            indicator = {
+                PullToRefreshDefaults.Indicator(
+                    state = refreshState,
+                    isRefreshing = state.isRefreshing,
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = refreshTopPadding),
+                )
+            },
         ) {
             RoomList(
                 state = state,
