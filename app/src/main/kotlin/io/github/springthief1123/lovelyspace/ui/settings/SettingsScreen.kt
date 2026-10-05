@@ -48,7 +48,7 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.onBackground,
             )
         }
-        HorizontalDivider()
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         Text(
             "外観",
             style = MaterialTheme.typography.labelLarge,
