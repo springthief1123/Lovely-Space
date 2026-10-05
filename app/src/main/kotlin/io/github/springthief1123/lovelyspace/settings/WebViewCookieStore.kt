@@ -19,7 +19,9 @@ class WebViewCookieStore : SiteCookieStore {
         val result = CookieWriteResult()
         if (!handler.post {
             try {
-                manager.setCookie(url, setCookie) { accepted -> result.complete(accepted == true) }
+                manager.setCookie(url, setCookie) { accepted ->
+                    result.complete(accepted == true) { manager.flush() }
+                }
             } catch (e: Exception) {
                 result.fail(e)
             }
