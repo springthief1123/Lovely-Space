@@ -205,8 +205,9 @@ class ShaloveClient(
         const val USER_AGENT =
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 
-        fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
-            .cookieJar(InMemoryCookieJar())
+        fun defaultHttpClient(cookieJar: CookieJar = InMemoryCookieJar()): OkHttpClient = OkHttpClient.Builder()
+            .cookieJar(cookieJar)
+            .apply { if (cookieJar is SharedSiteCookieJar) addNetworkInterceptor(cookieJar) }
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .build()
@@ -244,7 +245,7 @@ class HttpStatusException(val code: Int, url: String) : IOException("HTTP $code:
 
 /**
  * サブドメイン（chat. / 2shot.chat. / lr.chat.）間で共有されるメモリ上の Cookie。
- * 永続化と WebView との共有はフェーズ2で行う。
+ * JVM のテストや Android 以外の呼び出し用。Android は SharedSiteCookieJar を使う。
  */
 class InMemoryCookieJar : CookieJar {
     private val cookies = mutableListOf<Cookie>()
