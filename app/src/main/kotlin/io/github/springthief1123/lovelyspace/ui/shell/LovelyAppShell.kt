@@ -29,6 +29,7 @@ import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -75,11 +76,12 @@ fun LovelyAppShell(
 
     ProvideLovelyHazeState(hazeState) {
         Box(Modifier.fillMaxSize()) {
-            Box(
-                Modifier
+            Surface(
+                modifier = Modifier
                     .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background)
                     .hazeSource(state = hazeState),
+                color = MaterialTheme.colorScheme.background,
+                contentColor = MaterialTheme.colorScheme.onBackground,
             ) {
                 content()
             }
@@ -141,6 +143,7 @@ private fun LovelyTopBar(
                 "Lovely Space",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f),
             )
             HeaderAction(
