@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -46,7 +45,6 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
-import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentTopPadding
 import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentTopPadding
 import io.github.springthief1123.lovelyspace.core.Gender
 import io.github.springthief1123.lovelyspace.core.Genre
@@ -168,7 +166,6 @@ private fun RoomList(
     onRetry: () -> Unit,
 ) {
     val listState = rememberLazyListState()
-    val topPadding = lovelyMainContentTopPadding()
     val topContentPadding = lovelyMainContentTopPadding()
 
     // 末尾に近づいたら次のページを読む。
