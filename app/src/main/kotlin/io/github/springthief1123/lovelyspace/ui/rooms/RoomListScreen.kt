@@ -8,8 +8,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,7 +16,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -49,6 +46,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
+import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentTopPadding
 import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentTopPadding
 import io.github.springthief1123.lovelyspace.core.Gender
 import io.github.springthief1123.lovelyspace.core.Genre
@@ -102,7 +100,7 @@ fun RoomListScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
-                .padding(bottom = 164.dp),
+                .padding(bottom = LovelySpacing.snackbarBottomInset),
         )
 
     }
@@ -171,7 +169,7 @@ private fun RoomList(
 ) {
     val listState = rememberLazyListState()
     val topPadding = lovelyMainContentTopPadding()
-    val topContentPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 76.dp
+    val topContentPadding = lovelyMainContentTopPadding()
 
     // 末尾に近づいたら次のページを読む。
     LaunchedEffect(listState, state.canLoadMore) {
