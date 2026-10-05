@@ -2,6 +2,7 @@ package io.github.springthief1123.lovelyspace.core
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -14,6 +15,8 @@ import io.github.springthief1123.lovelyspace.core.chat.EntryFormParser
 import io.github.springthief1123.lovelyspace.core.chat.EntryProfile
 import io.github.springthief1123.lovelyspace.core.chat.EntryResult
 import okhttp3.Cookie
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.CookieJar
 import okhttp3.FormBody
 import okhttp3.HttpUrl
@@ -25,6 +28,8 @@ import java.nio.charset.Charset
 import java.util.concurrent.TimeUnit
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 /**
  * 本家サイトへのすべての通信をここに集約する。
@@ -76,14 +81,31 @@ class ShaloveClient(
 
     /** レート制限付きの GET。レスポンス本文をサイトの文字コードで文字列にして返す。 */
     suspend fun get(url: String): String = gated {
-        http.newCall(Request.Builder().url(url).header("User-Agent", USER_AGENT).build()).execute().use { res ->
-            if (!res.isSuccessful) throw HttpStatusException(res.code, url)
-            decodeBody(res)
-        }
+        http.newCall(Request.Builder().url(url).header("User-Agent", USER_AGENT).build()).awaitBody()
+    }
+
+    /** ヘッダー待ち・本文読み取り中のどちらでも、画面側の取消をHTTP通信へ伝える。 */
+    private suspend fun Call.awaitBody(): String = suspendCancellableCoroutine { cont ->
+        cont.invokeOnCancellation { cancel() }
+        enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                if (cont.isActive) cont.resumeWithException(e)
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use { res ->
+                    val result = runCatching {
+                        if (!res.isSuccessful) throw HttpStatusException(res.code, res.request.url.toString())
+                        decodeBody(res)
+                    }
+                    result.fold({ if (cont.isActive) cont.resume(it) }, { if (cont.isActive) cont.resumeWithException(it) })
+                }
+            }
+        })
     }
 
     /** ページの読み込みやフォーム送信など、人の操作 1 回に当たる通信。前の通信から [minInterval] 以上空ける。 */
-    private suspend fun <T> gated(block: () -> T): T = gate.withLock {
+    private suspend fun <T> gated(block: suspend () -> T): T = gate.withLock {
         lastRequestAt?.let { last ->
             val wait = last + minInterval.inWholeMilliseconds - clock()
             if (wait > 0) sleep(wait)
