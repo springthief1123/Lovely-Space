@@ -48,6 +48,7 @@ import io.github.springthief1123.lovelyspace.ui.components.LovelyGlassFab
 import io.github.springthief1123.lovelyspace.ui.components.LovelyGlassSurface
 import io.github.springthief1123.lovelyspace.ui.components.ProvideLovelyHazeState
 import io.github.springthief1123.lovelyspace.ui.theme.LovelyShapes
+import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
 
 data class MainDestination(
     val route: String,
@@ -139,7 +140,7 @@ private fun LovelyTopBar(
             Modifier
                 .statusBarsPadding()
                 .fillMaxWidth()
-                .height(58.dp)
+                .height(LovelySpacing.topBarHeight)
                 .padding(horizontal = 18.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
