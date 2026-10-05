@@ -36,7 +36,6 @@ fun ProfileScreen() = MainSectionScreen(
 @Composable
 private fun MainSectionScreen(title: String, description: String) {
     val topPadding = lovelyMainContentTopPadding()
-    val topPadding = lovelyMainContentTopPadding()
     Column(
         Modifier
             .fillMaxSize()
