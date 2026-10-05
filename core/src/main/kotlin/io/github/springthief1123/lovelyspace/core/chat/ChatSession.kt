@@ -78,12 +78,12 @@ class ChatSession internal constructor(
      * 次の取得を始めてよい時刻（[clock] の値）。発言の応答（または失敗）のときに、
      * 本家と同じ「発言後の間隔」を足して決める。[lock] の中で読み書きする。
      */
-    private var pollNotBefore = Long.MIN_VALUE
+    private var pollNotBefore: Long? = null
 
     private suspend fun awaitPollAllowed() {
         while (true) {
             // 発言中は lock を持っているので、ここで発言の完了も待つ。
-            val wait = lock.withLock { pollNotBefore - clock() }
+            val wait = lock.withLock { pollNotBefore?.let { it - clock() } ?: 0L }
             if (wait <= 0) return
             sleep(wait)
         }
@@ -100,7 +100,7 @@ class ChatSession internal constructor(
         // 発言側は登録済みの取得を必ず中断できる。
         val (call, from) = lock.withLock {
             // 発言後の間隔が空いていない（lock を待つ間に発言があったなど）。
-            if (clock() < pollNotBefore) return null
+            if (pollNotBefore?.let { clock() < it } == true) return null
             val from = state.fromSize
             val call = http.newCall(ajaxRequest(from, live = live, chat = null))
             pending = call
