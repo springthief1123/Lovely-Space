@@ -2,6 +2,7 @@ package io.github.springthief1123.lovelyspace.ui.main
 
 import io.github.springthief1123.lovelyspace.core.*
 import io.github.springthief1123.lovelyspace.data.RoomListSource
+import io.github.springthief1123.lovelyspace.data.SearchPreset
 import kotlinx.coroutines.*
 import kotlinx.coroutines.test.*
 import org.junit.Assert.*
@@ -73,6 +74,54 @@ class SearchViewModelTest {
             vm.refresh(); runCurrent()
             assertEquals(next, vm.state.value.genre)
             assertEquals("talk", vm.state.value.rooms.single().genreKey)
+        } finally { Dispatchers.resetMain() }
+    }
+    @Test fun applyingSameGenreKeepsPagesAndRestoresAgeInputsWithoutFetching() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            var calls = 0
+            val vm = SearchViewModel(RoomListSource { query, _ ->
+                calls++
+                page(query.genre.key, query.page, listOf(room(query.page.toLong())))
+            })
+            vm.refresh(); runCurrent()
+            vm.more(); runCurrent()
+            vm.minAge("9")
+            assertFalse(vm.state.value.validAges)
+            val saved = SearchPreset(label = "保存済み", genreKey = Genres.default.key,
+                criteria = RoomSearchCriteria(name = "合成", minAge = 25, maxAge = 40, includeUnknownAge = false))
+            vm.applyPreset(saved); runCurrent()
+            assertEquals(2, calls)
+            assertEquals(2, vm.state.value.page)
+            assertEquals(2, vm.state.value.rooms.size)
+            assertEquals(saved.criteria, vm.state.value.criteria)
+            assertEquals("25", vm.state.value.minAgeInput)
+            assertEquals("40", vm.state.value.maxAgeInput)
+            assertTrue(vm.state.value.validAges)
+            vm.applyPreset(saved.copy(criteria = RoomSearchCriteria()))
+            assertEquals("", vm.state.value.minAgeInput)
+            assertEquals("", vm.state.value.maxAgeInput)
+        } finally { Dispatchers.resetMain() }
+    }
+
+    @Test fun applyingDifferentGenreCancelsInflightRequestAndRequiresExplicitSearch() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            var cancelled = false
+            var calls = 0
+            val vm = SearchViewModel(RoomListSource { _, _ ->
+                calls++
+                try { awaitCancellation() } finally { cancelled = true }
+            })
+            vm.refresh(); runCurrent()
+            vm.applyPreset(SearchPreset(label = "別ジャンル", genreKey = "talk", criteria = RoomSearchCriteria()))
+            runCurrent()
+            assertTrue(cancelled)
+            assertEquals(1, calls)
+            assertEquals("talk", vm.state.value.genre.key)
+            assertFalse(vm.state.value.loading)
+            assertEquals(0, vm.state.value.page)
+            assertTrue(vm.state.value.rooms.isEmpty())
         } finally { Dispatchers.resetMain() }
     }
 }

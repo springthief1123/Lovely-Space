@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.springthief1123.lovelyspace.core.*
 import io.github.springthief1123.lovelyspace.data.RoomListSource
+import io.github.springthief1123.lovelyspace.data.SearchPreset
 import io.github.springthief1123.lovelyspace.ui.describeError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -48,6 +49,17 @@ class SearchViewModel(private val repository: RoomListSource) : ViewModel() {
         if (value == _state.value.genre) return
         job?.cancel()
         _state.update { SearchUiState(genre = value, criteria = it.criteria, minAgeInput = it.minAgeInput, maxAgeInput = it.maxAgeInput) }
+    }
+    /** 同じジャンルの取得済みページは再利用し、別ジャンルへの適用は通信を取消・結果を破棄する。 */
+    fun applyPreset(value: SearchPreset) {
+        val genre = requireNotNull(Genres[value.genreKey])
+        require(value.criteria.isValid)
+        if (genre != _state.value.genre) job?.cancel()
+        _state.update {
+            val scoped = if (genre == it.genre) it else SearchUiState(genre = genre)
+            scoped.copy(criteria = value.criteria, minAgeInput = value.criteria.minAge?.toString().orEmpty(),
+                maxAgeInput = value.criteria.maxAge?.toString().orEmpty())
+        }
     }
     fun refresh() = load(1, _state.value.page > 0)
     fun more() { if (_state.value.canLoadMore) load(_state.value.page + 1, false) }
