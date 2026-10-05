@@ -78,16 +78,18 @@ class SavedSearchViewModelTest {
 
     @Test fun confirmationRestoresIdentityAndAllConditionsBeforeDatabaseLoads() {
         val scope = object : SaverScope { override fun canBeSaved(value: Any) = true }
-        for (waiting in listOf(null, true, false)) for (public in listOf(null, true, false)) {
+        for (waiting in listOf(null, true, false)) for (publicOnly in listOf(null, true, false)) {
             val criteria = RoomSearchCriteria(name = "テスト", message = "合成 募集", excluded = "除外", keywordMode = KeywordMode.ANY,
                 gender = Gender.FEMALE, minAge = 20, maxAge = 35, includeUnknownAge = false,
-                area = Prefectures.names.first(), waitingOnly = waiting, publicOnly = public, sort = RoomSort.AGE)
+                area = Prefectures.names.first(), waitingOnly = waiting, publicOnly = publicOnly, sort = RoomSort.AGE)
             val value = SearchPreset("existing-id", "確認中の条件", "talk", criteria)
             val saved = with(SearchPresetSaver) { scope.save(value) }!!
             assertEquals(value, SearchPresetSaver.restore(saved))
         }
         val defaults = SearchPreset("blank", "未指定", "zenkoku", RoomSearchCriteria())
         assertEquals(defaults, SearchPresetSaver.restore(with(SearchPresetSaver) { scope.save(defaults) }!!))
-        assertNull(SearchPresetSaver.restore(with(SearchPresetSaver) { scope.save(null) }!!))
+        // listSaverは空のリストを「保存値なし」のnullとして扱う。
+        assertNull(with(SearchPresetSaver) { scope.save(null) })
+        assertNull(SearchPresetSaver.restore(emptyList<Any>()))
     }
 }
