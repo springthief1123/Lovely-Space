@@ -1,5 +1,10 @@
 package io.github.springthief1123.lovelyspace.ui.shell
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -36,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import io.github.springthief1123.lovelyspace.settings.ThemeMode
+import io.github.springthief1123.lovelyspace.ui.components.LovelyGlassFab
 import io.github.springthief1123.lovelyspace.ui.components.LovelyGlassSurface
 import io.github.springthief1123.lovelyspace.ui.components.ProvideLovelyHazeState
 import io.github.springthief1123.lovelyspace.ui.theme.LovelyShapes
@@ -61,6 +67,8 @@ fun LovelyAppShell(
     onThemeModeChange: (ThemeMode) -> Unit,
     onDestinationSelected: (MainDestination) -> Unit,
     onOpenSettings: () -> Unit,
+    showCreateFab: Boolean,
+    onCreateRoom: () -> Unit,
     content: @Composable () -> Unit,
 ) {
     val hazeState = remember { HazeState() }
@@ -87,6 +95,17 @@ fun LovelyAppShell(
                     onDestinationSelected = onDestinationSelected,
                     modifier = Modifier.align(Alignment.BottomCenter),
                 )
+                AnimatedVisibility(
+                    visible = showCreateFab,
+                    enter = fadeIn() + scaleIn(initialScale = 0.85f),
+                    exit = fadeOut() + scaleOut(targetScale = 0.85f),
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .navigationBarsPadding()
+                        .padding(end = 20.dp, bottom = 92.dp),
+                ) {
+                    LovelyGlassFab(onClick = onCreateRoom)
+                }
             }
         }
     }
