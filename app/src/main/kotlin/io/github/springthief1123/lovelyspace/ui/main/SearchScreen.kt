@@ -34,6 +34,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit) {
             top = lovelyMainContentTopPadding(), bottom = LovelySpacing.bottomContentInset + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("さがす", style = MaterialTheme.typography.titleLarge) }
+        item { SavedSearchControls(state, vm::applyPreset) }
         item { GenreBar(state.genre, emptyList(), emptyMap(), vm::genre) }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
