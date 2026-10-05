@@ -53,11 +53,16 @@ interface PresetDao {
     @Query("DELETE FROM message_presets WHERE id = :id") suspend fun deleteMessage(id: String)
 }
 
-@Database(entities = [ProfilePreset::class, MessagePreset::class, LocalState::class, SearchPreset::class], version = 2, exportSchema = true)
+@Database(
+    entities = [ProfilePreset::class, MessagePreset::class, LocalState::class, SearchPreset::class, RoomPreference::class],
+    version = 3,
+    exportSchema = true,
+)
 @TypeConverters(SearchPresetConverters::class)
 abstract class PresetDatabase : RoomDatabase() {
     abstract fun presets(): PresetDao
     abstract fun searchPresets(): SearchPresetDao
+    abstract fun roomPreferences(): RoomPreferenceDao
 
     companion object {
         // 既存のプロフィール、募集文、初回取り込み済みの記録はそのまま保持する。
@@ -72,6 +77,23 @@ abstract class PresetDatabase : RoomDatabase() {
                         `criteria_includeUnknownAge` INTEGER NOT NULL, `criteria_area` TEXT,
                         `criteria_waitingOnly` INTEGER, `criteria_publicOnly` INTEGER,
                         `criteria_sort` TEXT NOT NULL, PRIMARY KEY(`id`)
+                    )
+                """.trimIndent())
+            }
+        }
+
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `room_preferences` (
+                        `host` TEXT NOT NULL, `roomId` INTEGER NOT NULL, `genreKey` TEXT NOT NULL,
+                        `favorite` INTEGER NOT NULL, `hidden` INTEGER NOT NULL,
+                        `snapshotStatus` TEXT NOT NULL, `snapshotAction` TEXT NOT NULL,
+                        `snapshotElapsedSeconds` INTEGER, `snapshotName` TEXT,
+                        `snapshotGender` TEXT NOT NULL, `snapshotAge` INTEGER,
+                        `snapshotArea` TEXT, `snapshotMessage` TEXT NOT NULL,
+                        `identityName` TEXT, `identityGender` TEXT, `identityAge` INTEGER,
+                        `stale` INTEGER NOT NULL, PRIMARY KEY(`host`, `roomId`)
                     )
                 """.trimIndent())
             }

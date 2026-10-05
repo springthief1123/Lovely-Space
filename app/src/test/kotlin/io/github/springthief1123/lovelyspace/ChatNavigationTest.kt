@@ -26,6 +26,7 @@ class ChatNavigationTest {
         nav.graph = nav.createGraph(startDestination = Routes.ROOMS) {
             composable(Routes.ROOMS) { }
             composable(Routes.SEARCH) { }
+            composable(Routes.FAVORITES) { }
             composable(Routes.ENTRY, arguments = listOf(
                 navArgument("host") { type = NavType.StringType }, navArgument("genre") { type = NavType.StringType },
                 navArgument("roomId") { type = NavType.LongType }, origin,
@@ -51,6 +52,19 @@ class ChatNavigationTest {
         assertEquals(3, nav.currentBackStackEntry!!.savedStateHandle.get<Int>("loaded-page"))
         assertEquals("合成の検索語", nav.currentBackStackEntry!!.savedStateHandle.get<String>("criteria"))
     }
+    @Test fun entryFromFavoritesReturnsToFavoritesAfterChat() {
+        val nav = controller()
+        nav.navigate(Routes.FAVORITES)
+        val favorites = nav.getBackStackEntry(Routes.FAVORITES)
+        nav.navigate(Routes.entry("chat.shalove.net", "zenkoku", 321, Routes.FAVORITES))
+        val origin = nav.currentBackStackEntry!!.arguments!!.getString("origin")!!
+        nav.navigateToChat("favorite-session", origin)
+        assertSame(favorites, nav.getBackStackEntry(Routes.FAVORITES))
+        nav.returnFromChat(origin)
+        assertEquals(Routes.FAVORITES, nav.currentDestination!!.route)
+        assertSame(favorites, nav.currentBackStackEntry)
+    }
+
     @Test fun defaultEntryStillReturnsToRoomsAndNeverIncludesRoomPassword() {
         val nav = controller()
         nav.navigate(Routes.entry("chat.shalove.net", "zenkoku", 123))

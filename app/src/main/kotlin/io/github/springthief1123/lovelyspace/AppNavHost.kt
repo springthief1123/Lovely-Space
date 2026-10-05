@@ -87,7 +87,20 @@ fun AppNavHost(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
                     },
                 )
             }
-            composable(Routes.FAVORITES) { FavoritesScreen() }
+            composable(Routes.FAVORITES) {
+                FavoritesScreen(
+                    onEnterRoom = { room ->
+                        Genres[room.genreKey]?.host?.let { host ->
+                            nav.navigate(Routes.entry(host, room.genreKey, room.id, Routes.FAVORITES)) { launchSingleTop = true }
+                        }
+                    },
+                    onPeekRoom = { room ->
+                        Genres[room.genreKey]?.host?.let { host ->
+                            nav.navigate(Routes.public(host, room.genreKey, room.id)) { launchSingleTop = true }
+                        }
+                    },
+                )
+            }
             composable(Routes.PROFILE) { ProfileScreen() }
             composable(Routes.SETTINGS) {
                 SettingsScreen(

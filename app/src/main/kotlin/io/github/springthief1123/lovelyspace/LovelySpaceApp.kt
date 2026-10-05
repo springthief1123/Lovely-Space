@@ -2,9 +2,10 @@ package io.github.springthief1123.lovelyspace
 
 import android.app.Application
 import androidx.room.Room
-import io.github.springthief1123.lovelyspace.data.RoomListRepository
 import io.github.springthief1123.lovelyspace.data.PresetDatabase
 import io.github.springthief1123.lovelyspace.data.PresetRepository
+import io.github.springthief1123.lovelyspace.data.RoomListRepository
+import io.github.springthief1123.lovelyspace.data.RoomPreferenceRepository
 import io.github.springthief1123.lovelyspace.data.SearchPresetRepository
 import io.github.springthief1123.lovelyspace.core.ShaloveClient
 import io.github.springthief1123.lovelyspace.core.SharedSiteCookieJar
@@ -21,10 +22,12 @@ class LovelySpaceApp : Application() {
     val settings: SettingsRepository by lazy { SettingsRepository(this) }
     private val database: PresetDatabase by lazy {
         Room.databaseBuilder(this, PresetDatabase::class.java, "lovely-space.db")
-            .addMigrations(PresetDatabase.MIGRATION_1_2).build()
+            .addMigrations(PresetDatabase.MIGRATION_1_2, PresetDatabase.MIGRATION_2_3)
+            .build()
     }
     val presets: PresetRepository by lazy { PresetRepository(database, settings) }
     val searchPresets: SearchPresetRepository by lazy { SearchPresetRepository(database) }
+    val roomPreferences: RoomPreferenceRepository by lazy { RoomPreferenceRepository(database) }
 
     /** 入室中の部屋（pwd を route に載せないための一時置き場）。 */
     val activeRooms: ActiveRooms = ActiveRooms()
