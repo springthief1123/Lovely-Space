@@ -36,9 +36,17 @@ fun SettingsScreen(
                 Modifier.size(48.dp).clickable(onClick = onBack),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "戻る")
+                Icon(
+                    Icons.AutoMirrored.Outlined.ArrowBack,
+                    contentDescription = "戻る",
+                    tint = MaterialTheme.colorScheme.onBackground,
+                )
             }
-            Text("設定", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "設定",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
         }
         HorizontalDivider()
         Text(
@@ -55,7 +63,12 @@ fun SettingsScreen(
                     .padding(horizontal = 20.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(mode.label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                Text(
+                    mode.label,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.weight(1f),
+                )
                 if (mode == themeMode) {
                     Icon(Icons.Outlined.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 }
