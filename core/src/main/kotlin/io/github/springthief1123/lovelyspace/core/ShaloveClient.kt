@@ -229,6 +229,7 @@ class ShaloveClient(
 
         fun defaultHttpClient(cookieJar: CookieJar = InMemoryCookieJar()): OkHttpClient = OkHttpClient.Builder()
             .cookieJar(cookieJar)
+            .apply { if (cookieJar is SharedSiteCookieJar) addNetworkInterceptor(cookieJar) }
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .build()
