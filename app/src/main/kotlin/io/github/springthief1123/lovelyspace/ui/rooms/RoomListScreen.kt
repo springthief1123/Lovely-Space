@@ -67,40 +67,28 @@ fun RoomListScreen(
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     Box(Modifier.fillMaxSize()) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(top = LovelySpacing.topContentInset),
+        PullToRefreshBox(
+            isRefreshing = state.isRefreshing,
+            onRefresh = { vm.refresh(force = true) },
+            modifier = Modifier.fillMaxSize(),
         ) {
-            GenreBar(
-                selected = state.genre,
-                recent = state.recentGenres,
-                counts = state.genreCounts,
-                onSelect = vm::selectGenre,
-            )
-            SexFilter(selected = state.sex, onSelect = vm::selectSex)
-            SummaryLine(state)
-            PullToRefreshBox(
-                isRefreshing = state.isRefreshing,
-                onRefresh = { vm.refresh(force = true) },
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                RoomList(
-                    state = state,
-                    onRoomClick = { room ->
-                        when (room.action) {
-                            RoomAction.ENTER -> onEnterRoom(room)
-                            RoomAction.PEEK -> onPeekRoom(room)
-                            RoomAction.NONE -> scope.launch {
-                                snackbar.currentSnackbarData?.dismiss()
-                                snackbar.showSnackbar("満室の非公開ルームには入れません")
-                            }
+            RoomList(
+                state = state,
+                onGenreSelect = vm::selectGenre,
+                onSexSelect = vm::selectSex,
+                onRoomClick = { room ->
+                    when (room.action) {
+                        RoomAction.ENTER -> onEnterRoom(room)
+                        RoomAction.PEEK -> onPeekRoom(room)
+                        RoomAction.NONE -> scope.launch {
+                            snackbar.currentSnackbarData?.dismiss()
+                            snackbar.showSnackbar("満室の非公開ルームには入れません")
                         }
-                    },
-                    onLoadMore = vm::loadMore,
-                    onRetry = { vm.refresh(force = true) },
-                )
-            }
+                    }
+                },
+                onLoadMore = vm::loadMore,
+                onRetry = { vm.refresh(force = true) },
+            )
         }
 
         SnackbarHost(
@@ -175,6 +163,8 @@ private fun SummaryLine(state: RoomListUiState) {
 @Composable
 private fun RoomList(
     state: RoomListUiState,
+    onGenreSelect: (Genre) -> Unit,
+    onSexSelect: (Gender?) -> Unit,
     onRoomClick: (Room) -> Unit,
     onLoadMore: () -> Unit,
     onRetry: () -> Unit,
@@ -194,9 +184,27 @@ private fun RoomList(
         state = listState,
         modifier = Modifier.fillMaxSize(),
         // 下端は「部屋を作る」ボタンに隠れないよう空ける。
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 132.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(
+            start = LovelySpacing.screenHorizontal,
+            end = LovelySpacing.screenHorizontal,
+            top = LovelySpacing.topContentInset,
+            bottom = 132.dp,
+        ),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
+        item {
+            GenreBar(
+                selected = state.genre,
+                recent = state.recentGenres,
+                counts = state.genreCounts,
+                onSelect = onGenreSelect,
+                modifier = Modifier.padding(top = 10.dp, bottom = 4.dp),
+            )
+        }
+        item { SexFilter(selected = state.sex, onSelect = onSexSelect) }
+        item { SummaryLine(state) }
+        item { Spacer(Modifier.height(6.dp)) }
+
         if (state.error != null && state.rooms.isEmpty()) {
             item { MessageBlock(state.error, actionLabel = "再読み込み", onAction = onRetry) }
         } else if (state.rooms.isEmpty() && !state.isRefreshing && state.page > 0) {
