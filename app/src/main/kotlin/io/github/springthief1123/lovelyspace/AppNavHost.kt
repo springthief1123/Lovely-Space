@@ -26,7 +26,6 @@ import io.github.springthief1123.lovelyspace.ui.main.SearchScreen
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomListScreen
 import io.github.springthief1123.lovelyspace.ui.settings.SettingsScreen
 import io.github.springthief1123.lovelyspace.ui.shell.LovelyAppShell
-import io.github.springthief1123.lovelyspace.ui.shell.MainDestinations
 import io.github.springthief1123.lovelyspace.ui.web.PublicRoomScreen
 
 private object Routes {
@@ -53,7 +52,7 @@ fun AppNavHost(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
     val nav = rememberNavController()
     val backStackEntry by nav.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
-    val mainRoutes = rememberSaveable { setOf(Routes.ROOMS, Routes.SEARCH, Routes.FAVORITES, Routes.PROFILE) }
+    val mainRoutes = setOf(Routes.ROOMS, Routes.SEARCH, Routes.FAVORITES, Routes.PROFILE)
     var roomsRefreshKey by rememberSaveable { mutableIntStateOf(0) }
 
     val roomArgs = listOf(
@@ -64,7 +63,7 @@ fun AppNavHost(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
 
     LovelyAppShell(
         currentRoute = currentRoute,
-        showChrome = currentRoute in mainRoutes,
+        showChrome = currentRoute != null && currentRoute in mainRoutes,
         themeMode = themeMode,
         onThemeModeChange = onThemeModeChange,
         onDestinationSelected = { destination ->
