@@ -50,9 +50,7 @@ fun GenreBar(
 ) {
     var sheetOpen by remember { mutableStateOf(false) }
     Column(
-        modifier
-            .fillMaxWidth()
-            .padding(horizontal = LovelySpacing.screenHorizontal),
+        modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(
