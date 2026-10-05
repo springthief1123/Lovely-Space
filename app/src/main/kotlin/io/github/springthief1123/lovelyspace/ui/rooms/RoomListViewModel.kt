@@ -7,7 +7,7 @@ import io.github.springthief1123.lovelyspace.core.Genre
 import io.github.springthief1123.lovelyspace.core.Genres
 import io.github.springthief1123.lovelyspace.core.Room
 import io.github.springthief1123.lovelyspace.core.RoomQuery
-import io.github.springthief1123.lovelyspace.core.ShaloveClient
+import io.github.springthief1123.lovelyspace.data.RoomListRepository
 import io.github.springthief1123.lovelyspace.ui.describeError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -48,7 +48,7 @@ private fun RoomListUiState.resetResults() = copy(
     errorOnLoadMore = false,
 )
 
-class RoomListViewModel(private val client: ShaloveClient) : ViewModel() {
+class RoomListViewModel(private val repository: RoomListRepository) : ViewModel() {
     private val _state = MutableStateFlow(RoomListUiState())
     val state: StateFlow<RoomListUiState> = _state.asStateFlow()
 
@@ -102,7 +102,7 @@ class RoomListViewModel(private val client: ShaloveClient) : ViewModel() {
     private suspend fun load(page: Int, force: Boolean) {
         val s = _state.value
         try {
-            val result = client.fetchRoomList(RoomQuery(genre = s.genre, sex = s.sex, page = page), forceRefresh = force)
+            val result = repository.fetch(RoomQuery(genre = s.genre, sex = s.sex, page = page), force = force)
             _state.update { cur ->
                 // ページの境目で部屋が前後に動くことがあるため、ID で重複を除く。
                 val rooms = if (page == 1) result.rooms else (cur.rooms + result.rooms).distinctBy { it.id }
