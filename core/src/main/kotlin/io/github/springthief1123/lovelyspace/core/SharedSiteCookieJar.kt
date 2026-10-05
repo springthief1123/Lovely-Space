@@ -3,6 +3,8 @@ package io.github.springthief1123.lovelyspace.core
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.HttpUrl
+import okhttp3.Interceptor
+import okhttp3.Response
 
 /** Android の CookieManager を境界の外に置き、同じ Cookie 保管先を HTTP と WebView で使う。 */
 interface SiteCookieStore {
@@ -13,10 +15,22 @@ interface SiteCookieStore {
     fun write(url: String, setCookie: String)
 }
 
-class SharedSiteCookieJar(private val store: SiteCookieStore) : CookieJar {
+class SharedSiteCookieJar(private val store: SiteCookieStore) : CookieJar, Interceptor {
     override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-        if (!url.isSite()) return
-        cookies.forEach { store.write(url.toString(), it.toString()) }
+        // OkHttpの解析済みCookieにはSameSite等が残らない。元ヘッダーを保存済みなので上書きしない。
+    }
+
+    /** network interceptorとして登録し、転送を含めた各応答の元ヘッダーをそのまま保存する。 */
+    override fun intercept(chain: Interceptor.Chain): Response {
+        val response = chain.proceed(chain.request())
+        try {
+            val url = response.request.url
+            if (url.isSite()) response.headers("Set-Cookie").forEach { store.write(url.toString(), it) }
+            return response
+        } catch (e: Exception) {
+            response.close()
+            throw e
+        }
     }
 
     override fun loadForRequest(url: HttpUrl): List<Cookie> {
