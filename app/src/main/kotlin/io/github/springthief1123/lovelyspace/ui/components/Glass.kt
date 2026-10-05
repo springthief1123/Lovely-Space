@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -71,8 +72,11 @@ fun LovelyGlassSurface(
             .then(glassModifier)
             .border(BorderStroke(1.dp, lovely.glassBorder), shape),
         contentAlignment = contentAlignment,
-        content = content,
-    )
+    ) {
+        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+            content()
+        }
+    }
 }
 
 @Composable
