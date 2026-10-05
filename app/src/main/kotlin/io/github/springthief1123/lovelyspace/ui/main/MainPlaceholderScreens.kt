@@ -13,6 +13,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
+import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentTopPadding
 
 @Composable
 fun SearchScreen() = MainSectionScreen(
@@ -34,6 +35,7 @@ fun ProfileScreen() = MainSectionScreen(
 
 @Composable
 private fun MainSectionScreen(title: String, description: String) {
+    val topPadding = lovelyMainContentTopPadding()
     Column(
         Modifier
             .fillMaxSize()
