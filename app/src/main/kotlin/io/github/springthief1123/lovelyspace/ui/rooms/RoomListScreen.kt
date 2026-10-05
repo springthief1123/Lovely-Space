@@ -2,56 +2,46 @@
 
 package io.github.springthief1123.lovelyspace.ui.rooms
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Contrast
-import androidx.compose.material.icons.outlined.DarkMode
-import androidx.compose.material.icons.outlined.LightMode
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -59,21 +49,20 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
+import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
+import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentTopPadding
 import io.github.springthief1123.lovelyspace.core.Gender
 import io.github.springthief1123.lovelyspace.core.Genre
 import io.github.springthief1123.lovelyspace.core.Room
 import io.github.springthief1123.lovelyspace.core.RoomAction
-import io.github.springthief1123.lovelyspace.settings.ThemeMode
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 @Composable
 fun RoomListScreen(
-    themeMode: ThemeMode,
-    onThemeModeChange: (ThemeMode) -> Unit,
     onEnterRoom: (Room) -> Unit,
     onPeekRoom: (Room) -> Unit,
-    onCreateRoom: (Genre) -> Unit,
+    onGenreChanged: (Genre) -> Unit,
     /** 値が変わるたびに一覧を取り直す（チャットから戻ったときなど）。0 は何もしない。 */
     refreshKey: Int = 0,
 ) {
@@ -81,109 +70,87 @@ fun RoomListScreen(
     val vm: RoomListViewModel = viewModel(factory = viewModelFactory { initializer { RoomListViewModel(app.client) } })
     val state by vm.state.collectAsStateWithLifecycle()
     LaunchedEffect(refreshKey) { vm.onRefreshKey(refreshKey) }
+    LaunchedEffect(state.genre) { onGenreChanged(state.genre) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
-
-    Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = {
-            TopAppBar(
-                title = { Text("Lovely Space", fontWeight = FontWeight.SemiBold) },
-                actions = { ThemeMenu(themeMode, onThemeModeChange) },
-                scrollBehavior = scrollBehavior,
-            )
-        },
-        snackbarHost = { SnackbarHost(snackbar) },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { onCreateRoom(state.genre) },
-                icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
-                text = { Text("部屋を作る") },
-            )
-        },
-    ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize()) {
-            GenreBar(
-                selected = state.genre,
-                recent = state.recentGenres,
-                counts = state.genreCounts,
-                onSelect = vm::selectGenre,
-            )
-            SexFilter(selected = state.sex, onSelect = vm::selectSex)
-            SummaryLine(state)
-            PullToRefreshBox(
-                isRefreshing = state.isRefreshing,
-                onRefresh = { vm.refresh(force = true) },
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                RoomList(
-                    state = state,
-                    onRoomClick = { room ->
-                        when (room.action) {
-                            RoomAction.ENTER -> onEnterRoom(room)
-                            RoomAction.PEEK -> onPeekRoom(room)
-                            RoomAction.NONE -> scope.launch {
-                                snackbar.currentSnackbarData?.dismiss()
-                                snackbar.showSnackbar("満室の非公開ルームには入れません")
-                            }
+    val refreshState = rememberPullToRefreshState()
+    val refreshTopPadding = lovelyMainContentTopPadding()
+    Box(Modifier.fillMaxSize()) {
+        PullToRefreshBox(
+            isRefreshing = state.isRefreshing,
+            onRefresh = { vm.refresh(force = true) },
+            state = refreshState,
+            modifier = Modifier.fillMaxSize(),
+            indicator = {
+                PullToRefreshDefaults.Indicator(
+                    state = refreshState,
+                    isRefreshing = state.isRefreshing,
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = refreshTopPadding),
+                )
+            },
+        ) {
+            RoomList(
+                state = state,
+                onGenreSelect = vm::selectGenre,
+                onSexSelect = vm::selectSex,
+                onRoomClick = { room ->
+                    when (room.action) {
+                        RoomAction.ENTER -> onEnterRoom(room)
+                        RoomAction.PEEK -> onPeekRoom(room)
+                        RoomAction.NONE -> scope.launch {
+                            snackbar.currentSnackbarData?.dismiss()
+                            snackbar.showSnackbar("満室の非公開ルームには入れません")
                         }
-                    },
-                    onLoadMore = vm::loadMore,
-                    onRetry = { vm.refresh(force = true) },
-                )
-            }
+                    }
+                },
+                onLoadMore = vm::loadMore,
+                onRetry = { vm.refresh(force = true) },
+            )
         }
-    }
-}
 
-@Composable
-private fun ThemeMenu(current: ThemeMode, onChange: (ThemeMode) -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    Box {
-        IconButton(onClick = { open = true }) {
-            Icon(themeIcon(current), contentDescription = "テーマ")
-        }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            ThemeMode.entries.forEach { mode ->
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            mode.label,
-                            fontWeight = if (mode == current) FontWeight.Bold else FontWeight.Normal,
-                        )
-                    },
-                    leadingIcon = { Icon(themeIcon(mode), contentDescription = null) },
-                    onClick = {
-                        open = false
-                        onChange(mode)
-                    },
-                )
-            }
-        }
-    }
-}
+        SnackbarHost(
+            hostState = snackbar,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = LovelySpacing.snackbarBottomInset),
+        )
 
-private fun themeIcon(mode: ThemeMode) = when (mode) {
-    ThemeMode.SYSTEM -> Icons.Outlined.Contrast
-    ThemeMode.LIGHT -> Icons.Outlined.LightMode
-    ThemeMode.DARK -> Icons.Outlined.DarkMode
+    }
 }
 
 @Composable
 private fun SexFilter(selected: Gender?, onSelect: (Gender?) -> Unit) {
     val options = listOf<Pair<Gender?, String>>(null to "すべて", Gender.FEMALE to "女性", Gender.MALE to "男性")
-    SingleChoiceSegmentedButtonRow(
+    Row(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp),
+            .padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        options.forEachIndexed { index, (sex, label) ->
-            SegmentedButton(
-                selected = sex == selected,
-                onClick = { onSelect(sex) },
-                shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
-            ) { Text(label) }
+        options.forEach { (sex, label) ->
+            val active = sex == selected
+            Column(
+                Modifier
+                    .clickable { onSelect(sex) }
+                    .padding(vertical = 6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(4.dp))
+                Box(
+                    Modifier
+                        .size(width = 22.dp, height = 2.dp)
+                        .background(
+                            if (active) MaterialTheme.colorScheme.primary else androidx.compose.ui.graphics.Color.Transparent,
+                            RoundedCornerShape(50),
+                        ),
+                )
+            }
         }
     }
 }
@@ -200,18 +167,21 @@ private fun SummaryLine(state: RoomListUiState) {
         parts.joinToString("・"),
         style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        modifier = Modifier.padding(vertical = 4.dp),
     )
 }
 
 @Composable
 private fun RoomList(
     state: RoomListUiState,
+    onGenreSelect: (Genre) -> Unit,
+    onSexSelect: (Gender?) -> Unit,
     onRoomClick: (Room) -> Unit,
     onLoadMore: () -> Unit,
     onRetry: () -> Unit,
 ) {
     val listState = rememberLazyListState()
+    val topContentPadding = lovelyMainContentTopPadding()
 
     // 末尾に近づいたら次のページを読む。
     LaunchedEffect(listState, state.canLoadMore) {
@@ -226,9 +196,28 @@ private fun RoomList(
         state = listState,
         modifier = Modifier.fillMaxSize(),
         // 下端は「部屋を作る」ボタンに隠れないよう空ける。
-        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 96.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(
+            start = LovelySpacing.screenHorizontal,
+            end = LovelySpacing.screenHorizontal,
+            top = topContentPadding,
+            bottom = LovelySpacing.snackbarBottomInset +
+                WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+        ),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
+        item {
+            GenreBar(
+                selected = state.genre,
+                recent = state.recentGenres,
+                counts = state.genreCounts,
+                onSelect = onGenreSelect,
+                modifier = Modifier.padding(top = 10.dp, bottom = 4.dp),
+            )
+        }
+        item { SexFilter(selected = state.sex, onSelect = onSexSelect) }
+        item { SummaryLine(state) }
+        item { Spacer(Modifier.height(6.dp)) }
+
         if (state.error != null && state.rooms.isEmpty()) {
             item { MessageBlock(state.error, actionLabel = "再読み込み", onAction = onRetry) }
         } else if (state.rooms.isEmpty() && !state.isRefreshing && state.page > 0) {
@@ -270,4 +259,3 @@ private fun MessageBlock(text: String, actionLabel: String?, onAction: () -> Uni
         }
     }
 }
-
