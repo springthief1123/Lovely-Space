@@ -33,7 +33,7 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit { it[themeKey] = mode.name }
     }
 
-    /** 前回入室したときの名前・性別・年齢。プロフィールのプリセット（フェーズ3）までの仮置き。 */
+    /** 前回入室したときの名前・性別・年齢。既定のプリセットが無い場合の入力補助。 */
     val lastEntryProfile: Flow<EntryProfile?> = context.dataStore.data.map { prefs ->
         val name = prefs[entryNameKey] ?: return@map null
         EntryProfile(name = name, sex = prefs[entrySexKey] ?: 1, years = prefs[entryYearsKey])

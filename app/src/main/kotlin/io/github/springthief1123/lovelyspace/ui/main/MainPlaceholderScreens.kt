@@ -27,12 +27,6 @@ fun FavoritesScreen() = MainSectionScreen(
 )
 
 @Composable
-fun ProfileScreen() = MainSectionScreen(
-    title = "マイページ",
-    description = "プロフィールプリセットと待機メッセージプリセットを管理します。",
-)
-
-@Composable
 private fun MainSectionScreen(title: String, description: String) {
     val topPadding = lovelyMainContentTopPadding()
     Column(

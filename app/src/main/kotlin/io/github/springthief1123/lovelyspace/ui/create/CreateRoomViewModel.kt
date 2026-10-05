@@ -4,6 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
 import io.github.springthief1123.lovelyspace.core.chat.EntryProfile
+import io.github.springthief1123.lovelyspace.core.messageWidth
+import io.github.springthief1123.lovelyspace.data.PresetRepository
+import io.github.springthief1123.lovelyspace.data.ProfilePreset
+import io.github.springthief1123.lovelyspace.data.MessagePreset
 import io.github.springthief1123.lovelyspace.settings.RoomDetails
 import io.github.springthief1123.lovelyspace.settings.SettingsRepository
 import kotlinx.coroutines.CancellationException
@@ -31,7 +35,7 @@ data class CreateRoomUiState(
     val yearsValid: Boolean get() = years.isEmpty() || (yearsValue ?: 0) in MIN_YEARS..MAX_YEARS
 
     /** サイトの数え方（半角 1、全角 2）での待機メッセージの長さ。 */
-    val messageWidth: Int get() = message.fold(0) { width, c -> width + if (c.isHalfWidth()) 1 else 2 }
+    val messageWidth: Int get() = messageWidth(message)
     val messageValid: Boolean get() = messageWidth <= MESSAGE_MAX_WIDTH
 
     val canContinue: Boolean get() = isLoaded && name.isNotBlank() && yearsValid && messageValid
@@ -43,16 +47,16 @@ data class CreateRoomUiState(
     }
 }
 
-private fun Char.isHalfWidth(): Boolean = code < 0x80 || code in 0xFF61..0xFF9F
-
-class CreateRoomViewModel(private val settings: SettingsRepository) : ViewModel() {
+class CreateRoomViewModel(private val settings: SettingsRepository, val presets: PresetRepository) : ViewModel() {
     private val _state = MutableStateFlow(CreateRoomUiState())
     val state: StateFlow<CreateRoomUiState> = _state.asStateFlow()
 
     init {
         viewModelScope.launch {
             // 前回の値は入力の手間を省くためだけのもの。読めなくても空欄で始める。
-            val profile = quietly { settings.lastEntryProfile.first() }
+            val savedProfile = quietly { presets.defaultProfile() }
+            val savedMessage = quietly { presets.defaultMessage() }
+            val profile = savedProfile?.let { EntryProfile(it.name, it.sex, it.years) } ?: quietly { settings.lastEntryProfile.first() }
             val details = quietly { settings.lastRoomDetails.first() } ?: RoomDetails(null, "")
             _state.update {
                 it.copy(
@@ -60,12 +64,15 @@ class CreateRoomViewModel(private val settings: SettingsRepository) : ViewModel(
                     name = profile?.name.orEmpty(),
                     sex = profile?.sex ?: 1,
                     years = profile?.years?.toString().orEmpty(),
-                    prefecture = details.prefecture,
-                    message = details.message,
+                    prefecture = if (savedProfile != null) savedProfile.prefecture else details.prefecture,
+                    message = savedMessage?.message ?: details.message,
                 )
             }
         }
     }
+
+    fun applyProfile(preset: ProfilePreset) = _state.update { it.copy(name = preset.name, sex = preset.sex, years = preset.years?.toString().orEmpty(), prefecture = preset.prefecture) }
+    fun applyMessage(preset: MessagePreset) = _state.update { it.copy(message = preset.message) }
 
     fun setName(v: String) = _state.update { it.copy(name = v) }
     fun setSex(v: Int) = _state.update { it.copy(sex = v) }

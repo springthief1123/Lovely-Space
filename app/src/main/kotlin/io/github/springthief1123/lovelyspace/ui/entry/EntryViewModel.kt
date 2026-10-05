@@ -8,6 +8,8 @@ import io.github.springthief1123.lovelyspace.core.chat.EntryForm
 import io.github.springthief1123.lovelyspace.core.chat.EntryProfile
 import io.github.springthief1123.lovelyspace.core.chat.EntryResult
 import io.github.springthief1123.lovelyspace.settings.SettingsRepository
+import io.github.springthief1123.lovelyspace.data.PresetRepository
+import io.github.springthief1123.lovelyspace.data.ProfilePreset
 import io.github.springthief1123.lovelyspace.ui.describeError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -48,12 +50,14 @@ data class EntryUiState(
 class EntryViewModel(
     private val client: ShaloveClient,
     private val settings: SettingsRepository,
+    val presets: PresetRepository,
     private val host: String,
     private val genreKey: String,
     private val roomId: Long,
 ) : ViewModel() {
     private val _state = MutableStateFlow(EntryUiState())
     val state: StateFlow<EntryUiState> = _state.asStateFlow()
+    private var inputsLoaded = false
 
     init {
         load()
@@ -64,7 +68,7 @@ class EntryViewModel(
         viewModelScope.launch {
             // 前回の値は入力の手間を省くためだけのもの。読めなくても入室前画面は開く。
             val last = try {
-                settings.lastEntryProfile.first()
+                presets.defaultProfile()?.let { EntryProfile(it.name, it.sex, it.years) } ?: settings.lastEntryProfile.first()
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -78,11 +82,12 @@ class EntryViewModel(
                         form = form,
                         loadError = if (form == null) "この部屋には入室できません。満室になったか、閉じられた可能性があります" else null,
                         // 入力済みの値は残す。未入力なら前回の値、無ければサイトの既定値。
-                        name = s.name.ifEmpty { last?.name ?: form?.defaultName?.trim().orEmpty() },
-                        sex = if (s.name.isEmpty()) last?.sex ?: s.sex else s.sex,
-                        years = s.years.ifEmpty { last?.years?.toString().orEmpty() },
+                        name = if (inputsLoaded) s.name else last?.name ?: form?.defaultName?.trim().orEmpty(),
+                        sex = if (inputsLoaded) s.sex else last?.sex ?: s.sex,
+                        years = if (inputsLoaded) s.years else last?.years?.toString().orEmpty(),
                     )
                 }
+                inputsLoaded = true
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -90,6 +95,11 @@ class EntryViewModel(
                 _state.update { it.copy(isLoading = false, form = null, loadError = describeError(e)) }
             }
         }
+    }
+
+    fun applyPreset(preset: ProfilePreset) {
+        inputsLoaded = true
+        _state.update { it.copy(name = preset.name, sex = preset.sex, years = preset.years?.toString().orEmpty(), entryError = null) }
     }
 
     fun setName(v: String) = _state.update { it.copy(name = v, entryError = null) }

@@ -52,6 +52,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
 import io.github.springthief1123.lovelyspace.core.SitePages
+import io.github.springthief1123.lovelyspace.ui.main.ProfilePresetPicker
 import io.github.springthief1123.lovelyspace.ui.web.SiteWebView
 import io.github.springthief1123.lovelyspace.ui.web.prefillFormScript
 
@@ -65,7 +66,7 @@ fun EntryScreen(
 ) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val vm: EntryViewModel = viewModel(
-        factory = viewModelFactory { initializer { EntryViewModel(app.client, app.settings, host, genreKey, roomId) } },
+        factory = viewModelFactory { initializer { EntryViewModel(app.client, app.settings, app.presets, host, genreKey, roomId) } },
     )
     val state by vm.state.collectAsStateWithLifecycle()
     var showBrowser by rememberSaveable { mutableStateOf(false) }
@@ -122,6 +123,7 @@ fun EntryScreen(
 @Composable
 private fun EntryFormContent(state: EntryUiState, vm: EntryViewModel, onOpenBrowser: () -> Unit, modifier: Modifier) {
     val form = state.form ?: return
+    val profiles by vm.presets.profiles.collectAsStateWithLifecycle(initialValue = emptyList())
     Column(
         modifier
             .verticalScroll(rememberScrollState())
@@ -140,6 +142,8 @@ private fun EntryFormContent(state: EntryUiState, vm: EntryViewModel, onOpenBrow
                 }
             }
         }
+
+        ProfilePresetPicker(profiles, enabled = !state.isEntering, onSelect = vm::applyPreset)
 
         OutlinedTextField(
             value = state.name,

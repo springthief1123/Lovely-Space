@@ -55,6 +55,8 @@ import io.github.springthief1123.lovelyspace.core.Genre
 import io.github.springthief1123.lovelyspace.core.Prefectures
 import io.github.springthief1123.lovelyspace.core.SitePages
 import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
+import io.github.springthief1123.lovelyspace.ui.main.ProfilePresetPicker
+import io.github.springthief1123.lovelyspace.ui.main.MessagePresetPicker
 import io.github.springthief1123.lovelyspace.ui.web.SiteWebView
 import io.github.springthief1123.lovelyspace.ui.web.prefillFormScript
 
@@ -65,7 +67,7 @@ import io.github.springthief1123.lovelyspace.ui.web.prefillFormScript
 @Composable
 fun CreateRoomScreen(genre: Genre, onBack: () -> Unit, onCreated: (ChatRoomRef) -> Unit) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
-    val vm: CreateRoomViewModel = viewModel(factory = viewModelFactory { initializer { CreateRoomViewModel(app.settings) } })
+    val vm: CreateRoomViewModel = viewModel(factory = viewModelFactory { initializer { CreateRoomViewModel(app.settings, app.presets) } })
     val state by vm.state.collectAsStateWithLifecycle()
     var showBrowser by rememberSaveable { mutableStateOf(false) }
 
@@ -119,6 +121,8 @@ fun CreateRoomScreen(genre: Genre, onBack: () -> Unit, onCreated: (ChatRoomRef) 
 
 @Composable
 private fun CreateRoomForm(state: CreateRoomUiState, vm: CreateRoomViewModel, onContinue: () -> Unit, modifier: Modifier) {
+    val profiles by vm.presets.profiles.collectAsStateWithLifecycle(initialValue = emptyList())
+    val messages by vm.presets.messages.collectAsStateWithLifecycle(initialValue = emptyList())
     Column(
         modifier
             .verticalScroll(rememberScrollState())
@@ -126,6 +130,8 @@ private fun CreateRoomForm(state: CreateRoomUiState, vm: CreateRoomViewModel, on
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        ProfilePresetPicker(profiles, onSelect = vm::applyProfile)
+
         OutlinedTextField(
             value = state.name,
             onValueChange = vm::setName,
@@ -163,6 +169,8 @@ private fun CreateRoomForm(state: CreateRoomUiState, vm: CreateRoomViewModel, on
 
         PrefectureField(state.prefecture, vm::setPrefecture)
 
+        MessagePresetPicker(messages, onSelect = vm::applyMessage)
+
         OutlinedTextField(
             value = state.message,
             onValueChange = vm::setMessage,
@@ -185,7 +193,7 @@ private fun CreateRoomForm(state: CreateRoomUiState, vm: CreateRoomViewModel, on
 }
 
 @Composable
-private fun PrefectureField(selected: Int?, onSelect: (Int?) -> Unit) {
+internal fun PrefectureField(selected: Int?, onSelect: (Int?) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
         OutlinedTextField(

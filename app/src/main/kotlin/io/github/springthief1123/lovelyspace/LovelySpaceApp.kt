@@ -1,6 +1,9 @@
 package io.github.springthief1123.lovelyspace
 
 import android.app.Application
+import androidx.room.Room
+import io.github.springthief1123.lovelyspace.data.PresetDatabase
+import io.github.springthief1123.lovelyspace.data.PresetRepository
 import io.github.springthief1123.lovelyspace.core.ShaloveClient
 import io.github.springthief1123.lovelyspace.core.SharedSiteCookieJar
 import io.github.springthief1123.lovelyspace.settings.SettingsRepository
@@ -13,6 +16,9 @@ class LovelySpaceApp : Application() {
         ShaloveClient(ShaloveClient.defaultHttpClient(SharedSiteCookieJar(WebViewCookieStore())))
     }
     val settings: SettingsRepository by lazy { SettingsRepository(this) }
+    val presets: PresetRepository by lazy {
+        PresetRepository(Room.databaseBuilder(this, PresetDatabase::class.java, "lovely-space.db").build(), settings)
+    }
 
     /** 入室中の部屋（pwd を route に載せないための一時置き場）。 */
     val activeRooms: ActiveRooms = ActiveRooms()
