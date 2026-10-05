@@ -5,8 +5,6 @@ import android.os.HandlerThread
 import android.webkit.CookieManager
 import io.github.springthief1123.lovelyspace.core.SiteCookieStore
 import java.io.IOException
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
 /** WebView の保管先を唯一の Cookie ソースにする。別の保存コピーを作らない。 */
 class WebViewCookieStore : SiteCookieStore {
@@ -18,15 +16,14 @@ class WebViewCookieStore : SiteCookieStore {
 
     override fun write(url: String, setCookie: String) {
         // HTTP の IO スレッドから呼ばれる。UI をブロックせず、反映完了を待ってから転送へ進む。
-        val completed = CountDownLatch(1)
-        handler.post {
-            manager.setCookie(url, setCookie) { completed.countDown() }
-        }
-        try {
-            if (!completed.await(10, TimeUnit.SECONDS)) throw IOException("Cookieの保存がタイムアウトしました")
-        } catch (e: InterruptedException) {
-            Thread.currentThread().interrupt()
-            throw IOException("Cookieの保存が中断されました", e)
-        }
+        val result = CookieWriteResult()
+        if (!handler.post {
+            try {
+                manager.setCookie(url, setCookie) { accepted -> result.complete(accepted == true) }
+            } catch (e: Exception) {
+                result.fail(e)
+            }
+        }) result.fail(IOException("Cookie保存の処理を開始できませんでした"))
+        result.awaitApplied()
     }
 }
