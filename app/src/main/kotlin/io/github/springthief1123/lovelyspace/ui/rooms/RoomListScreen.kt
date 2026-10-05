@@ -11,47 +11,31 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Contrast
-import androidx.compose.material.icons.outlined.DarkMode
-import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -59,18 +43,17 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
+import io.github.springthief1123.lovelyspace.ui.components.LovelyGlassFab
+import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
 import io.github.springthief1123.lovelyspace.core.Gender
 import io.github.springthief1123.lovelyspace.core.Genre
 import io.github.springthief1123.lovelyspace.core.Room
 import io.github.springthief1123.lovelyspace.core.RoomAction
-import io.github.springthief1123.lovelyspace.settings.ThemeMode
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 @Composable
 fun RoomListScreen(
-    themeMode: ThemeMode,
-    onThemeModeChange: (ThemeMode) -> Unit,
     onEnterRoom: (Room) -> Unit,
     onPeekRoom: (Room) -> Unit,
     onCreateRoom: (Genre) -> Unit,
@@ -83,27 +66,12 @@ fun RoomListScreen(
     LaunchedEffect(refreshKey) { vm.onRefreshKey(refreshKey) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
-
-    Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = {
-            TopAppBar(
-                title = { Text("Lovely Space", fontWeight = FontWeight.SemiBold) },
-                actions = { ThemeMenu(themeMode, onThemeModeChange) },
-                scrollBehavior = scrollBehavior,
-            )
-        },
-        snackbarHost = { SnackbarHost(snackbar) },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { onCreateRoom(state.genre) },
-                icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
-                text = { Text("部屋を作る") },
-            )
-        },
-    ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize()) {
+    Box(Modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(top = LovelySpacing.topContentInset),
+        ) {
             GenreBar(
                 selected = state.genre,
                 recent = state.recentGenres,
@@ -134,40 +102,22 @@ fun RoomListScreen(
                 )
             }
         }
-    }
-}
 
-@Composable
-private fun ThemeMenu(current: ThemeMode, onChange: (ThemeMode) -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    Box {
-        IconButton(onClick = { open = true }) {
-            Icon(themeIcon(current), contentDescription = "テーマ")
-        }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            ThemeMode.entries.forEach { mode ->
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            mode.label,
-                            fontWeight = if (mode == current) FontWeight.Bold else FontWeight.Normal,
-                        )
-                    },
-                    leadingIcon = { Icon(themeIcon(mode), contentDescription = null) },
-                    onClick = {
-                        open = false
-                        onChange(mode)
-                    },
-                )
-            }
-        }
-    }
-}
+        SnackbarHost(
+            hostState = snackbar,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = LovelySpacing.bottomContentInset),
+        )
 
-private fun themeIcon(mode: ThemeMode) = when (mode) {
-    ThemeMode.SYSTEM -> Icons.Outlined.Contrast
-    ThemeMode.LIGHT -> Icons.Outlined.LightMode
-    ThemeMode.DARK -> Icons.Outlined.DarkMode
+        LovelyGlassFab(
+            onClick = { onCreateRoom(state.genre) },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .navigationBarsPadding()
+                .padding(end = 20.dp, bottom = 92.dp),
+        )
+    }
 }
 
 @Composable
@@ -226,7 +176,7 @@ private fun RoomList(
         state = listState,
         modifier = Modifier.fillMaxSize(),
         // 下端は「部屋を作る」ボタンに隠れないよう空ける。
-        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 96.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 132.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (state.error != null && state.rooms.isEmpty()) {
