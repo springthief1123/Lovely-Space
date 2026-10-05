@@ -78,6 +78,7 @@ fun LovelyAppShell(
             Box(
                 Modifier
                     .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
                     .hazeSource(state = hazeState),
             ) {
                 content()
