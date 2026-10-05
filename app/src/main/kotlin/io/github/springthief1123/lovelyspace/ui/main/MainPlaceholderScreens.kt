@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,15 +37,16 @@ private fun MainSectionScreen(title: String, description: String) {
     Column(
         Modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .padding(
                 start = LovelySpacing.screenHorizontal,
                 end = LovelySpacing.screenHorizontal,
-                top = LovelySpacing.topContentInset,
+                top = 76.dp,
                 bottom = LovelySpacing.bottomContentInset,
             ),
         verticalArrangement = Arrangement.Top,
     ) {
-        Text(title, style = MaterialTheme.typography.titleLarge)
+        Text(title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground)
         Spacer(Modifier.height(10.dp))
         Text(
             description,
