@@ -121,6 +121,7 @@ fun RoomCard(
     onFavoriteClick: (() -> Unit)? = null,
     onHideClick: (() -> Unit)? = null,
     actionsEnabled: Boolean = true,
+    onDetailsClick: (() -> Unit)? = null,
 ) {
     val density = LocalDensity.current
     val haptics = LocalHapticFeedback.current
@@ -286,6 +287,7 @@ fun RoomCard(
                     room = room,
                     actionsEnabled = actionsEnabled,
                     favoriteAction = onFavoriteClick?.let { { invokeMenuAction(SwipeSide.FAVORITE) } },
+                    detailsAction = onDetailsClick,
                     hiddenAction = onHideClick?.let { { invokeMenuAction(SwipeSide.HIDDEN) } },
                     isFavorite = isFavorite,
                     isHidden = isHidden,
@@ -370,6 +372,7 @@ private fun RoomCardSurface(
     actionsEnabled: Boolean,
     favoriteAction: (() -> Unit)?,
     hiddenAction: (() -> Unit)?,
+    detailsAction: (() -> Unit)?,
     isFavorite: Boolean,
     isHidden: Boolean,
 ) {
@@ -397,9 +400,10 @@ private fun RoomCardSurface(
                             contentDescription = if (isFavorite) "保存を解除" else "部屋を保存", tint = if (isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                if (favoriteAction != null || hiddenAction != null) Box {
-                    IconButton(onClick = { menuOpen = true }, enabled = actionsEnabled) { Icon(Icons.Outlined.MoreVert, "部屋の操作") }
+                if (favoriteAction != null || hiddenAction != null || detailsAction != null) Box {
+                    IconButton(onClick = { menuOpen = true }) { Icon(Icons.Outlined.MoreVert, "部屋の操作") }
                     DropdownMenu(menuOpen, { menuOpen = false }) {
+                        detailsAction?.let { action -> DropdownMenuItem(text = { Text("部屋の詳細") }, onClick = { menuOpen = false; action() }) }
                         favoriteAction?.let { action -> DropdownMenuItem(text = { Text(if (isFavorite) "保存を解除" else "部屋を保存") }, enabled = actionsEnabled, onClick = { menuOpen = false; action() }) }
                         hiddenAction?.let { action -> DropdownMenuItem(text = { Text(if (isHidden) "非表示を解除" else "非表示にする") }, enabled = actionsEnabled, onClick = { menuOpen = false; action() }) }
                     }

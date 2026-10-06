@@ -61,6 +61,26 @@ class RadarRepositoryTest {
             assertTrue(restored.state.value.results.isEmpty())
         } finally { db.close() }
     }
+    @Test fun latestPagePriorityDoesNotResetTheRemainingPageCursorAndLiveRoomsSpanPages() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            searches.save(SearchPreset("auto", "合成の自動巡回", "zenkoku", RoomSearchCriteria()))
+            val lists = Lists().apply { lastPage = 3; roomsByPage = mapOf(1 to listOf(room), 2 to listOf(room.copy(id = 43)), 3 to listOf(room.copy(id = 44))) }
+            val radar = RadarRepository(db.presets(), lists, searches, RoomPreferenceRepository(db), backgroundScope)
+            radar.state.first { it.loaded }; radar.setPlan("auto", true)
+            radar.scan()
+            radar.scan()
+            radar.scan(latestFirst = true)
+            assertEquals(3, radar.state.value.nextPages["auto"])
+            radar.scan()
+            assertEquals(listOf(1, 2, 1, 3), lists.calls.map { it.page })
+            assertEquals(setOf(42L, 43L, 44L), radar.state.value.livePages["zenkoku"]!!.rooms.map { it.id }.toSet())
+            lists.roomsByPage = mapOf(1 to listOf(room.copy(id = 45)), 2 to listOf(room.copy(id = 43)), 3 to listOf(room.copy(id = 44)))
+            radar.scan(latestFirst = true)
+            assertEquals(setOf(43L, 44L, 45L), radar.state.value.livePages["zenkoku"]!!.rooms.map { it.id }.toSet())
+        } finally { db.close() }
+    }
     @Test fun resultsOfAnOlderDefinitionCannotBeShownAsMatchesForAnEditedPreset() {
         val original = SearchPreset("a", "合成条件", "zenkoku", RoomSearchCriteria())
         val result = RadarResult(original.id, 1000, 1, 1, listOf(room), original.genreKey, original.criteria)

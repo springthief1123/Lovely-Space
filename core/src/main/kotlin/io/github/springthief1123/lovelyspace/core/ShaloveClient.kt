@@ -178,6 +178,12 @@ class ShaloveClient(
     /** 待機画面・チャット画面を開き、初期状態（直近のログ・読み出し位置など）を得る。 */
     suspend fun openChat(room: ChatRoomRef): ChatPage = ChatPageParser.parse(get(room.pageUrl), room)
 
+    /** 公開閲覧は入室・発言・退室を送信しない。ページ通信と同じ制限を共有する。 */
+    suspend fun openPublicRoom(host: String, genreKey: String, roomId: Long): io.github.springthief1123.lovelyspace.core.chat.PublicRoomPage {
+        val url = SitePages.publicRoom(host, genreKey, roomId)
+        return io.github.springthief1123.lovelyspace.core.chat.PublicRoomParser.parse(get(url), url)
+    }
+
     /** 開いた部屋の新着取得・発言用のセッションを作る。 */
     fun chatSession(page: ChatPage): ChatSession =
         ChatSession(longPollHttp, page.room, page.state, clock, sleep)

@@ -10,7 +10,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -33,13 +32,8 @@ fun QuietTopBar(title: String, onBack: () -> Unit) {
 }
 
 @Composable
-fun QuietHeading(eyebrow: String, title: String, subtitle: String) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(eyebrow, color = MaterialTheme.colorScheme.primary,
-            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.5.sp))
-        Text(title, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Medium))
-        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
+fun QuietHeading(title: String) {
+    Text(title, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Medium))
 }
 
 @Composable

@@ -15,6 +15,11 @@ import kotlinx.coroutines.flow.first
 import io.github.springthief1123.lovelyspace.settings.RoomListPreferenceStore
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 data class SearchUiState(
     val genre: Genre = Genres.default,
@@ -30,6 +35,8 @@ data class SearchUiState(
     val initialized: Boolean = true,
     val preferenceError: String? = null,
     val pageTimes: Map<Int, Long> = emptyMap(),
+    val automatic: Boolean = true,
+    val newRoomIds: Set<String> = emptySet(),
 ) {
     val validAges: Boolean get() = (minAgeInput.isEmpty() || minAgeInput.toIntOrNull()?.let { it in 18..99 } == true) &&
         (maxAgeInput.isEmpty() || maxAgeInput.toIntOrNull()?.let { it in 18..99 } == true) && criteria.isValid
@@ -37,10 +44,13 @@ data class SearchUiState(
     val canLoadMore: Boolean get() = page in 1 until lastPage && !loading
 }
 
-class SearchViewModel(private val repository: RoomListSource, private val preferences: RoomListPreferenceStore? = null) : ViewModel() {
+class SearchViewModel(private val repository: RoomListSource, private val preferences: RoomListPreferenceStore? = null,
+    private val clock: () -> Long = { System.nanoTime() / 1_000_000 }) : ViewModel() {
     private val _state = MutableStateFlow(SearchUiState(initialized = preferences == null))
     val state = _state.asStateFlow()
     private var job: Job? = null
+    private var window = RoomPageWindow()
+    private val fetchMutex = Mutex()
     init {
         if (preferences != null) viewModelScope.launch {
             val genre = try { Genres[preferences.roomListPreferences.first().initialGenreKey()] ?: Genres.default }
@@ -75,16 +85,17 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
     fun genre(value: Genre) {
         if (value == _state.value.genre) return
         job?.cancel()
-        _state.update { SearchUiState(genre = value, criteria = it.criteria, minAgeInput = it.minAgeInput, maxAgeInput = it.maxAgeInput) }
+        window = RoomPageWindow()
+        _state.update { SearchUiState(automatic = it.automatic, genre = value, criteria = it.criteria, minAgeInput = it.minAgeInput, maxAgeInput = it.maxAgeInput) }
         rememberGenre(value.key)
     }
     /** 同じジャンルの取得済みページは再利用し、別ジャンルへの適用は通信を取消・結果を破棄する。 */
     fun applyPreset(value: SearchPreset) {
         val genre = requireNotNull(Genres[value.genreKey])
         require(value.criteria.isValid)
-        if (genre != _state.value.genre) job?.cancel()
+        if (genre != _state.value.genre) { job?.cancel(); window = RoomPageWindow() }
         _state.update {
-            val scoped = if (genre == it.genre) it else SearchUiState(genre = genre)
+            val scoped = if (genre == it.genre) it else SearchUiState(genre = genre, automatic = it.automatic)
             scoped.copy(criteria = value.criteria, minAgeInput = value.criteria.minAge?.toString().orEmpty(),
                 maxAgeInput = value.criteria.maxAge?.toString().orEmpty())
         }
@@ -92,22 +103,45 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
     }
     fun refresh() { if (_state.value.initialized) load(1, _state.value.page > 0) }
     fun more() { if (_state.value.canLoadMore) load(_state.value.page + 1, false) }
+    fun automatic(enabled: Boolean) = _state.update { it.copy(automatic = enabled) }
+    fun clearNewRooms() = _state.update { it.copy(newRoomIds = emptySet()) }
+
+    /** 画面が前面にある間だけ実行。取消はHTTP取得にも伝わる。 */
+    suspend fun monitor() {
+        val schedule = RoomPageSchedule(clock)
+        try {
+            while (currentCoroutineContext().isActive) {
+                if (!_state.value.initialized) { state.first { it.initialized }; continue }
+                job?.join()
+                val page = schedule.next(_state.value.lastPage)
+                fetchPage(page, force = false)
+                if (_state.value.error == null) schedule.completed(page, _state.value.lastPage)
+                delay(if (_state.value.error != null || _state.value.lastPage <= 1) RoomPageSchedule.HEAD_INTERVAL_MS else RoomPageSchedule.STEP_INTERVAL_MS)
+            }
+        } finally { _state.update { it.copy(loading = false) } }
+    }
+
     private fun load(page: Int, force: Boolean) {
         job?.cancel()
+        job = viewModelScope.launch { fetchPage(page, force) }
+    }
+    private suspend fun fetchPage(page: Int, force: Boolean) = fetchMutex.withLock {
         val genre = _state.value.genre
         _state.update { it.copy(loading = true, error = null) }
-        job = viewModelScope.launch {
-            try {
-                // AND/OR・除外・並び替えは取得済み一覧に適用。入力ごとに通信しない。
-                val result = repository.fetch(RoomQuery(genre, page = page), force)
-                ensureActive()
-                if (_state.value.genre != genre) return@launch
-                _state.update { it.copy(rooms = if (page == 1) result.rooms else (it.rooms + result.rooms).distinctBy(::roomIdentity),
-                    page = result.page, lastPage = result.lastPage, loading = false, errorOnMore = false,
-                    pageTimes = (if (page == 1) emptyMap() else it.pageTimes) +
-                        (repository.observation(RoomQuery(genre, page = page))?.let { observation -> mapOf(page to observation.confirmedAt) } ?: emptyMap())) }
-            } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { _state.update { it.copy(loading = false, error = describeError(e), errorOnMore = page > 1) } }
-        }
+        try {
+            // AND/OR・除外・並び替えは取得済み一覧に適用。入力ごとに通信しない。
+            val result = repository.fetch(RoomQuery(genre, page = page), force)
+            currentCoroutineContext().ensureActive()
+            if (_state.value.genre != genre) return@withLock
+            val previous = _state.value.rooms.map(::roomIdentity).toSet()
+            window = window.observe(result)
+            val rooms = window.rooms
+            _state.update { it.copy(rooms = rooms,
+                page = window.pages.keys.maxOrNull() ?: 0, lastPage = result.lastPage, loading = false, errorOnMore = false,
+                newRoomIds = (it.newRoomIds + if (previous.isEmpty()) emptySet() else rooms.map(::roomIdentity).toSet() - previous).intersect(rooms.map(::roomIdentity).toSet()),
+                pageTimes = it.pageTimes.filterKeys { it <= result.lastPage } +
+                    (repository.observation(RoomQuery(genre, page = page))?.let { observation -> mapOf(page to observation.confirmedAt) } ?: emptyMap())) }
+        } catch (e: CancellationException) { throw e }
+        catch (e: Exception) { _state.update { it.copy(loading = false, error = describeError(e), errorOnMore = page > 1) } }
     }
 }

@@ -69,7 +69,7 @@ fun FavoritesScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onA
         ),
         verticalArrangement = Arrangement.spacedBy(LovelySpacing.item),
     ) {
-        item { QuietHeading("KEEP WHAT YOU LOVE", "また、ここで。", "気になる部屋と、いつもの検索条件をひとつに。") }
+        item { QuietHeading("保存") }
         item { FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(section == 0, { section = 0 }, label = { Text("部屋 ${values.size}") })
             FilterChip(section == 1, { section = 1 }, label = { Text("検索条件 ${presets.size}") })
@@ -144,7 +144,8 @@ private fun FavoriteRoomRow(
         RoomCard(
             room = room,
             enabled = true,
-            onClick = { selected = true },
+            onClick = { if (value.stale || room.action == io.github.springthief1123.lovelyspace.core.RoomAction.NONE) selected = true else if (room.action == io.github.springthief1123.lovelyspace.core.RoomAction.PEEK) onPeekRoom(room) else onEnterRoom(room) },
+            onDetailsClick = { selected = true },
             isFavorite = true,
             onFavoriteClick = onFavoriteClear,
             actionsEnabled = actionsEnabled,

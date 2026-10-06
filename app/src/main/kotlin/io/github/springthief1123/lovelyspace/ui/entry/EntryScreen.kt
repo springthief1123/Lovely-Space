@@ -126,7 +126,7 @@ private fun EntryFormContent(state: EntryUiState, vm: EntryViewModel, onOpenBrow
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            QuietHeading("JOIN ROOM", "会話をはじめる", "相手の募集内容を確認して、入室に使うプロフィールを選びましょう。")
+            QuietHeading("入室")
             QuietPanel {
                 Text("待機している相手", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                 Text(form.hostDescription, style = MaterialTheme.typography.titleSmall)
@@ -187,7 +187,7 @@ private fun EntryFormContent(state: EntryUiState, vm: EntryViewModel, onOpenBrow
 
             if (form.requiresCaptcha) {
                 QuietPanel {
-                    Text("あと一歩で入室", style = MaterialTheme.typography.titleSmall)
+                    Text("ロボット確認", style = MaterialTheme.typography.titleSmall)
                     Text(
                         "この部屋に入るにはロボット確認が必要です。ラブルームの入室画面を開くので、確認のあと「入室」を押してください。名前などは入力済みになります。",
                         style = MaterialTheme.typography.bodyMedium,

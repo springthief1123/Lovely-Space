@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -45,6 +46,9 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
     val preferences by preferencesVm.state.collectAsStateWithLifecycle()
     LaunchedEffect(state.rooms) { preferencesVm.observe(state.rooms) }
     val visibleResults = state.results.filterNot(preferences::isHidden)
+    io.github.springthief1123.lovelyspace.ui.components.ForegroundPolling(state.automatic, state.genre.key) { vm.monitor() }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val scope = rememberCoroutineScope()
     val c = state.criteria
     val validAges = state.validAges
     var showFilters by remember { mutableStateOf(false) }
@@ -61,11 +65,11 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         }
     }
     QuietPage {
-    LazyColumn(Modifier.fillMaxSize(),
+    LazyColumn(Modifier.fillMaxSize(), state = listState,
         contentPadding = PaddingValues(start = LovelySpacing.screenHorizontal, end = LovelySpacing.screenHorizontal,
             top = lovelyMainContentTopPadding(), bottom = lovelyMainContentBottomInset() + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { QuietHeading("FIND YOUR MOMENT", "いま、話したい人と。", "気になる言葉から、心地よい場所を見つけよう。") }
+        item { QuietHeading("見つける") }
         item {
             OutlinedTextField(c.text, { vm.criteria(c.copy(text = it)) }, placeholder = { Text("名前・募集文を検索") },
                 leadingIcon = { Icon(Icons.Outlined.Search, null) },
@@ -80,12 +84,21 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
             }
         }
         item {
-            Text(if (state.page == 0) (if (state.loading || !state.initialized) "一覧を読み込んでいます。" else "「一覧を更新」でこのジャンルを取得します。") else "取得済み ${state.page}/${state.lastPage}ページ・${state.rooms.size}部屋から ${if (validAges) visibleResults.size else 0}件表示",
+            Text(if (state.page == 0) (if (state.loading || !state.initialized) "一覧を読み込んでいます。" else "「今すぐ更新」でこのジャンルを取得します。") else "取得済み ${state.page}/${state.lastPage}ページ・${state.rooms.size}部屋から ${if (validAges) visibleResults.size else 0}件表示",
                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             state.pageTimes.values.minOrNull()?.let { at -> Text("表示範囲の最も古い確認 ${io.github.springthief1123.lovelyspace.data.formatObservationTime(at)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            Text("条件の変更は取得済み一覧に反映します。「続きを読み込む」で検索範囲を広げられます。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("新着ページを優先して更新し、残りのページも自動で取得します。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        item { TextButton(onClick = vm::refresh, enabled = state.initialized && !state.loading) { Text("一覧を更新") } }
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(if (state.automatic) "自動更新中" else "自動更新を停止中", style = MaterialTheme.typography.labelLarge)
+                Switch(state.automatic, vm::automatic)
+            }
+            if (visibleResults.any { roomIdentity(it) in state.newRoomIds }) TextButton(onClick = {
+                scope.launch { listState.scrollToItem(0); vm.clearNewRooms() }
+            }) { Text("新しく取得した部屋 ${visibleResults.count { roomIdentity(it) in state.newRoomIds }}件 · 先頭へ") }
+            TextButton(onClick = vm::refresh, enabled = state.initialized && !state.loading) { Text("今すぐ更新") }
+        }
         state.preferenceError?.let { error -> item { Text("設定を保存できませんでした：$error", color = MaterialTheme.colorScheme.error) } }
         preferences.error?.let { error -> item {
             Text(error, color = MaterialTheme.colorScheme.error)
@@ -99,7 +112,8 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
             items(visibleResults, key = ::roomIdentity) { room ->
                 RoomCard(
                     room = room,
-                    onClick = { selectedRoom = room },
+                    onClick = { when (room.action) { RoomAction.ENTER -> onEnterRoom(room); RoomAction.PEEK -> onPeekRoom(room); RoomAction.NONE -> selectedRoom = room } },
+                    onDetailsClick = { selectedRoom = room },
                     isFavorite = preferences.isFavorite(room),
                     actionsEnabled = preferences.canEdit(room),
                     onFavoriteClick = { preferencesVm.toggleFavorite(room) },
@@ -111,7 +125,6 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
             }
         }
         if (state.loading) item { CircularProgressIndicator(Modifier.size(28.dp)) }
-        if (state.canLoadMore) item { OutlinedButton(onClick = vm::more, modifier = Modifier.fillMaxWidth()) { Text("続きを読み込む") } }
     }
     SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = lovelyMainContentBottomInset()))
     }
