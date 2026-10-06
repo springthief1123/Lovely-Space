@@ -35,7 +35,7 @@ internal fun RadarRoomSheet(snapshot: RadarRoomSnapshot, onDismiss: () -> Unit, 
     val allowed = inspection?.room != null && !blocked && !checking && !preferences.loading && preferences.error == null && radar.loaded
     RoomDetailsSheet(room, preferences.isFavorite(room), allowed && !preferences.loading && preferences.canEdit(room),
         onDismiss = onDismiss, onFavorite = { vm.toggleFavorite(room) }, onEnter = onEnterRoom, onPeek = onPeekRoom,
-        allowEntry = allowed, verificationContent = {
+        allowEntry = allowed, sourceQuery = snapshot.sourceQuery ?: Genres[snapshot.room.genreKey]?.let { io.github.springthief1123.lovelyspace.core.RoomQuery(it, page = snapshot.page) }, verificationContent = {
             snapshot.at?.let { Text("記録 ${formatObservationTime(it)} · ${snapshot.page}ページ", style = MaterialTheme.typography.bodySmall) }
             Text(if (blocked) "ID再利用を確認した部屋です。「見つける」から選び直してください。" else inspection?.message ?: "履歴の部屋情報です。操作する前に最新の一覧を確認してください。", style = MaterialTheme.typography.bodySmall)
             preferences.error?.let {

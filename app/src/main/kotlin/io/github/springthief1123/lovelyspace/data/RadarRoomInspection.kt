@@ -2,14 +2,15 @@ package io.github.springthief1123.lovelyspace.data
 
 import io.github.springthief1123.lovelyspace.core.*
 
-data class RadarRoomSnapshot(val room: Room, val at: Long?, val page: Int = 1, val blocked: Boolean = false)
+data class RadarRoomSnapshot(val room: Room, val at: Long?, val page: Int = 1, val blocked: Boolean = false, val sourceQuery: RoomQuery? = null)
 data class RadarRoomInspection(val room: Room? = null, val message: String, val reused: Boolean = false)
 
 /** 古い履歴から直接入室せず、指定ページを新たに取得して公開プロフィールを照合する。 */
 suspend fun inspectRadarRoom(lists: RoomListSource, snapshot: RadarRoomSnapshot): RadarRoomInspection {
     if (snapshot.blocked) return RadarRoomInspection(message = "ID再利用を確認した記録です。「見つける」から部屋を選び直してください。", reused = true)
     val genre = Genres[snapshot.room.genreKey] ?: return RadarRoomInspection(message = "このジャンルは開けません。")
-    val query = RoomQuery(genre, page = snapshot.page)
+    val query = snapshot.sourceQuery ?: RoomQuery(genre, page = snapshot.page)
+    if (query.genre != genre || query.page < 1) return RadarRoomInspection(message = "記録の取得条件を確認できません。「見つける」で確認してください。")
     val before = lists.observation(query)?.revision ?: 0
     lists.fetch(query, force = true)
     val observation = lists.observation(query)

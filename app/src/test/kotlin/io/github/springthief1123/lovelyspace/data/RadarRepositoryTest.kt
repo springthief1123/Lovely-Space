@@ -68,6 +68,31 @@ class RadarRepositoryTest {
         assertNull(state.resultFor(original.copy(criteria = RoomSearchCriteria(name = "別条件"))))
         assertNull(state.resultFor(original.copy(genreKey = "talk")))
     }
+    @Test fun trackingKeepsTheObservedPageAndFiltersAcrossRestartAndScan() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            val query = RoomQuery(Genres[room.genreKey]!!, sex = Gender.FEMALE, prefecture = 13,
+                ageBand = "20-29", publicOnly = false, waitingOnly = true, name = "合成", message = "本文", page = 3)
+            val lists = Lists().apply { rooms = listOf(room); lastPage = 3 }
+            lists.fetch(query, force = true)
+            val job = SupervisorJob(backgroundScope.coroutineContext[Job])
+            val radar = RadarRepository(db.presets(), lists, searches, RoomPreferenceRepository(db), CoroutineScope(backgroundScope.coroutineContext + job))
+            radar.state.first { it.loaded }; radar.track(room)
+            assertEquals(query, radar.state.value.targets.single().sourceQuery)
+            assertEquals(3, radar.state.value.targets.single().observedPage)
+            job.cancelAndJoin()
+            val fresh = Lists().apply { rooms = listOf(room); lastPage = 3 }
+            val restored = RadarRepository(db.presets(), fresh, searches, RoomPreferenceRepository(db), backgroundScope)
+            restored.state.first { it.loaded }
+            assertEquals(query, restored.state.value.targets.single().sourceQuery)
+            restored.scan()
+            assertEquals(listOf(query), fresh.calls)
+            fresh.rooms = listOf(room.copy(status = RoomStatus.PUBLIC_WAITING, action = RoomAction.PEEK))
+            restored.scan()
+            assertEquals(query, restored.state.value.events.single().sourceQuery)
+        } finally { db.close() }
+    }
     @Test fun legacyTextOnlyHistoryStillLoads() = runTest {
         val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
         try {
