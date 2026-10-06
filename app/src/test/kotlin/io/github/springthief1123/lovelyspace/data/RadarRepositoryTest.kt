@@ -58,6 +58,11 @@ class RadarRepositoryTest {
             val persisted = db.presets().state("radar_v1")!!
             assertTrue(persisted.contains("REUSED"))
             assertTrue(persisted.contains("条件"))
+            val restored = RadarRepository(db.presets(), lists, searches, prefs, backgroundScope)
+            restored.state.first { it.loaded }
+            assertEquals(setOf("a", "b"), restored.state.value.plans)
+            assertEquals(RoomIdentityEvidence.REUSED, restored.state.value.targets.single().evidence)
+            assertEquals(room.name, restored.state.value.targets.single().identity.name)
         } finally { db.close() }
     }
 }

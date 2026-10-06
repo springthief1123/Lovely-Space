@@ -17,7 +17,7 @@ import java.util.UUID
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], application = Application::class)
 class QuietRoseMigrationTest {
-    @Test fun v3SavedSearchAndRoomPreferenceSurviveNewCombinedSearchField() = runTest {
+    @Test fun v3SavedSearchSurvivesNewCombinedSearchField() = runTest {
         val context = ApplicationProvider.getApplicationContext<Application>()
         val name = "quiet-migration-${UUID.randomUUID()}.db"
         val file = context.getDatabasePath(name)

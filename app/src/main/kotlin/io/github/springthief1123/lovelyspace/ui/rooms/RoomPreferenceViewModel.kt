@@ -10,6 +10,8 @@ import io.github.springthief1123.lovelyspace.data.appliesTo
 import io.github.springthief1123.lovelyspace.ui.describeError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -41,6 +43,8 @@ data class RoomPreferenceUiState(
 class RoomPreferenceViewModel(private val store: RoomPreferenceStore) : ViewModel() {
     private val _state = MutableStateFlow(RoomPreferenceUiState())
     val state = _state.asStateFlow()
+    private val hiddenEvents = Channel<Room>(Channel.BUFFERED)
+    val hiddenRooms = hiddenEvents.receiveAsFlow()
     private var collection: Job? = null
 
     init { reload() }
@@ -79,7 +83,8 @@ class RoomPreferenceViewModel(private val store: RoomPreferenceStore) : ViewMode
         action(roomKey(room)) { store.setFavorite(room, enabled) }
     }
 
-    fun hide(room: Room) = action(roomKey(room)) { store.setHidden(room, true) }
+    fun hide(room: Room) = action(roomKey(room), onSuccess = { hiddenEvents.trySend(room) }) { store.setHidden(room, true) }
+    fun unhide(room: Room) = action(roomKey(room)) { store.setHidden(room, false) }
 
     fun clearFavorite(value: RoomPreference) =
         action(RoomPreferenceUiState.key(value.host, value.roomId)) {
@@ -93,12 +98,13 @@ class RoomPreferenceViewModel(private val store: RoomPreferenceStore) : ViewMode
 
     fun clearError() = _state.update { it.copy(error = null) }
 
-    private fun action(key: String, block: suspend () -> Unit) {
+    private fun action(key: String, onSuccess: () -> Unit = {}, block: suspend () -> Unit) {
         if (key in _state.value.workingKeys) return
         _state.update { it.copy(workingKeys = it.workingKeys + key, error = null) }
         viewModelScope.launch {
             try {
                 block()
+                onSuccess()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

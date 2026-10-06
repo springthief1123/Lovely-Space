@@ -32,10 +32,19 @@ class RadarRepository(
     private val baselines = mutableMapOf<String, Set<String>>()
     private val knownMatches = mutableMapOf<String, MutableSet<String>>()
     private val nextPages = mutableMapOf<String, Int>()
-    init {
-        scope.launch {
+    private var observationJob: Job? = null
+    init { reload() }
+    fun reload() {
+        if (_state.value.running) return
+        observationJob?.cancel()
+        _state.update { it.copy(loaded = false, error = null) }
+        observationJob = scope.launch {
             try {
-                mutex.withLock { dao.state(KEY)?.let(::restore); _state.update { it.copy(loaded = true) } }
+                mutex.withLock {
+                    dao.state(KEY)?.let(::restore)
+                    seen.clear(); baselines.clear(); knownMatches.clear(); nextPages.clear()
+                    _state.update { it.copy(loaded = true) }
+                }
                 lists.observations.collect { observations ->
                     mutex.withLock {
                         val presets = searches.presets.first().filter { it.id in _state.value.plans }
@@ -48,7 +57,7 @@ class RadarRepository(
                     }
                 }
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { _state.update { it.copy(loaded = true, error = "レーダーの読み込みに失敗しました。画面を開き直すかアプリを再起動してください。") } }
+            catch (e: Exception) { _state.update { it.copy(loaded = false, error = "レーダーの読み込み・保存に失敗しました。再試行してください。保存済みデータは保持しています。") } }
         }
     }
     suspend fun setPlan(id: String, enabled: Boolean) = edit {

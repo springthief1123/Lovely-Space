@@ -88,6 +88,7 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
             scoped.copy(criteria = value.criteria, minAgeInput = value.criteria.minAge?.toString().orEmpty(),
                 maxAgeInput = value.criteria.maxAge?.toString().orEmpty())
         }
+        rememberGenre(genre.key)
     }
     fun refresh() { if (_state.value.initialized) load(1, _state.value.page > 0) }
     fun more() { if (_state.value.canLoadMore) load(_state.value.page + 1, false) }

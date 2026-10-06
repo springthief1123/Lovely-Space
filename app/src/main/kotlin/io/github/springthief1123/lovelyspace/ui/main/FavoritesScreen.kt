@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.FilterChip
 import androidx.compose.foundation.layout.Row
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import io.github.springthief1123.lovelyspace.ui.components.*
 import io.github.springthief1123.lovelyspace.data.SearchPreset
 import androidx.compose.material3.CircularProgressIndicator
@@ -51,7 +52,7 @@ fun FavoritesScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onA
     val state by vm.state.collectAsStateWithLifecycle()
     val values = state.favorites
     val presets by app.searchPresets.presets.collectAsStateWithLifecycle(initialValue = emptyList())
-    var section by remember { mutableIntStateOf(0) }
+    var section by rememberSaveable { mutableIntStateOf(0) }
 
     LazyColumn(
         Modifier.fillMaxSize(),

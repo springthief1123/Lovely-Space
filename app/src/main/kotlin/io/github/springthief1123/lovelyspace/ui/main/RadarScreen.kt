@@ -5,6 +5,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -24,7 +25,7 @@ fun RadarScreen(onFindRooms: () -> Unit) {
     val scope = rememberCoroutineScope()
     var working by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var section by remember { mutableIntStateOf(0) }
+    var section by rememberSaveable { mutableIntStateOf(0) }
     fun action(block: suspend () -> Unit) {
         working = true
         scope.launch {
@@ -46,8 +47,11 @@ fun RadarScreen(onFindRooms: () -> Unit) {
         item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf("巡回", "追跡", "履歴").forEachIndexed { index, label -> FilterChip(section == index, { section = index }, label = { Text(label) }) }
         } }
-        if (!state.loaded) item { CircularProgressIndicator() }
-        (error ?: state.error)?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error) } }
+        if (!state.loaded && state.error == null) item { CircularProgressIndicator() }
+        (error ?: state.error)?.let { message -> item {
+            Text(message, color = MaterialTheme.colorScheme.error)
+            if (!state.loaded) TextButton(onClick = app.radar::reload, enabled = !state.running) { Text("再試行") }
+        } }
         when (section) {
             0 -> {
                 if (saved.isEmpty()) item { QuietPanel { Text("巡回条件をつくりましょう", style = MaterialTheme.typography.titleSmall); Text("「見つける」の絞り込みで条件を保存すると、ここで巡回を有効にできます。", style = MaterialTheme.typography.bodySmall); TextButton(onClick = onFindRooms) { Text("条件を探す") } } }

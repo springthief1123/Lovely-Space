@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
@@ -50,6 +51,13 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
     LaunchedEffect(state.initialized, preset?.id) {
         if (state.initialized && preset != null) { vm.applyPreset(preset); onPresetConsumed() }
     }
+    val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(preferencesVm) {
+        preferencesVm.hiddenRooms.collect { room ->
+            if (snackbar.showSnackbar("部屋を非表示にしました", actionLabel = "元に戻す", withDismissAction = true) == SnackbarResult.ActionPerformed) preferencesVm.unhide(room)
+        }
+    }
+    Box(Modifier.fillMaxSize()) {
     LazyColumn(Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = LovelySpacing.screenHorizontal, end = LovelySpacing.screenHorizontal,
             top = lovelyMainContentTopPadding(), bottom = LovelySpacing.bottomContentInset + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
@@ -61,7 +69,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
                 trailingIcon = { IconButton(onClick = { showFilters = true }) { Icon(Icons.Outlined.Tune, "検索条件") } },
                 singleLine = true, shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth())
         }
-        item { GenreBar(state.genre, emptyList(), emptyMap(), { vm.genre(it); vm.refresh() }) }
+        if (state.initialized) item { GenreBar(state.genre, emptyList(), emptyMap(), { vm.genre(it); vm.refresh() }) }
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 FilterChip(c.waitingOnly == true, { vm.criteria(c.copy(waitingOnly = if (c.waitingOnly == true) null else true)) }, label = { Text("待機中") })
@@ -74,7 +82,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
             state.pageTimes.values.minOrNull()?.let { at -> Text("表示範囲の最も古い確認 ${io.github.springthief1123.lovelyspace.data.formatObservationTime(at)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             Text("条件の変更は取得済み一覧に反映します。「続きを読み込む」で検索範囲を広げられます。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        item { TextButton(onClick = vm::refresh, enabled = !state.loading) { Text("一覧を更新") } }
+        item { TextButton(onClick = vm::refresh, enabled = state.initialized && !state.loading) { Text("一覧を更新") } }
         state.preferenceError?.let { error -> item { Text("設定を保存できませんでした：$error", color = MaterialTheme.colorScheme.error) } }
         preferences.error?.let { error -> item {
             Text(error, color = MaterialTheme.colorScheme.error)
@@ -82,7 +90,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         } }
         state.error?.let { error -> item {
             Text(error, color = MaterialTheme.colorScheme.error)
-            TextButton(onClick = { if (state.errorOnMore) vm.more() else vm.refresh() }, enabled = !state.loading) { Text("もう一度読み込む") }
+            TextButton(onClick = { if (state.errorOnMore) vm.more() else vm.refresh() }, enabled = state.initialized && !state.loading) { Text("もう一度読み込む") }
         } }
         if (validAges) {
             items(visibleResults, key = ::roomIdentity) { room ->
@@ -101,6 +109,8 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         }
         if (state.loading) item { CircularProgressIndicator(Modifier.size(28.dp)) }
         if (state.canLoadMore) item { OutlinedButton(onClick = vm::more, modifier = Modifier.fillMaxWidth()) { Text("続きを読み込む") } }
+    }
+    SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = 112.dp))
     }
     selectedRoom?.let { room -> RoomDetailsSheet(room, preferences.isFavorite(room), preferences.canEdit(room),
         onDismiss = { selectedRoom = null }, onFavorite = { preferencesVm.toggleFavorite(room) },

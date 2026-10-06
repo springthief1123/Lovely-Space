@@ -35,7 +35,7 @@ internal fun RoomDetailsSheet(room: Room, favorite: Boolean, actionsEnabled: Boo
             Text("取得時の一覧情報です。入室時には空き状況が変わっている場合があります。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onFavorite, enabled = actionsEnabled) { Text(if (favorite) "保存を解除" else "部屋を保存") }
-                OutlinedButton(enabled = radar.loaded && !working && room.name != null, onClick = {
+                OutlinedButton(enabled = allowEntry && radar.loaded && !working && room.name != null, onClick = {
                     working = true
                     scope.launch {
                         try { if (tracking) app.radar.removeTarget(room) else app.radar.track(room); notice = if (tracking) "追跡を解除しました" else "レーダーに追加しました" }
