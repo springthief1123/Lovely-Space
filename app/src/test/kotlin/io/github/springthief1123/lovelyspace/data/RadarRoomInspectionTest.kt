@@ -28,6 +28,14 @@ class RadarRoomInspectionTest {
         lists.fresh = false
         assertNull(inspectRadarRoom(lists, RadarRoomSnapshot(room, 500, page = 3)).room)
     }
+    @Test fun filteredSourceQueryIsUsedWithoutDroppingAnyFilter() = runTest {
+        val query = RoomQuery(Genres[room.genreKey]!!, sex = Gender.FEMALE, prefecture = 13,
+            ageBand = "20-29", publicOnly = false, waitingOnly = true, name = "合成", message = "本文", page = 3)
+        val lists = Lists(listOf(room))
+        assertNotNull(inspectRadarRoom(lists, RadarRoomSnapshot(room, 500, sourceQuery = query)).room)
+        assertEquals(query, lists.observed?.query)
+        assertNull(inspectRadarRoom(lists, RadarRoomSnapshot(room, 500, sourceQuery = query.copy(genre = Genres["talk"]!!))).room)
+    }
     @Test fun reusedHiddenAndMissingProfilesNeverEnableEntry() = runTest {
         val snapshot = RadarRoomSnapshot(room, 500)
         val reused = inspectRadarRoom(Lists(listOf(room.copy(name = "別の合成"))), snapshot)

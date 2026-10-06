@@ -19,7 +19,7 @@ import kotlinx.coroutines.launch
 internal fun RoomDetailsSheet(room: Room, favorite: Boolean, actionsEnabled: Boolean,
     onDismiss: () -> Unit, onFavorite: () -> Unit, onHide: (() -> Unit)? = null,
     onEnter: (Room) -> Unit, onPeek: (Room) -> Unit, allowEntry: Boolean = true,
-    verificationContent: @Composable () -> Unit = {}) {
+    verificationContent: @Composable () -> Unit = {}, sourceQuery: RoomQuery? = null) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val scope = rememberCoroutineScope()
     val radar by app.radar.state.collectAsStateWithLifecycle()
@@ -40,7 +40,7 @@ internal fun RoomDetailsSheet(room: Room, favorite: Boolean, actionsEnabled: Boo
                 OutlinedButton(enabled = allowEntry && radar.loaded && !working && room.name != null, onClick = {
                     working = true
                     scope.launch {
-                        try { if (tracking) app.radar.removeTarget(room) else app.radar.track(room); notice = if (tracking) "追跡を解除しました" else "レーダーに追加しました" }
+                        try { if (tracking) app.radar.removeTarget(room) else app.radar.track(room, sourceQuery); notice = if (tracking) "追跡を解除しました" else "レーダーに追加しました" }
                         catch (e: kotlinx.coroutines.CancellationException) { throw e }
                         catch (e: Exception) { notice = "追跡設定を保存できませんでした。" }
                         finally { working = false }
