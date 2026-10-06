@@ -46,6 +46,8 @@ interface PresetDao {
     suspend fun imported(): Boolean
     @Upsert suspend fun put(value: ProfilePreset)
     @Upsert suspend fun put(value: MessagePreset)
+    @Query("SELECT value FROM local_state WHERE `key` = :key")
+    suspend fun state(key: String): String?
     @Upsert suspend fun put(value: LocalState)
     @Query("UPDATE profile_presets SET isDefault = 0") suspend fun clearProfileDefault()
     @Query("UPDATE message_presets SET isDefault = 0") suspend fun clearMessageDefault()
@@ -55,7 +57,7 @@ interface PresetDao {
 
 @Database(
     entities = [ProfilePreset::class, MessagePreset::class, LocalState::class, SearchPreset::class, RoomPreference::class],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 @TypeConverters(SearchPresetConverters::class)
@@ -79,6 +81,12 @@ abstract class PresetDatabase : RoomDatabase() {
                         `criteria_sort` TEXT NOT NULL, PRIMARY KEY(`id`)
                     )
                 """.trimIndent())
+            }
+        }
+
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `search_presets` ADD COLUMN `criteria_text` TEXT NOT NULL DEFAULT ''")
             }
         }
 

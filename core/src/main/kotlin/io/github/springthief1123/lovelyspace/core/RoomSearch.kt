@@ -18,6 +18,8 @@ data class RoomSearchCriteria(
     val waitingOnly: Boolean? = null,
     val publicOnly: Boolean? = null,
     val sort: RoomSort = RoomSort.SITE,
+    /** 名前と募集文をまとめて探す、共通検索欄。 */
+    val text: String = "",
 ) {
     val isValid: Boolean get() = (minAge == null || minAge in 18..99) &&
         (maxAge == null || maxAge in 18..99) && (minAge == null || maxAge == null || minAge <= maxAge)
@@ -33,6 +35,7 @@ data class RoomSearchCriteria(
         if (publicOnly != null && room.isPublic != publicOnly) return false
         if (!keywordsMatch(room.name.orEmpty(), name) || !keywordsMatch(room.message, message)) return false
         val allText = "${room.name.orEmpty()} ${room.message}".lowercase(Locale.ROOT)
+        if (!keywordsMatch(allText, this.text)) return false
         return words(excluded).none { allText.contains(it) }
     }
 

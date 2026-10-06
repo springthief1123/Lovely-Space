@@ -1,0 +1,335 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 4,
+    "identityHash": "a540bff6ef4e6490d12c794dacb07c5b",
+    "entities": [
+      {
+        "tableName": "profile_presets",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `label` TEXT NOT NULL, `name` TEXT NOT NULL, `sex` INTEGER NOT NULL, `years` INTEGER, `prefecture` INTEGER, `isDefault` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "label",
+            "columnName": "label",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sex",
+            "columnName": "sex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "years",
+            "columnName": "years",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "prefecture",
+            "columnName": "prefecture",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "isDefault",
+            "columnName": "isDefault",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "message_presets",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `label` TEXT NOT NULL, `message` TEXT NOT NULL, `isDefault` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "label",
+            "columnName": "label",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "message",
+            "columnName": "message",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isDefault",
+            "columnName": "isDefault",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "local_state",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `value` TEXT NOT NULL, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "value",
+            "columnName": "value",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        }
+      },
+      {
+        "tableName": "search_presets",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `label` TEXT NOT NULL, `genreKey` TEXT NOT NULL, `criteria_name` TEXT NOT NULL, `criteria_message` TEXT NOT NULL, `criteria_excluded` TEXT NOT NULL, `criteria_keywordMode` TEXT NOT NULL, `criteria_gender` TEXT, `criteria_minAge` INTEGER, `criteria_maxAge` INTEGER, `criteria_includeUnknownAge` INTEGER NOT NULL, `criteria_area` TEXT, `criteria_waitingOnly` INTEGER, `criteria_publicOnly` INTEGER, `criteria_sort` TEXT NOT NULL, `criteria_text` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "label",
+            "columnName": "label",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "genreKey",
+            "columnName": "genreKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "criteria.name",
+            "columnName": "criteria_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "criteria.message",
+            "columnName": "criteria_message",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "criteria.excluded",
+            "columnName": "criteria_excluded",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "criteria.keywordMode",
+            "columnName": "criteria_keywordMode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "criteria.gender",
+            "columnName": "criteria_gender",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "criteria.minAge",
+            "columnName": "criteria_minAge",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "criteria.maxAge",
+            "columnName": "criteria_maxAge",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "criteria.includeUnknownAge",
+            "columnName": "criteria_includeUnknownAge",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "criteria.area",
+            "columnName": "criteria_area",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "criteria.waitingOnly",
+            "columnName": "criteria_waitingOnly",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "criteria.publicOnly",
+            "columnName": "criteria_publicOnly",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "criteria.sort",
+            "columnName": "criteria_sort",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "criteria.text",
+            "columnName": "criteria_text",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "room_preferences",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`host` TEXT NOT NULL, `roomId` INTEGER NOT NULL, `genreKey` TEXT NOT NULL, `favorite` INTEGER NOT NULL, `hidden` INTEGER NOT NULL, `snapshotStatus` TEXT NOT NULL, `snapshotAction` TEXT NOT NULL, `snapshotElapsedSeconds` INTEGER, `snapshotName` TEXT, `snapshotGender` TEXT NOT NULL, `snapshotAge` INTEGER, `snapshotArea` TEXT, `snapshotMessage` TEXT NOT NULL, `identityName` TEXT, `identityGender` TEXT, `identityAge` INTEGER, `stale` INTEGER NOT NULL, PRIMARY KEY(`host`, `roomId`))",
+        "fields": [
+          {
+            "fieldPath": "host",
+            "columnName": "host",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "roomId",
+            "columnName": "roomId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "genreKey",
+            "columnName": "genreKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "favorite",
+            "columnName": "favorite",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hidden",
+            "columnName": "hidden",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "snapshotStatus",
+            "columnName": "snapshotStatus",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "snapshotAction",
+            "columnName": "snapshotAction",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "snapshotElapsedSeconds",
+            "columnName": "snapshotElapsedSeconds",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "snapshotName",
+            "columnName": "snapshotName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "snapshotGender",
+            "columnName": "snapshotGender",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "snapshotAge",
+            "columnName": "snapshotAge",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "snapshotArea",
+            "columnName": "snapshotArea",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "snapshotMessage",
+            "columnName": "snapshotMessage",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "identityName",
+            "columnName": "identityName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "identityGender",
+            "columnName": "identityGender",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "identityAge",
+            "columnName": "identityAge",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "stale",
+            "columnName": "stale",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "host",
+            "roomId"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'a540bff6ef4e6490d12c794dacb07c5b')"
+    ]
+  }
+}
