@@ -105,6 +105,7 @@ fun DisplaySettingsScreen(onBack: () -> Unit) {
                 )
             }
         }
+        }
         SnackbarHost(
             hostState = snackbar,
             modifier = Modifier
