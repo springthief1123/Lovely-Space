@@ -29,6 +29,8 @@ data class RadarState(
     val candidateRules: List<CandidateRule> = emptyList(),
     val candidateResults: Map<String, CandidateResult> = emptyMap(),
     val nextCandidatePages: Map<String, Int> = emptyMap(),
+    val lastScan: RadarScanReport? = null,
+    val lastConfirmedAt: Long? = null,
 ) {
     fun resultFor(preset: SearchPreset): RadarResult? = results[preset.id]?.takeIf { it.genreKey == preset.genreKey && it.criteria == preset.criteria }
     fun resultFor(rule: CandidateRule): CandidateResult? = candidateResults[rule.id]?.takeIf { it.ruleKey == rule.key }
@@ -65,7 +67,7 @@ class RadarRepository(
                 mutex.withLock {
                     dao.state(KEY)?.let(::restore)
                     seen.clear(); baselines.clear(); knownMatches.clear(); nextPages.clear(); planKeys.clear(); candidateBaselines.clear(); candidateKnown.clear(); candidateNext.clear(); evaluatedPlans.clear(); evaluatedCandidates.clear()
-                    _state.update { it.copy(loaded = true, scopes = emptyMap(), results = emptyMap(), nextPages = emptyMap(), candidateResults = emptyMap(), nextCandidatePages = emptyMap()) }
+                    _state.update { it.copy(loaded = true, scopes = emptyMap(), results = emptyMap(), nextPages = emptyMap(), candidateResults = emptyMap(), nextCandidatePages = emptyMap(), lastScan = null, lastConfirmedAt = null) }
                 }
                 combine(lists.observations, searches.presets) { _, _ -> Unit }.collect {
                     mutex.withLock {
@@ -178,17 +180,19 @@ class RadarRepository(
         }
     }
     suspend fun scan() {
-        mutex.withLock {
+        val previousEvents = mutex.withLock {
             check(_state.value.loaded) { "読み込み中です。" }
             if (_state.value.running) return
-            _state.update { it.copy(running = true, error = null) }
+            _state.update { it.copy(running = true, error = null, lastScan = null) }
+            _state.value.events.map { it.id }.toSet()
         }
+        var interrupted = false
         try {
-            val saved = searches.presets.first()
-            val selected = saved.filter { it.id in _state.value.plans }
-            // 同じジャンル・ページを複数の計画が要求しても、通信は1回だけ。
+            // 計画の定義と選択は同じロック区間で固定し、開始前の変更を巻き戻さない。
             val scheduled = mutex.withLock {
+                val saved = searches.presets.first()
                 reconcilePlans(saved)
+                val selected = saved.filter { it.id in _state.value.plans }
                 val requests = linkedMapOf<RoomQuery, MutableList<SearchPreset>>()
                 selected.forEach { preset ->
                     Genres[preset.genreKey]?.let { genre ->
@@ -203,6 +207,7 @@ class RadarRepository(
                 _state.value.targets.filter { it.evidence != RoomIdentityEvidence.REUSED }.forEach { target ->
                     target.sourceQueryOrLegacy()?.let { requests.getOrPut(it) { mutableListOf() } }
                 }
+                _state.update { it.copy(lastScan = RadarScanReport(System.currentTimeMillis(), requests.keys.map { query -> RadarPageCheck(query) })) }
                 requests.mapValues { (query, plans) -> ScheduledRadarQuery(plans.toList(), candidates.filter { it.genreKey == query.genre.key && (candidateNext[it.key] ?: 1) == query.page }) }
             }
             for ((query, request) in scheduled) {
@@ -212,33 +217,67 @@ class RadarRepository(
                         request.candidates.any { scheduledRule -> _state.value.candidateRules.any { it.enabled && it.key == scheduledRule.key } } ||
                         _state.value.targets.any { it.sourceQueryOrLegacy() == query && it.evidence != RoomIdentityEvidence.REUSED }
                 }
-                if (!stillNeeded) continue
-                lists.fetch(query, force = true)
-                val observation = lists.observation(query) ?: continue
+                if (!stillNeeded) {
+                    updateCheck(query, RadarCheckStatus.SKIPPED, message = "条件の停止・変更により取得を見送りました。")
+                    continue
+                }
+                updateCheck(query, RadarCheckStatus.CHECKING)
+                val before = lists.observation(query)?.revision ?: 0
+                try { lists.fetch(query, force = true) }
+                catch (e: CancellationException) { throw e }
+                catch (e: Exception) {
+                    updateCheck(query, RadarCheckStatus.FAILED, message = "一覧を取得できませんでした。次の巡回で同じページを確認します。")
+                    continue
+                }
+                val observation = lists.observation(query)
+                if (observation == null || observation.query != query || observation.revision <= before) {
+                    updateCheck(query, RadarCheckStatus.FAILED, message = "新しい一覧を確認できませんでした。次の巡回で同じページを確認します。")
+                    continue
+                }
                 mutex.withLock {
                     val currentSaved = searches.presets.first()
                     reconcilePlans(currentSaved)
                     val active = currentSaved.filter { it.id in _state.value.plans }
                     val scheduledPlans = active.filter { preset -> request.plans.any { planKey(it) == planKey(preset) } }
                     val scheduledCandidates = _state.value.candidateRules.filter { rule -> rule.enabled && request.candidates.any { it.key == rule.key } }
-                    // 一覧監視が先に部屋追跡へ反映しても、この取得に割り当てた条件だけを評価する。
                     process(observation, scheduledPlans, scheduledCandidates)
                     seen[query] = maxOf(seen[query] ?: 0, observation.revision)
-                    // 開始時にこのリクエストへ割り当てた計画だけを進める。
                     scheduledPlans.forEach { preset ->
                         nextPages[planKey(preset)] = if (observation.page.hasNextPage) observation.page.page + 1 else 1
                     }
                     scheduledCandidates.forEach { rule ->
                         candidateNext[rule.key] = if (observation.page.hasNextPage) observation.page.page + 1 else 1
                     }
+                    val matches = (scheduledPlans.flatMap { _state.value.resultFor(it)?.rooms.orEmpty() } +
+                        scheduledCandidates.flatMap { _state.value.resultFor(it)?.rooms.orEmpty() }).distinctBy(::roomIdentity).size
                     _state.update { state -> state.copy(nextPages = active.associate { p -> p.id to (nextPages[planKey(p)] ?: 1) },
                         nextCandidatePages = state.candidateRules.filter { it.enabled }.associate { it.id to (candidateNext[it.key] ?: 1) }) }
                     persist()
+                    updateCheck(query, RadarCheckStatus.CONFIRMED, observation.confirmedAt, matches)
                 }
             }
-        } catch (e: CancellationException) { throw e }
-        catch (e: Exception) { _state.update { it.copy(error = "巡回できませんでした。通信状況を確認して、もう一度お試しください。確認済みの情報は保持しています。") } }
-        finally { _state.update { it.copy(running = false) } }
+        } catch (e: CancellationException) { interrupted = true; throw e }
+        catch (e: Exception) {
+            interrupted = true
+            _state.update { it.copy(error = "巡回を続けられませんでした。確認済みの情報は保持しています。設定・通信状況を確認してください。") }
+        } finally {
+            _state.update { state ->
+                val report = state.lastScan?.let { run -> run.copy(finishedAt = System.currentTimeMillis(), interrupted = interrupted,
+                    newEvents = state.events.count { it.id !in previousEvents },
+                    pages = run.pages.map { page -> when (page.status) {
+                        RadarCheckStatus.CHECKING -> page.copy(status = RadarCheckStatus.FAILED, message = "このページの確認を完了できませんでした。")
+                        RadarCheckStatus.PENDING -> page.copy(status = RadarCheckStatus.SKIPPED, message = "巡回の中断により取得していません。")
+                        else -> page
+                    } }) }
+                state.copy(running = false, lastScan = report,
+                    error = state.error ?: if (report != null && report.failed > 0) "取得できなかったページがあります。確認済みの結果は保持しています。" else null)
+            }
+        }
+    }
+    private fun updateCheck(query: RoomQuery, status: RadarCheckStatus, at: Long? = null, matches: Int = 0, message: String? = null) {
+        _state.update { state -> state.copy(lastScan = state.lastScan?.let { report ->
+            report.copy(pages = report.pages.map { if (it.query == query) it.copy(status = status, confirmedAt = at, matches = matches, message = message) else it })
+        }, lastConfirmedAt = if (at != null) at else state.lastConfirmedAt) }
     }
     private suspend fun process(o: ObservedRoomPage, presets: List<SearchPreset>, candidates: List<CandidateRule> = emptyList()) {
         val freshTracking = (seen[o.query] ?: 0) < o.revision
