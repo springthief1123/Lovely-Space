@@ -16,6 +16,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.ColorUtils
+import io.github.springthief1123.lovelyspace.settings.TextScale
 import io.github.springthief1123.lovelyspace.settings.ThemeMode
 import io.github.springthief1123.lovelyspace.ui.shell.LovelyBottomNavigation
 import io.github.springthief1123.lovelyspace.ui.shell.MainDestinations
@@ -103,6 +104,28 @@ class QuietLayoutTest {
             compose.runOnIdle { assertEquals(destination.route, selected) }
         }
         compose.runOnIdle { assertTrue(measured > 0) }
+    }
+
+    @Test fun appLargeTextScaleStacksFieldsAtNarrowWidth() {
+        val scale = mutableStateOf(TextScale.STANDARD)
+        compose.setContent {
+            LovelySpaceTheme(textScale = scale.value) {
+                Box(Modifier.width(340.dp)) {
+                    QuietFieldPair(
+                        first = { Box(it.height(56.dp).testTag("app-scale-first")) },
+                        second = { Box(it.height(56.dp).testTag("app-scale-second")) },
+                    )
+                }
+            }
+        }
+        val standardFirst = compose.onNodeWithTag("app-scale-first").fetchSemanticsNode().boundsInRoot
+        val standardSecond = compose.onNodeWithTag("app-scale-second").fetchSemanticsNode().boundsInRoot
+        assertEquals(standardFirst.top, standardSecond.top, 1f)
+
+        compose.runOnIdle { scale.value = TextScale.LARGE }
+        val largeFirst = compose.onNodeWithTag("app-scale-first").fetchSemanticsNode().boundsInRoot
+        val largeSecond = compose.onNodeWithTag("app-scale-second").fetchSemanticsNode().boundsInRoot
+        assertTrue(largeSecond.top >= largeFirst.bottom)
     }
 
     @Test fun bottomInsetReservesFabClearanceOnlyWhenShown() {
