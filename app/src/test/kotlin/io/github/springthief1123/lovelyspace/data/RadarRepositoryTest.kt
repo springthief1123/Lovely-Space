@@ -37,6 +37,37 @@ class RadarRepositoryTest {
             return page
         }
     }
+    @Test fun matchResultsAndEventRoomSnapshotsSurviveWithoutTreatingHistoryAsCurrent() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            searches.save(SearchPreset("a", "合成条件", "zenkoku", RoomSearchCriteria()))
+            val lists = Lists().apply { rooms = listOf(room) }
+            val job = SupervisorJob(backgroundScope.coroutineContext[Job])
+            val radar = RadarRepository(db.presets(), lists, searches, RoomPreferenceRepository(db), CoroutineScope(backgroundScope.coroutineContext + job))
+            radar.state.first { it.loaded }; radar.setPlan("a", true); radar.scan()
+            assertEquals(listOf(room), radar.state.value.results["a"]?.rooms)
+            lists.rooms = listOf(room, room.copy(id = 43, name = "追加の合成")); radar.scan()
+            val event = radar.state.value.events.single()
+            assertEquals(43L, event.rooms.single().id)
+            assertEquals(1, event.page)
+            job.cancelAndJoin()
+            val restored = RadarRepository(db.presets(), Lists(), searches, RoomPreferenceRepository(db), backgroundScope)
+            restored.state.first { it.loaded }
+            assertEquals(event, restored.state.value.events.single())
+            assertTrue(restored.state.value.results.isEmpty())
+        } finally { db.close() }
+    }
+    @Test fun legacyTextOnlyHistoryStillLoads() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            db.presets().put(LocalState("radar_v1", """{"plans":[],"targets":[],"events":[{"at":1000,"text":"合成の旧履歴"}]}"""))
+            val radar = RadarRepository(db.presets(), Lists(), SearchPresetRepository(db), RoomPreferenceRepository(db), backgroundScope)
+            radar.state.first { it.loaded }
+            assertEquals("合成の旧履歴", radar.state.value.events.single().text)
+            assertTrue(radar.state.value.events.single().rooms.isEmpty())
+        } finally { db.close() }
+    }
     @Test fun clockRollbackAndRestoredFutureTimestampsDoNotBlockNewObservations() = runTest {
         val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
         try {

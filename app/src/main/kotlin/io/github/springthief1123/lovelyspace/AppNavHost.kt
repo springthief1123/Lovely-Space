@@ -113,7 +113,15 @@ fun AppNavHost() {
                     },
                 )
             }
-            composable(Routes.RADAR) { RadarScreen(onFindRooms = { nav.navigate(Routes.ROOMS) { launchSingleTop = true } }) }
+            composable(Routes.RADAR) {
+                RadarScreen(onFindRooms = { nav.navigate(Routes.ROOMS) { launchSingleTop = true } },
+                    onEnterRoom = { room -> Genres[room.genreKey]?.host?.let { host ->
+                        nav.navigate(Routes.entry(host, room.genreKey, room.id, Routes.RADAR)) { launchSingleTop = true }
+                    } },
+                    onPeekRoom = { room -> Genres[room.genreKey]?.host?.let { host ->
+                        nav.navigate(Routes.public(host, room.genreKey, room.id)) { launchSingleTop = true }
+                    } })
+            }
             composable(Routes.FAVORITES) {
                 FavoritesScreen(
                     onApplyPreset = { pendingPreset = it; nav.navigate(Routes.ROOMS) { popUpTo(Routes.ROOMS); launchSingleTop = true } },

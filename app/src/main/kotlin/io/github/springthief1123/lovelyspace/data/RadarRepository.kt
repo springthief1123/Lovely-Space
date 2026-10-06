@@ -12,13 +12,17 @@ import org.json.JSONObject
 data class TrackedRoom(val room: Room, val confirmedAt: Long? = null, val evidence: RoomIdentityEvidence = RoomIdentityEvidence.NOT_OBSERVED, val identity: Room = room, val observedAt: Long? = null,
     /** このRoomListRepository内だけの取得順序。再起動時は0から照合し直すため永続化しない。 */
     val observationRevision: Long = 0,
+    val observedPage: Int = 1,
 )
-data class RadarEvent(val at: Long, val text: String)
+data class RadarEvent(val at: Long, val text: String, val id: String = java.util.UUID.randomUUID().toString(),
+    val rooms: List<Room> = emptyList(), val page: Int? = null, val blocked: Boolean = false)
+data class RadarResult(val presetId: String, val at: Long, val page: Int, val lastPage: Int, val rooms: List<Room>)
 data class RadarState(
     val plans: Set<String> = emptySet(), val targets: List<TrackedRoom> = emptyList(),
     val events: List<RadarEvent> = emptyList(), val running: Boolean = false,
     val loaded: Boolean = false, val error: String? = null,
     val scopes: Map<String, String> = emptyMap(),
+    val results: Map<String, RadarResult> = emptyMap(),
 )
 
 class RadarRepository(
@@ -46,7 +50,7 @@ class RadarRepository(
                 mutex.withLock {
                     dao.state(KEY)?.let(::restore)
                     seen.clear(); baselines.clear(); knownMatches.clear(); nextPages.clear()
-                    _state.update { it.copy(loaded = true) }
+                    _state.update { it.copy(loaded = true, scopes = emptyMap(), results = emptyMap()) }
                 }
                 lists.observations.collect { observations ->
                     mutex.withLock {
@@ -131,14 +135,15 @@ class RadarRepository(
             val evidence = roomIdentityEvidence(target.identity, room)
             if (evidence == RoomIdentityEvidence.NOT_OBSERVED) return@map target // 1ページに無いだけで不在とは判断しない。
             if (evidence == RoomIdentityEvidence.MATCH && room != null) {
-                if (target.confirmedAt != null && target.room.status != room.status) events += RadarEvent(o.confirmedAt, "${room.name}：${statusName(room.status)}を確認")
-                target.copy(room = room, confirmedAt = o.confirmedAt, observedAt = o.confirmedAt, evidence = evidence, observationRevision = o.revision)
+                if (target.confirmedAt != null && target.room.status != room.status) events += RadarEvent(o.confirmedAt, "${room.name}：${statusName(room.status)}を確認", rooms = listOf(room), page = o.page.page)
+                target.copy(room = room, confirmedAt = o.confirmedAt, observedAt = o.confirmedAt, evidence = evidence, observationRevision = o.revision, observedPage = o.page.page)
             } else {
-                if (evidence == RoomIdentityEvidence.REUSED) events += RadarEvent(o.confirmedAt, "${target.room.name}：同じIDに異なるプロフィール。追跡を停止しました")
+                if (evidence == RoomIdentityEvidence.REUSED) events += RadarEvent(o.confirmedAt, "${target.room.name}：同じIDに異なるプロフィール。追跡を停止しました", rooms = listOf(target.identity), page = o.page.page, blocked = true)
                 target.copy(evidence = evidence, observedAt = o.confirmedAt, observationRevision = o.revision)
             }
         }
         val scopes = current.scopes.toMutableMap()
+        val results = current.results.toMutableMap()
         presets.filter { it.genreKey == o.query.genre.key }.forEach { preset ->
             // フィルタ済みの通信結果を無条件一覧の巡回基準には使わない。
             if (o.query != RoomQuery(o.query.genre, page = o.query.page)) return@forEach
@@ -149,21 +154,23 @@ class RadarRepository(
             val known = knownMatches.getOrPut(scopeKey) { mutableSetOf() }
             val previous = baselines[key]
             if (previous != null) {
-                val count = (identities - previous - known).size
-                if (count > 0) events += RadarEvent(o.confirmedAt, "${preset.label}：${o.page.page}ページで新しい一致を${count}件確認")
+                val added = identities - previous - known
+                if (added.isNotEmpty()) events += RadarEvent(o.confirmedAt, "${preset.label}：${o.page.page}ページで新しい一致を${added.size}件確認",
+                    rooms = matches.filter { "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" in added }.take(20), page = o.page.page)
             }
             known.addAll(identities)
             baselines[key] = identities
+            results[preset.id] = RadarResult(preset.id, o.confirmedAt, o.page.page, o.page.lastPage, matches)
             scopes[preset.id] = "${formatObservationTime(o.confirmedAt)} · ${o.page.page}/${o.page.lastPage}ページ · 一致${matches.size}件"
         }
-        _state.value = current.copy(targets = targets, events = (events + current.events).take(100), scopes = scopes)
+        _state.value = current.copy(targets = targets, events = (events + current.events).take(100), scopes = scopes, results = results)
     }
     private fun planKey(preset: SearchPreset): String = "${preset.id}/${preset.genreKey}/${preset.criteria}"
     private suspend fun persist() {
         val s = _state.value
         val json = JSONObject().put("plans", JSONArray(s.plans.toList()))
-            .put("targets", JSONArray(s.targets.map { t -> JSONObject().put("room", roomJson(t.room)).put("identity", roomJson(t.identity)).put("at", t.confirmedAt).put("observedAt", t.observedAt).put("evidence", t.evidence.name) }))
-            .put("events", JSONArray(s.events.map { JSONObject().put("at", it.at).put("text", it.text) }))
+            .put("targets", JSONArray(s.targets.map { t -> JSONObject().put("room", roomJson(t.room)).put("identity", roomJson(t.identity)).put("at", t.confirmedAt).put("observedAt", t.observedAt).put("evidence", t.evidence.name).put("page", t.observedPage) }))
+            .put("events", JSONArray(s.events.map { JSONObject().put("at", it.at).put("text", it.text).put("id", it.id).put("rooms", JSONArray(it.rooms.map(::roomJson))).put("page", it.page).put("blocked", it.blocked) }))
         // ページ単位の基準・巡回位置は再起動時に捨て、初回大量通知を避ける。
         dao.put(LocalState(KEY, json.toString()))
     }
@@ -173,8 +180,10 @@ class RadarRepository(
         val targets = json.optJSONArray("targets") ?: JSONArray()
         val events = json.optJSONArray("events") ?: JSONArray()
         _state.value = RadarState(plans = (0 until plans.length()).map { plans.getString(it) }.toSet(),
-            targets = (0 until targets.length()).map { i -> val t = targets.getJSONObject(i); TrackedRoom(readRoom(t.getJSONObject("room")), if (t.isNull("at")) null else t.getLong("at"), RoomIdentityEvidence.valueOf(t.getString("evidence")), if (t.has("identity")) readRoom(t.getJSONObject("identity")) else readRoom(t.getJSONObject("room")), if (t.isNull("observedAt")) (if (t.isNull("at")) null else t.getLong("at")) else t.getLong("observedAt")) },
-            events = (0 until events.length()).map { i -> events.getJSONObject(i).let { RadarEvent(it.getLong("at"), it.getString("text")) } })
+            targets = (0 until targets.length()).map { i -> val t = targets.getJSONObject(i); TrackedRoom(readRoom(t.getJSONObject("room")), if (t.isNull("at")) null else t.getLong("at"), RoomIdentityEvidence.valueOf(t.getString("evidence")), if (t.has("identity")) readRoom(t.getJSONObject("identity")) else readRoom(t.getJSONObject("room")), if (t.isNull("observedAt")) (if (t.isNull("at")) null else t.getLong("at")) else t.getLong("observedAt"), observedPage = t.optInt("page", 1).coerceAtLeast(1)) },
+            events = (0 until events.length()).map { i -> events.getJSONObject(i).let { RadarEvent(it.getLong("at"), it.getString("text"), it.optString("id").ifBlank { java.util.UUID.randomUUID().toString() },
+                rooms = it.optJSONArray("rooms")?.let { r -> (0 until r.length()).map { i -> readRoom(r.getJSONObject(i)) } } ?: emptyList(),
+                page = if (it.isNull("page")) null else it.getInt("page").coerceAtLeast(1), blocked = it.optBoolean("blocked")) } })
     }
     private fun roomJson(r: Room) = JSONObject().put("id", r.id).put("genre", r.genreKey).put("status", r.status.name).put("action", r.action.name)
         .put("name", r.name).put("gender", r.gender.name).put("age", r.age).put("area", r.area).put("message", r.message)
