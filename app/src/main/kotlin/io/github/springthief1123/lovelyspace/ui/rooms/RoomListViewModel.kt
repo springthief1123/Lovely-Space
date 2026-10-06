@@ -59,6 +59,7 @@ class RoomListViewModel(
     val state: StateFlow<RoomListUiState> = _state.asStateFlow()
 
     private var loadJob: Job? = null
+    private var hasUserSelectedGenre = false
 
     init {
         viewModelScope.launch {
@@ -70,13 +71,16 @@ class RoomListViewModel(
                 _state.update { it.copy(preferenceError = describeError(e)) }
                 Genres.default.key
             }
-            _state.update { it.copy(genre = Genres[initialKey] ?: Genres.default) }
-            refresh(force = false)
-            rememberGenre(_state.value.genre.key)
+            if (!hasUserSelectedGenre) {
+                _state.update { it.copy(genre = Genres[initialKey] ?: Genres.default) }
+                refresh(force = false)
+                rememberGenre(_state.value.genre.key)
+            }
         }
     }
 
     fun selectGenre(genre: Genre) {
+        hasUserSelectedGenre = true
         if (genre == _state.value.genre) return
         _state.update {
             val recent = (listOf(it.genre) + it.recentGenres).filter { g -> g != genre }.distinct().take(RECENT_GENRES)
