@@ -14,7 +14,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.FilterChip
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import io.github.springthief1123.lovelyspace.ui.components.*
@@ -41,8 +42,10 @@ import io.github.springthief1123.lovelyspace.data.toRoom
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomCard
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomPreferenceViewModel
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
+import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentBottomInset
 import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentTopPadding
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun FavoritesScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onApplyPreset: (SearchPreset) -> Unit) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
@@ -54,19 +57,20 @@ fun FavoritesScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onA
     val presets by app.searchPresets.presets.collectAsStateWithLifecycle(initialValue = emptyList())
     var section by rememberSaveable { mutableIntStateOf(0) }
 
+    QuietPage {
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(
             start = LovelySpacing.screenHorizontal,
             end = LovelySpacing.screenHorizontal,
             top = lovelyMainContentTopPadding(),
-            bottom = LovelySpacing.bottomContentInset +
+            bottom = lovelyMainContentBottomInset() +
                 WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
         ),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        verticalArrangement = Arrangement.spacedBy(LovelySpacing.item),
     ) {
         item { QuietHeading("KEEP WHAT YOU LOVE", "また、ここで。", "気になる部屋と、いつもの検索条件をひとつに。") }
-        item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        item { FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(section == 0, { section = 0 }, label = { Text("部屋 ${values.size}") })
             FilterChip(section == 1, { section = 1 }, label = { Text("検索条件 ${presets.size}") })
         } }
@@ -107,6 +111,7 @@ fun FavoritesScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onA
             )
         }
         item { Spacer(Modifier.height(8.dp)) }
+    }
     }
 }
 

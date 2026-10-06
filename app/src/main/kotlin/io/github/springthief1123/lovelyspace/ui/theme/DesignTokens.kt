@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -41,3 +42,9 @@ object LovelyShapes {
     val panel = RoundedCornerShape(16.dp)
     val bottomGlass = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)
 }
+
+/** ナビゲーションの実測高さを含む余白。シェル外では既定値を使う。 */
+val LocalLovelyBottomContentInset = staticCompositionLocalOf { LovelySpacing.bottomContentInset }
+
+@Composable
+fun lovelyMainContentBottomInset(): Dp = LocalLovelyBottomContentInset.current

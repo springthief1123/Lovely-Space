@@ -7,6 +7,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Tune
 import io.github.springthief1123.lovelyspace.ui.components.QuietHeading
+import io.github.springthief1123.lovelyspace.ui.components.QuietPage
+import io.github.springthief1123.lovelyspace.ui.components.QuietFieldPair
 import io.github.springthief1123.lovelyspace.data.SearchPreset
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -28,9 +30,10 @@ import io.github.springthief1123.lovelyspace.ui.rooms.GenreBar
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomCard
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomPreferenceViewModel
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
+import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentBottomInset
 import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentTopPadding
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refreshKey: Int = 0, onGenreChanged: (Genre) -> Unit = {}, preset: SearchPreset? = null, onPresetConsumed: () -> Unit = {}) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
@@ -57,10 +60,10 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
             if (snackbar.showSnackbar("部屋を非表示にしました", actionLabel = "元に戻す", withDismissAction = true) == SnackbarResult.ActionPerformed) preferencesVm.unhide(room)
         }
     }
-    Box(Modifier.fillMaxSize()) {
+    QuietPage {
     LazyColumn(Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = LovelySpacing.screenHorizontal, end = LovelySpacing.screenHorizontal,
-            top = lovelyMainContentTopPadding(), bottom = LovelySpacing.bottomContentInset + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
+            top = lovelyMainContentTopPadding(), bottom = lovelyMainContentBottomInset() + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { QuietHeading("FIND YOUR MOMENT", "いま、話したい人と。", "気になる言葉から、心地よい場所を見つけよう。") }
         item {
@@ -71,7 +74,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         }
         if (state.initialized) item { GenreBar(state.genre, emptyList(), emptyMap(), { vm.genre(it); vm.refresh() }) }
         item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(c.waitingOnly == true, { vm.criteria(c.copy(waitingOnly = if (c.waitingOnly == true) null else true)) }, label = { Text("待機中") })
                 TextButton(onClick = { showFilters = true }) { Text("絞り込み・条件保存") }
             }
@@ -110,13 +113,13 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         if (state.loading) item { CircularProgressIndicator(Modifier.size(28.dp)) }
         if (state.canLoadMore) item { OutlinedButton(onClick = vm::more, modifier = Modifier.fillMaxWidth()) { Text("続きを読み込む") } }
     }
-    SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = 112.dp))
+    SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = lovelyMainContentBottomInset()))
     }
     selectedRoom?.let { room -> RoomDetailsSheet(room, preferences.isFavorite(room), preferences.canEdit(room),
         onDismiss = { selectedRoom = null }, onFavorite = { preferencesVm.toggleFavorite(room) },
         onHide = { preferencesVm.hide(room); selectedRoom = null }, onEnter = onEnterRoom, onPeek = onPeekRoom) }
     if (showFilters) ModalBottomSheet(onDismissRequest = { showFilters = false }) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(LovelySpacing.screenHorizontal), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("検索条件", style = MaterialTheme.typography.titleLarge)
             SavedSearchControls(state, vm::applyPreset)
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -126,16 +129,17 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
                 Text("複数の語句はスペースで区切ります。名前とメッセージの条件は両方を満たす部屋を表示します。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 OutlinedTextField(c.excluded, { vm.criteria(c.copy(excluded = it)) }, label = { Text("除外する語句") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 ChoiceRow("性別", c.gender, listOf(null to "すべて", Gender.FEMALE to "女性", Gender.MALE to "男性")) { vm.criteria(c.copy(gender = it)) }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                QuietFieldPair(first = { fieldModifier ->
                     OutlinedTextField(state.minAgeInput, vm::minAge,
                         label = { Text("最低年齢") }, singleLine = true, isError = !validAges,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = fieldModifier)
+                }, second = { fieldModifier ->
                     OutlinedTextField(state.maxAgeInput, vm::maxAge,
                         label = { Text("最高年齢") }, singleLine = true, isError = !validAges,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
-                }
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = fieldModifier)
+                })
                 if (!validAges) Text("年齢は18〜99で、最高年齢が最低年齢以上になる範囲を指定してください。", color = MaterialTheme.colorScheme.error)
-                Row { Checkbox(c.includeUnknownAge, { vm.criteria(c.copy(includeUnknownAge = it)) }); Text("年齢が秘密の部屋も含める", Modifier.padding(top = 12.dp)) }
+                Row { Checkbox(c.includeUnknownAge, { vm.criteria(c.copy(includeUnknownAge = it)) }); Text("年齢が秘密の部屋も含める", Modifier.weight(1f).padding(top = 12.dp)) }
                 // 検索の未指定は「すべて」。プロフィール側の秘密とは別の意味。
                 AreaFilter(c.area) { vm.criteria(c.copy(area = it)) }
                 ChoiceRow("利用状況", c.waitingOnly, listOf(null to "すべて", true to "待機中", false to "満室")) { vm.criteria(c.copy(waitingOnly = it)) }

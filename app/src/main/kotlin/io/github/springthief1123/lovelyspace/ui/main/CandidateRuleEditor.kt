@@ -1,6 +1,7 @@
 package io.github.springthief1123.lovelyspace.ui.main
 
 import androidx.compose.foundation.layout.*
+import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -20,7 +21,7 @@ internal fun CandidateRuleEditor(value: CandidateRule, working: Boolean, error: 
     var term by rememberSaveable(value.id) { mutableStateOf(value.term) }
     var mode by rememberSaveable(value.id) { mutableStateOf(value.mode) }
     ModalBottomSheet(onDismissRequest = { if (!working) onDismiss() }) {
-        Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(LovelySpacing.screenHorizontal), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("候補監視の条件", style = MaterialTheme.typography.titleLarge)
             Text("一覧に表示されている名前だけを対象にします。同じ名前や識別文字列の一致は、同じ人であることの証明にはなりません。", style = MaterialTheme.typography.bodySmall)
             OutlinedTextField(label, { label = it.take(80) }, enabled = !working, singleLine = true,

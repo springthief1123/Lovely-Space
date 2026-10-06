@@ -1,6 +1,8 @@
 package io.github.springthief1123.lovelyspace.ui.main
 
 import androidx.compose.foundation.layout.*
+import io.github.springthief1123.lovelyspace.ui.components.QuietPage
+import io.github.springthief1123.lovelyspace.ui.components.QuietPanel
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -25,6 +27,7 @@ import io.github.springthief1123.lovelyspace.data.MessagePreset
 import io.github.springthief1123.lovelyspace.data.ProfilePreset
 import io.github.springthief1123.lovelyspace.ui.create.PrefectureField
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
+import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentBottomInset
 import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentTopPadding
 
 @Composable
@@ -40,10 +43,11 @@ fun ProfileScreen(onOpenSettings: () -> Unit, onCreateRoom: () -> Unit) {
     var profile by rememberSaveable(stateSaver = ProfilePresetSaver) { mutableStateOf<ProfilePreset?>(null) }
     var message by rememberSaveable(stateSaver = MessagePresetSaver) { mutableStateOf<MessagePreset?>(null) }
     var deleting by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
+    QuietPage {
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = LovelySpacing.screenHorizontal, end = LovelySpacing.screenHorizontal,
-            top = lovelyMainContentTopPadding(), bottom = LovelySpacing.bottomContentInset + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
+            top = lovelyMainContentTopPadding(), bottom = lovelyMainContentBottomInset() + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { io.github.springthief1123.lovelyspace.ui.components.QuietHeading("YOUR OWN SPACE", "マイルーム", "いつものあなたで、心地よい会話を。") }
@@ -71,6 +75,7 @@ fun ProfileScreen(onOpenSettings: () -> Unit, onCreateRoom: () -> Unit) {
                 onDefault = { vm.action { vm.repository.setDefaultMessage(m.id) } }, onDelete = { deleting = false to m.id })
         }
     }
+    }
     if (profileEditor) ProfileEditor(profile, working, error, onDismiss = { if (!working) profileEditor = false }) { value ->
         vm.action(onSuccess = { profileEditor = false }) { vm.repository.save(value) }
     }
@@ -90,22 +95,22 @@ fun ProfileScreen(onOpenSettings: () -> Unit, onCreateRoom: () -> Unit) {
 @Composable
 private fun SectionHeading(title: String, enabled: Boolean, onAdd: () -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp))
+        Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f).padding(top = 12.dp))
         TextButton(onClick = onAdd, enabled = enabled) { Text("追加") }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PresetRow(label: String, detail: String, isDefault: Boolean, enabled: Boolean, onEdit: () -> Unit, onDefault: () -> Unit, onDelete: () -> Unit) {
-    Column(Modifier.fillMaxWidth()) {
+    QuietPanel {
         Text(label + if (isDefault) " · 既定" else "", style = MaterialTheme.typography.titleSmall)
         Text(detail, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
-        Row {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             TextButton(onClick = onEdit, enabled = enabled) { Text("編集") }
             if (!isDefault) TextButton(onClick = onDefault, enabled = enabled) { Text("既定にする") }
             TextButton(onClick = onDelete, enabled = enabled) { Text("削除") }
         }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     }
 }
 

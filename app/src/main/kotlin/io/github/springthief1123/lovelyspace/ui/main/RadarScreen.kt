@@ -58,8 +58,9 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
             finally { working = false }
         }
     }
+    QuietPage {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = LovelySpacing.screenHorizontal, end = LovelySpacing.screenHorizontal,
-        top = lovelyMainContentTopPadding(), bottom = LovelySpacing.bottomContentInset + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        top = lovelyMainContentTopPadding(), bottom = lovelyMainContentBottomInset() + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { QuietHeading("LET THE MOMENT FIND YOU", "出会いの変化を、そっと。", "保存した条件の巡回と、気になる部屋の追跡。") }
         item { RadarDashboard(state, saved.count { it.id in state.plans }, working,
             onScan = { scope.launch {
@@ -171,6 +172,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                 } }
             }
         }
+    }
     }
     state.targets.firstOrNull { roomIdentity(it.identity) == editingTargetKey }?.let { target ->
         RadarTargetNoteEditor(target, working, error, onDismiss = { editingTargetKey = null },

@@ -24,6 +24,9 @@ import androidx.compose.material.icons.outlined.Radar
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
+import io.github.springthief1123.lovelyspace.ui.theme.LocalLovelyBottomContentInset
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.data.formatObservationTime
@@ -62,19 +65,22 @@ fun LovelyAppShell(
     content: @Composable () -> Unit,
 ) {
     val hazeState = remember { HazeState() }
+    val density = LocalDensity.current
+    var navigationHeight by remember { mutableStateOf(100.dp) }
+    val bottomInset = maxOf(LovelySpacing.bottomContentInset, navigationHeight + 80.dp)
     ProvideLovelyHazeState(hazeState) {
         Box(Modifier.fillMaxSize()) {
             Surface(Modifier.fillMaxSize().hazeSource(state = hazeState),
                 color = MaterialTheme.colorScheme.background, contentColor = MaterialTheme.colorScheme.onBackground) {
-                content()
+                CompositionLocalProvider(LocalLovelyBottomContentInset provides bottomInset) { content() }
             }
             if (showChrome) {
                 LovelyTopBar(Modifier.align(Alignment.TopCenter))
                 LovelyBottomNavigation(if (currentRoute == Routes.SEARCH) Routes.ROOMS else currentRoute,
-                    onDestinationSelected, Modifier.align(Alignment.BottomCenter))
+                    onDestinationSelected, Modifier.align(Alignment.BottomCenter), onHeight = { navigationHeight = with(density) { it.toDp() } })
                 AnimatedVisibility(showCreateFab, enter = fadeIn() + scaleIn(initialScale = 0.9f),
                     exit = fadeOut() + scaleOut(targetScale = 0.9f),
-                    modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 20.dp, bottom = 112.dp)) {
+                    modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 20.dp, bottom = navigationHeight + 12.dp)) {
                     LovelyGlassFab(onClick = onCreateRoom)
                 }
             }
@@ -119,23 +125,25 @@ private fun LovelyTopBar(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun LovelyBottomNavigation(currentRoute: String?, onSelect: (MainDestination) -> Unit, modifier: Modifier = Modifier) {
-    Box(modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 12.dp)) {
+internal fun LovelyBottomNavigation(currentRoute: String?, onSelect: (MainDestination) -> Unit, modifier: Modifier = Modifier, onHeight: (Int) -> Unit = {}) {
+    Box(modifier.widthIn(max = 720.dp).fillMaxWidth().navigationBarsPadding().onSizeChanged { onHeight(it.height) }.padding(horizontal = 12.dp, vertical = 12.dp)) {
         LovelyGlassSurface(Modifier.fillMaxWidth(), RoundedCornerShape(24.dp)) {
             BoxWithConstraints(Modifier.fillMaxWidth().heightIn(min = 76.dp).padding(6.dp)) {
+                var rowHeight by remember { mutableStateOf(64.dp) }
+                val density = LocalDensity.current
                 val itemWidth = maxWidth / MainDestinations.size
                 val index = MainDestinations.indexOfFirst { it.route == currentRoute }.coerceAtLeast(0)
                 val x by animateDpAsState(itemWidth * index + 3.dp,
                     animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f), label = "nav-selection")
-                Box(Modifier.offset(x = x).width(itemWidth - 6.dp).height(64.dp)
+                Box(Modifier.offset(x = x).width(itemWidth - 6.dp).height(rowHeight)
                     .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(18.dp)))
-                Row(Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).onSizeChanged { rowHeight = with(density) { it.height.toDp() } }) {
                     MainDestinations.forEach { destination ->
                         val selected = currentRoute == destination.route
                         val interaction = remember { MutableInteractionSource() }
                         val pressed by interaction.collectIsPressedAsState()
                         val scale by animateFloatAsState(if (pressed) 0.96f else 1f, label = "nav-press")
-                        Column(Modifier.weight(1f).heightIn(min = 64.dp).graphicsLayer { scaleX = scale; scaleY = scale }
+                        Column(Modifier.weight(1f).fillMaxHeight().heightIn(min = 64.dp).graphicsLayer { scaleX = scale; scaleY = scale }
                             .selectable(selected, interactionSource = interaction, indication = null, role = Role.Tab,
                                 onClick = { onSelect(destination) }).padding(vertical = 10.dp, horizontal = 2.dp),
                             verticalArrangement = Arrangement.spacedBy(5.dp), horizontalAlignment = Alignment.CenterHorizontally) {
