@@ -18,6 +18,7 @@ import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.core.*
 import io.github.springthief1123.lovelyspace.ui.rooms.GenreBar
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomCard
+import io.github.springthief1123.lovelyspace.ui.rooms.RoomPreferenceViewModel
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
 import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentTopPadding
 
@@ -25,7 +26,13 @@ import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentTopPaddin
 fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val vm: SearchViewModel = viewModel(factory = viewModelFactory { initializer { SearchViewModel(app.roomLists) } })
+    val preferencesVm: RoomPreferenceViewModel = viewModel(
+        factory = viewModelFactory { initializer { RoomPreferenceViewModel(app.roomPreferences) } },
+    )
     val state by vm.state.collectAsStateWithLifecycle()
+    val preferences by preferencesVm.state.collectAsStateWithLifecycle()
+    LaunchedEffect(state.rooms) { preferencesVm.observe(state.rooms) }
+    val visibleResults = state.results.filterNot(preferences::isHidden)
     val c = state.criteria
     val validAges = state.validAges
     var fullNotice by remember { mutableStateOf(false) }
@@ -65,25 +72,38 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit) {
             }
         }
         item {
-            Text(if (state.page == 0) "検索ボタンで一覧を取得します。" else "取得済み ${state.page}/${state.lastPage}ページ・${state.rooms.size}部屋から ${if (validAges) state.results.size else 0}件表示",
+            Text(if (state.page == 0) "検索ボタンで一覧を取得します。" else "取得済み ${state.page}/${state.lastPage}ページ・${state.rooms.size}部屋から ${if (validAges) visibleResults.size else 0}件表示",
                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("条件の変更は取得済み一覧に反映します。全ページを探すには「次のページも検索」を押してください。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        preferences.error?.let { error -> item {
+            Text(error, color = MaterialTheme.colorScheme.error)
+            TextButton(onClick = preferencesVm::clearError) { Text("閉じる") }
+        } }
         state.error?.let { error -> item {
             Text(error, color = MaterialTheme.colorScheme.error)
             TextButton(onClick = { if (state.errorOnMore) vm.more() else vm.refresh() }, enabled = !state.loading) { Text("もう一度読み込む") }
         } }
         if (validAges) {
-            items(state.results, key = ::roomIdentity) { room ->
-                RoomCard(room, onClick = {
-                    when (room.action) {
-                        RoomAction.ENTER -> onEnterRoom(room)
-                        RoomAction.PEEK -> onPeekRoom(room)
-                        RoomAction.NONE -> fullNotice = true
-                    }
-                })
+            items(visibleResults, key = ::roomIdentity) { room ->
+                RoomCard(
+                    room = room,
+                    onClick = {
+                        when (room.action) {
+                            RoomAction.ENTER -> onEnterRoom(room)
+                            RoomAction.PEEK -> onPeekRoom(room)
+                            RoomAction.NONE -> fullNotice = true
+                        }
+                    },
+                    isFavorite = preferences.isFavorite(room),
+                    actionsEnabled = preferences.canEdit(room),
+                    onFavoriteClick = { preferencesVm.toggleFavorite(room) },
+                    onHideClick = { preferencesVm.hide(room) },
+                )
             }
-            if (state.page > 0 && state.results.isEmpty() && !state.loading) item { Text("取得済みの一覧に、条件に合う部屋はありません。") }
+            if (state.page > 0 && visibleResults.isEmpty() && !state.loading) item {
+                Text(if (state.results.isEmpty()) "取得済みの一覧に、条件に合う部屋はありません。" else "条件に合う部屋はすべて非表示です。")
+            }
         }
         if (state.loading) item { CircularProgressIndicator(Modifier.size(28.dp)) }
         if (state.canLoadMore) item { OutlinedButton(onClick = vm::more, modifier = Modifier.fillMaxWidth()) { Text("次のページも検索") } }

@@ -1,5 +1,6 @@
 package io.github.springthief1123.lovelyspace.ui.rooms
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Visibility
@@ -20,13 +22,11 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.foundation.background
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -38,7 +38,17 @@ import io.github.springthief1123.lovelyspace.ui.theme.LocalLovelyColors
 import kotlin.time.Duration
 
 @Composable
-fun RoomCard(room: Room, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun RoomCard(
+    room: Room,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    isFavorite: Boolean = false,
+    isHidden: Boolean = false,
+    onFavoriteClick: (() -> Unit)? = null,
+    onHideClick: (() -> Unit)? = null,
+    actionsEnabled: Boolean = true,
+) {
     val lovely = LocalLovelyColors.current
     val genderColor = when (room.gender) {
         Gender.FEMALE -> lovely.female
@@ -51,14 +61,11 @@ fun RoomCard(room: Room, onClick: () -> Unit, modifier: Modifier = Modifier) {
         RoomStatus.FULL -> lovely.full
     }
 
-    Column(
-        modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-    ) {
+    Column(modifier.fillMaxWidth()) {
         Row(
             Modifier
                 .fillMaxWidth()
+                .clickable(enabled = enabled, onClick = onClick)
                 .height(IntrinsicSize.Min)
                 .padding(vertical = 14.dp),
         ) {
@@ -129,6 +136,24 @@ fun RoomCard(room: Room, onClick: () -> Unit, modifier: Modifier = Modifier) {
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis,
                     )
+                }
+            }
+        }
+        if (onFavoriteClick != null || onHideClick != null) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (onFavoriteClick != null) {
+                    TextButton(onClick = onFavoriteClick, enabled = actionsEnabled) {
+                        Text(if (isFavorite) "お気に入り解除" else "お気に入り")
+                    }
+                }
+                if (onHideClick != null) {
+                    TextButton(onClick = onHideClick, enabled = actionsEnabled) {
+                        Text(if (isHidden) "非表示解除" else "非表示")
+                    }
                 }
             }
         }

@@ -15,9 +15,9 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -49,12 +49,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
-import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
-import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentTopPadding
 import io.github.springthief1123.lovelyspace.core.Gender
 import io.github.springthief1123.lovelyspace.core.Genre
 import io.github.springthief1123.lovelyspace.core.Room
 import io.github.springthief1123.lovelyspace.core.RoomAction
+import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
+import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentTopPadding
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
@@ -68,13 +68,27 @@ fun RoomListScreen(
 ) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val vm: RoomListViewModel = viewModel(factory = viewModelFactory { initializer { RoomListViewModel(app.roomLists) } })
+    val preferencesVm: RoomPreferenceViewModel = viewModel(
+        factory = viewModelFactory { initializer { RoomPreferenceViewModel(app.roomPreferences) } },
+    )
     val state by vm.state.collectAsStateWithLifecycle()
+    val preferences by preferencesVm.state.collectAsStateWithLifecycle()
     LaunchedEffect(refreshKey) { vm.onRefreshKey(refreshKey) }
     LaunchedEffect(state.genre) { onGenreChanged(state.genre) }
+    LaunchedEffect(state.rooms) { preferencesVm.observe(state.rooms) }
+
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val refreshState = rememberPullToRefreshState()
     val refreshTopPadding = lovelyMainContentTopPadding()
+
+    LaunchedEffect(preferences.error) {
+        val error = preferences.error ?: return@LaunchedEffect
+        snackbar.currentSnackbarData?.dismiss()
+        snackbar.showSnackbar(error)
+        preferencesVm.clearError()
+    }
+
     Box(Modifier.fillMaxSize()) {
         PullToRefreshBox(
             isRefreshing = state.isRefreshing,
@@ -91,6 +105,7 @@ fun RoomListScreen(
         ) {
             RoomList(
                 state = state,
+                preferences = preferences,
                 onGenreSelect = vm::selectGenre,
                 onSexSelect = vm::selectSex,
                 onRoomClick = { room ->
@@ -103,6 +118,8 @@ fun RoomListScreen(
                         }
                     }
                 },
+                onFavorite = preferencesVm::toggleFavorite,
+                onHide = preferencesVm::hide,
                 onLoadMore = vm::loadMore,
                 onRetry = { vm.refresh(force = true) },
             )
@@ -115,7 +132,6 @@ fun RoomListScreen(
                 .navigationBarsPadding()
                 .padding(bottom = LovelySpacing.snackbarBottomInset),
         )
-
     }
 }
 
@@ -174,17 +190,21 @@ private fun SummaryLine(state: RoomListUiState) {
 @Composable
 private fun RoomList(
     state: RoomListUiState,
+    preferences: RoomPreferenceUiState,
     onGenreSelect: (Genre) -> Unit,
     onSexSelect: (Gender?) -> Unit,
     onRoomClick: (Room) -> Unit,
+    onFavorite: (Room) -> Unit,
+    onHide: (Room) -> Unit,
     onLoadMore: () -> Unit,
     onRetry: () -> Unit,
 ) {
     val listState = rememberLazyListState()
     val topContentPadding = lovelyMainContentTopPadding()
+    val visibleRooms = state.rooms.filterNot(preferences::isHidden)
 
     // 末尾に近づいたら次のページを読む。
-    LaunchedEffect(listState, state.canLoadMore) {
+    LaunchedEffect(listState, state.canLoadMore, state.page) {
         snapshotFlow {
             val info = listState.layoutInfo
             val last = info.visibleItemsInfo.lastOrNull()?.index ?: 0
@@ -220,11 +240,24 @@ private fun RoomList(
 
         if (state.error != null && state.rooms.isEmpty()) {
             item { MessageBlock(state.error, actionLabel = "再読み込み", onAction = onRetry) }
-        } else if (state.rooms.isEmpty() && !state.isRefreshing && state.page > 0) {
-            item { MessageBlock("この条件の部屋はありません", actionLabel = null, onAction = {}) }
+        } else if (visibleRooms.isEmpty() && !state.isRefreshing && state.page > 0) {
+            item {
+                MessageBlock(
+                    if (state.rooms.isEmpty()) "この条件の部屋はありません" else "非表示にした部屋を除くと表示できる部屋はありません",
+                    actionLabel = null,
+                    onAction = {},
+                )
+            }
         }
-        items(state.rooms, key = { it.id }) { room ->
-            RoomCard(room = room, onClick = { onRoomClick(room) })
+        items(visibleRooms, key = { it.id }) { room ->
+            RoomCard(
+                room = room,
+                onClick = { onRoomClick(room) },
+                isFavorite = preferences.isFavorite(room),
+                actionsEnabled = preferences.canEdit(room),
+                onFavoriteClick = { onFavorite(room) },
+                onHideClick = { onHide(room) },
+            )
         }
         if (state.isLoadingMore) {
             item {
