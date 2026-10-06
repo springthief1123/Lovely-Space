@@ -174,6 +174,73 @@ class RadarRepositoryTest {
             assertEquals(1, radar.state.value.events.size)
         } finally { db.close() }
     }
+    @Test fun candidateRulesShareRequestsKeepHiddenRoomsOutAndRestoreOnlyTheDefinitions() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            val prefs = RoomPreferenceRepository(db)
+            searches.save(SearchPreset("a", "合成の巡回", "zenkoku", RoomSearchCriteria()))
+            val lists = Lists().apply { rooms = listOf(room) }
+            val job = SupervisorJob(backgroundScope.coroutineContext[Job])
+            val radar = RadarRepository(db.presets(), lists, searches, prefs, CoroutineScope(backgroundScope.coroutineContext + job))
+            radar.state.first { it.loaded }; radar.setPlan("a", true); radar.track(room)
+            val rule = CandidateRule("candidate", "合成の候補", "zenkoku", "合成")
+            radar.saveCandidate(rule); radar.scan()
+            assertEquals(1, lists.calls.size)
+            assertEquals(listOf(room), radar.state.value.resultFor(rule)?.rooms)
+            assertTrue(radar.state.value.events.isEmpty())
+            val additional = room.copy(id = 43)
+            lists.rooms = listOf(room, additional); radar.scan()
+            val candidateEvent = radar.state.value.events.single { it.text.startsWith("候補") }
+            assertEquals(listOf(additional), candidateEvent.rooms)
+            val hidden = room.copy(id = 44)
+            prefs.setHidden(hidden, true)
+            lists.rooms = listOf(room, additional, hidden); radar.scan()
+            assertEquals(listOf(room, additional), radar.state.value.resultFor(rule)?.rooms)
+            assertEquals(1, radar.state.value.events.count { it.text.startsWith("候補") })
+            job.cancelAndJoin()
+            val restored = RadarRepository(db.presets(), Lists(), searches, prefs, backgroundScope)
+            restored.state.first { it.loaded }
+            assertEquals(listOf(rule), restored.state.value.candidateRules)
+            assertTrue(restored.state.value.candidateResults.isEmpty())
+            assertEquals(candidateEvent, restored.state.value.events.single { it.text.startsWith("候補") })
+        } finally { db.close() }
+    }
+    @Test fun candidateEditsResetPagesAndFirstObservationNeverCreatesAnArrivalEvent() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val lists = Lists().apply { rooms = listOf(room, room.copy(id = 43, name = "別の合成")); lastPage = 2 }
+            val radar = RadarRepository(db.presets(), lists, SearchPresetRepository(db), RoomPreferenceRepository(db), backgroundScope)
+            radar.state.first { it.loaded }
+            val rule = CandidateRule("a", "合成条件", "zenkoku", "合成")
+            radar.saveCandidate(rule); radar.scan()
+            assertEquals(2, radar.state.value.nextCandidatePages["a"])
+            val edited = rule.copy(term = "別の合成")
+            radar.saveCandidate(edited)
+            assertNull(radar.state.value.resultFor(edited))
+            radar.scan()
+            assertEquals(listOf(1, 1), lists.calls.map { it.page })
+            assertEquals("別の合成", radar.state.value.resultFor(edited)?.rooms?.single()?.name)
+            assertTrue(radar.state.value.events.isEmpty())
+            radar.pauseAllPlans(); radar.scan()
+            assertFalse(radar.state.value.candidateRules.single().enabled)
+            assertEquals(2, lists.calls.size)
+        } finally { db.close() }
+    }
+    @Test fun candidatePlansAtDifferentPagesAdvanceOnlyTheirScheduledRequest() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val lists = Lists().apply { lastPage = 3 }
+            val radar = RadarRepository(db.presets(), lists, SearchPresetRepository(db), RoomPreferenceRepository(db), backgroundScope)
+            radar.state.first { it.loaded }
+            radar.saveCandidate(CandidateRule("a", "合成A", "zenkoku", "合成")); radar.scan()
+            radar.saveCandidate(CandidateRule("b", "合成B", "zenkoku", "合成")); radar.scan()
+            assertEquals(3, radar.state.value.nextCandidatePages["a"])
+            assertEquals(2, radar.state.value.nextCandidatePages["b"])
+            radar.scan()
+            assertEquals(listOf(1, 2, 1, 3, 2), lists.calls.map { it.page })
+        } finally { db.close() }
+    }
     @Test fun divergedPlansAdvanceOnlyOncePerScheduledPage() = runTest {
         val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
         try {
