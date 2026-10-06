@@ -111,7 +111,7 @@ fun DisplaySettingsScreen(onBack: () -> Unit) {
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
-                .padding(horizontal = 16.dp, bottom = 8.dp),
+                .padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
         )
     }
 }
