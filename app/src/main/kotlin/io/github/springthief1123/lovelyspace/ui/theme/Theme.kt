@@ -21,7 +21,7 @@ private val LightColors = lightColorScheme(
     onPrimary = Color.White,
     primaryContainer = Color(0xFFF4E7EB),
     onPrimaryContainer = Color(0xFF492434),
-    secondary = Color(0xFF766970),
+    secondary = Color(0xFF675A63),
     secondaryContainer = Color(0xFFF4E7EB),
     onSecondaryContainer = Color(0xFF302C31),
     tertiary = Color(0xFF795D42),
@@ -30,7 +30,7 @@ private val LightColors = lightColorScheme(
     surface = Color(0xFFFFFDFB),
     onSurface = Color(0xFF302C31),
     surfaceVariant = Color(0xFFF0E7E8),
-    onSurfaceVariant = Color(0xFF766970),
+    onSurfaceVariant = Color(0xFF675A63),
     surfaceContainer = Color(0xFFFFFDFB),
     surfaceContainerHigh = Color(0xFFF4E7EB),
     outline = Color(0xFFA38D95),
@@ -42,7 +42,7 @@ private val DarkColors = darkColorScheme(
     onPrimary = Color(0xFF291C24),
     primaryContainer = Color(0xFF3B2934),
     onPrimaryContainer = Color(0xFFF5DCE6),
-    secondary = Color(0xFFBCB0BA),
+    secondary = Color(0xFFD0C3CD),
     secondaryContainer = Color(0xFF3B2934),
     onSecondaryContainer = Color(0xFFF5EFF2),
     tertiary = Color(0xFFE1C2A4),
@@ -51,7 +51,7 @@ private val DarkColors = darkColorScheme(
     surface = Color(0xFF242229),
     onSurface = Color(0xFFF5EFF2),
     surfaceVariant = Color(0xFF302B34),
-    onSurfaceVariant = Color(0xFFBCB0BA),
+    onSurfaceVariant = Color(0xFFD0C3CD),
     surfaceContainer = Color(0xFF242229),
     surfaceContainerHigh = Color(0xFF302B34),
     outline = Color(0xFFB5A0AB),
@@ -85,28 +85,29 @@ data class LovelyColors(
 )
 
 private val LightLovely = LovelyColors(
-    female = Color(0xFF766970),
-    male = Color(0xFF766970),
+    female = Color(0xFF675A63),
+    male = Color(0xFF675A63),
     waiting = Color(0xFF396452),
     publicWaiting = Color(0xFF396452),
-    full = Color(0xFF766970),
+    full = Color(0xFF675A63),
     glassTint = Color(0xCCFFFDFB),
     glassBorder = Color(0xA6FFFFFF),
     divider = Color(0xFFE9E0E0),
 )
 
 private val DarkLovely = LovelyColors(
-    female = Color(0xFFBCB0BA),
-    male = Color(0xFFBCB0BA),
+    female = Color(0xFFD0C3CD),
+    male = Color(0xFFD0C3CD),
     waiting = Color(0xFF9BD1B6),
     publicWaiting = Color(0xFF9BD1B6),
-    full = Color(0xFFBCB0BA),
+    full = Color(0xFFD0C3CD),
     glassTint = Color(0xC9242229),
     glassBorder = Color(0x33FFFFFF),
     divider = Color(0xFF3A343E),
 )
 
 val LocalLovelyColors = staticCompositionLocalOf { LightLovely }
+val LocalLovelyTextScale = staticCompositionLocalOf { 1f }
 
 @Composable
 fun LovelySpaceTheme(
@@ -119,7 +120,10 @@ fun LovelySpaceTheme(
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
     }
-    CompositionLocalProvider(LocalLovelyColors provides if (dark) DarkLovely else LightLovely) {
+    CompositionLocalProvider(
+        LocalLovelyColors provides if (dark) DarkLovely else LightLovely,
+        LocalLovelyTextScale provides textScale.multiplier,
+    ) {
         MaterialTheme(
             colorScheme = if (dark) DarkColors else LightColors,
             typography = lovelyTypography(textScale),

@@ -1,6 +1,8 @@
 package io.github.springthief1123.lovelyspace.ui.main
 
 import androidx.compose.foundation.layout.*
+import io.github.springthief1123.lovelyspace.ui.components.QuietFieldPair
+import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -28,7 +30,7 @@ internal fun RadarPlanEditor(value: SearchPreset, working: Boolean, error: Strin
         (minAge.isBlank() || maxAge.isBlank() || minAge.toInt() <= maxAge.toInt())
     fun criteria(next: RoomSearchCriteria) { draft = preset.copy(criteria = next) }
     ModalBottomSheet(onDismissRequest = { if (!working) onDismiss() }) {
-        Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(24.dp),
+        Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(LovelySpacing.screenHorizontal),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("巡回計画を編集", style = MaterialTheme.typography.titleLarge)
             Text("保存した検索条件も更新します。条件を変更すると、次の巡回は1ページ目から比較の基準を作ります。", style = MaterialTheme.typography.bodySmall)
@@ -42,18 +44,19 @@ internal fun RadarPlanEditor(value: SearchPreset, working: Boolean, error: Strin
             Text("複数の語句はスペースで区切ります。", style = MaterialTheme.typography.bodySmall)
             OutlinedTextField(c.excluded, { criteria(c.copy(excluded = it)) }, enabled = !working, label = { Text("除外する語句") }, modifier = Modifier.fillMaxWidth())
             RadarChoice("性別", c.gender, listOf(null to "すべて", Gender.FEMALE to "女性", Gender.MALE to "男性"), !working) { criteria(c.copy(gender = it)) }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            QuietFieldPair(first = { fieldModifier ->
                 OutlinedTextField(minAge, { minAge = it.filter(Char::isDigit).take(2) }, enabled = !working,
                     label = { Text("最低年齢") }, singleLine = true, isError = !validAges,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = fieldModifier)
+            }, second = { fieldModifier ->
                 OutlinedTextField(maxAge, { maxAge = it.filter(Char::isDigit).take(2) }, enabled = !working,
                     label = { Text("最高年齢") }, singleLine = true, isError = !validAges,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
-            }
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = fieldModifier)
+            })
             if (!validAges) Text("年齢は18〜99で、最低年齢が最高年齢以下になるよう指定してください。", color = MaterialTheme.colorScheme.error)
             Row {
                 Checkbox(c.includeUnknownAge, { criteria(c.copy(includeUnknownAge = it)) }, enabled = !working)
-                Text("年齢が秘密の部屋も含める", Modifier.padding(top = 12.dp))
+                Text("年齢が秘密の部屋も含める", Modifier.weight(1f).padding(top = 12.dp))
             }
             RadarDropdown("地域", c.area.orEmpty(), listOf("" to "すべて") + Prefectures.names.map { it to it }, !working) { criteria(c.copy(area = it.ifBlank { null })) }
             RadarChoice("利用状況", c.waitingOnly, listOf(null to "すべて", true to "待機中", false to "満室"), !working) { criteria(c.copy(waitingOnly = it)) }
