@@ -41,6 +41,8 @@ data class ChatUiState(
     val input: String = "",
     val isSending: Boolean = false,
     val sendError: String? = null,
+    /** 通信失敗時の送信文。送信中に書いた次の下書きとは別に保持する。 */
+    val failedMessage: String? = null,
     val isLeaving: Boolean = false,
     /** 部屋を閉じられなかった理由。作成者は閉じるまで部屋に残る。 */
     val leaveError: String? = null,
@@ -55,7 +57,16 @@ data class ChatUiState(
         get() = lines.firstOrNull { !it.isMine && !it.line.isNotice }?.line?.speaker
 
     val canSend: Boolean
-        get() = !isLoading && loadError == null && endMessage == null && !isLeaving && input.isNotBlank() && !isSending
+        get() = !isLoading && loadError == null && endMessage == null && !isLeaving && input.isNotBlank() && !isSending && failedMessage == null
+
+    fun sendingFailed(message: String, error: String) = copy(isSending = false, sendError = error, failedMessage = message)
+
+    /** 自動再送はしない。両方の文章を入力欄で確認・編集できるように戻す。 */
+    fun restoreFailedMessage() = failedMessage?.let { message ->
+        copy(input = if (input.isEmpty()) message else "$message\n\n$input", failedMessage = null, sendError = null)
+    } ?: this
+
+    fun discardFailedMessage() = copy(failedMessage = null, sendError = null)
 }
 
 class ChatViewModel(
@@ -148,7 +159,9 @@ class ChatViewModel(
     private fun uiLine(line: ChatLine, myName: String?) =
         UiLine(nextId++, line, isMine = myName != null && line.speaker == myName)
 
-    fun setInput(text: String) = _state.update { it.copy(input = text, sendError = null) }
+    fun setInput(text: String) = _state.update { it.copy(input = text) }
+    fun restoreFailedMessage() = _state.update { it.restoreFailedMessage() }
+    fun discardFailedMessage() = _state.update { it.discardFailedMessage() }
 
     fun send() {
         val session = session ?: return
@@ -166,8 +179,7 @@ class ChatViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                // 送れなかった文は入力欄に戻す（その間に打ち始めていれば上書きしない）。
-                _state.update { it.copy(isSending = false, sendError = describeError(e), input = it.input.ifEmpty { text }) }
+                _state.update { it.sendingFailed(text, describeError(e)) }
             }
         }
     }

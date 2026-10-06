@@ -6,6 +6,9 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -15,15 +18,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -32,7 +29,6 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -50,6 +46,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
+import io.github.springthief1123.lovelyspace.ui.components.QuietHeading
+import io.github.springthief1123.lovelyspace.ui.components.QuietPanel
+import io.github.springthief1123.lovelyspace.ui.components.QuietTopBar
 import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
 import io.github.springthief1123.lovelyspace.core.SitePages
 import io.github.springthief1123.lovelyspace.ui.main.ProfilePresetPicker
@@ -80,17 +79,12 @@ fun EntryScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(if (showBrowser) "ロボット確認" else "入室") },
-                navigationIcon = {
-                    IconButton(onClick = { if (showBrowser) showBrowser = false else onBack() }) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "戻る")
-                    }
-                },
-            )
+            QuietTopBar(if (showBrowser) "ロボット確認" else "入室") {
+                if (showBrowser) showBrowser = false else onBack()
+            }
         },
     ) { padding ->
-        val modifier = Modifier.fillMaxSize().padding(padding)
+        val modifier = Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)
         when {
             showBrowser -> SiteWebView(
                 url = SitePages.preEnter(host, genreKey, roomId),
@@ -124,83 +118,94 @@ fun EntryScreen(
 private fun EntryFormContent(state: EntryUiState, vm: EntryViewModel, onOpenBrowser: () -> Unit, modifier: Modifier) {
     val form = state.form ?: return
     val profiles by vm.presets.profiles.collectAsStateWithLifecycle(initialValue = emptyList())
-    Column(
-        modifier
-            .verticalScroll(rememberScrollState())
-            .imePadding()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-            modifier = Modifier.fillMaxWidth(),
+    Box(modifier, contentAlignment = Alignment.TopCenter) {
+        Column(
+            Modifier.fillMaxHeight().widthIn(max = 720.dp).fillMaxWidth()
+                .imePadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            QuietHeading("JOIN ROOM", "会話をはじめる", "相手の募集内容を確認して、入室に使うプロフィールを選びましょう。")
+            QuietPanel {
+                Text("待機している相手", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                 Text(form.hostDescription, style = MaterialTheme.typography.titleSmall)
                 if (form.waitingMessage.isNotBlank()) {
                     Text(form.waitingMessage, style = MaterialTheme.typography.bodyMedium)
                 }
             }
-        }
 
-        ProfilePresetPicker(profiles, enabled = !state.isEntering, onSelect = vm::applyPreset)
+            QuietPanel {
+                Text("あなたのプロフィール", style = MaterialTheme.typography.titleSmall)
 
-        OutlinedTextField(
-            value = state.name,
-            onValueChange = vm::setName,
-            label = { Text("名前") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-            modifier = Modifier.fillMaxWidth(),
-        )
+                ProfilePresetPicker(profiles, enabled = !state.isEntering, onSelect = vm::applyPreset)
 
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            listOf(1 to "男", 2 to "女").forEachIndexed { i, (value, label) ->
-                SegmentedButton(
-                    selected = state.sex == value,
-                    onClick = { vm.setSex(value) },
-                    shape = SegmentedButtonDefaults.itemShape(i, 2),
-                ) { Text(label) }
+                OutlinedTextField(
+                    value = state.name,
+                    onValueChange = vm::setName,
+                    enabled = !state.isEntering,
+                    label = { Text("名前") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    listOf(1 to "男", 2 to "女").forEachIndexed { i, (value, label) ->
+                        SegmentedButton(
+                            selected = state.sex == value,
+                            enabled = !state.isEntering,
+                            onClick = { vm.setSex(value) },
+                            shape = SegmentedButtonDefaults.itemShape(i, 2),
+                        ) { Text(label) }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = state.years,
+                    onValueChange = vm::setYears,
+                    enabled = !state.isEntering,
+                    label = { Text("年齢") },
+                    placeholder = { Text("空欄なら秘密") },
+                    isError = !state.yearsValid,
+                    supportingText = if (!state.yearsValid) {
+                        { Text("${EntryUiState.MIN_YEARS}〜${EntryUiState.MAX_YEARS} で入力してください") }
+                    } else {
+                        null
+                    },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { vm.enter() }),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
             }
-        }
 
-        OutlinedTextField(
-            value = state.years,
-            onValueChange = vm::setYears,
-            label = { Text("年齢") },
-            placeholder = { Text("空欄なら秘密") },
-            isError = !state.yearsValid,
-            supportingText = if (!state.yearsValid) {
-                { Text("${EntryUiState.MIN_YEARS}〜${EntryUiState.MAX_YEARS} で入力してください") }
+            state.entryError?.let {
+                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+            }
+
+            if (form.requiresCaptcha) {
+                QuietPanel {
+                    Text("あと一歩で入室", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "この部屋に入るにはロボット確認が必要です。ラブルームの入室画面を開くので、確認のあと「入室」を押してください。名前などは入力済みになります。",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Button(
+                        onClick = onOpenBrowser,
+                        enabled = state.name.isNotBlank() && state.yearsValid && !state.isLoading && !state.isEntering && state.entered == null,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("ロボット確認へ進む") }
+                }
             } else {
-                null
-            },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(onDone = { vm.enter() }),
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        state.entryError?.let {
-            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
-        }
-
-        if (form.requiresCaptcha) {
-            Text(
-                "この部屋に入るにはロボット確認が必要です。ラブルームの入室画面を開くので、確認のあと「入室」を押してください。名前などは入力済みになります。",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Button(
-                onClick = onOpenBrowser,
-                enabled = state.name.isNotBlank() && state.yearsValid,
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("ロボット確認へ進む") }
-        } else {
-            Button(onClick = vm::enter, enabled = state.canEnter, modifier = Modifier.fillMaxWidth()) {
-                if (state.isEntering) {
-                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                } else {
-                    Text("入室")
+                Button(onClick = vm::enter, enabled = state.canEnter, modifier = Modifier.fillMaxWidth()) {
+                    if (state.isEntering) {
+                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        Text("  入室しています…")
+                    } else {
+                        Text("この部屋に入室する")
+                    }
                 }
             }
         }
