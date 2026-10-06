@@ -93,6 +93,12 @@ class RoomPreferenceRepositoryTest {
             assertTrue(favorite.stale)
             assertFalse(favorite.appliesTo(reused))
 
+            // Once an ID collision is proven, a later matching profile must not silently clear it.
+            repo.observe(listOf(chatRoom))
+            favorite = repo.preferences.first().single { it.genreKey == "zenkoku" }
+            assertTrue(favorite.stale)
+            assertFalse(favorite.appliesTo(chatRoom))
+
             repo.clearFavorite(favorite.host, favorite.roomId)
             val hidden = repo.preferences.first().single()
             repo.clearHidden(hidden.host, hidden.roomId)
