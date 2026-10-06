@@ -8,6 +8,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -26,6 +28,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Favorite
+import androidx.compose.material.icons.outlined.Bookmark
+import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.MoreVert
@@ -357,6 +361,7 @@ private fun BoxScope.SwipeActionBackground(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RoomCardSurface(
     room: Room,
@@ -370,123 +375,42 @@ private fun RoomCardSurface(
 ) {
     var menuOpen by remember(room.id, room.genreKey) { mutableStateOf(false) }
     val lovely = LocalLovelyColors.current
-    val genderColor = when (room.gender) {
-        Gender.FEMALE -> lovely.female
-        Gender.MALE -> lovely.male
-        Gender.UNKNOWN -> MaterialTheme.colorScheme.outline
-    }
-    val statusColor = when (room.status) {
-        RoomStatus.WAITING -> lovely.waiting
-        RoomStatus.PUBLIC_WAITING -> lovely.publicWaiting
-        RoomStatus.FULL -> lovely.full
-    }
-
-    Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        tonalElevation = 0.dp,
-        shadowElevation = 2.dp,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clickable(enabled = enabled, onClick = onClick)
-                .height(IntrinsicSize.Min)
-                .padding(horizontal = 14.dp, vertical = 13.dp),
-        ) {
-            Box(
-                Modifier
-                    .width(3.dp)
-                    .fillMaxHeight()
-                    .clip(RoundedCornerShape(50))
-                    .background(statusColor.copy(alpha = 0.88f)),
-            )
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = room.name ?: "2ショットチャット中",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (room.name == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    val profile = buildString {
-                        if (room.gender == Gender.FEMALE) append("女")
-                        if (room.gender == Gender.MALE) append("男")
-                        room.age?.let {
-                            if (isNotEmpty()) append(" ")
-                            append(it).append("歳")
-                        }
-                    }
-                    if (profile.isNotEmpty()) {
-                        Text(
-                            profile,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = genderColor,
-                            modifier = Modifier.padding(start = 8.dp),
-                        )
-                    }
-                    Text(
-                        statusLabel(room.status),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = statusColor,
-                        modifier = Modifier.padding(start = 10.dp),
-                    )
-                    if (favoriteAction != null || hiddenAction != null) {
-                        Box {
-                            IconButton(onClick = { menuOpen = true }, enabled = actionsEnabled) {
-                                Icon(Icons.Outlined.MoreVert, contentDescription = "部屋の操作")
-                            }
-                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                                favoriteAction?.let { action ->
-                                    DropdownMenuItem(
-                                        text = { Text(if (isFavorite) "お気に入り解除" else "お気に入り") },
-                                        enabled = actionsEnabled,
-                                        onClick = { menuOpen = false; action() },
-                                    )
-                                }
-                                hiddenAction?.let { action ->
-                                    DropdownMenuItem(
-                                        text = { Text(if (isHidden) "非表示解除" else "非表示") },
-                                        enabled = actionsEnabled,
-                                        onClick = { menuOpen = false; action() },
-                                    )
-                                }
-                            }
-                        }
+    val statusColor = when (room.status) { RoomStatus.WAITING -> lovely.waiting; RoomStatus.PUBLIC_WAITING -> lovely.publicWaiting; RoomStatus.FULL -> lovely.full }
+    Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.Top) {
+                Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
+                    Text(room.name?.trim()?.takeIf { it.isNotEmpty() }?.let { it.substring(0, it.offsetByCodePoints(0, 1)) } ?: "L",
+                        style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(room.name ?: "会話中の部屋", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(listOfNotNull(when (room.gender) { Gender.FEMALE -> "女性"; Gender.MALE -> "男性"; Gender.UNKNOWN -> null }, room.age?.let { "${it}歳" }, room.area).joinToString(" · ").ifBlank { "プロフィール非公開" },
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+                favoriteAction?.let { action ->
+                    IconButton(onClick = action, enabled = actionsEnabled) {
+                        Icon(if (isFavorite) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
+                            contentDescription = if (isFavorite) "保存を解除" else "部屋を保存", tint = if (isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-
-                Spacer(Modifier.height(6.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    room.area?.let { MetaText(it) }
-                    if (!room.isPublic) {
-                        MetaIcon(Icons.Outlined.Lock, "非公開")
+                if (favoriteAction != null || hiddenAction != null) Box {
+                    IconButton(onClick = { menuOpen = true }, enabled = actionsEnabled) { Icon(Icons.Outlined.MoreVert, "部屋の操作") }
+                    DropdownMenu(menuOpen, { menuOpen = false }) {
+                        favoriteAction?.let { action -> DropdownMenuItem(text = { Text(if (isFavorite) "保存を解除" else "部屋を保存") }, enabled = actionsEnabled, onClick = { menuOpen = false; action() }) }
+                        hiddenAction?.let { action -> DropdownMenuItem(text = { Text(if (isHidden) "非表示を解除" else "非表示にする") }, enabled = actionsEnabled, onClick = { menuOpen = false; action() }) }
                     }
-                    if (room.action == RoomAction.PEEK) {
-                        MetaIcon(Icons.Outlined.Visibility, "覗ける")
-                    }
-                    room.elapsed?.let { MetaText(formatElapsed(it)) }
                 }
-
-                if (room.message.isNotBlank()) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        room.message,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+            }
+            Text(room.message.ifBlank { "募集文は表示されていません" }, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(statusLabel(room.status), style = MaterialTheme.typography.labelSmall, color = statusColor,
+                    modifier = Modifier.clip(RoundedCornerShape(7.dp)).background(statusColor.copy(alpha = 0.08f)).padding(horizontal = 8.dp, vertical = 4.dp))
+                MetaIcon(if (room.isPublic) Icons.Outlined.Visibility else Icons.Outlined.Lock, if (room.isPublic) "公開" else "非公開")
+                room.elapsed?.let { MetaText(formatElapsed(it)) }
             }
         }
     }

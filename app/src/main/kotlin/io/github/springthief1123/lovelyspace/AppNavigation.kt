@@ -5,6 +5,7 @@ import androidx.navigation.NavController
 
 internal object Routes {
     const val ROOMS = "rooms"
+    const val RADAR = "radar"
     const val SEARCH = "search"
     const val FAVORITES = "favorites"
     const val PROFILE = "profile"
@@ -23,7 +24,7 @@ internal object Routes {
     fun create(genre: String) = "create/${Uri.encode(genre)}"
     fun public(host: String, genre: String, roomId: Long) = "public/${Uri.encode(host)}/${Uri.encode(genre)}/$roomId"
     fun chat(sessionId: String, origin: String) = "chat/${Uri.encode(sessionId)}?origin=${mainOrigin(origin)}"
-    fun mainOrigin(value: String?): String = when (value) { SEARCH -> SEARCH; FAVORITES -> FAVORITES; else -> ROOMS }
+    fun mainOrigin(value: String?): String = when (value) { RADAR -> RADAR; SEARCH -> SEARCH; FAVORITES -> FAVORITES; else -> ROOMS }
 }
 
 /** 入室フォームだけを閉じ、元の一覧のViewModel・取得済みページを残す。 */

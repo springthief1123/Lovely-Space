@@ -13,6 +13,12 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.FilterChip
+import androidx.compose.foundation.layout.Row
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import io.github.springthief1123.lovelyspace.ui.components.*
+import io.github.springthief1123.lovelyspace.data.SearchPreset
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -38,13 +44,15 @@ import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
 import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentTopPadding
 
 @Composable
-fun FavoritesScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit) {
+fun FavoritesScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onApplyPreset: (SearchPreset) -> Unit) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val vm: RoomPreferenceViewModel = viewModel(
         factory = viewModelFactory { initializer { RoomPreferenceViewModel(app.roomPreferences) } },
     )
     val state by vm.state.collectAsStateWithLifecycle()
     val values = state.favorites
+    val presets by app.searchPresets.presets.collectAsStateWithLifecycle(initialValue = emptyList())
+    var section by rememberSaveable { mutableIntStateOf(0) }
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -57,35 +65,39 @@ fun FavoritesScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit) {
         ),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        item {
-            Column(Modifier.padding(bottom = 8.dp)) {
-                Text("お気に入り", style = MaterialTheme.typography.titleLarge)
-                Text(
-                    "右へスワイプするとお気に入りを解除できます。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            }
+        item { QuietHeading("KEEP WHAT YOU LOVE", "また、ここで。", "気になる部屋と、いつもの検索条件をひとつに。") }
+        item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(section == 0, { section = 0 }, label = { Text("部屋 ${values.size}") })
+            FilterChip(section == 1, { section = 1 }, label = { Text("検索条件 ${presets.size}") })
+        } }
+        if (section == 1) {
+            if (presets.isEmpty()) item { QuietPanel { Text("検索条件はまだありません。「見つける」の絞り込みから保存できます。") } }
+            items(presets, key = { "search/${it.id}" }) { preset -> QuietPanel {
+                Text(preset.label, style = MaterialTheme.typography.titleSmall)
+                Text(Genres[preset.genreKey]?.label ?: preset.genreKey, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(listOf(preset.criteria.text, preset.criteria.name, preset.criteria.message).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "キーワード指定なし" }, style = MaterialTheme.typography.bodyMedium)
+                TextButton(onClick = { onApplyPreset(preset) }) { Text("この条件で探す") }
+            } }
+            item { Text("名前変更・更新・削除は「見つける」の保存した条件から。巡回の選択はレーダーで行えます。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
 
-        if (state.loading) item { CircularProgressIndicator() }
+        if (section == 0 && state.loading) item { CircularProgressIndicator() }
         state.error?.let { error -> item {
             Text(error, color = MaterialTheme.colorScheme.error)
             TextButton(onClick = vm::reload) { Text("もう一度読み込む") }
         } }
 
-        if (!state.loading && state.error == null && values.isEmpty()) {
+        if (section == 0 && !state.loading && state.error == null && values.isEmpty()) {
             item {
                 Text(
-                    "お気に入りはまだありません。部屋一覧や検索結果のカードを右へスワイプすると追加できます。",
+                    "お気に入りはまだありません。部屋カードの保存ボタンから追加できます。",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 24.dp),
                 )
             }
         }
 
-        items(values, key = { "${it.host}/${it.roomId}" }) { value ->
+        if (section == 0) items(values, key = { "${it.host}/${it.roomId}" }) { value ->
             FavoriteRoomRow(
                 value = value,
                 actionsEnabled = state.canEdit(value.host, value.roomId),
@@ -107,6 +119,7 @@ private fun FavoriteRoomRow(
     onFavoriteClear: () -> Unit,
 ) {
     val room = value.toRoom()
+    var selected by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth()) {
         Text(
             Genres[value.genreKey]?.label ?: value.genreKey,
@@ -114,6 +127,7 @@ private fun FavoriteRoomRow(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 4.dp, top = 4.dp),
         )
+        Text("保存した一覧情報です。現在の状態は入室前に確認してください。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (value.stale) {
             Text(
                 "同じ部屋IDで異なるプロフィールを確認したため、自動では開きません。ID再利用の可能性があります。",
@@ -124,17 +138,15 @@ private fun FavoriteRoomRow(
         }
         RoomCard(
             room = room,
-            enabled = !value.stale && room.action != RoomAction.NONE,
-            onClick = {
-                when (room.action) {
-                    RoomAction.ENTER -> onEnterRoom(room)
-                    RoomAction.PEEK -> onPeekRoom(room)
-                    RoomAction.NONE -> Unit
-                }
-            },
+            enabled = true,
+            onClick = { selected = true },
             isFavorite = true,
             onFavoriteClick = onFavoriteClear,
             actionsEnabled = actionsEnabled,
         )
     }
+    if (selected) RoomDetailsSheet(room, true, actionsEnabled,
+        onDismiss = { selected = false }, onFavorite = onFavoriteClear,
+        onEnter = onEnterRoom, onPeek = onPeekRoom, allowEntry = !value.stale)
+
 }
