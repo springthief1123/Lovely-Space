@@ -319,7 +319,7 @@ class RadarRepository(
     private fun updateCheck(query: RoomQuery, status: RadarCheckStatus, at: Long? = null, matches: Int = 0, message: String? = null) {
         _state.update { state -> state.copy(lastScan = state.lastScan?.let { report ->
             report.copy(pages = report.pages.map { if (it.query == query) it.copy(status = status, confirmedAt = at, matches = matches, message = message) else it })
-        }, lastConfirmedAt = if (at != null) at else state.lastConfirmedAt) }
+        }, lastConfirmedAt = if (at != null) maxOf(state.lastConfirmedAt ?: at, at) else state.lastConfirmedAt) }
     }
     private suspend fun process(o: ObservedRoomPage, presets: List<SearchPreset>, candidates: List<CandidateRule> = emptyList()) {
         val freshTracking = (seen[o.query] ?: 0) < o.revision
