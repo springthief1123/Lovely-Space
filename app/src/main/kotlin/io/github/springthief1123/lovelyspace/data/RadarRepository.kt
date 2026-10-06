@@ -16,7 +16,8 @@ data class TrackedRoom(val room: Room, val confirmedAt: Long? = null, val eviden
     val sourceQuery: RoomQuery? = null,
 )
 data class RadarEvent(val at: Long, val text: String, val id: String = java.util.UUID.randomUUID().toString(),
-    val rooms: List<Room> = emptyList(), val page: Int? = null, val blocked: Boolean = false, val sourceQuery: RoomQuery? = null)
+    val rooms: List<Room> = emptyList(), val page: Int? = null, val blocked: Boolean = false, val sourceQuery: RoomQuery? = null,
+    val kind: RadarEventKind = RadarEventKind.LEGACY, val origin: RadarEventOrigin? = null, val read: Boolean = false)
 data class RadarResult(val presetId: String, val at: Long, val page: Int, val lastPage: Int, val rooms: List<Room>, val genreKey: String, val criteria: RoomSearchCriteria)
 private data class ScheduledRadarQuery(val plans: List<SearchPreset>, val candidates: List<CandidateRule>)
 data class RadarState(
@@ -32,6 +33,7 @@ data class RadarState(
     val lastScan: RadarScanReport? = null,
     val lastConfirmedAt: Long? = null,
 ) {
+    val unreadEvents: Int get() = events.count { !it.read }
     fun resultFor(preset: SearchPreset): RadarResult? = results[preset.id]?.takeIf { it.genreKey == preset.genreKey && it.criteria == preset.criteria }
     fun resultFor(rule: CandidateRule): CandidateResult? = candidateResults[rule.id]?.takeIf { it.ruleKey == rule.key }
 }
@@ -151,6 +153,16 @@ class RadarRepository(
         }.maxByOrNull { it.revision }
         val query = sourceQuery ?: observed?.query
         it.copy(targets = it.targets.filterNot { t -> roomIdentity(t.room) == key } + TrackedRoom(room, observedPage = query?.page ?: 1, sourceQuery = query))
+    }
+    /** 呼び出し時に渡されたIDだけを既読にし、保存中に到着した新しい履歴は含めない。 */
+    suspend fun markEventsRead(ids: Set<String>) = mutex.withLock {
+        // 既読・削除済みの記録を開くために、不要な書き込みを要求しない。
+        if (_state.value.events.none { it.id in ids && !it.read }) return@withLock
+        check(_state.value.loaded) { "読み込み中です。" }
+        transaction {
+            _state.update { state -> state.copy(events = state.events.map { if (it.id in ids) it.copy(read = true) else it }) }
+            persist()
+        }
     }
     suspend fun removeTarget(room: Room) = edit { it.copy(targets = it.targets.filterNot { t -> roomIdentity(t.room) == roomIdentity(room) }) }
     private suspend fun edit(block: (RadarState) -> RadarState) = mutex.withLock {
@@ -315,10 +327,17 @@ class RadarRepository(
             val evidence = roomIdentityEvidence(target.identity, room)
             if (evidence == RoomIdentityEvidence.NOT_OBSERVED) return@map target // 1ページに無いだけで不在とは判断しない。
             if (evidence == RoomIdentityEvidence.MATCH && room != null) {
-                if (target.confirmedAt != null && target.room.status != room.status) events += RadarEvent(o.confirmedAt, "${room.name}：${statusName(room.status)}を確認", rooms = listOf(room), page = o.page.page, sourceQuery = o.query)
+                if (target.confirmedAt != null && target.room.status != room.status) events += RadarEvent(o.confirmedAt, "${room.name}：${statusName(room.status)}を確認", rooms = listOf(room), page = o.page.page, sourceQuery = o.query, kind = RadarEventKind.ROOM_STATUS,
+                    origin = RadarEventOrigin(RadarOriginType.ROOM, roomIdentity(target.identity), target.identity.name.orEmpty()))
                 target.copy(room = room, confirmedAt = o.confirmedAt, observedAt = o.confirmedAt, evidence = evidence, observationRevision = o.revision, observedPage = o.page.page, sourceQuery = o.query)
             } else {
-                if (evidence == RoomIdentityEvidence.REUSED) events += RadarEvent(o.confirmedAt, "${target.room.name}：同じIDに異なるプロフィール。追跡を停止しました", rooms = listOf(target.identity), page = o.page.page, blocked = true, sourceQuery = o.query)
+                if (evidence == RoomIdentityEvidence.REUSED) events += RadarEvent(o.confirmedAt, "${target.room.name}：同じIDに異なるプロフィール。追跡を停止しました", rooms = listOf(target.identity), page = o.page.page, blocked = true, sourceQuery = o.query, kind = RadarEventKind.IDENTITY_WARNING,
+                    origin = RadarEventOrigin(RadarOriginType.ROOM, roomIdentity(target.identity), target.identity.name.orEmpty()))
+                if (evidence == RoomIdentityEvidence.AMBIGUOUS && target.evidence != RoomIdentityEvidence.AMBIGUOUS) {
+                    events += RadarEvent(o.confirmedAt, "${target.identity.name}：同じIDを確認しましたが、公開プロフィールを照合できません", rooms = listOf(target.identity),
+                        page = o.page.page, sourceQuery = o.query, kind = RadarEventKind.PROFILE_UNCONFIRMED,
+                        origin = RadarEventOrigin(RadarOriginType.ROOM, roomIdentity(target.identity), target.identity.name.orEmpty()))
+                }
                 target.copy(evidence = evidence, observedAt = o.confirmedAt, observationRevision = o.revision)
             }
         }
@@ -338,7 +357,8 @@ class RadarRepository(
             if (previous != null) {
                 val added = identities - previous - known
                 if (added.isNotEmpty()) events += RadarEvent(o.confirmedAt, "${preset.label}：${o.page.page}ページで新しい一致を${added.size}件確認",
-                    rooms = matches.filter { "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" in added }.take(20), page = o.page.page)
+                    rooms = matches.filter { "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" in added }.take(20), page = o.page.page, sourceQuery = o.query, kind = RadarEventKind.SEARCH_MATCH,
+                    origin = RadarEventOrigin(RadarOriginType.PLAN, preset.id, preset.label, radarPlanDescription(preset)))
             }
             known.addAll(identities)
             baselines[key] = identities
@@ -358,7 +378,8 @@ class RadarRepository(
                 if (previous != null) {
                     val added = identities - previous - known
                     if (added.isNotEmpty()) events += RadarEvent(o.confirmedAt, "候補「${rule.label}」：${o.page.page}ページで新しい表示名の一致を${added.size}件確認",
-                        rooms = matches.filter { "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" in added }.take(20), page = o.page.page)
+                        rooms = matches.filter { "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" in added }.take(20), page = o.page.page, sourceQuery = o.query, kind = RadarEventKind.CANDIDATE_MATCH,
+                        origin = RadarEventOrigin(RadarOriginType.CANDIDATE, rule.id, rule.label, "${Genres[rule.genreKey]?.label ?: rule.genreKey} · ${if (rule.mode == CandidateMode.EXACT_NAME) "名前一致" else "表示名"}「${rule.term}」"))
                 }
                 known.addAll(identities)
                 candidateBaselines[key] = identities
@@ -372,7 +393,7 @@ class RadarRepository(
         val s = _state.value
         val json = JSONObject().put("plans", JSONArray(s.plans.toList()))
             .put("targets", JSONArray(s.targets.map { t -> JSONObject().put("room", roomJson(t.room)).put("identity", roomJson(t.identity)).put("at", t.confirmedAt).put("observedAt", t.observedAt).put("evidence", t.evidence.name).put("page", t.observedPage).put("sourceQuery", radarQueryJson(t.sourceQuery)) }))
-            .put("events", JSONArray(s.events.map { JSONObject().put("at", it.at).put("text", it.text).put("id", it.id).put("rooms", JSONArray(it.rooms.map(::roomJson))).put("page", it.page).put("blocked", it.blocked).put("sourceQuery", radarQueryJson(it.sourceQuery)) }))
+            .put("events", JSONArray(s.events.map { JSONObject().put("at", it.at).put("text", it.text).put("id", it.id).put("rooms", JSONArray(it.rooms.map(::roomJson))).put("page", it.page).put("blocked", it.blocked).put("sourceQuery", radarQueryJson(it.sourceQuery)).put("kind", it.kind.name).put("origin", radarOriginJson(it.origin)).put("read", it.read) }))
         json.put("candidateRules", JSONArray(s.candidateRules.map { rule -> JSONObject().put("id", rule.id).put("label", rule.label).put("genre", rule.genreKey)
             .put("term", rule.term).put("mode", rule.mode.name).put("enabled", rule.enabled) }))
         // ページ単位の基準・巡回位置は再起動時に捨て、初回大量通知を避ける。
@@ -388,7 +409,9 @@ class RadarRepository(
             targets = (0 until targets.length()).map { i -> val t = targets.getJSONObject(i); TrackedRoom(readRoom(t.getJSONObject("room")), if (t.isNull("at")) null else t.getLong("at"), RoomIdentityEvidence.valueOf(t.getString("evidence")), if (t.has("identity")) readRoom(t.getJSONObject("identity")) else readRoom(t.getJSONObject("room")), if (t.isNull("observedAt")) (if (t.isNull("at")) null else t.getLong("at")) else t.getLong("observedAt"), observedPage = t.optInt("page", 1).coerceAtLeast(1), sourceQuery = readRadarQuery(t.optJSONObject("sourceQuery"))) },
             events = (0 until events.length()).map { i -> events.getJSONObject(i).let { RadarEvent(it.getLong("at"), it.getString("text"), it.optString("id").ifBlank { java.util.UUID.randomUUID().toString() },
                 rooms = it.optJSONArray("rooms")?.let { r -> (0 until r.length()).map { i -> readRoom(r.getJSONObject(i)) } } ?: emptyList(),
-                page = if (it.isNull("page")) null else it.getInt("page").coerceAtLeast(1), blocked = it.optBoolean("blocked"), sourceQuery = readRadarQuery(it.optJSONObject("sourceQuery"))) } },
+                page = if (it.isNull("page")) null else it.getInt("page").coerceAtLeast(1), blocked = it.optBoolean("blocked"), sourceQuery = readRadarQuery(it.optJSONObject("sourceQuery")),
+                kind = RadarEventKind.entries.firstOrNull { kind -> kind.name == it.optString("kind") } ?: RadarEventKind.LEGACY,
+                origin = readRadarOrigin(it.optJSONObject("origin")), read = if (it.has("read")) it.getBoolean("read") else true) } },
             candidateRules = (0 until candidates.length()).map { i -> candidates.getJSONObject(i).let { CandidateRule(it.getString("id"), it.getString("label"), it.getString("genre"), it.getString("term"), CandidateMode.valueOf(it.getString("mode")), it.optBoolean("enabled", true)) } })
     }
     private fun roomJson(r: Room) = JSONObject().put("id", r.id).put("genre", r.genreKey).put("status", r.status.name).put("action", r.action.name)
