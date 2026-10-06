@@ -6,8 +6,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -21,6 +25,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -38,6 +44,8 @@ import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.core.Genres
 import io.github.springthief1123.lovelyspace.settings.RoomListPreferences
 import io.github.springthief1123.lovelyspace.settings.RoomListStartMode
+import io.github.springthief1123.lovelyspace.ui.describeError
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 @Composable
@@ -47,12 +55,34 @@ fun RoomListSettingsScreen(onBack: () -> Unit) {
         initialValue = RoomListPreferences(),
     )
     val scope = rememberCoroutineScope()
+    val snackbar = remember { SnackbarHostState() }
+    val bottomContentPadding = 14.dp +
+        WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
-    Column(Modifier.fillMaxSize().statusBarsPadding()) {
-        SettingsPageHeader(title = "部屋一覧", onBack = onBack)
-        LazyColumn(
-            contentPadding = PaddingValues(vertical = 14.dp),
-        ) {
+    fun saveSetting(block: suspend () -> Unit) {
+        scope.launch {
+            try {
+                block()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                snackbar.currentSnackbarData?.dismiss()
+                snackbar.showSnackbar("設定の保存に失敗しました：${describeError(e)}")
+            }
+        }
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().statusBarsPadding()) {
+            SettingsPageHeader(title = "部屋一覧", onBack = onBack)
+            LazyColumn(
+                contentPadding = PaddingValues(
+                    start = 0.dp,
+                    top = 14.dp,
+                    end = 0.dp,
+                    bottom = bottomContentPadding,
+                ),
+            ) {
             item {
                 Text(
                     "起動時に最初に表示するカテゴリ",
@@ -77,7 +107,7 @@ fun RoomListSettingsScreen(onBack: () -> Unit) {
                             "毎回「$label」から開始"
                         }
                     },
-                    onClick = { scope.launch { app.settings.setRoomListStartMode(mode) } },
+                    onClick = { saveSetting { app.settings.setRoomListStartMode(mode) } },
                 )
             }
             item {
@@ -90,10 +120,17 @@ fun RoomListSettingsScreen(onBack: () -> Unit) {
                 DefaultGenrePicker(
                     selectedKey = preferences.defaultGenreKey,
                     enabled = preferences.startMode == RoomListStartMode.DEFAULT,
-                    onSelect = { key -> scope.launch { app.settings.setDefaultRoomGenre(key) } },
+                    onSelect = { key -> saveSetting { app.settings.setDefaultRoomGenre(key) } },
                 )
             }
         }
+        SnackbarHost(
+            hostState = snackbar,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp, bottom = 8.dp),
+        )
     }
 }
 
