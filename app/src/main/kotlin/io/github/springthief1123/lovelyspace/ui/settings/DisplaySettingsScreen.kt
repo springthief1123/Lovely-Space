@@ -2,11 +2,16 @@ package io.github.springthief1123.lovelyspace.ui.settings
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -16,9 +21,12 @@ import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,6 +37,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.settings.TextScale
 import io.github.springthief1123.lovelyspace.settings.ThemeMode
+import io.github.springthief1123.lovelyspace.ui.describeError
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 @Composable
@@ -37,19 +47,41 @@ fun DisplaySettingsScreen(onBack: () -> Unit) {
     val themeMode by app.settings.themeMode.collectAsStateWithLifecycle(initialValue = ThemeMode.SYSTEM)
     val textScale by app.settings.textScale.collectAsStateWithLifecycle(initialValue = TextScale.STANDARD)
     val scope = rememberCoroutineScope()
+    val snackbar = remember { SnackbarHostState() }
+    val bottomContentPadding = 14.dp +
+        WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
-    Column(Modifier.fillMaxSize().statusBarsPadding()) {
-        SettingsPageHeader(title = "表示設定", onBack = onBack)
-        LazyColumn(
-            contentPadding = PaddingValues(vertical = 14.dp),
-        ) {
+    fun saveSetting(block: suspend () -> Unit) {
+        scope.launch {
+            try {
+                block()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                snackbar.currentSnackbarData?.dismiss()
+                snackbar.showSnackbar("設定の保存に失敗しました：${describeError(e)}")
+            }
+        }
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().statusBarsPadding()) {
+            SettingsPageHeader(title = "表示設定", onBack = onBack)
+            LazyColumn(
+                contentPadding = PaddingValues(
+                    start = 0.dp,
+                    top = 14.dp,
+                    end = 0.dp,
+                    bottom = bottomContentPadding,
+                ),
+            ) {
             item { SettingsSectionTitle("テーマ") }
             items(ThemeMode.entries.size) { index ->
                 val mode = ThemeMode.entries[index]
                 SettingsChoiceRow(
                     title = mode.label,
                     selected = mode == themeMode,
-                    onClick = { scope.launch { app.settings.setThemeMode(mode) } },
+                    onClick = { saveSetting { app.settings.setThemeMode(mode) } },
                 )
             }
             item {
@@ -69,10 +101,17 @@ fun DisplaySettingsScreen(onBack: () -> Unit) {
                         TextScale.LARGE -> "文字を少し大きく表示"
                     },
                     selected = scale == textScale,
-                    onClick = { scope.launch { app.settings.setTextScale(scale) } },
+                    onClick = { saveSetting { app.settings.setTextScale(scale) } },
                 )
             }
         }
+        SnackbarHost(
+            hostState = snackbar,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp, bottom = 8.dp),
+        )
     }
 }
 
