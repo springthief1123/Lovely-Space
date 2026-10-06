@@ -58,6 +58,14 @@ class RadarRepositoryTest {
             assertTrue(restored.state.value.results.isEmpty())
         } finally { db.close() }
     }
+    @Test fun resultsOfAnOlderDefinitionCannotBeShownAsMatchesForAnEditedPreset() {
+        val original = SearchPreset("a", "合成条件", "zenkoku", RoomSearchCriteria())
+        val result = RadarResult(original.id, 1000, 1, 1, listOf(room), original.genreKey, original.criteria)
+        val state = RadarState(results = mapOf(original.id to result))
+        assertSame(result, state.resultFor(original.copy(label = "名前だけ変更")))
+        assertNull(state.resultFor(original.copy(criteria = RoomSearchCriteria(name = "別条件"))))
+        assertNull(state.resultFor(original.copy(genreKey = "talk")))
+    }
     @Test fun legacyTextOnlyHistoryStillLoads() = runTest {
         val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
         try {

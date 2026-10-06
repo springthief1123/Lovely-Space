@@ -16,14 +16,16 @@ data class TrackedRoom(val room: Room, val confirmedAt: Long? = null, val eviden
 )
 data class RadarEvent(val at: Long, val text: String, val id: String = java.util.UUID.randomUUID().toString(),
     val rooms: List<Room> = emptyList(), val page: Int? = null, val blocked: Boolean = false)
-data class RadarResult(val presetId: String, val at: Long, val page: Int, val lastPage: Int, val rooms: List<Room>)
+data class RadarResult(val presetId: String, val at: Long, val page: Int, val lastPage: Int, val rooms: List<Room>, val genreKey: String, val criteria: RoomSearchCriteria)
 data class RadarState(
     val plans: Set<String> = emptySet(), val targets: List<TrackedRoom> = emptyList(),
     val events: List<RadarEvent> = emptyList(), val running: Boolean = false,
     val loaded: Boolean = false, val error: String? = null,
     val scopes: Map<String, String> = emptyMap(),
     val results: Map<String, RadarResult> = emptyMap(),
-)
+) {
+    fun resultFor(preset: SearchPreset): RadarResult? = results[preset.id]?.takeIf { it.genreKey == preset.genreKey && it.criteria == preset.criteria }
+}
 
 class RadarRepository(
     private val dao: PresetDao,
@@ -160,7 +162,7 @@ class RadarRepository(
             }
             known.addAll(identities)
             baselines[key] = identities
-            results[preset.id] = RadarResult(preset.id, o.confirmedAt, o.page.page, o.page.lastPage, matches)
+            results[preset.id] = RadarResult(preset.id, o.confirmedAt, o.page.page, o.page.lastPage, matches, preset.genreKey, preset.criteria)
             scopes[preset.id] = "${formatObservationTime(o.confirmedAt)} · ${o.page.page}/${o.page.lastPage}ページ · 一致${matches.size}件"
         }
         _state.value = current.copy(targets = targets, events = (events + current.events).take(100), scopes = scopes, results = results)
