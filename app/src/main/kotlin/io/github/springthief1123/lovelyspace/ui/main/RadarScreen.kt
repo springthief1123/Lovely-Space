@@ -104,7 +104,10 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                     } }, state.loaded && !working) { value -> action { app.radar.setTargetSort(RadarTargetSort.valueOf(value)) } }
                 }
                 items(state.targets.organized(state.targetSort), key = { roomIdentity(it.identity) }) { target ->
-                    RadarTargetCard(target, state.loaded && !working,
+                    RadarTargetCard(
+                        target = target,
+                        openEnabled = !working,
+                        editEnabled = state.loaded && !working,
                         onOpen = { selected = RadarRoomSnapshot(target.identity, target.confirmedAt, target.observedPage, target.evidence == RoomIdentityEvidence.REUSED, target.sourceQuery) },
                         onPin = { action { app.radar.updateTarget(target.identity, pinned = !target.pinned) } },
                         onNote = { editingTargetKey = roomIdentity(target.identity); error = null },
