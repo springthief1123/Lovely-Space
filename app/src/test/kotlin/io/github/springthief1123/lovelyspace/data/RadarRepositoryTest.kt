@@ -162,15 +162,15 @@ class RadarRepositoryTest {
             searches.save(SearchPreset("a", "合成", "zenkoku", RoomSearchCriteria()))
             val lists = Lists().apply { rooms = listOf(room); lastPage = 2 }
             val radar = RadarRepository(dao, lists, searches, RoomPreferenceRepository(db), backgroundScope)
-            radar.state.first { it.loaded }; radar.setPlan("a", true); radar.scan()
+            radar.state.first { it.loaded }; radar.setPlan("a", true); radar.scan(); radar.scan(); radar.scan()
             rejectPause = true
             try { radar.pauseAllPlans(); fail("保存失敗を通知する") } catch (_: java.io.IOException) { }
             rejectPause = false
             assertEquals(setOf("a"), radar.state.value.plans)
             assertEquals(2, radar.state.value.nextPages["a"])
             lists.rooms = listOf(room, room.copy(id = 99, name = "追加の合成"))
-            radar.scan(); radar.scan()
-            assertEquals(listOf(1, 2, 1), lists.calls.map { it.page })
+            radar.scan()
+            assertEquals(listOf(1, 2, 1, 2), lists.calls.map { it.page })
             assertEquals(1, radar.state.value.events.size)
         } finally { db.close() }
     }

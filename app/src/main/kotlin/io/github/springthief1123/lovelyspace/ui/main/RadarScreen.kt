@@ -52,7 +52,11 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
         item { QuietPanel {
             Text("端末内のレーダー", style = MaterialTheme.typography.titleSmall)
             Text("手動で巡回すると、計画ごとに1ページを確認します。次の巡回で次ページへ進みます。追跡は先頭ページと「見つける」で取得した一覧から確認します。", style = MaterialTheme.typography.bodySmall)
-            Button(onClick = { scope.launch { app.radar.scan() } }, enabled = state.loaded && !state.running && !working && (state.targets.isNotEmpty() || saved.any { it.id in state.plans }), modifier = Modifier.fillMaxWidth()) { Text(if (state.running) "巡回中…" else "いま巡回する") }
+            Button(onClick = { scope.launch {
+                try { app.radar.scan() }
+                catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (e: Exception) { error = "レーダーの状態を確認できませんでした。再読み込みしてお試しください。" }
+            } }, enabled = state.loaded && !state.running && !working && (state.targets.isNotEmpty() || saved.any { it.id in state.plans }), modifier = Modifier.fillMaxWidth()) { Text(if (state.running) "巡回中…" else "いま巡回する") }
             Text("初回は比較の基準を作ります。バックグラウンド巡回・端末通知はまだ実行しません。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } }
         item { TextButton(enabled = state.loaded && state.plans.isNotEmpty() && !working, onClick = { pauseConfirm = true }) { Text("巡回計画をすべて停止") } }
