@@ -5,6 +5,9 @@ package io.github.springthief1123.lovelyspace.ui.chat
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -15,6 +18,9 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -26,6 +32,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -38,17 +46,27 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.saveable.mapSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -56,9 +74,15 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 import java.time.format.DateTimeFormatter
 
 private val TIME = DateTimeFormatter.ofPattern("H:mm")
+private val ReadingSaver = mapSaver(
+    save = { state: ChatReadingState -> mapOf("latest" to state.latestId, "atLatest" to state.atLatest, "unread" to state.unreadIds.toLongArray()) },
+    restore = { ChatReadingState(it["latest"] as Long?, it["atLatest"] as Boolean, (it["unread"] as LongArray).toSet()) },
+)
 
 @Composable
 fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit) {
@@ -96,19 +120,21 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit) {
     }
 
     Scaffold(
+        modifier = Modifier.imePadding(),
         topBar = {
             TopAppBar(
                 title = {
                     Column {
-                        Text(state.partnerName ?: state.title.ifEmpty { "チャット" }, style = MaterialTheme.typography.titleMedium)
+                        Text(state.partnerName ?: state.title.ifEmpty { "チャット" }, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         if (state.partnerName != null && state.title.isNotEmpty()) {
-                            Text(state.title, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(state.title, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
                 navigationIcon = {
                     IconButton(onClick = { if (canLeaveSilently) vm.leave() else confirmLeave = true }) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "退室")
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = if (canLeaveSilently) "一覧に戻る" else if (state.isOwner) "部屋を閉じる" else "退室")
                     }
                 },
                 actions = {
@@ -126,26 +152,28 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit) {
             }
         },
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            when (state.connection) {
-                Connection.RECONNECTING -> Banner("接続が切れたため、つなぎ直しています") {
-                    LinearProgressIndicator(Modifier.fillMaxWidth())
+        Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
+            Column(Modifier.fillMaxWidth().heightIn(max = 160.dp).verticalScroll(rememberScrollState())) {
+                when (state.connection) {
+                    Connection.RECONNECTING -> Banner("接続が切れたため、つなぎ直しています") {
+                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                    }
+                    Connection.FAILED -> Banner("接続が切れました") {
+                        OutlinedButton(onClick = vm::startUpdates) { Text("つなぎ直す") }
+                    }
+                    Connection.CONNECTED -> Unit
                 }
-                Connection.FAILED -> Banner("接続が切れました") {
-                    OutlinedButton(onClick = vm::startUpdates) { Text("つなぎ直す") }
+                state.leaveError?.let {
+                    Banner(it) {
+                        OutlinedButton(onClick = vm::leave, enabled = !state.isLeaving) { Text(if (state.isOwner) "もう一度閉じる" else "もう一度退室する") }
+                    }
                 }
-                Connection.CONNECTED -> Unit
-            }
-            state.leaveError?.let {
-                Banner(it) {
-                    OutlinedButton(onClick = vm::leave, enabled = !state.isLeaving) { Text("もう一度閉じる") }
+                if (state.isWaitingForPartner) {
+                    Banner("相手の入室を待っています。この画面を開いている間、入室を確認し続けます")
                 }
-            }
-            if (state.isWaitingForPartner) {
-                Banner("相手の入室を待っています。この画面を開いている間、入室を確認し続けます")
-            }
-            if (state.information.isNotBlank()) {
-                Banner(state.information)
+                if (state.information.isNotBlank()) {
+                    Banner(state.information)
+                }
             }
             when {
                 state.isLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -167,32 +195,59 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit) {
 
 @Composable
 private fun Banner(text: String, extra: @Composable () -> Unit = {}) {
-    Surface(color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.fillMaxWidth()) {
+    Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
+            Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             extra()
         }
     }
 }
 
 @Composable
-private fun ChatLog(lines: List<UiLine>, modifier: Modifier) {
+internal fun ChatLog(lines: List<UiLine>, modifier: Modifier) {
     val listState = rememberLazyListState()
-    // 最新の近くを見ているときだけ、新着に合わせて下へ送る。遡って読んでいる最中は動かさない。
-    LaunchedEffect(lines.firstOrNull()?.id) {
-        if (listState.firstVisibleItemIndex <= 1) listState.animateScrollToItem(0)
+    val scope = rememberCoroutineScope()
+    var reading by rememberSaveable(stateSaver = ReadingSaver) { mutableStateOf(ChatReadingState()) }
+    val currentLines by rememberUpdatedState(lines)
+    // 新着で既存の項目のindexが動いたことを、利用者のスクロールと取り違えない。
+    LaunchedEffect(listState) {
+        snapshotFlow { Triple(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset, currentLines.firstOrNull()?.id) }
+            .distinctUntilChanged().collect { (index, offset, newest) ->
+                if (newest == reading.latestId) reading = reading.onViewport(index, offset)
+            }
     }
-    LazyColumn(
-        state = listState,
-        reverseLayout = true,
-        modifier = modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        items(lines, key = { it.id }) { ui ->
-            when {
-                ui.line.isNotice -> Notice(ui)
-                else -> Bubble(ui)
+    LaunchedEffect(lines) {
+        reading = reading.onLines(lines)
+        if (reading.atLatest && lines.isNotEmpty()) listState.scrollToItem(0)
+    }
+    Box(modifier.fillMaxWidth()) {
+        LazyColumn(
+            state = listState,
+            reverseLayout = true,
+            modifier = Modifier.fillMaxSize().testTag("chat-log"),
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            items(lines, key = { it.id }) { ui ->
+                if (ui.line.isNotice) Notice(ui) else Bubble(ui)
+            }
+        }
+        if (!reading.atLatest && lines.isNotEmpty()) {
+            FilledTonalButton(
+                onClick = { scope.launch { listState.scrollToItem(0); reading = reading.onViewport(0, 0) } },
+                modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp)
+                    .semantics { liveRegion = LiveRegionMode.Polite },
+            ) {
+                Text(if (reading.unreadIds.isEmpty()) "最新へ戻る ↓" else "新着 ${reading.unreadIds.size}件 · 最新へ ↓")
+            }
+        }
+        if (lines.isEmpty()) {
+            Column(Modifier.align(Alignment.Center).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("ここから、ふたりの会話", style = MaterialTheme.typography.titleMedium)
+                Text("メッセージが届くとここに表示されます", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -214,50 +269,41 @@ private fun Bubble(ui: UiLine) {
     val line = ui.line
     val uriHandler = LocalUriHandler.current
     val colors = MaterialTheme.colorScheme
-    val (container, content) = when {
-        ui.isMine -> colors.primaryContainer to colors.onPrimaryContainer
-        line.speakerIsFemale -> colors.tertiaryContainer to colors.onTertiaryContainer
-        else -> colors.surfaceContainerHigh to colors.onSurface
-    }
-    Column(
-        Modifier.fillMaxWidth(),
-        horizontalAlignment = if (ui.isMine) Alignment.End else Alignment.Start,
-    ) {
-        if (!ui.isMine) {
-            Text(
-                line.speaker.orEmpty(),
-                style = MaterialTheme.typography.labelMedium,
-                color = colors.onSurfaceVariant,
-                modifier = Modifier.padding(start = 8.dp, bottom = 2.dp),
-            )
-        }
-        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            val time: @Composable () -> Unit = {
-                line.time?.let { Text(it.format(TIME), style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant) }
+    val container = if (ui.isMine) colors.primaryContainer else colors.surface
+    val content = if (ui.isMine) colors.onPrimaryContainer else colors.onSurface
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val bubbleWidth = (maxWidth * 0.84f).coerceAtMost(560.dp)
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = if (ui.isMine) Alignment.End else Alignment.Start,
+            verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (!ui.isMine) {
+                Text(line.speaker.orEmpty(), style = MaterialTheme.typography.labelMedium,
+                    color = colors.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp))
             }
-            if (ui.isMine) time()
-            Surface(
-                color = container,
-                contentColor = content,
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.widthIn(max = 280.dp),
-            ) {
-                Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                    if (line.text.isNotEmpty()) Text(line.text, style = MaterialTheme.typography.bodyLarge)
+            Surface(color = container, contentColor = content,
+                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp,
+                    bottomStart = if (ui.isMine) 20.dp else 6.dp, bottomEnd = if (ui.isMine) 6.dp else 20.dp),
+                modifier = Modifier.widthIn(max = bubbleWidth)) {
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    SelectionContainer {
+                        if (line.text.isNotEmpty()) Text(line.text, style = MaterialTheme.typography.bodyLarge)
+                    }
                     line.imageUrls.forEach { url ->
                         TextButton(onClick = { uriHandler.openUri(url) }) { Text("画像を開く") }
                     }
                 }
             }
-            if (!ui.isMine) time()
+            line.time?.let {
+                Text(it.format(TIME), style = MaterialTheme.typography.labelSmall,
+                    color = colors.onSurfaceVariant, modifier = Modifier.padding(horizontal = 4.dp))
+            }
         }
     }
 }
 
 @Composable
 private fun ChatInput(state: ChatUiState, vm: ChatViewModel, onExit: () -> Unit) {
-    Surface(tonalElevation = 2.dp) {
-        Column(Modifier.navigationBarsPadding().imePadding()) {
+    Surface(color = MaterialTheme.colorScheme.surface) {
+        Column(Modifier.navigationBarsPadding()) {
             HorizontalDivider()
             if (state.endMessage != null) {
                 Column(
@@ -270,27 +316,39 @@ private fun ChatInput(state: ChatUiState, vm: ChatViewModel, onExit: () -> Unit)
                 }
                 return@Column
             }
-            state.sendError?.let {
-                Text(
-                    it,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(start = 16.dp, top = 8.dp),
-                )
+            state.failedMessage?.let { message ->
+                Column(Modifier.fillMaxWidth().heightIn(max = 190.dp).verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 8.dp).semantics { liveRegion = LiveRegionMode.Polite },
+                    verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(state.sendError.orEmpty(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    Text("送信結果を確認できませんでした。履歴を確認してから、再送する文章を編集してください。",
+                        style = MaterialTheme.typography.bodySmall)
+                    Text(message, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+                    // 幅が狭い端末や文字拡大でも操作を切らない。
+                    TextButton(onClick = vm::restoreFailedMessage) { Text("下書きに戻して編集する") }
+                    TextButton(onClick = vm::discardFailedMessage) { Text("この送信文を破棄する") }
+                }
+            }
+            if (state.isSending || state.isLeaving) {
+                Text(if (state.isLeaving) "退室しています…" else "送信しています…",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 20.dp, top = 8.dp).semantics { liveRegion = LiveRegionMode.Polite })
             }
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 OutlinedTextField(
                     value = state.input,
                     onValueChange = vm::setInput,
-                    placeholder = { Text("メッセージ") },
+                    placeholder = { Text("メッセージを書く") },
+                    enabled = !state.isLeaving,
                     maxLines = 5,
                     shape = RoundedCornerShape(24.dp),
                     modifier = Modifier.weight(1f),
                 )
-                IconButton(onClick = vm::send, enabled = state.canSend) {
+                FilledIconButton(onClick = vm::send, enabled = state.canSend, modifier = Modifier.size(48.dp)) {
                     if (state.isSending) {
                         CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                     } else {
