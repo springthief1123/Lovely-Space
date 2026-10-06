@@ -282,11 +282,13 @@ class RadarRepository(
                         scheduledCandidates.forEach { rule ->
                             candidateNext[rule.key] = if (observation.page.hasNextPage) observation.page.page + 1 else 1
                         }
+                        val hidden = preferences.preferences.first().filter { it.hidden }
                         val trackedMatches = _state.value.targets.filter { target ->
                             target.sourceQueryOrLegacy() == query &&
                                 target.evidence == RoomIdentityEvidence.MATCH &&
                                 target.observationRevision == observation.revision &&
-                                target.confirmedAt == observation.confirmedAt
+                                target.confirmedAt == observation.confirmedAt &&
+                                hidden.none { it.appliesTo(target.room) }
                         }.map { it.room }
                         val matches = (scheduledPlans.flatMap { _state.value.resultFor(it)?.rooms.orEmpty() } +
                             scheduledCandidates.flatMap { _state.value.resultFor(it)?.rooms.orEmpty() } +
