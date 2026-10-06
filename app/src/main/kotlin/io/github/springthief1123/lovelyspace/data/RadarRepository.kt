@@ -81,6 +81,7 @@ class RadarRepository(
                             if ((seen[observation.query] ?: 0) >= observation.revision) return@forEach
                             process(observation, emptyList())
                             seen[observation.query] = observation.revision
+                            _state.update { state -> state.copy(lastConfirmedAt = maxOf(state.lastConfirmedAt ?: observation.confirmedAt, observation.confirmedAt)) }
                         }
                         persist()
                     }
@@ -271,8 +272,15 @@ class RadarRepository(
                         scheduledCandidates.forEach { rule ->
                             candidateNext[rule.key] = if (observation.page.hasNextPage) observation.page.page + 1 else 1
                         }
+                        val trackedMatches = _state.value.targets.filter { target ->
+                            target.sourceQueryOrLegacy() == query &&
+                                target.evidence == RoomIdentityEvidence.MATCH &&
+                                target.observationRevision == observation.revision &&
+                                target.confirmedAt == observation.confirmedAt
+                        }.map { it.room }
                         val matches = (scheduledPlans.flatMap { _state.value.resultFor(it)?.rooms.orEmpty() } +
-                            scheduledCandidates.flatMap { _state.value.resultFor(it)?.rooms.orEmpty() }).distinctBy(::roomIdentity).size
+                            scheduledCandidates.flatMap { _state.value.resultFor(it)?.rooms.orEmpty() } +
+                            trackedMatches).distinctBy(::roomIdentity).size
                         _state.update { state -> state.copy(nextPages = active.associate { p -> p.id to (nextPages[planKey(p)] ?: 1) },
                             nextCandidatePages = state.candidateRules.filter { it.enabled }.associate { it.id to (candidateNext[it.key] ?: 1) }) }
                         persist()
