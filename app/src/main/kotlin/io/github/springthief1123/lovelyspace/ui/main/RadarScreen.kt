@@ -54,17 +54,12 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = LovelySpacing.screenHorizontal, end = LovelySpacing.screenHorizontal,
         top = lovelyMainContentTopPadding(), bottom = LovelySpacing.bottomContentInset + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { QuietHeading("LET THE MOMENT FIND YOU", "出会いの変化を、そっと。", "保存した条件の巡回と、気になる部屋の追跡。") }
-        item { QuietPanel {
-            Text("端末内のレーダー", style = MaterialTheme.typography.titleSmall)
-            Text("手動で巡回すると、計画ごとに1ページを確認します。次の巡回で次ページへ進みます。追跡は先頭ページと「見つける」で取得した一覧から確認します。", style = MaterialTheme.typography.bodySmall)
-            Button(onClick = { scope.launch {
+        item { RadarDashboard(state, saved.count { it.id in state.plans }, working,
+            onScan = { scope.launch {
                 try { app.radar.scan() }
                 catch (e: kotlinx.coroutines.CancellationException) { throw e }
                 catch (e: Exception) { error = "レーダーの状態を確認できませんでした。再読み込みしてお試しください。" }
-            } }, enabled = state.loaded && !state.running && !working && (state.targets.any { it.evidence != RoomIdentityEvidence.REUSED } || saved.any { it.id in state.plans } || state.candidateRules.any { it.enabled }), modifier = Modifier.fillMaxWidth()) { Text(if (state.running) "巡回中…" else "いま巡回する") }
-            Text("初回は比較の基準を作ります。バックグラウンド巡回・端末通知はまだ実行しません。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } }
-        item { TextButton(enabled = state.loaded && (state.plans.isNotEmpty() || state.candidateRules.any { it.enabled }) && !working, onClick = { pauseConfirm = true }) { Text("計画・候補監視をすべて停止") } }
+            } }, onPause = { pauseConfirm = true }) }
         savedState.loadError?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error); TextButton(onClick = savedVm::reload) { Text("条件を読み直す") } } }
         item { FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf(0 to "巡回", 1 to "部屋追跡", 3 to "候補", 2 to "履歴").forEach { (index, label) -> FilterChip(section == index, { section = index }, label = { Text(label) }) }
