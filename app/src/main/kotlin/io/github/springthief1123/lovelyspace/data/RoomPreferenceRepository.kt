@@ -42,7 +42,6 @@ private fun RoomPreference.refreshed(room: Room): RoomPreference = copy(
     snapshotAge = room.age,
     snapshotArea = room.area,
     snapshotMessage = room.message,
-    stale = false,
 )
 
 private fun preferenceFromRoom(room: Room, favorite: Boolean, hidden: Boolean): RoomPreference {
