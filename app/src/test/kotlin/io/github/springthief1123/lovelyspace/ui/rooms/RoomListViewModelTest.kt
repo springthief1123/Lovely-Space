@@ -46,6 +46,34 @@ class RoomListViewModelTest {
         }
     }
     @Test
+    fun reselectingDisplayedGenreBeforeInitializationStillLoadsThatGenre() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val store = FakeRoomListPreferences(
+                RoomListPreferences(
+                    startMode = RoomListStartMode.DEFAULT,
+                    defaultGenreKey = "kinki",
+                ),
+            )
+            val fetched = mutableListOf<String>()
+            val source = RoomListSource { query, _ ->
+                fetched += query.genre.key
+                RoomListPage(query.genre.key, emptyList(), 0, 0, 1, 1, emptyMap(), 0)
+            }
+
+            val vm = RoomListViewModel(source, store)
+            vm.selectGenre(Genres.default)
+            advanceUntilIdle()
+
+            assertEquals(Genres.default.key, vm.state.value.genre.key)
+            assertEquals(listOf(Genres.default.key), fetched)
+            assertEquals(Genres.default.key, store.lastWritten)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
     fun userGenreSelectionWinsIfInitializationHasNotRunYet() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {
