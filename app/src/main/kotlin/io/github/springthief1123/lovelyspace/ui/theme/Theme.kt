@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import io.github.springthief1123.lovelyspace.settings.TextScale
 import io.github.springthief1123.lovelyspace.settings.ThemeMode
 
 private val LightColors = lightColorScheme(
@@ -57,17 +58,19 @@ private val DarkColors = darkColorScheme(
     outlineVariant = Color(0xFF44383C),
 )
 
-private val LovelyTypography = Typography(
-    titleLarge = TextStyle(fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.SemiBold),
-    titleMedium = TextStyle(fontSize = 18.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold),
-    titleSmall = TextStyle(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold),
-    bodyLarge = TextStyle(fontSize = 16.sp, lineHeight = 24.sp, fontWeight = FontWeight.Normal),
-    bodyMedium = TextStyle(fontSize = 14.sp, lineHeight = 21.sp, fontWeight = FontWeight.Normal),
-    bodySmall = TextStyle(fontSize = 12.sp, lineHeight = 18.sp, fontWeight = FontWeight.Normal),
-    labelLarge = TextStyle(fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium),
-    labelMedium = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium),
-    labelSmall = TextStyle(fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.Medium),
-)
+private fun lovelyTypography(scale: TextScale) = with(scale.multiplier) {
+    Typography(
+        titleLarge = TextStyle(fontSize = (24 * this).sp, lineHeight = (30 * this).sp, fontWeight = FontWeight.SemiBold),
+        titleMedium = TextStyle(fontSize = (18 * this).sp, lineHeight = (24 * this).sp, fontWeight = FontWeight.SemiBold),
+        titleSmall = TextStyle(fontSize = (15 * this).sp, lineHeight = (20 * this).sp, fontWeight = FontWeight.SemiBold),
+        bodyLarge = TextStyle(fontSize = (16 * this).sp, lineHeight = (24 * this).sp, fontWeight = FontWeight.Normal),
+        bodyMedium = TextStyle(fontSize = (14 * this).sp, lineHeight = (21 * this).sp, fontWeight = FontWeight.Normal),
+        bodySmall = TextStyle(fontSize = (12 * this).sp, lineHeight = (18 * this).sp, fontWeight = FontWeight.Normal),
+        labelLarge = TextStyle(fontSize = (14 * this).sp, lineHeight = (18 * this).sp, fontWeight = FontWeight.Medium),
+        labelMedium = TextStyle(fontSize = (12 * this).sp, lineHeight = (16 * this).sp, fontWeight = FontWeight.Medium),
+        labelSmall = TextStyle(fontSize = (11 * this).sp, lineHeight = (14 * this).sp, fontWeight = FontWeight.Medium),
+    )
+}
 
 @Immutable
 data class LovelyColors(
@@ -108,6 +111,7 @@ val LocalLovelyColors = staticCompositionLocalOf { LightLovely }
 @Composable
 fun LovelySpaceTheme(
     themeMode: ThemeMode = ThemeMode.SYSTEM,
+    textScale: TextScale = TextScale.STANDARD,
     content: @Composable () -> Unit,
 ) {
     val dark = when (themeMode) {
@@ -118,7 +122,7 @@ fun LovelySpaceTheme(
     CompositionLocalProvider(LocalLovelyColors provides if (dark) DarkLovely else LightLovely) {
         MaterialTheme(
             colorScheme = if (dark) DarkColors else LightColors,
-            typography = LovelyTypography,
+            typography = lovelyTypography(textScale),
             content = content,
         )
     }

@@ -7,13 +7,15 @@ import io.github.springthief1123.lovelyspace.core.Genre
 import io.github.springthief1123.lovelyspace.core.Genres
 import io.github.springthief1123.lovelyspace.core.Room
 import io.github.springthief1123.lovelyspace.core.RoomQuery
-import io.github.springthief1123.lovelyspace.data.RoomListRepository
+import io.github.springthief1123.lovelyspace.data.RoomListSource
+import io.github.springthief1123.lovelyspace.settings.RoomListPreferenceStore
 import io.github.springthief1123.lovelyspace.ui.describeError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -31,6 +33,7 @@ data class RoomListUiState(
     val isRefreshing: Boolean = false,
     val isLoadingMore: Boolean = false,
     val error: String? = null,
+    val preferenceError: String? = null,
     /** [error] が次ページの読み込みで起きたものなら true（再試行は次ページを読み直す）。 */
     val errorOnLoadMore: Boolean = false,
 ) {
@@ -48,23 +51,63 @@ private fun RoomListUiState.resetResults() = copy(
     errorOnLoadMore = false,
 )
 
-class RoomListViewModel(private val repository: RoomListRepository) : ViewModel() {
+class RoomListViewModel(
+    private val repository: RoomListSource,
+    private val preferences: RoomListPreferenceStore,
+) : ViewModel() {
     private val _state = MutableStateFlow(RoomListUiState())
     val state: StateFlow<RoomListUiState> = _state.asStateFlow()
 
     private var loadJob: Job? = null
+    private var hasUserSelectedGenre = false
 
     init {
-        refresh(force = false)
+        viewModelScope.launch {
+            val initialKey = try {
+                preferences.roomListPreferences.first().initialGenreKey()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { it.copy(preferenceError = describeError(e)) }
+                Genres.default.key
+            }
+            if (!hasUserSelectedGenre) {
+                _state.update { it.copy(genre = Genres[initialKey] ?: Genres.default) }
+                refresh(force = false)
+                rememberGenre(_state.value.genre.key)
+            }
+        }
     }
 
     fun selectGenre(genre: Genre) {
-        if (genre == _state.value.genre) return
+        val current = _state.value
+        if (genre == current.genre) {
+            if (current.page == 0 && !current.isRefreshing) {
+                hasUserSelectedGenre = true
+                rememberGenre(genre.key)
+                refresh(force = false)
+            }
+            return
+        }
+        hasUserSelectedGenre = true
         _state.update {
             val recent = (listOf(it.genre) + it.recentGenres).filter { g -> g != genre }.distinct().take(RECENT_GENRES)
             it.copy(genre = genre, recentGenres = recent).resetResults()
         }
+        rememberGenre(genre.key)
         refresh(force = false)
+    }
+
+    private fun rememberGenre(key: String) {
+        viewModelScope.launch {
+            try {
+                preferences.setLastRoomGenre(key)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { it.copy(preferenceError = describeError(e)) }
+            }
+        }
     }
 
     fun selectSex(sex: Gender?) {

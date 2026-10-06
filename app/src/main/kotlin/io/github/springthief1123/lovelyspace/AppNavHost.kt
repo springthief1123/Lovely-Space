@@ -1,5 +1,10 @@
 package io.github.springthief1123.lovelyspace
 
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -16,7 +21,6 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import io.github.springthief1123.lovelyspace.core.Genres
-import io.github.springthief1123.lovelyspace.settings.ThemeMode
 import io.github.springthief1123.lovelyspace.ui.chat.ChatScreen
 import io.github.springthief1123.lovelyspace.ui.create.CreateRoomScreen
 import io.github.springthief1123.lovelyspace.ui.entry.EntryScreen
@@ -24,12 +28,15 @@ import io.github.springthief1123.lovelyspace.ui.main.FavoritesScreen
 import io.github.springthief1123.lovelyspace.ui.main.ProfileScreen
 import io.github.springthief1123.lovelyspace.ui.main.SearchScreen
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomListScreen
+import io.github.springthief1123.lovelyspace.ui.settings.DisplaySettingsScreen
+import io.github.springthief1123.lovelyspace.ui.settings.HiddenRoomsScreen
+import io.github.springthief1123.lovelyspace.ui.settings.RoomListSettingsScreen
 import io.github.springthief1123.lovelyspace.ui.settings.SettingsScreen
 import io.github.springthief1123.lovelyspace.ui.shell.LovelyAppShell
 import io.github.springthief1123.lovelyspace.ui.web.PublicRoomScreen
 
 @Composable
-fun AppNavHost(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
+fun AppNavHost() {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val nav = rememberNavController()
     val backStackEntry by nav.currentBackStackEntryAsState()
@@ -49,8 +56,6 @@ fun AppNavHost(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
     LovelyAppShell(
         currentRoute = currentRoute,
         showChrome = currentRoute != null && currentRoute in mainRoutes,
-        themeMode = themeMode,
-        onThemeModeChange = onThemeModeChange,
         onDestinationSelected = { destination ->
             nav.navigate(destination.route) {
                 popUpTo(nav.graph.findStartDestination().id) { saveState = true }
@@ -62,7 +67,20 @@ fun AppNavHost(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
         showCreateFab = currentRoute == Routes.ROOMS,
         onCreateRoom = { nav.navigate(Routes.create(createGenreKey)) { launchSingleTop = true } },
     ) {
-        NavHost(navController = nav, startDestination = Routes.ROOMS) {
+        NavHost(
+            navController = nav,
+            startDestination = Routes.ROOMS,
+            enterTransition = {
+                fadeIn(tween(180)) + slideInHorizontally(tween(220)) { it / 14 }
+            },
+            exitTransition = { fadeOut(tween(140)) },
+            popEnterTransition = {
+                fadeIn(tween(180)) + slideInHorizontally(tween(220)) { -it / 18 }
+            },
+            popExitTransition = {
+                fadeOut(tween(140)) + slideOutHorizontally(tween(200)) { it / 16 }
+            },
+        ) {
             composable(Routes.ROOMS) {
                 RoomListScreen(
                     refreshKey = roomsRefreshKey,
@@ -80,10 +98,14 @@ fun AppNavHost(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
             composable(Routes.SEARCH) {
                 SearchScreen(
                     onEnterRoom = { room ->
-                        Genres[room.genreKey]?.host?.let { host -> nav.navigate(Routes.entry(host, room.genreKey, room.id, Routes.SEARCH)) { launchSingleTop = true } }
+                        Genres[room.genreKey]?.host?.let { host ->
+                            nav.navigate(Routes.entry(host, room.genreKey, room.id, Routes.SEARCH)) { launchSingleTop = true }
+                        }
                     },
                     onPeekRoom = { room ->
-                        Genres[room.genreKey]?.host?.let { host -> nav.navigate(Routes.public(host, room.genreKey, room.id)) { launchSingleTop = true } }
+                        Genres[room.genreKey]?.host?.let { host ->
+                            nav.navigate(Routes.public(host, room.genreKey, room.id)) { launchSingleTop = true }
+                        }
                     },
                 )
             }
@@ -104,10 +126,20 @@ fun AppNavHost(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
             composable(Routes.PROFILE) { ProfileScreen() }
             composable(Routes.SETTINGS) {
                 SettingsScreen(
-                    themeMode = themeMode,
-                    onThemeModeChange = onThemeModeChange,
+                    onOpenDisplay = { nav.navigate(Routes.SETTINGS_DISPLAY) { launchSingleTop = true } },
+                    onOpenRoomList = { nav.navigate(Routes.SETTINGS_ROOMS) { launchSingleTop = true } },
+                    onOpenHiddenRooms = { nav.navigate(Routes.SETTINGS_HIDDEN) { launchSingleTop = true } },
                     onBack = { nav.popBackStack() },
                 )
+            }
+            composable(Routes.SETTINGS_DISPLAY) {
+                DisplaySettingsScreen(onBack = { nav.popBackStack() })
+            }
+            composable(Routes.SETTINGS_ROOMS) {
+                RoomListSettingsScreen(onBack = { nav.popBackStack() })
+            }
+            composable(Routes.SETTINGS_HIDDEN) {
+                HiddenRoomsScreen(onBack = { nav.popBackStack() })
             }
             composable(Routes.ENTRY, arguments = roomArgs + originArg) { entry ->
                 val args = entry.arguments!!

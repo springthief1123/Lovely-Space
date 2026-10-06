@@ -9,6 +9,9 @@ internal object Routes {
     const val FAVORITES = "favorites"
     const val PROFILE = "profile"
     const val SETTINGS = "settings"
+    const val SETTINGS_DISPLAY = "settings/display"
+    const val SETTINGS_ROOMS = "settings/rooms"
+    const val SETTINGS_HIDDEN = "settings/hidden"
     const val ENTRY = "entry/{host}/{genre}/{roomId}?origin={origin}"
     /** pwdはrouteに載せず、ActiveRoomsの一時IDだけを渡す。 */
     const val CHAT = "chat/{session}?origin={origin}"
