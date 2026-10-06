@@ -1,6 +1,13 @@
 package io.github.springthief1123.lovelyspace.ui.main
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Tune
+import io.github.springthief1123.lovelyspace.ui.components.QuietHeading
+import io.github.springthief1123.lovelyspace.data.SearchPreset
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
@@ -22,10 +29,11 @@ import io.github.springthief1123.lovelyspace.ui.rooms.RoomPreferenceViewModel
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
 import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentTopPadding
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit) {
+fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refreshKey: Int = 0, onGenreChanged: (Genre) -> Unit = {}, preset: SearchPreset? = null, onPresetConsumed: () -> Unit = {}) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
-    val vm: SearchViewModel = viewModel(factory = viewModelFactory { initializer { SearchViewModel(app.roomLists) } })
+    val vm: SearchViewModel = viewModel(factory = viewModelFactory { initializer { SearchViewModel(app.roomLists, app.settings) } })
     val preferencesVm: RoomPreferenceViewModel = viewModel(
         factory = viewModelFactory { initializer { RoomPreferenceViewModel(app.roomPreferences) } },
     )
@@ -35,15 +43,72 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit) {
     val visibleResults = state.results.filterNot(preferences::isHidden)
     val c = state.criteria
     val validAges = state.validAges
-    var fullNotice by remember { mutableStateOf(false) }
+    var showFilters by remember { mutableStateOf(false) }
+    var selectedRoom by remember { mutableStateOf<Room?>(null) }
+    LaunchedEffect(state.initialized, refreshKey) { if (state.initialized) vm.onRefreshKey(refreshKey) }
+    LaunchedEffect(state.genre) { onGenreChanged(state.genre) }
+    LaunchedEffect(state.initialized, preset?.id) {
+        if (state.initialized && preset != null) { vm.applyPreset(preset); onPresetConsumed() }
+    }
     LazyColumn(Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = LovelySpacing.screenHorizontal, end = LovelySpacing.screenHorizontal,
             top = lovelyMainContentTopPadding(), bottom = LovelySpacing.bottomContentInset + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { Text("さがす", style = MaterialTheme.typography.titleLarge) }
-        item { SavedSearchControls(state, vm::applyPreset) }
-        item { GenreBar(state.genre, emptyList(), emptyMap(), vm::genre) }
+        item { QuietHeading("FIND YOUR MOMENT", "いま、話したい人と。", "気になる言葉から、心地よい場所を見つけよう。") }
         item {
+            OutlinedTextField(c.text, { vm.criteria(c.copy(text = it)) }, placeholder = { Text("名前・募集文を検索") },
+                leadingIcon = { Icon(Icons.Outlined.Search, null) },
+                trailingIcon = { IconButton(onClick = { showFilters = true }) { Icon(Icons.Outlined.Tune, "検索条件") } },
+                singleLine = true, shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth())
+        }
+        item { GenreBar(state.genre, emptyList(), emptyMap(), { vm.genre(it); vm.refresh() }) }
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                FilterChip(c.waitingOnly == true, { vm.criteria(c.copy(waitingOnly = if (c.waitingOnly == true) null else true)) }, label = { Text("待機中") })
+                TextButton(onClick = { showFilters = true }) { Text("絞り込み・条件保存") }
+            }
+        }
+        item {
+            Text(if (state.page == 0) (if (state.loading || !state.initialized) "一覧を読み込んでいます。" else "「一覧を更新」でこのジャンルを取得します。") else "取得済み ${state.page}/${state.lastPage}ページ・${state.rooms.size}部屋から ${if (validAges) visibleResults.size else 0}件表示",
+                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            state.pageTimes.values.minOrNull()?.let { at -> Text("表示範囲の最も古い確認 ${io.github.springthief1123.lovelyspace.data.formatObservationTime(at)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            Text("条件の変更は取得済み一覧に反映します。「続きを読み込む」で検索範囲を広げられます。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        item { TextButton(onClick = vm::refresh, enabled = !state.loading) { Text("一覧を更新") } }
+        state.preferenceError?.let { error -> item { Text("設定を保存できませんでした：$error", color = MaterialTheme.colorScheme.error) } }
+        preferences.error?.let { error -> item {
+            Text(error, color = MaterialTheme.colorScheme.error)
+            TextButton(onClick = preferencesVm::clearError) { Text("閉じる") }
+        } }
+        state.error?.let { error -> item {
+            Text(error, color = MaterialTheme.colorScheme.error)
+            TextButton(onClick = { if (state.errorOnMore) vm.more() else vm.refresh() }, enabled = !state.loading) { Text("もう一度読み込む") }
+        } }
+        if (validAges) {
+            items(visibleResults, key = ::roomIdentity) { room ->
+                RoomCard(
+                    room = room,
+                    onClick = { selectedRoom = room },
+                    isFavorite = preferences.isFavorite(room),
+                    actionsEnabled = preferences.canEdit(room),
+                    onFavoriteClick = { preferencesVm.toggleFavorite(room) },
+                    onHideClick = { preferencesVm.hide(room) },
+                )
+            }
+            if (state.page > 0 && visibleResults.isEmpty() && !state.loading) item {
+                Text(if (state.results.isEmpty()) "取得済みの一覧に、条件に合う部屋はありません。" else "条件に合う部屋はすべて非表示です。")
+            }
+        }
+        if (state.loading) item { CircularProgressIndicator(Modifier.size(28.dp)) }
+        if (state.canLoadMore) item { OutlinedButton(onClick = vm::more, modifier = Modifier.fillMaxWidth()) { Text("続きを読み込む") } }
+    }
+    selectedRoom?.let { room -> RoomDetailsSheet(room, preferences.isFavorite(room), preferences.canEdit(room),
+        onDismiss = { selectedRoom = null }, onFavorite = { preferencesVm.toggleFavorite(room) },
+        onHide = { preferencesVm.hide(room); selectedRoom = null }, onEnter = onEnterRoom, onPeek = onPeekRoom) }
+    if (showFilters) ModalBottomSheet(onDismissRequest = { showFilters = false }) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("検索条件", style = MaterialTheme.typography.titleLarge)
+            SavedSearchControls(state, vm::applyPreset)
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(c.name, { vm.criteria(c.copy(name = it)) }, label = { Text("名前のキーワード") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(c.message, { vm.criteria(c.copy(message = it)) }, label = { Text("待機メッセージのキーワード") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -70,45 +135,12 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit) {
                     Text(if (state.page == 0) "このジャンルを検索" else "一覧を更新")
                 }
             }
+
+            Button(onClick = { showFilters = false }, modifier = Modifier.fillMaxWidth()) { Text("結果を見る") }
+            TextButton(onClick = { vm.criteria(RoomSearchCriteria()); vm.minAge(""); vm.maxAge("") }) { Text("条件をリセット") }
+            Spacer(Modifier.height(24.dp))
         }
-        item {
-            Text(if (state.page == 0) "検索ボタンで一覧を取得します。" else "取得済み ${state.page}/${state.lastPage}ページ・${state.rooms.size}部屋から ${if (validAges) visibleResults.size else 0}件表示",
-                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("条件の変更は取得済み一覧に反映します。全ページを探すには「次のページも検索」を押してください。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        preferences.error?.let { error -> item {
-            Text(error, color = MaterialTheme.colorScheme.error)
-            TextButton(onClick = preferencesVm::clearError) { Text("閉じる") }
-        } }
-        state.error?.let { error -> item {
-            Text(error, color = MaterialTheme.colorScheme.error)
-            TextButton(onClick = { if (state.errorOnMore) vm.more() else vm.refresh() }, enabled = !state.loading) { Text("もう一度読み込む") }
-        } }
-        if (validAges) {
-            items(visibleResults, key = ::roomIdentity) { room ->
-                RoomCard(
-                    room = room,
-                    onClick = {
-                        when (room.action) {
-                            RoomAction.ENTER -> onEnterRoom(room)
-                            RoomAction.PEEK -> onPeekRoom(room)
-                            RoomAction.NONE -> fullNotice = true
-                        }
-                    },
-                    isFavorite = preferences.isFavorite(room),
-                    actionsEnabled = preferences.canEdit(room),
-                    onFavoriteClick = { preferencesVm.toggleFavorite(room) },
-                    onHideClick = { preferencesVm.hide(room) },
-                )
-            }
-            if (state.page > 0 && visibleResults.isEmpty() && !state.loading) item {
-                Text(if (state.results.isEmpty()) "取得済みの一覧に、条件に合う部屋はありません。" else "条件に合う部屋はすべて非表示です。")
-            }
-        }
-        if (state.loading) item { CircularProgressIndicator(Modifier.size(28.dp)) }
-        if (state.canLoadMore) item { OutlinedButton(onClick = vm::more, modifier = Modifier.fillMaxWidth()) { Text("次のページも検索") } }
     }
-    if (fullNotice) AlertDialog(onDismissRequest = { fullNotice = false }, text = { Text("満室の非公開ルームには入れません。") }, confirmButton = { TextButton(onClick = { fullNotice = false }) { Text("閉じる") } })
 }
 
 @OptIn(ExperimentalLayoutApi::class)

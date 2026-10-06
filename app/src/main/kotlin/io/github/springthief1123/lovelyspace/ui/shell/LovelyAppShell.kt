@@ -8,121 +8,73 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.FavoriteBorder
-import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.NotificationsNone
-import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.LocalContentColor
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.outlined.PersonOutline
+import androidx.compose.material.icons.outlined.Radar
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.springthief1123.lovelyspace.LovelySpaceApp
+import io.github.springthief1123.lovelyspace.data.formatObservationTime
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
-import io.github.springthief1123.lovelyspace.ui.components.LovelyGlassFab
-import io.github.springthief1123.lovelyspace.ui.components.LovelyGlassSurface
-import io.github.springthief1123.lovelyspace.ui.components.ProvideLovelyHazeState
-import io.github.springthief1123.lovelyspace.ui.theme.LovelyShapes
+import io.github.springthief1123.lovelyspace.Routes
+import io.github.springthief1123.lovelyspace.ui.components.*
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
 
-data class MainDestination(
-    val route: String,
-    val label: String,
-    val icon: ImageVector,
-)
+data class MainDestination(val route: String, val label: String, val icon: ImageVector)
 
 val MainDestinations = listOf(
-    MainDestination("rooms", "部屋一覧", Icons.Outlined.Home),
-    MainDestination("search", "さがす", Icons.Outlined.Search),
-    MainDestination("favorites", "お気に入り", Icons.Outlined.FavoriteBorder),
-    MainDestination("profile", "マイページ", Icons.Outlined.Person),
+    MainDestination(Routes.ROOMS, "見つける", Icons.Outlined.Explore),
+    MainDestination(Routes.RADAR, "レーダー", Icons.Outlined.Radar),
+    MainDestination(Routes.FAVORITES, "保存", Icons.Outlined.BookmarkBorder),
+    MainDestination(Routes.PROFILE, "マイルーム", Icons.Outlined.PersonOutline),
 )
 
 @Composable
 fun LovelyAppShell(
-    currentRoute: String?,
-    showChrome: Boolean,
+    currentRoute: String?, showChrome: Boolean,
     onDestinationSelected: (MainDestination) -> Unit,
-    onOpenSettings: () -> Unit,
-    showCreateFab: Boolean,
-    onCreateRoom: () -> Unit,
+    showCreateFab: Boolean, onCreateRoom: () -> Unit,
     content: @Composable () -> Unit,
 ) {
     val hazeState = remember { HazeState() }
-
     ProvideLovelyHazeState(hazeState) {
         Box(Modifier.fillMaxSize()) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .hazeSource(state = hazeState),
-                color = MaterialTheme.colorScheme.background,
-                contentColor = MaterialTheme.colorScheme.onBackground,
-            ) {
-                CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
-                    content()
-                }
+            Surface(Modifier.fillMaxSize().hazeSource(state = hazeState),
+                color = MaterialTheme.colorScheme.background, contentColor = MaterialTheme.colorScheme.onBackground) {
+                content()
             }
-
             if (showChrome) {
-                LovelyTopBar(
-                    currentRoute = currentRoute,
-                    onOpenSettings = onOpenSettings,
-                    modifier = Modifier.align(Alignment.TopCenter),
-                )
-                LovelyBottomNavigation(
-                    currentRoute = currentRoute,
-                    onDestinationSelected = onDestinationSelected,
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                )
-                AnimatedVisibility(
-                    visible = showCreateFab,
-                    enter = fadeIn() + scaleIn(initialScale = 0.85f),
-                    exit = fadeOut() + scaleOut(targetScale = 0.85f),
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .navigationBarsPadding()
-                        .padding(end = 20.dp, bottom = 92.dp),
-                ) {
+                LovelyTopBar(Modifier.align(Alignment.TopCenter))
+                LovelyBottomNavigation(if (currentRoute == Routes.SEARCH) Routes.ROOMS else currentRoute,
+                    onDestinationSelected, Modifier.align(Alignment.BottomCenter))
+                AnimatedVisibility(showCreateFab, enter = fadeIn() + scaleIn(initialScale = 0.9f),
+                    exit = fadeOut() + scaleOut(targetScale = 0.9f),
+                    modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 20.dp, bottom = 112.dp)) {
                     LovelyGlassFab(onClick = onCreateRoom)
                 }
             }
@@ -131,182 +83,35 @@ fun LovelyAppShell(
 }
 
 @Composable
-private fun LovelyTopBar(
-    currentRoute: String?,
-    onOpenSettings: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
+private fun LovelyTopBar(modifier: Modifier = Modifier) {
     var notificationsOpen by remember { mutableStateOf(false) }
-    val section = MainDestinations.firstOrNull { it.route == currentRoute }?.label ?: "Lovely Space"
-
-    LovelyGlassSurface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RectangleShape,
-    ) {
-        Row(
-            Modifier
-                .statusBarsPadding()
-                .fillMaxWidth()
-                .height(LovelySpacing.topBarHeight)
-                .padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Outlined.AutoAwesome,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp),
-                )
+    val app = LocalContext.current.applicationContext as LovelySpaceApp
+    val radar by app.radar.state.collectAsStateWithLifecycle()
+    val rose = MaterialTheme.colorScheme.primary
+    LovelyGlassSurface(modifier.fillMaxWidth(), RectangleShape) {
+        Row(Modifier.statusBarsPadding().fillMaxWidth().height(LovelySpacing.topBarHeight).padding(horizontal = 20.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Canvas(Modifier.size(28.dp, 32.dp)) {
+                val stroke = Stroke(1.2.dp.toPx())
+                drawOval(rose, topLeft = Offset(0f, size.height * 0.14f), size = Size(size.width * 0.64f, size.height * 0.72f), style = stroke)
+                drawOval(rose, topLeft = Offset(size.width * 0.34f, size.height * 0.14f), size = Size(size.width * 0.64f, size.height * 0.72f), style = stroke)
             }
-            Column(
-                Modifier
-                    .weight(1f)
-                    .padding(start = 10.dp),
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Text(
-                    "Lovely Space",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    section,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            Text("Lovely Space", modifier = Modifier.weight(1f).padding(start = 10.dp),
+                style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.Serif),
+                color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Box {
-                HeaderAction(
-                    icon = Icons.Outlined.NotificationsNone,
-                    description = "通知",
-                    onClick = { notificationsOpen = true },
-                )
-                NotificationPanel(
-                    expanded = notificationsOpen,
-                    onDismiss = { notificationsOpen = false },
-                )
-            }
-            HeaderAction(
-                icon = Icons.Outlined.Settings,
-                description = "設定",
-                onClick = onOpenSettings,
-            )
-        }
-    }
-}
-
-@Composable
-private fun NotificationPanel(expanded: Boolean, onDismiss: () -> Unit) {
-    DropdownMenu(
-        expanded = expanded,
-        onDismissRequest = onDismiss,
-        modifier = Modifier.width(292.dp),
-    ) {
-        Text(
-            "通知",
-            style = MaterialTheme.typography.titleSmall,
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
-        )
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        Column(Modifier.padding(18.dp)) {
-            Text(
-                "新しい通知はありません",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-            )
-            Text(
-                "入室・新着メッセージ・巡回中の部屋の通知は、通知機能の実装後にここへまとめて表示します。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 6.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun HeaderAction(
-    icon: ImageVector,
-    description: String,
-    onClick: () -> Unit,
-) {
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.9f else 1f,
-        animationSpec = spring(stiffness = 700f),
-        label = "header-action-scale",
-    )
-    Box(
-        Modifier
-            .size(44.dp)
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
-            .clickable(
-                interactionSource = interaction,
-                indication = null,
-                onClick = onClick,
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, contentDescription = description, tint = MaterialTheme.colorScheme.onSurface)
-    }
-}
-
-@Composable
-private fun LovelyBottomNavigation(
-    currentRoute: String?,
-    onDestinationSelected: (MainDestination) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    LovelyGlassSurface(
-        modifier = modifier.fillMaxWidth(),
-        shape = LovelyShapes.bottomGlass,
-    ) {
-        BoxWithConstraints(
-            Modifier
-                .navigationBarsPadding()
-                .fillMaxWidth()
-                .height(76.dp)
-                .padding(horizontal = 6.dp, vertical = 8.dp),
-        ) {
-            val itemWidth = maxWidth / MainDestinations.size.toFloat()
-            val selectedIndex = MainDestinations.indexOfFirst { it.route == currentRoute }.coerceAtLeast(0)
-            val indicatorX by animateDpAsState(
-                targetValue = itemWidth * selectedIndex.toFloat() + (itemWidth - 28.dp) / 2f,
-                animationSpec = spring(dampingRatio = 0.8f, stiffness = 420f),
-                label = "bottom-nav-indicator",
-            )
-
-            Box(
-                Modifier
-                    .align(Alignment.BottomStart)
-                    .offset(x = indicatorX)
-                    .size(width = 28.dp, height = 3.dp)
-                    .background(MaterialTheme.colorScheme.primary, LovelyShapes.control),
-            )
-
-            Row(
-                Modifier.fillMaxSize(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                MainDestinations.forEach { destination ->
-                    BottomDestination(
-                        destination = destination,
-                        selected = currentRoute == destination.route,
-                        onClick = { onDestinationSelected(destination) },
-                        modifier = Modifier.weight(1f),
-                    )
+                IconButton(onClick = { notificationsOpen = true }) {
+                    Icon(Icons.Outlined.NotificationsNone, contentDescription = "お知らせ")
+                }
+                DropdownMenu(notificationsOpen, { notificationsOpen = false }) {
+                    Column(Modifier.widthIn(max = 280.dp).padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("お知らせ", style = MaterialTheme.typography.titleSmall)
+                        if (radar.events.isEmpty()) Text("変化の履歴はまだありません", style = MaterialTheme.typography.bodyMedium)
+                        radar.events.take(3).forEach { event ->
+                            Text(event.text, style = MaterialTheme.typography.bodySmall)
+                            Text(formatObservationTime(event.at), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
                 }
             }
         }
@@ -314,55 +119,33 @@ private fun LovelyBottomNavigation(
 }
 
 @Composable
-private fun BottomDestination(
-    destination: MainDestination,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val lift by animateDpAsState(
-        targetValue = if (selected) (-3).dp else 0.dp,
-        animationSpec = spring(dampingRatio = 0.72f, stiffness = 360f),
-        label = "bottom-nav-lift",
-    )
-    val scale by animateFloatAsState(
-        targetValue = when {
-            pressed -> 0.92f
-            selected -> 1.05f
-            else -> 1f
-        },
-        animationSpec = spring(stiffness = 520f),
-        label = "bottom-nav-scale",
-    )
-
-    Column(
-        modifier
-            .offset(y = lift)
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
+private fun LovelyBottomNavigation(currentRoute: String?, onSelect: (MainDestination) -> Unit, modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 12.dp)) {
+        LovelyGlassSurface(Modifier.fillMaxWidth(), RoundedCornerShape(24.dp)) {
+            BoxWithConstraints(Modifier.fillMaxWidth().heightIn(min = 76.dp).padding(6.dp)) {
+                val itemWidth = maxWidth / MainDestinations.size
+                val index = MainDestinations.indexOfFirst { it.route == currentRoute }.coerceAtLeast(0)
+                val x by animateDpAsState(itemWidth * index + 3.dp,
+                    animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f), label = "nav-selection")
+                Box(Modifier.offset(x = x).width(itemWidth - 6.dp).height(64.dp)
+                    .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(18.dp)))
+                Row(Modifier.fillMaxWidth()) {
+                    MainDestinations.forEach { destination ->
+                        val selected = currentRoute == destination.route
+                        val interaction = remember { MutableInteractionSource() }
+                        val pressed by interaction.collectIsPressedAsState()
+                        val scale by animateFloatAsState(if (pressed) 0.96f else 1f, label = "nav-press")
+                        Column(Modifier.weight(1f).heightIn(min = 64.dp).graphicsLayer { scaleX = scale; scaleY = scale }
+                            .selectable(selected, interactionSource = interaction, indication = null, role = Role.Tab,
+                                onClick = { onSelect(destination) }).padding(vertical = 10.dp, horizontal = 2.dp),
+                            verticalArrangement = Arrangement.spacedBy(5.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            val color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            Icon(destination.icon, contentDescription = null, tint = color, modifier = Modifier.size(22.dp))
+                            Text(destination.label, style = MaterialTheme.typography.labelSmall, color = color)
+                        }
+                    }
+                }
             }
-            .clickable(
-                interactionSource = interaction,
-                indication = null,
-                onClick = onClick,
-            )
-            .padding(vertical = 4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Icon(
-            destination.icon,
-            contentDescription = destination.label,
-            tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(23.dp),
-        )
-        Text(
-            destination.label,
-            style = MaterialTheme.typography.labelSmall,
-            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        }
     }
 }

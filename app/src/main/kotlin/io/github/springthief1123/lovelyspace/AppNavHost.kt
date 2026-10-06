@@ -27,7 +27,9 @@ import io.github.springthief1123.lovelyspace.ui.entry.EntryScreen
 import io.github.springthief1123.lovelyspace.ui.main.FavoritesScreen
 import io.github.springthief1123.lovelyspace.ui.main.ProfileScreen
 import io.github.springthief1123.lovelyspace.ui.main.SearchScreen
-import io.github.springthief1123.lovelyspace.ui.rooms.RoomListScreen
+import io.github.springthief1123.lovelyspace.ui.main.RadarScreen
+import io.github.springthief1123.lovelyspace.ui.main.SearchPresetSaver
+import io.github.springthief1123.lovelyspace.data.SearchPreset
 import io.github.springthief1123.lovelyspace.ui.settings.DisplaySettingsScreen
 import io.github.springthief1123.lovelyspace.ui.settings.HiddenRoomsScreen
 import io.github.springthief1123.lovelyspace.ui.settings.RoomListSettingsScreen
@@ -41,9 +43,11 @@ fun AppNavHost() {
     val nav = rememberNavController()
     val backStackEntry by nav.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
-    val mainRoutes = setOf(Routes.ROOMS, Routes.SEARCH, Routes.FAVORITES, Routes.PROFILE)
+    val mainRoutes = setOf(Routes.ROOMS, Routes.SEARCH, Routes.RADAR, Routes.FAVORITES, Routes.PROFILE)
     var roomsRefreshKey by rememberSaveable { mutableIntStateOf(0) }
     var createGenreKey by rememberSaveable { mutableStateOf(Genres.default.key) }
+
+    var pendingPreset by rememberSaveable(stateSaver = SearchPresetSaver) { mutableStateOf<SearchPreset?>(null) }
 
     val roomArgs = listOf(
         navArgument("host") { type = NavType.StringType },
@@ -63,7 +67,6 @@ fun AppNavHost() {
                 restoreState = true
             }
         },
-        onOpenSettings = { nav.navigate(Routes.SETTINGS) { launchSingleTop = true } },
         showCreateFab = currentRoute == Routes.ROOMS,
         onCreateRoom = { nav.navigate(Routes.create(createGenreKey)) { launchSingleTop = true } },
     ) {
@@ -82,14 +85,15 @@ fun AppNavHost() {
             },
         ) {
             composable(Routes.ROOMS) {
-                RoomListScreen(
+                SearchScreen(
                     refreshKey = roomsRefreshKey,
+                    preset = pendingPreset, onPresetConsumed = { pendingPreset = null },
                     onEnterRoom = { room ->
-                        val host = Genres[room.genreKey]?.host ?: return@RoomListScreen
+                        val host = Genres[room.genreKey]?.host ?: return@SearchScreen
                         nav.navigate(Routes.entry(host, room.genreKey, room.id)) { launchSingleTop = true }
                     },
                     onPeekRoom = { room ->
-                        val host = Genres[room.genreKey]?.host ?: return@RoomListScreen
+                        val host = Genres[room.genreKey]?.host ?: return@SearchScreen
                         nav.navigate(Routes.public(host, room.genreKey, room.id)) { launchSingleTop = true }
                     },
                     onGenreChanged = { createGenreKey = it.key },
@@ -109,8 +113,10 @@ fun AppNavHost() {
                     },
                 )
             }
+            composable(Routes.RADAR) { RadarScreen(onFindRooms = { nav.navigate(Routes.ROOMS) { launchSingleTop = true } }) }
             composable(Routes.FAVORITES) {
                 FavoritesScreen(
+                    onApplyPreset = { pendingPreset = it; nav.navigate(Routes.ROOMS) { popUpTo(Routes.ROOMS); launchSingleTop = true } },
                     onEnterRoom = { room ->
                         Genres[room.genreKey]?.host?.let { host ->
                             nav.navigate(Routes.entry(host, room.genreKey, room.id, Routes.FAVORITES)) { launchSingleTop = true }
@@ -123,7 +129,10 @@ fun AppNavHost() {
                     },
                 )
             }
-            composable(Routes.PROFILE) { ProfileScreen() }
+            composable(Routes.PROFILE) { ProfileScreen(
+                onOpenSettings = { nav.navigate(Routes.SETTINGS) { launchSingleTop = true } },
+                onCreateRoom = { nav.navigate(Routes.create(createGenreKey)) { launchSingleTop = true } },
+            ) }
             composable(Routes.SETTINGS) {
                 SettingsScreen(
                     onOpenDisplay = { nav.navigate(Routes.SETTINGS_DISPLAY) { launchSingleTop = true } },

@@ -22,14 +22,14 @@ class SearchPresetRepositoryTest {
         val context = ApplicationProvider.getApplicationContext<Application>()
         val name = "search-${UUID.randomUUID()}.db"
         fun open() = Room.databaseBuilder(context, PresetDatabase::class.java, name)
-            .addMigrations(PresetDatabase.MIGRATION_1_2, PresetDatabase.MIGRATION_2_3).build()
+            .addMigrations(PresetDatabase.MIGRATION_1_2, PresetDatabase.MIGRATION_2_3, PresetDatabase.MIGRATION_3_4).build()
         var db = open()
         try {
             var repo = SearchPresetRepository(db)
             val value = SearchPreset("saved", "  よく使う条件  ", "talk", RoomSearchCriteria(
                 name = "合成 名前", message = "募集 テスト", excluded = "除外語", keywordMode = KeywordMode.ANY,
                 gender = Gender.FEMALE, minAge = 25, maxAge = 40, includeUnknownAge = false, area = Prefectures.names.first(),
-                waitingOnly = true, publicOnly = false, sort = RoomSort.ELAPSED))
+                waitingOnly = true, publicOnly = false, sort = RoomSort.ELAPSED, text = "共通検索"))
             repo.save(value)
             assertEquals(value.copy(label = value.label.trim()), repo.presets.first().single())
             val edited = value.copy(label = "編集後", genreKey = "kinki",
@@ -81,7 +81,7 @@ class SearchPresetRepositoryTest {
             old.version = 1
         }
         val db = Room.databaseBuilder(context, PresetDatabase::class.java, name)
-            .addMigrations(PresetDatabase.MIGRATION_1_2, PresetDatabase.MIGRATION_2_3).build()
+            .addMigrations(PresetDatabase.MIGRATION_1_2, PresetDatabase.MIGRATION_2_3, PresetDatabase.MIGRATION_3_4).build()
         try {
             // Room自身による移行後スキーマ検証を通し、全フィールドと取り込み済み状態を確認。
             assertEquals(ProfilePreset("profile", "保持する設定", "合成の名前", 2, null, 13, true), db.presets().defaultProfile())
