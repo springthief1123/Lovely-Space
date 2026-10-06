@@ -24,6 +24,7 @@ class RadarRepositoryTest {
     private class Lists : ObservedRoomListSource {
         override val observations = MutableStateFlow<Map<RoomQuery, ObservedRoomPage>>(emptyMap())
         var rooms = emptyList<Room>()
+        var roomsByPage: Map<Int, List<Room>> = emptyMap()
         var revision = 0L
         var lastPage = 1
         var clock: Long? = null
@@ -33,7 +34,7 @@ class RadarRepositoryTest {
         override suspend fun fetch(query: RoomQuery, force: Boolean): RoomListPage {
             calls += query
             onFetch?.invoke(query)
-            val page = RoomListPage(query.genre.key, rooms, null, null, query.page, lastPage, emptyMap(), null)
+            val page = RoomListPage(query.genre.key, roomsByPage[query.page] ?: rooms, null, null, query.page, lastPage, emptyMap(), null)
             revision++
             observations.value += query to ObservedRoomPage(query, page, clock ?: revision * 1000, revision)
             return page
@@ -237,8 +238,46 @@ class RadarRepositoryTest {
             radar.saveCandidate(CandidateRule("b", "合成B", "zenkoku", "合成")); radar.scan()
             assertEquals(3, radar.state.value.nextCandidatePages["a"])
             assertEquals(2, radar.state.value.nextCandidatePages["b"])
+            assertEquals(2, radar.state.value.candidateResults["a"]?.page)
+            assertEquals(1, radar.state.value.candidateResults["b"]?.page)
             radar.scan()
             assertEquals(listOf(1, 2, 1, 3, 2), lists.calls.map { it.page })
+            assertEquals(3, radar.state.value.candidateResults["a"]?.page)
+            assertEquals(2, radar.state.value.candidateResults["b"]?.page)
+        } finally { db.close() }
+    }
+    @Test fun candidateOnlyPagesDoNotReplaceASearchPlansAssignedPage() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            searches.save(SearchPreset("plan", "合成計画", "zenkoku", RoomSearchCriteria()))
+            val lists = Lists().apply { rooms = listOf(room); lastPage = 2 }
+            val radar = RadarRepository(db.presets(), lists, searches, RoomPreferenceRepository(db), backgroundScope)
+            radar.state.first { it.loaded }; radar.setPlan("plan", true); radar.scan()
+            radar.saveCandidate(CandidateRule("candidate", "合成候補", "zenkoku", "合成")); radar.scan()
+            assertEquals(listOf(1, 2, 1), lists.calls.map { it.page })
+            assertEquals(2, radar.state.value.results["plan"]?.page)
+            assertEquals(1, radar.state.value.candidateResults["candidate"]?.page)
+        } finally { db.close() }
+    }
+    @Test fun offScheduleCandidatesAreNotRecordedEarlyOrSuppressedOnTheirActualPage() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val lists = Lists().apply { rooms = listOf(room); lastPage = 2 }
+            val radar = RadarRepository(db.presets(), lists, SearchPresetRepository(db), RoomPreferenceRepository(db), backgroundScope)
+            radar.state.first { it.loaded }
+            val a = CandidateRule("a", "合成A", "zenkoku", "合成")
+            radar.saveCandidate(a); radar.scan()
+            radar.saveCandidate(a.copy(id = "b", label = "合成B"))
+            val arrival = room.copy(id = 44)
+            lists.roomsByPage = mapOf(1 to listOf(room, arrival), 2 to listOf(room))
+            radar.scan()
+            assertTrue(radar.state.value.events.isEmpty())
+            assertEquals(listOf(room), radar.state.value.resultFor(a)?.rooms)
+            radar.scan()
+            val event = radar.state.value.events.single()
+            assertTrue(event.text.contains("合成A"))
+            assertEquals(listOf(arrival), event.rooms)
         } finally { db.close() }
     }
     @Test fun divergedPlansAdvanceOnlyOncePerScheduledPage() = runTest {

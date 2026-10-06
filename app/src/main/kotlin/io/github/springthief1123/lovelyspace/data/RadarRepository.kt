@@ -48,9 +48,11 @@ class RadarRepository(
     private val knownMatches = mutableMapOf<String, MutableSet<String>>()
     private val nextPages = mutableMapOf<String, Int>()
     private val planKeys = mutableMapOf<String, String>()
+    private val evaluatedPlans = mutableMapOf<String, Long>()
     private val candidateBaselines = mutableMapOf<String, Set<String>>()
     private val candidateKnown = mutableMapOf<String, MutableSet<String>>()
     private val candidateNext = mutableMapOf<String, Int>()
+    private val evaluatedCandidates = mutableMapOf<String, Long>()
     private var observationJob: Job? = null
     init { reload() }
     fun reload() {
@@ -61,7 +63,7 @@ class RadarRepository(
             try {
                 mutex.withLock {
                     dao.state(KEY)?.let(::restore)
-                    seen.clear(); baselines.clear(); knownMatches.clear(); nextPages.clear(); planKeys.clear(); candidateBaselines.clear(); candidateKnown.clear(); candidateNext.clear()
+                    seen.clear(); baselines.clear(); knownMatches.clear(); nextPages.clear(); planKeys.clear(); candidateBaselines.clear(); candidateKnown.clear(); candidateNext.clear(); evaluatedPlans.clear(); evaluatedCandidates.clear()
                     _state.update { it.copy(loaded = true, scopes = emptyMap(), results = emptyMap(), nextPages = emptyMap(), candidateResults = emptyMap(), nextCandidatePages = emptyMap()) }
                 }
                 combine(lists.observations, searches.presets) { _, _ -> Unit }.collect {
@@ -70,10 +72,9 @@ class RadarRepository(
                         val saved = searches.presets.first()
                         val observations = lists.observations.value
                         reconcilePlans(saved)
-                        val presets = saved.filter { it.id in _state.value.plans }
                         observations.values.sortedBy { it.revision }.forEach { observation ->
                             if ((seen[observation.query] ?: 0) >= observation.revision) return@forEach
-                            process(observation, presets)
+                            process(observation, emptyList())
                             seen[observation.query] = observation.revision
                         }
                         persist()
@@ -120,11 +121,13 @@ class RadarRepository(
         candidateBaselines.keys.removeAll { it.startsWith("$id/") }
         candidateKnown.keys.removeAll { it.startsWith("$id/") }
         candidateNext.keys.removeAll { it.startsWith("$id/") }
+        evaluatedCandidates.keys.removeAll { it.startsWith("$id/") }
     }
     private fun resetPlan(id: String) {
         baselines.keys.removeAll { it.startsWith("$id/") }
         knownMatches.keys.removeAll { it.startsWith("$id/") }
         nextPages.keys.removeAll { it.startsWith("$id/") }
+        evaluatedPlans.keys.removeAll { it.startsWith("$id/") }
     }
     private fun reconcilePlans(saved: List<SearchPreset>) {
         val keys = saved.associate { it.id to planKey(it) }
@@ -149,6 +152,8 @@ class RadarRepository(
         val oldCandidateBaselines = candidateBaselines.toMap()
         val oldCandidateKnown = candidateKnown.mapValues { it.value.toMutableSet() }
         val oldCandidateNext = candidateNext.toMap()
+        val oldEvaluatedPlans = evaluatedPlans.toMap()
+        val oldEvaluatedCandidates = evaluatedCandidates.toMap()
         try {
             _state.value = block(old).copy(error = null)
             persist()
@@ -160,6 +165,8 @@ class RadarRepository(
             candidateBaselines.clear(); candidateBaselines.putAll(oldCandidateBaselines)
             candidateKnown.clear(); candidateKnown.putAll(oldCandidateKnown)
             candidateNext.clear(); candidateNext.putAll(oldCandidateNext)
+            evaluatedPlans.clear(); evaluatedPlans.putAll(oldEvaluatedPlans)
+            evaluatedCandidates.clear(); evaluatedCandidates.putAll(oldEvaluatedCandidates)
             throw e
         }
     }
@@ -205,12 +212,16 @@ class RadarRepository(
                     val currentSaved = searches.presets.first()
                     reconcilePlans(currentSaved)
                     val active = currentSaved.filter { it.id in _state.value.plans }
-                    if ((seen[query] ?: 0) < observation.revision) { process(observation, active); seen[query] = observation.revision }
+                    val scheduledPlans = active.filter { preset -> request.plans.any { planKey(it) == planKey(preset) } }
+                    val scheduledCandidates = _state.value.candidateRules.filter { rule -> rule.enabled && request.candidates.any { it.key == rule.key } }
+                    // 一覧監視が先に部屋追跡へ反映しても、この取得に割り当てた条件だけを評価する。
+                    process(observation, scheduledPlans, scheduledCandidates)
+                    seen[query] = maxOf(seen[query] ?: 0, observation.revision)
                     // 開始時にこのリクエストへ割り当てた計画だけを進める。
-                    request.plans.filter { scheduledPlan -> active.any { planKey(it) == planKey(scheduledPlan) } }.forEach { preset ->
+                    scheduledPlans.forEach { preset ->
                         nextPages[planKey(preset)] = if (observation.page.hasNextPage) observation.page.page + 1 else 1
                     }
-                    request.candidates.filter { scheduledRule -> _state.value.candidateRules.any { it.enabled && it.key == scheduledRule.key } }.forEach { rule ->
+                    scheduledCandidates.forEach { rule ->
                         candidateNext[rule.key] = if (observation.page.hasNextPage) observation.page.page + 1 else 1
                     }
                     _state.update { state -> state.copy(nextPages = active.associate { p -> p.id to (nextPages[planKey(p)] ?: 1) },
@@ -222,12 +233,14 @@ class RadarRepository(
         catch (e: Exception) { _state.update { it.copy(error = "巡回できませんでした。通信状況を確認して、もう一度お試しください。確認済みの情報は保持しています。") } }
         finally { _state.update { it.copy(running = false) } }
     }
-    private suspend fun process(o: ObservedRoomPage, presets: List<SearchPreset>) {
-        preferences.observe(o.page.rooms)
+    private suspend fun process(o: ObservedRoomPage, presets: List<SearchPreset>, candidates: List<CandidateRule> = emptyList()) {
+        val freshTracking = (seen[o.query] ?: 0) < o.revision
+        if (freshTracking) preferences.observe(o.page.rooms)
         val hidden = preferences.preferences.first().filter { it.hidden }
         val current = _state.value
         val events = mutableListOf<RadarEvent>()
         val targets = current.targets.map { target ->
+            if (!freshTracking) return@map target
             if (target.room.genreKey != o.query.genre.key || target.evidence == RoomIdentityEvidence.REUSED) return@map target
             if (target.observationRevision > o.revision) return@map target
             val room = o.page.rooms.firstOrNull { roomIdentity(it) == roomIdentity(target.room) }
@@ -248,6 +261,8 @@ class RadarRepository(
             if (o.query != RoomQuery(o.query.genre, page = o.query.page)) return@forEach
             val scopeKey = planKey(preset)
             val key = "$scopeKey/${o.query.page}"
+            if ((evaluatedPlans[key] ?: 0) >= o.revision) return@forEach
+            evaluatedPlans[key] = o.revision
             val matches = searchRooms(o.page.rooms.filterNot { room -> hidden.any { it.appliesTo(room) } }, preset.criteria)
             val identities = matches.map { "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" }.toSet()
             val known = knownMatches.getOrPut(scopeKey) { mutableSetOf() }
@@ -264,10 +279,12 @@ class RadarRepository(
         }
         val candidateResults = current.candidateResults.toMutableMap()
         if (o.query == RoomQuery(o.query.genre, page = o.query.page)) {
-            current.candidateRules.filter { it.enabled && it.genreKey == o.query.genre.key }.forEach { rule ->
+            candidates.filter { it.enabled && it.genreKey == o.query.genre.key }.forEach { rule ->
                 val matches = o.page.rooms.distinctBy(::roomIdentity).filter { room -> rule.matches(room) && hidden.none { it.appliesTo(room) } }
                 val identities = matches.map { "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" }.toSet()
                 val key = "${rule.key}/${o.page.page}"
+                if ((evaluatedCandidates[key] ?: 0) >= o.revision) return@forEach
+                evaluatedCandidates[key] = o.revision
                 val previous = candidateBaselines[key]
                 val known = candidateKnown.getOrPut(rule.key) { mutableSetOf() }
                 if (previous != null) {
