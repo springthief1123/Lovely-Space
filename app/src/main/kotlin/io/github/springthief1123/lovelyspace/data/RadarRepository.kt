@@ -56,12 +56,15 @@ class RadarRepository(
                     seen.clear(); baselines.clear(); knownMatches.clear(); nextPages.clear(); planKeys.clear()
                     _state.update { it.copy(loaded = true, scopes = emptyMap(), results = emptyMap()) }
                 }
-                combine(lists.observations, searches.presets) { observations, saved -> observations to saved }.collect { (observations, saved) ->
+                combine(lists.observations, searches.presets) { _, _ -> Unit }.collect {
                     mutex.withLock {
+                        // ロック待ち中に更新された定義・一覧を、古いFlowの値で戻さない。
+                        val saved = searches.presets.first()
+                        val observations = lists.observations.value
                         reconcilePlans(saved)
                         val presets = saved.filter { it.id in _state.value.plans }
                         observations.values.sortedBy { it.revision }.forEach { observation ->
-                            if (seen[observation.query] == observation.revision) return@forEach
+                            if ((seen[observation.query] ?: 0) >= observation.revision) return@forEach
                             process(observation, presets)
                             seen[observation.query] = observation.revision
                         }
@@ -157,7 +160,7 @@ class RadarRepository(
                     val currentSaved = searches.presets.first()
                     reconcilePlans(currentSaved)
                     val active = currentSaved.filter { it.id in _state.value.plans }
-                    if (seen[query] != observation.revision) { process(observation, active); seen[query] = observation.revision }
+                    if ((seen[query] ?: 0) < observation.revision) { process(observation, active); seen[query] = observation.revision }
                     // 開始時にこのリクエストへ割り当てた計画だけを進める。
                     scheduledPlans.filter { scheduledPlan -> active.any { planKey(it) == planKey(scheduledPlan) } }.forEach { preset ->
                         nextPages[planKey(preset)] = if (observation.page.hasNextPage) observation.page.page + 1 else 1
