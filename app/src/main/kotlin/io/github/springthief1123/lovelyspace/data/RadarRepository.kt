@@ -9,7 +9,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /** 端末内に保存するレーダー。手動巡回のみ。入室・背景通信は行わない。 */
-data class TrackedRoom(val room: Room, val confirmedAt: Long? = null, val evidence: RoomIdentityEvidence = RoomIdentityEvidence.NOT_OBSERVED, val identity: Room = room, val observedAt: Long? = null)
+data class TrackedRoom(val room: Room, val confirmedAt: Long? = null, val evidence: RoomIdentityEvidence = RoomIdentityEvidence.NOT_OBSERVED, val identity: Room = room, val observedAt: Long? = null,
+    /** このRoomListRepository内だけの取得順序。再起動時は0から照合し直すため永続化しない。 */
+    val observationRevision: Long = 0,
+)
 data class RadarEvent(val at: Long, val text: String)
 data class RadarState(
     val plans: Set<String> = emptySet(), val targets: List<TrackedRoom> = emptyList(),
@@ -123,16 +126,16 @@ class RadarRepository(
         val events = mutableListOf<RadarEvent>()
         val targets = current.targets.map { target ->
             if (target.room.genreKey != o.query.genre.key || target.evidence == RoomIdentityEvidence.REUSED) return@map target
-            if (target.observedAt != null && target.observedAt > o.confirmedAt) return@map target
+            if (target.observationRevision > o.revision) return@map target
             val room = o.page.rooms.firstOrNull { roomIdentity(it) == roomIdentity(target.room) }
             val evidence = roomIdentityEvidence(target.identity, room)
             if (evidence == RoomIdentityEvidence.NOT_OBSERVED) return@map target // 1ページに無いだけで不在とは判断しない。
             if (evidence == RoomIdentityEvidence.MATCH && room != null) {
                 if (target.confirmedAt != null && target.room.status != room.status) events += RadarEvent(o.confirmedAt, "${room.name}：${statusName(room.status)}を確認")
-                target.copy(room = room, confirmedAt = o.confirmedAt, observedAt = o.confirmedAt, evidence = evidence)
+                target.copy(room = room, confirmedAt = o.confirmedAt, observedAt = o.confirmedAt, evidence = evidence, observationRevision = o.revision)
             } else {
                 if (evidence == RoomIdentityEvidence.REUSED) events += RadarEvent(o.confirmedAt, "${target.room.name}：同じIDに異なるプロフィール。追跡を停止しました")
-                target.copy(evidence = evidence, observedAt = o.confirmedAt)
+                target.copy(evidence = evidence, observedAt = o.confirmedAt, observationRevision = o.revision)
             }
         }
         val scopes = current.scopes.toMutableMap()

@@ -5,6 +5,10 @@ import androidx.room.Room as RoomDb
 import androidx.test.core.app.ApplicationProvider
 import io.github.springthief1123.lovelyspace.core.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.test.*
 import org.junit.Assert.*
 import org.junit.Test
@@ -22,14 +26,53 @@ class RadarRepositoryTest {
         var rooms = emptyList<Room>()
         var revision = 0L
         var lastPage = 1
+        var clock: Long? = null
         val calls = mutableListOf<RoomQuery>()
         override fun observation(query: RoomQuery) = observations.value[query]
         override suspend fun fetch(query: RoomQuery, force: Boolean): RoomListPage {
             calls += query
             val page = RoomListPage(query.genre.key, rooms, null, null, query.page, lastPage, emptyMap(), null)
-            observations.value += query to ObservedRoomPage(query, page, ++revision * 1000, revision)
+            revision++
+            observations.value += query to ObservedRoomPage(query, page, clock ?: revision * 1000, revision)
             return page
         }
+    }
+    @Test fun clockRollbackAndRestoredFutureTimestampsDoNotBlockNewObservations() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            val prefs = RoomPreferenceRepository(db)
+            val lists = Lists().apply { rooms = listOf(room); clock = 10_000 }
+            val firstJob = SupervisorJob(backgroundScope.coroutineContext[Job])
+            val radar = RadarRepository(db.presets(), lists, searches, prefs, CoroutineScope(backgroundScope.coroutineContext + firstJob))
+            radar.state.first { it.loaded }
+            radar.track(room)
+            radar.scan()
+            assertEquals(10_000L, radar.state.value.targets.single().observedAt)
+
+            lists.clock = 1_000 // 時計を戻しても、新しい取得結果は反映する。
+            lists.rooms = listOf(room.copy(status = RoomStatus.PUBLIC_WAITING))
+            radar.scan()
+            assertEquals(RoomStatus.PUBLIC_WAITING, radar.state.value.targets.single().room.status)
+            assertEquals(1_000L, radar.state.value.targets.single().observedAt)
+            assertEquals(2L, radar.state.value.targets.single().observationRevision)
+            assertEquals(1, radar.state.value.events.size)
+
+            firstJob.cancelAndJoin() // 保存済み時刻の書き換え中に旧監視が保存しないよう終了する。
+            val json = org.json.JSONObject(db.presets().state("radar_v1")!!)
+            json.getJSONArray("targets").getJSONObject(0).put("observedAt", 50_000L)
+            db.presets().put(LocalState("radar_v1", json.toString()))
+            // 再起動で取得順序が1に戻り、保存時刻が未来でもID再利用の検出を継続する。
+            val freshLists = Lists().apply { rooms = listOf(room.copy(name = "別の合成")); clock = 500 }
+            val restored = RadarRepository(db.presets(), freshLists, searches, prefs, backgroundScope)
+            restored.state.first { it.loaded }
+            assertEquals(50_000L, restored.state.value.targets.single().observedAt)
+            assertEquals(0L, restored.state.value.targets.single().observationRevision)
+            restored.scan()
+            assertEquals(RoomIdentityEvidence.REUSED, restored.state.value.targets.single().evidence)
+            assertEquals(500L, restored.state.value.targets.single().observedAt)
+            assertTrue(restored.state.value.events.any { "追跡を停止" in it.text })
+        } finally { db.close() }
     }
     @Test fun divergedPlansAdvanceOnlyOncePerScheduledPage() = runTest {
         val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
