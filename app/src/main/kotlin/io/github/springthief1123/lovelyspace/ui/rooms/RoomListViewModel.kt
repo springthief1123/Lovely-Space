@@ -80,8 +80,16 @@ class RoomListViewModel(
     }
 
     fun selectGenre(genre: Genre) {
+        val current = _state.value
+        if (genre == current.genre) {
+            if (current.page == 0 && !current.isRefreshing) {
+                hasUserSelectedGenre = true
+                rememberGenre(genre.key)
+                refresh(force = false)
+            }
+            return
+        }
         hasUserSelectedGenre = true
-        if (genre == _state.value.genre) return
         _state.update {
             val recent = (listOf(it.genre) + it.recentGenres).filter { g -> g != genre }.distinct().take(RECENT_GENRES)
             it.copy(genre = genre, recentGenres = recent).resetResults()
