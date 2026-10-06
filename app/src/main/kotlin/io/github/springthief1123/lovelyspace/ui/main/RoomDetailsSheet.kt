@@ -26,6 +26,7 @@ internal fun RoomDetailsSheet(room: Room, favorite: Boolean, actionsEnabled: Boo
     var working by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf<String?>(null) }
     var confirm by remember { mutableStateOf(false) }
+    var confirmUntrack by remember { mutableStateOf(false) }
     var confirmHide by remember { mutableStateOf(false) }
     val tracking = radar.targets.any { roomIdentity(it.room) == roomIdentity(room) }
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -37,13 +38,15 @@ internal fun RoomDetailsSheet(room: Room, favorite: Boolean, actionsEnabled: Boo
             verificationContent()
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onFavorite, enabled = actionsEnabled) { Text(if (favorite) "保存を解除" else "部屋を保存") }
-                OutlinedButton(enabled = allowEntry && radar.loaded && !working && room.name != null, onClick = {
-                    working = true
-                    scope.launch {
-                        try { if (tracking) app.radar.removeTarget(room) else app.radar.track(room, sourceQuery); notice = if (tracking) "追跡を解除しました" else "レーダーに追加しました" }
-                        catch (e: kotlinx.coroutines.CancellationException) { throw e }
-                        catch (e: Exception) { notice = "追跡設定を保存できませんでした。" }
-                        finally { working = false }
+                OutlinedButton(enabled = radar.loaded && !working && (tracking || (allowEntry && room.name != null)), onClick = {
+                    if (tracking) confirmUntrack = true else {
+                        working = true
+                        scope.launch {
+                            try { app.radar.track(room, sourceQuery); notice = "レーダーに追加しました" }
+                            catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                            catch (e: Exception) { notice = "追跡設定を保存できませんでした。" }
+                            finally { working = false }
+                        }
                     }
                 }) { Text(if (tracking) "追跡を解除" else "この部屋を追跡") }
                 onHide?.let { TextButton(onClick = { confirmHide = true }, enabled = actionsEnabled) { Text("非表示にする") } }
@@ -59,6 +62,19 @@ internal fun RoomDetailsSheet(room: Room, favorite: Boolean, actionsEnabled: Boo
         text = { Text(if (room.action == RoomAction.PEEK) "本家の公開ルームを開きます。" else "名前・プロフィールを確認してから入室できます。") },
         confirmButton = { TextButton(enabled = allowEntry && room.action != RoomAction.NONE, onClick = { confirm = false; onDismiss(); if (room.action == RoomAction.PEEK) onPeek(room) else onEnter(room) }) { Text("進む") } },
         dismissButton = { TextButton(onClick = { confirm = false }) { Text("戻る") } })
+    if (confirmUntrack) AlertDialog(onDismissRequest = { if (!working) confirmUntrack = false }, title = { Text("追跡を解除しますか？") },
+        text = { Column { Text("追跡と自分用メモを削除します。変化の履歴は残ります。")
+            notice?.let { Text(it, style = MaterialTheme.typography.bodySmall) } } },
+        confirmButton = { TextButton(enabled = !working && radar.loaded, onClick = {
+            working = true
+            scope.launch {
+                try { app.radar.removeTarget(room); confirmUntrack = false; notice = "追跡を解除しました" }
+                catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (e: Exception) { notice = "追跡設定を保存できませんでした。" }
+                finally { working = false }
+            }
+        }) { Text("追跡を解除") } },
+        dismissButton = { TextButton(enabled = !working, onClick = { confirmUntrack = false }) { Text("戻る") } })
     if (confirmHide) AlertDialog(onDismissRequest = { confirmHide = false }, title = { Text("この部屋を非表示にしますか？") },
         text = { Text("設定の「非表示の部屋」から元に戻せます。") },
         confirmButton = { TextButton(enabled = actionsEnabled, onClick = { confirmHide = false; onHide?.invoke() }) { Text("非表示") } },

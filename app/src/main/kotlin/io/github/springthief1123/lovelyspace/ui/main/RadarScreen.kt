@@ -40,6 +40,8 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
     var editing by rememberSaveable(stateSaver = SearchPresetSaver) { mutableStateOf<SearchPreset?>(null) }
     var pauseConfirm by rememberSaveable { mutableStateOf(false) }
     var candidateDraft by rememberSaveable(stateSaver = CandidateRuleSaver) { mutableStateOf<CandidateRule?>(null) }
+    var editingTargetKey by rememberSaveable { mutableStateOf<String?>(null) }
+    var removingTargetKey by rememberSaveable { mutableStateOf<String?>(null) }
     var historyUnread by rememberSaveable { mutableStateOf(false) }
     var historyKind by rememberSaveable { mutableStateOf("") }
     var historyOrigin by rememberSaveable { mutableStateOf("") }
@@ -93,20 +95,23 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
             }
             1 -> {
                 if (state.targets.isEmpty()) item { QuietPanel { Text("気になる部屋を追跡", style = MaterialTheme.typography.titleSmall); Text("部屋の詳細から「この部屋を追跡」を選んでください。人の本人確認ではなく、一覧で確認できる部屋の変化を記録します。", style = MaterialTheme.typography.bodySmall); TextButton(onClick = onFindRooms) { Text("部屋を見つける") } } }
-                items(state.targets, key = { roomIdentity(it.room) }) { target -> QuietPanel {
-                    Text(target.room.name ?: "追跡中の部屋", style = MaterialTheme.typography.titleSmall)
-                    Text(when (target.evidence) {
-                        RoomIdentityEvidence.MATCH -> "最後に確認：${statusName(target.room.status)}"
-                        RoomIdentityEvidence.AMBIGUOUS -> "同じIDを確認・プロフィール未確認"
-                        RoomIdentityEvidence.REUSED -> "異なるプロフィールを確認・追跡停止"
-                        RoomIdentityEvidence.NOT_OBSERVED -> "未確認"
-                    }, color = if (target.evidence == RoomIdentityEvidence.REUSED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
-                    Text(target.observedAt?.let { "このIDを確認 ${formatObservationTime(it)}" } ?: "追加後のID確認はまだありません", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(target.confirmedAt?.let { "プロフィール照合 ${formatObservationTime(it)}" } ?: "プロフィールを照合した記録はまだありません", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("未取得のページにある可能性があります。表示は現在の在室を保証しません。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton(onClick = { selected = RadarRoomSnapshot(target.identity, target.confirmedAt, target.observedPage, target.evidence == RoomIdentityEvidence.REUSED, target.sourceQuery) }) { Text("部屋の詳細を確認") }
-                    TextButton(onClick = { action { app.radar.removeTarget(target.room) } }, enabled = !working && state.loaded) { Text("追跡を解除") }
-                } }
+                if (state.targets.isNotEmpty()) item {
+                    RadarDropdown("並べ替え", state.targetSort.name, RadarTargetSort.entries.map { it.name to when (it) {
+                        RadarTargetSort.LAST_CONFIRMED -> "プロフィール照合が新しい順"
+                        RadarTargetSort.LAST_OBSERVED -> "IDの確認が新しい順"
+                        RadarTargetSort.NAME -> "名前順"
+                    } }, state.loaded && !working) { value -> action { app.radar.setTargetSort(RadarTargetSort.valueOf(value)) } }
+                }
+                items(state.targets.organized(state.targetSort), key = { roomIdentity(it.identity) }) { target ->
+                    RadarTargetCard(
+                        target = target,
+                        openEnabled = !working,
+                        editEnabled = state.loaded && !working,
+                        onOpen = { selected = RadarRoomSnapshot(target.identity, target.confirmedAt, target.observedPage, target.evidence == RoomIdentityEvidence.REUSED, target.sourceQuery) },
+                        onPin = { action { app.radar.updateTarget(target.identity, pinned = !target.pinned) } },
+                        onNote = { editingTargetKey = roomIdentity(target.identity); error = null },
+                        onRemove = { removingTargetKey = roomIdentity(target.identity); error = null })
+                }
             }
             3 -> {
                 item { QuietPanel {
@@ -169,6 +174,17 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                 } }
             }
         }
+    }
+    state.targets.firstOrNull { roomIdentity(it.identity) == editingTargetKey }?.let { target ->
+        RadarTargetNoteEditor(target, working, error, onDismiss = { editingTargetKey = null },
+            onSave = { note -> action { app.radar.updateTarget(target.identity, note = note); editingTargetKey = null } })
+    }
+    state.targets.firstOrNull { roomIdentity(it.identity) == removingTargetKey }?.let { target ->
+        AlertDialog(onDismissRequest = { if (!working) removingTargetKey = null }, title = { Text("追跡を解除しますか？") },
+            text = { Column { Text("${target.identity.name}の追跡と自分用メモを削除します。変化の履歴は残ります。")
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error) } } },
+            confirmButton = { TextButton(enabled = !working, onClick = { action { app.radar.removeTarget(target.room); removingTargetKey = null } }) { Text("追跡を解除") } },
+            dismissButton = { TextButton(enabled = !working, onClick = { removingTargetKey = null }) { Text("戻る") } })
     }
     editing?.let { value ->
         RadarPlanEditor(value, savedState.working, savedState.editError,
