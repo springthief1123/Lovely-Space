@@ -21,6 +21,7 @@ class RadarDashboardTest {
         var revision = 0L
         var fresh = true
         var extra = false
+        var confirmedAt: Long? = null
         var failGenre: String? = null
         var onFetch: (suspend () -> Unit)? = null
         val calls = mutableListOf<RoomQuery>()
@@ -31,7 +32,10 @@ class RadarDashboardTest {
             if (query.genre.key == failGenre) error("合成の取得失敗")
             val room = Room(42, query.genre.key, RoomStatus.WAITING, RoomAction.ENTER, null, "合成", Gender.FEMALE, 25, null, "本文")
             val page = RoomListPage(query.genre.key, if (extra) listOf(room, room.copy(id = 43)) else listOf(room), null, null, query.page, 2, emptyMap(), null)
-            if (fresh) { revision++; observations.value += query to ObservedRoomPage(query, page, revision * 1000, revision) }
+            if (fresh) {
+                revision++
+                observations.value += query to ObservedRoomPage(query, page, confirmedAt ?: revision * 1000, revision)
+            }
             return page
         }
     }
@@ -74,6 +78,21 @@ class RadarDashboardTest {
             val query = RoomQuery(Genres["zenkoku"]!!, page = 1)
             lists.fetch(query, force = true)
             assertEquals(1000L, radar.state.first { it.lastConfirmedAt != null }.lastConfirmedAt)
+        }
+    }
+    @Test fun olderScanDoesNotReplaceNewerSharedFetchTimestamp() = runTest {
+        withRadar { radar, searches, lists ->
+            val sharedQuery = RoomQuery(Genres["talk"]!!, page = 1)
+            lists.confirmedAt = 5000L
+            lists.fetch(sharedQuery, force = true)
+            assertEquals(5000L, radar.state.first { it.lastConfirmedAt == 5000L }.lastConfirmedAt)
+
+            searches.save(SearchPreset("a", "合成", "zenkoku", RoomSearchCriteria()))
+            radar.setPlan("a", true)
+            lists.confirmedAt = 1000L
+            radar.scan()
+
+            assertEquals(5000L, radar.state.value.lastConfirmedAt)
         }
     }
     @Test fun failedPagesDoNotAdvanceAndOtherPagesStillComplete() = runTest {
