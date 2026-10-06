@@ -7,13 +7,15 @@ import io.github.springthief1123.lovelyspace.core.Genre
 import io.github.springthief1123.lovelyspace.core.Genres
 import io.github.springthief1123.lovelyspace.core.Room
 import io.github.springthief1123.lovelyspace.core.RoomQuery
-import io.github.springthief1123.lovelyspace.data.RoomListRepository
+import io.github.springthief1123.lovelyspace.data.RoomListSource
+import io.github.springthief1123.lovelyspace.settings.RoomListPreferenceStore
 import io.github.springthief1123.lovelyspace.ui.describeError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -48,14 +50,22 @@ private fun RoomListUiState.resetResults() = copy(
     errorOnLoadMore = false,
 )
 
-class RoomListViewModel(private val repository: RoomListRepository) : ViewModel() {
+class RoomListViewModel(
+    private val repository: RoomListSource,
+    private val preferences: RoomListPreferenceStore,
+) : ViewModel() {
     private val _state = MutableStateFlow(RoomListUiState())
     val state: StateFlow<RoomListUiState> = _state.asStateFlow()
 
     private var loadJob: Job? = null
 
     init {
-        refresh(force = false)
+        viewModelScope.launch {
+            val initialKey = preferences.roomListPreferences.first().initialGenreKey()
+            _state.update { it.copy(genre = Genres[initialKey] ?: Genres.default) }
+            preferences.setLastRoomGenre(_state.value.genre.key)
+            refresh(force = false)
+        }
     }
 
     fun selectGenre(genre: Genre) {
@@ -64,6 +74,7 @@ class RoomListViewModel(private val repository: RoomListRepository) : ViewModel(
             val recent = (listOf(it.genre) + it.recentGenres).filter { g -> g != genre }.distinct().take(RECENT_GENRES)
             it.copy(genre = genre, recentGenres = recent).resetResults()
         }
+        viewModelScope.launch { preferences.setLastRoomGenre(genre.key) }
         refresh(force = false)
     }
 

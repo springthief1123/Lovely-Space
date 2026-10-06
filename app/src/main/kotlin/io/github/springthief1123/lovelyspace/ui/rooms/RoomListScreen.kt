@@ -67,7 +67,7 @@ fun RoomListScreen(
     refreshKey: Int = 0,
 ) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
-    val vm: RoomListViewModel = viewModel(factory = viewModelFactory { initializer { RoomListViewModel(app.roomLists) } })
+    val vm: RoomListViewModel = viewModel(factory = viewModelFactory { initializer { RoomListViewModel(app.roomLists, app.settings) } })
     val preferencesVm: RoomPreferenceViewModel = viewModel(
         factory = viewModelFactory { initializer { RoomPreferenceViewModel(app.roomPreferences) } },
     )
@@ -236,7 +236,15 @@ private fun RoomList(
         }
         item { SexFilter(selected = state.sex, onSelect = onSexSelect) }
         item { SummaryLine(state) }
-        item { Spacer(Modifier.height(6.dp)) }
+        item {
+            Text(
+                "カードを右へスワイプでお気に入り、左へスワイプで非表示",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+        }
+        item { Spacer(Modifier.height(4.dp)) }
 
         if (state.error != null && state.rooms.isEmpty()) {
             item { MessageBlock(state.error, actionLabel = "再読み込み", onAction = onRetry) }

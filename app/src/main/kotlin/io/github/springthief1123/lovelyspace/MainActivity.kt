@@ -9,11 +9,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.springthief1123.lovelyspace.settings.TextScale
 import io.github.springthief1123.lovelyspace.settings.ThemeMode
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpaceTheme
-import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -21,6 +20,7 @@ class MainActivity : ComponentActivity() {
         val app = application as LovelySpaceApp
         setContent {
             val themeMode by app.settings.themeMode.collectAsStateWithLifecycle(initialValue = ThemeMode.SYSTEM)
+            val textScale by app.settings.textScale.collectAsStateWithLifecycle(initialValue = TextScale.STANDARD)
             val dark = when (themeMode) {
                 ThemeMode.SYSTEM -> isSystemInDarkTheme()
                 ThemeMode.LIGHT -> false
@@ -34,12 +34,8 @@ class MainActivity : ComponentActivity() {
                 }
                 enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
             }
-            val scope = rememberCoroutineScope()
-            LovelySpaceTheme(themeMode = themeMode) {
-                AppNavHost(
-                    themeMode = themeMode,
-                    onThemeModeChange = { mode -> scope.launch { app.settings.setThemeMode(mode) } },
-                )
+            LovelySpaceTheme(themeMode = themeMode, textScale = textScale) {
+                AppNavHost()
             }
         }
     }
