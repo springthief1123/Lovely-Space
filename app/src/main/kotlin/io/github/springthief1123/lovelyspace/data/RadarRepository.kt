@@ -13,9 +13,10 @@ data class TrackedRoom(val room: Room, val confirmedAt: Long? = null, val eviden
     /** このRoomListRepository内だけの取得順序。再起動時は0から照合し直すため永続化しない。 */
     val observationRevision: Long = 0,
     val observedPage: Int = 1,
+    val sourceQuery: RoomQuery? = null,
 )
 data class RadarEvent(val at: Long, val text: String, val id: String = java.util.UUID.randomUUID().toString(),
-    val rooms: List<Room> = emptyList(), val page: Int? = null, val blocked: Boolean = false)
+    val rooms: List<Room> = emptyList(), val page: Int? = null, val blocked: Boolean = false, val sourceQuery: RoomQuery? = null)
 data class RadarResult(val presetId: String, val at: Long, val page: Int, val lastPage: Int, val rooms: List<Room>, val genreKey: String, val criteria: RoomSearchCriteria)
 data class RadarState(
     val plans: Set<String> = emptySet(), val targets: List<TrackedRoom> = emptyList(),
@@ -75,10 +76,16 @@ class RadarRepository(
         nextPages.keys.removeAll { it.startsWith("$id/") }
         it.copy(plans = if (enabled) it.plans + id else it.plans - id)
     }
-    suspend fun track(room: Room) = edit {
+    suspend fun track(room: Room, sourceQuery: RoomQuery? = null) = edit {
         require(room.name != null) { "プロフィールを確認できる部屋を選んでください。" }
         val key = roomIdentity(room)
-        it.copy(targets = it.targets.filterNot { t -> roomIdentity(t.room) == key } + TrackedRoom(room))
+        require(sourceQuery == null || (sourceQuery.genre.key == room.genreKey && sourceQuery.page >= 1)) { "一覧の取得条件が一致しません。" }
+        // 検索・保存画面では、共有一覧に残る同じ公開プロフィールの最新取得条件を引き継ぐ。
+        val observed = lists.observations.value.values.filter { observation ->
+            observation.query.genre.key == room.genreKey && observation.page.rooms.any { roomIdentity(it) == key && roomIdentityEvidence(room, it) == RoomIdentityEvidence.MATCH }
+        }.maxByOrNull { it.revision }
+        val query = sourceQuery ?: observed?.query
+        it.copy(targets = it.targets.filterNot { t -> roomIdentity(t.room) == key } + TrackedRoom(room, observedPage = query?.page ?: 1, sourceQuery = query))
     }
     suspend fun removeTarget(room: Room) = edit { it.copy(targets = it.targets.filterNot { t -> roomIdentity(t.room) == roomIdentity(room) }) }
     private suspend fun edit(block: (RadarState) -> RadarState) = mutex.withLock {
@@ -105,7 +112,7 @@ class RadarRepository(
                     }
                 }
                 _state.value.targets.filter { it.evidence != RoomIdentityEvidence.REUSED }.forEach { target ->
-                    Genres[target.room.genreKey]?.let { requests.getOrPut(RoomQuery(it)) { mutableListOf() } }
+                    target.sourceQueryOrLegacy()?.let { requests.getOrPut(it) { mutableListOf() } }
                 }
                 requests.mapValues { it.value.toList() }
             }
@@ -137,10 +144,10 @@ class RadarRepository(
             val evidence = roomIdentityEvidence(target.identity, room)
             if (evidence == RoomIdentityEvidence.NOT_OBSERVED) return@map target // 1ページに無いだけで不在とは判断しない。
             if (evidence == RoomIdentityEvidence.MATCH && room != null) {
-                if (target.confirmedAt != null && target.room.status != room.status) events += RadarEvent(o.confirmedAt, "${room.name}：${statusName(room.status)}を確認", rooms = listOf(room), page = o.page.page)
-                target.copy(room = room, confirmedAt = o.confirmedAt, observedAt = o.confirmedAt, evidence = evidence, observationRevision = o.revision, observedPage = o.page.page)
+                if (target.confirmedAt != null && target.room.status != room.status) events += RadarEvent(o.confirmedAt, "${room.name}：${statusName(room.status)}を確認", rooms = listOf(room), page = o.page.page, sourceQuery = o.query)
+                target.copy(room = room, confirmedAt = o.confirmedAt, observedAt = o.confirmedAt, evidence = evidence, observationRevision = o.revision, observedPage = o.page.page, sourceQuery = o.query)
             } else {
-                if (evidence == RoomIdentityEvidence.REUSED) events += RadarEvent(o.confirmedAt, "${target.room.name}：同じIDに異なるプロフィール。追跡を停止しました", rooms = listOf(target.identity), page = o.page.page, blocked = true)
+                if (evidence == RoomIdentityEvidence.REUSED) events += RadarEvent(o.confirmedAt, "${target.room.name}：同じIDに異なるプロフィール。追跡を停止しました", rooms = listOf(target.identity), page = o.page.page, blocked = true, sourceQuery = o.query)
                 target.copy(evidence = evidence, observedAt = o.confirmedAt, observationRevision = o.revision)
             }
         }
@@ -171,8 +178,8 @@ class RadarRepository(
     private suspend fun persist() {
         val s = _state.value
         val json = JSONObject().put("plans", JSONArray(s.plans.toList()))
-            .put("targets", JSONArray(s.targets.map { t -> JSONObject().put("room", roomJson(t.room)).put("identity", roomJson(t.identity)).put("at", t.confirmedAt).put("observedAt", t.observedAt).put("evidence", t.evidence.name).put("page", t.observedPage) }))
-            .put("events", JSONArray(s.events.map { JSONObject().put("at", it.at).put("text", it.text).put("id", it.id).put("rooms", JSONArray(it.rooms.map(::roomJson))).put("page", it.page).put("blocked", it.blocked) }))
+            .put("targets", JSONArray(s.targets.map { t -> JSONObject().put("room", roomJson(t.room)).put("identity", roomJson(t.identity)).put("at", t.confirmedAt).put("observedAt", t.observedAt).put("evidence", t.evidence.name).put("page", t.observedPage).put("sourceQuery", radarQueryJson(t.sourceQuery)) }))
+            .put("events", JSONArray(s.events.map { JSONObject().put("at", it.at).put("text", it.text).put("id", it.id).put("rooms", JSONArray(it.rooms.map(::roomJson))).put("page", it.page).put("blocked", it.blocked).put("sourceQuery", radarQueryJson(it.sourceQuery)) }))
         // ページ単位の基準・巡回位置は再起動時に捨て、初回大量通知を避ける。
         dao.put(LocalState(KEY, json.toString()))
     }
@@ -182,10 +189,10 @@ class RadarRepository(
         val targets = json.optJSONArray("targets") ?: JSONArray()
         val events = json.optJSONArray("events") ?: JSONArray()
         _state.value = RadarState(plans = (0 until plans.length()).map { plans.getString(it) }.toSet(),
-            targets = (0 until targets.length()).map { i -> val t = targets.getJSONObject(i); TrackedRoom(readRoom(t.getJSONObject("room")), if (t.isNull("at")) null else t.getLong("at"), RoomIdentityEvidence.valueOf(t.getString("evidence")), if (t.has("identity")) readRoom(t.getJSONObject("identity")) else readRoom(t.getJSONObject("room")), if (t.isNull("observedAt")) (if (t.isNull("at")) null else t.getLong("at")) else t.getLong("observedAt"), observedPage = t.optInt("page", 1).coerceAtLeast(1)) },
+            targets = (0 until targets.length()).map { i -> val t = targets.getJSONObject(i); TrackedRoom(readRoom(t.getJSONObject("room")), if (t.isNull("at")) null else t.getLong("at"), RoomIdentityEvidence.valueOf(t.getString("evidence")), if (t.has("identity")) readRoom(t.getJSONObject("identity")) else readRoom(t.getJSONObject("room")), if (t.isNull("observedAt")) (if (t.isNull("at")) null else t.getLong("at")) else t.getLong("observedAt"), observedPage = t.optInt("page", 1).coerceAtLeast(1), sourceQuery = readRadarQuery(t.optJSONObject("sourceQuery"))) },
             events = (0 until events.length()).map { i -> events.getJSONObject(i).let { RadarEvent(it.getLong("at"), it.getString("text"), it.optString("id").ifBlank { java.util.UUID.randomUUID().toString() },
                 rooms = it.optJSONArray("rooms")?.let { r -> (0 until r.length()).map { i -> readRoom(r.getJSONObject(i)) } } ?: emptyList(),
-                page = if (it.isNull("page")) null else it.getInt("page").coerceAtLeast(1), blocked = it.optBoolean("blocked")) } })
+                page = if (it.isNull("page")) null else it.getInt("page").coerceAtLeast(1), blocked = it.optBoolean("blocked"), sourceQuery = readRadarQuery(it.optJSONObject("sourceQuery"))) } })
     }
     private fun roomJson(r: Room) = JSONObject().put("id", r.id).put("genre", r.genreKey).put("status", r.status.name).put("action", r.action.name)
         .put("name", r.name).put("gender", r.gender.name).put("age", r.age).put("area", r.area).put("message", r.message)
