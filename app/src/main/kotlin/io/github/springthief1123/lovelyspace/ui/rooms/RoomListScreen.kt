@@ -254,6 +254,7 @@ private fun RoomList(
                 room = room,
                 onClick = { onRoomClick(room) },
                 isFavorite = preferences.isFavorite(room),
+                actionsEnabled = preferences.canEdit(room),
                 onFavoriteClick = { onFavorite(room) },
                 onHideClick = { onHide(room) },
             )

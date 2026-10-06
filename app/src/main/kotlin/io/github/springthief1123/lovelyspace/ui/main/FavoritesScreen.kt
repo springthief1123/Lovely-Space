@@ -114,6 +114,7 @@ fun FavoritesScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit) {
             SavedRoomRow(
                 value = value,
                 section = section,
+                actionsEnabled = state.canEdit(value.host, value.roomId),
                 onEnterRoom = onEnterRoom,
                 onPeekRoom = onPeekRoom,
                 onFavoriteClear = { vm.clearFavorite(value) },
@@ -128,6 +129,7 @@ fun FavoritesScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit) {
 private fun SavedRoomRow(
     value: RoomPreference,
     section: SavedRoomSection,
+    actionsEnabled: Boolean,
     onEnterRoom: (Room) -> Unit,
     onPeekRoom: (Room) -> Unit,
     onFavoriteClear: () -> Unit,
@@ -160,6 +162,7 @@ private fun SavedRoomRow(
             },
             isFavorite = value.favorite,
             isHidden = value.hidden,
+            actionsEnabled = actionsEnabled,
             onFavoriteClick = if (value.favorite) onFavoriteClear else null,
             onHideClick = if (value.hidden) onHiddenClear else null,
         )

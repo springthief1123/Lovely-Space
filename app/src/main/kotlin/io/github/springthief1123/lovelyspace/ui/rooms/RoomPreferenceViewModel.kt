@@ -30,6 +30,9 @@ data class RoomPreferenceUiState(
     fun isFavorite(room: Room): Boolean = activePreference(room)?.favorite == true
     fun isHidden(room: Room): Boolean = activePreference(room)?.hidden == true
 
+    fun canEdit(host: String, roomId: Long): Boolean = key(host, roomId) !in workingKeys
+    fun canEdit(room: Room): Boolean = canEdit(Genres[room.genreKey]?.host ?: room.genreKey, room.id)
+
     companion object {
         internal fun key(host: String, roomId: Long) = "$host/$roomId"
     }
