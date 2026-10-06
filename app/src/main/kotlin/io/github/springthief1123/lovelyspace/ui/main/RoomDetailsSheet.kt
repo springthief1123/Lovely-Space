@@ -38,7 +38,7 @@ internal fun RoomDetailsSheet(room: Room, favorite: Boolean, actionsEnabled: Boo
             verificationContent()
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onFavorite, enabled = actionsEnabled) { Text(if (favorite) "保存を解除" else "部屋を保存") }
-                OutlinedButton(enabled = allowEntry && radar.loaded && !working && room.name != null, onClick = {
+                OutlinedButton(enabled = radar.loaded && !working && (tracking || (allowEntry && room.name != null)), onClick = {
                     if (tracking) confirmUntrack = true else {
                         working = true
                         scope.launch {
