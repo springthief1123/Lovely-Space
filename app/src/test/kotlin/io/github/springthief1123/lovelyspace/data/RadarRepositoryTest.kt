@@ -31,6 +31,23 @@ class RadarRepositoryTest {
             return page
         }
     }
+    @Test fun divergedPlansAdvanceOnlyOncePerScheduledPage() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            searches.save(SearchPreset("old", "条件Z", "zenkoku", RoomSearchCriteria()))
+            val lists = Lists().apply { lastPage = 3 }
+            val radar = RadarRepository(db.presets(), lists, searches, RoomPreferenceRepository(db), backgroundScope)
+            radar.state.first { it.loaded }
+            radar.setPlan("old", true)
+            radar.scan() // 古い計画は次に2ページ目。
+            searches.save(SearchPreset("new", "条件A", "zenkoku", RoomSearchCriteria()))
+            radar.setPlan("new", true)
+            radar.scan() // 新計画1ページ目、古い計画2ページ目。
+            radar.scan() // 新計画は2、古い計画は3。新計画が2ページ目を飛ばさない。
+            assertEquals(listOf(1, 1, 2, 2, 3), lists.calls.map { it.page })
+        } finally { db.close() }
+    }
     @Test fun editedConditionStartsAtFirstPageAndCreatesANewBaseline() = runTest {
         val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
         try {
@@ -70,6 +87,8 @@ class RadarRepositoryTest {
             assertEquals(RoomIdentityEvidence.MATCH, radar.state.value.targets.single().evidence)
             lists.rooms = listOf(room.copy(name = null, status = RoomStatus.FULL)); radar.scan()
             assertEquals(RoomIdentityEvidence.AMBIGUOUS, radar.state.value.targets.single().evidence)
+            assertEquals(confirmedAt, radar.state.value.targets.single().confirmedAt)
+            assertTrue(radar.state.value.targets.single().observedAt!! > confirmedAt!!)
             lists.rooms = listOf(room.copy(name = "別の合成")); radar.scan()
             assertEquals(RoomIdentityEvidence.REUSED, radar.state.value.targets.single().evidence)
             assertTrue(radar.state.value.events.any { "追跡を停止" in it.text })
@@ -81,6 +100,7 @@ class RadarRepositoryTest {
             assertEquals(setOf("a", "b"), restored.state.value.plans)
             assertEquals(RoomIdentityEvidence.REUSED, restored.state.value.targets.single().evidence)
             assertEquals(room.name, restored.state.value.targets.single().identity.name)
+            assertEquals(radar.state.value.targets.single().observedAt, restored.state.value.targets.single().observedAt)
         } finally { db.close() }
     }
 }

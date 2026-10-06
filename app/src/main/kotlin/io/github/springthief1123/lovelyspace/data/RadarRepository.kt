@@ -9,7 +9,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /** 端末内に保存するレーダー。手動巡回のみ。入室・背景通信は行わない。 */
-data class TrackedRoom(val room: Room, val confirmedAt: Long? = null, val evidence: RoomIdentityEvidence = RoomIdentityEvidence.NOT_OBSERVED, val identity: Room = room)
+data class TrackedRoom(val room: Room, val confirmedAt: Long? = null, val evidence: RoomIdentityEvidence = RoomIdentityEvidence.NOT_OBSERVED, val identity: Room = room, val observedAt: Long? = null)
 data class RadarEvent(val at: Long, val text: String)
 data class RadarState(
     val plans: Set<String> = emptySet(), val targets: List<TrackedRoom> = emptyList(),
@@ -87,17 +87,27 @@ class RadarRepository(
         try {
             val selected = searches.presets.first().filter { it.id in _state.value.plans }
             // 同じジャンル・ページを複数の計画が要求しても、通信は1回だけ。
-            val queries = mutex.withLock {
-                selected.mapNotNull { p -> Genres[p.genreKey]?.let { RoomQuery(it, page = nextPages[planKey(p)] ?: 1) } } +
-                    _state.value.targets.filter { it.evidence != RoomIdentityEvidence.REUSED }.mapNotNull { t -> Genres[t.room.genreKey]?.let { RoomQuery(it) } }
-            }.distinct()
-            for (query in queries) {
+            val scheduled = mutex.withLock {
+                val requests = linkedMapOf<RoomQuery, MutableList<SearchPreset>>()
+                selected.forEach { preset ->
+                    Genres[preset.genreKey]?.let { genre ->
+                        val query = RoomQuery(genre, page = nextPages[planKey(preset)] ?: 1)
+                        requests.getOrPut(query) { mutableListOf() }.add(preset)
+                    }
+                }
+                _state.value.targets.filter { it.evidence != RoomIdentityEvidence.REUSED }.forEach { target ->
+                    Genres[target.room.genreKey]?.let { requests.getOrPut(RoomQuery(it)) { mutableListOf() } }
+                }
+                requests.mapValues { it.value.toList() }
+            }
+            for ((query, scheduledPlans) in scheduled) {
                 lists.fetch(query, force = true)
                 val observation = lists.observation(query) ?: continue
                 mutex.withLock {
                     if (seen[query] != observation.revision) { process(observation, selected); seen[query] = observation.revision }
-                    selected.filter { it.genreKey == query.genre.key && (nextPages[planKey(it)] ?: 1) == query.page }.forEach {
-                        nextPages[planKey(it)] = if (observation.page.hasNextPage) observation.page.page + 1 else 1
+                    // 開始時にこのリクエストへ割り当てた計画だけを進める。
+                    scheduledPlans.forEach { preset ->
+                        nextPages[planKey(preset)] = if (observation.page.hasNextPage) observation.page.page + 1 else 1
                     }
                     persist()
                 }
@@ -113,16 +123,16 @@ class RadarRepository(
         val events = mutableListOf<RadarEvent>()
         val targets = current.targets.map { target ->
             if (target.room.genreKey != o.query.genre.key || target.evidence == RoomIdentityEvidence.REUSED) return@map target
-            if (target.confirmedAt != null && target.confirmedAt > o.confirmedAt) return@map target
+            if (target.observedAt != null && target.observedAt > o.confirmedAt) return@map target
             val room = o.page.rooms.firstOrNull { roomIdentity(it) == roomIdentity(target.room) }
             val evidence = roomIdentityEvidence(target.identity, room)
             if (evidence == RoomIdentityEvidence.NOT_OBSERVED) return@map target // 1ページに無いだけで不在とは判断しない。
             if (evidence == RoomIdentityEvidence.MATCH && room != null) {
                 if (target.confirmedAt != null && target.room.status != room.status) events += RadarEvent(o.confirmedAt, "${room.name}：${statusName(room.status)}を確認")
-                target.copy(room = room, confirmedAt = o.confirmedAt, evidence = evidence)
+                target.copy(room = room, confirmedAt = o.confirmedAt, observedAt = o.confirmedAt, evidence = evidence)
             } else {
                 if (evidence == RoomIdentityEvidence.REUSED) events += RadarEvent(o.confirmedAt, "${target.room.name}：同じIDに異なるプロフィール。追跡を停止しました")
-                target.copy(evidence = evidence)
+                target.copy(evidence = evidence, observedAt = o.confirmedAt)
             }
         }
         val scopes = current.scopes.toMutableMap()
@@ -149,7 +159,7 @@ class RadarRepository(
     private suspend fun persist() {
         val s = _state.value
         val json = JSONObject().put("plans", JSONArray(s.plans.toList()))
-            .put("targets", JSONArray(s.targets.map { t -> JSONObject().put("room", roomJson(t.room)).put("identity", roomJson(t.identity)).put("at", t.confirmedAt).put("evidence", t.evidence.name) }))
+            .put("targets", JSONArray(s.targets.map { t -> JSONObject().put("room", roomJson(t.room)).put("identity", roomJson(t.identity)).put("at", t.confirmedAt).put("observedAt", t.observedAt).put("evidence", t.evidence.name) }))
             .put("events", JSONArray(s.events.map { JSONObject().put("at", it.at).put("text", it.text) }))
         // ページ単位の基準・巡回位置は再起動時に捨て、初回大量通知を避ける。
         dao.put(LocalState(KEY, json.toString()))
@@ -160,7 +170,7 @@ class RadarRepository(
         val targets = json.optJSONArray("targets") ?: JSONArray()
         val events = json.optJSONArray("events") ?: JSONArray()
         _state.value = RadarState(plans = (0 until plans.length()).map { plans.getString(it) }.toSet(),
-            targets = (0 until targets.length()).map { i -> val t = targets.getJSONObject(i); TrackedRoom(readRoom(t.getJSONObject("room")), if (t.isNull("at")) null else t.getLong("at"), RoomIdentityEvidence.valueOf(t.getString("evidence")), if (t.has("identity")) readRoom(t.getJSONObject("identity")) else readRoom(t.getJSONObject("room"))) },
+            targets = (0 until targets.length()).map { i -> val t = targets.getJSONObject(i); TrackedRoom(readRoom(t.getJSONObject("room")), if (t.isNull("at")) null else t.getLong("at"), RoomIdentityEvidence.valueOf(t.getString("evidence")), if (t.has("identity")) readRoom(t.getJSONObject("identity")) else readRoom(t.getJSONObject("room")), if (t.isNull("observedAt")) (if (t.isNull("at")) null else t.getLong("at")) else t.getLong("observedAt")) },
             events = (0 until events.length()).map { i -> events.getJSONObject(i).let { RadarEvent(it.getLong("at"), it.getString("text")) } })
     }
     private fun roomJson(r: Room) = JSONObject().put("id", r.id).put("genre", r.genreKey).put("status", r.status.name).put("action", r.action.name)

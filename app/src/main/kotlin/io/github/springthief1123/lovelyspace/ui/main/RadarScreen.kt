@@ -73,7 +73,8 @@ fun RadarScreen(onFindRooms: () -> Unit) {
                         RoomIdentityEvidence.REUSED -> "異なるプロフィールを確認・追跡停止"
                         RoomIdentityEvidence.NOT_OBSERVED -> "未確認"
                     }, color = if (target.evidence == RoomIdentityEvidence.REUSED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
-                    Text(target.confirmedAt?.let { "最終確認 ${formatObservationTime(it)}" } ?: "追加後の確認はまだありません", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(target.observedAt?.let { "このIDを確認 ${formatObservationTime(it)}" } ?: "追加後のID確認はまだありません", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(target.confirmedAt?.let { "プロフィール照合 ${formatObservationTime(it)}" } ?: "プロフィールを照合した記録はまだありません", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("未取得のページにある可能性があります。表示は現在の在室を保証しません。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     TextButton(onClick = { action { app.radar.removeTarget(target.room) } }, enabled = !working && state.loaded) { Text("追跡を解除") }
                 } }
