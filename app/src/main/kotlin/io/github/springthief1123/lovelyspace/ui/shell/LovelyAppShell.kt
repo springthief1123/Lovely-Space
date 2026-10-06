@@ -41,6 +41,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
@@ -57,6 +58,9 @@ val MainDestinations = listOf(
     MainDestination(Routes.PROFILE, "マイルーム", Icons.Outlined.PersonOutline),
 )
 
+internal fun lovelyBottomContentInset(navigationHeight: Dp, showCreateFab: Boolean) =
+    maxOf(LovelySpacing.bottomContentInset, navigationHeight + if (showCreateFab) 80.dp else 0.dp)
+
 @Composable
 fun LovelyAppShell(
     currentRoute: String?, showChrome: Boolean,
@@ -67,7 +71,7 @@ fun LovelyAppShell(
     val hazeState = remember { HazeState() }
     val density = LocalDensity.current
     var navigationHeight by remember { mutableStateOf(100.dp) }
-    val bottomInset = maxOf(LovelySpacing.bottomContentInset, navigationHeight + 80.dp)
+    val bottomInset = lovelyBottomContentInset(navigationHeight, showCreateFab)
     ProvideLovelyHazeState(hazeState) {
         Box(Modifier.fillMaxSize()) {
             Surface(Modifier.fillMaxSize().hazeSource(state = hazeState),
