@@ -23,6 +23,7 @@ data class RadarState(
     val loaded: Boolean = false, val error: String? = null,
     val scopes: Map<String, String> = emptyMap(),
     val results: Map<String, RadarResult> = emptyMap(),
+    val nextPages: Map<String, Int> = emptyMap(),
 ) {
     fun resultFor(preset: SearchPreset): RadarResult? = results[preset.id]?.takeIf { it.genreKey == preset.genreKey && it.criteria == preset.criteria }
 }
@@ -41,6 +42,7 @@ class RadarRepository(
     private val baselines = mutableMapOf<String, Set<String>>()
     private val knownMatches = mutableMapOf<String, MutableSet<String>>()
     private val nextPages = mutableMapOf<String, Int>()
+    private val planKeys = mutableMapOf<String, String>()
     private var observationJob: Job? = null
     init { reload() }
     fun reload() {
@@ -51,12 +53,13 @@ class RadarRepository(
             try {
                 mutex.withLock {
                     dao.state(KEY)?.let(::restore)
-                    seen.clear(); baselines.clear(); knownMatches.clear(); nextPages.clear()
+                    seen.clear(); baselines.clear(); knownMatches.clear(); nextPages.clear(); planKeys.clear()
                     _state.update { it.copy(loaded = true, scopes = emptyMap(), results = emptyMap()) }
                 }
-                lists.observations.collect { observations ->
+                combine(lists.observations, searches.presets) { observations, saved -> observations to saved }.collect { (observations, saved) ->
                     mutex.withLock {
-                        val presets = searches.presets.first().filter { it.id in _state.value.plans }
+                        reconcilePlans(saved)
+                        val presets = saved.filter { it.id in _state.value.plans }
                         observations.values.sortedBy { it.revision }.forEach { observation ->
                             if (seen[observation.query] == observation.revision) return@forEach
                             process(observation, presets)
@@ -69,11 +72,30 @@ class RadarRepository(
             catch (e: Exception) { _state.update { it.copy(loaded = false, error = "レーダーの読み込み・保存に失敗しました。再試行してください。保存済みデータは保持しています。") } }
         }
     }
-    suspend fun setPlan(id: String, enabled: Boolean) = edit {
+    suspend fun setPlan(id: String, enabled: Boolean) {
+        if (enabled) require(searches.presets.first().any { it.id == id }) { "保存した条件が見つかりません。" }
+        edit {
+            resetPlan(id)
+            it.copy(plans = if (enabled) it.plans + id else it.plans - id, nextPages = it.nextPages - id)
+        }
+    }
+    /** 実行中の通信は完了させ、以降の計画リクエストは送らない。部屋追跡は別に保持する。 */
+    suspend fun pauseAllPlans() = edit {
+        it.plans.forEach(::resetPlan)
+        it.copy(plans = emptySet(), nextPages = emptyMap())
+    }
+    private fun resetPlan(id: String) {
         baselines.keys.removeAll { it.startsWith("$id/") }
         knownMatches.keys.removeAll { it.startsWith("$id/") }
         nextPages.keys.removeAll { it.startsWith("$id/") }
-        it.copy(plans = if (enabled) it.plans + id else it.plans - id)
+    }
+    private fun reconcilePlans(saved: List<SearchPreset>) {
+        val keys = saved.associate { it.id to planKey(it) }
+        val changed = planKeys.keys.filter { keys[it] != planKeys[it] }.toSet()
+        changed.forEach(::resetPlan)
+        planKeys.clear(); planKeys.putAll(keys)
+        _state.update { it.copy(plans = it.plans.intersect(keys.keys), scopes = it.scopes - changed,
+            results = it.results - changed, nextPages = it.nextPages - changed) }
     }
     suspend fun track(room: Room) = edit {
         require(room.name != null) { "プロフィールを確認できる部屋を選んでください。" }
@@ -84,8 +106,19 @@ class RadarRepository(
     private suspend fun edit(block: (RadarState) -> RadarState) = mutex.withLock {
         check(_state.value.loaded) { "読み込み中です。" }
         val old = _state.value
-        _state.value = block(old).copy(error = null)
-        try { persist() } catch (e: Exception) { _state.value = old; throw e }
+        val oldBaselines = baselines.toMap()
+        val oldKnown = knownMatches.mapValues { it.value.toMutableSet() }
+        val oldNext = nextPages.toMap()
+        try {
+            _state.value = block(old).copy(error = null)
+            persist()
+        } catch (e: Exception) {
+            _state.value = old
+            baselines.clear(); baselines.putAll(oldBaselines)
+            knownMatches.clear(); knownMatches.putAll(oldKnown)
+            nextPages.clear(); nextPages.putAll(oldNext)
+            throw e
+        }
     }
     suspend fun scan() {
         mutex.withLock {
@@ -94,9 +127,11 @@ class RadarRepository(
             _state.update { it.copy(running = true, error = null) }
         }
         try {
-            val selected = searches.presets.first().filter { it.id in _state.value.plans }
+            val saved = searches.presets.first()
+            val selected = saved.filter { it.id in _state.value.plans }
             // 同じジャンル・ページを複数の計画が要求しても、通信は1回だけ。
             val scheduled = mutex.withLock {
+                reconcilePlans(saved)
                 val requests = linkedMapOf<RoomQuery, MutableList<SearchPreset>>()
                 selected.forEach { preset ->
                     Genres[preset.genreKey]?.let { genre ->
@@ -110,14 +145,24 @@ class RadarRepository(
                 requests.mapValues { it.value.toList() }
             }
             for ((query, scheduledPlans) in scheduled) {
+                val stillNeeded = mutex.withLock {
+                    val currentSaved = searches.presets.first()
+                    scheduledPlans.any { scheduledPlan -> currentSaved.any { it.id in _state.value.plans && planKey(it) == planKey(scheduledPlan) } } ||
+                        _state.value.targets.any { it.room.genreKey == query.genre.key && it.evidence != RoomIdentityEvidence.REUSED && query.page == 1 }
+                }
+                if (!stillNeeded) continue
                 lists.fetch(query, force = true)
                 val observation = lists.observation(query) ?: continue
                 mutex.withLock {
-                    if (seen[query] != observation.revision) { process(observation, selected); seen[query] = observation.revision }
+                    val currentSaved = searches.presets.first()
+                    reconcilePlans(currentSaved)
+                    val active = currentSaved.filter { it.id in _state.value.plans }
+                    if (seen[query] != observation.revision) { process(observation, active); seen[query] = observation.revision }
                     // 開始時にこのリクエストへ割り当てた計画だけを進める。
-                    scheduledPlans.forEach { preset ->
+                    scheduledPlans.filter { scheduledPlan -> active.any { planKey(it) == planKey(scheduledPlan) } }.forEach { preset ->
                         nextPages[planKey(preset)] = if (observation.page.hasNextPage) observation.page.page + 1 else 1
                     }
+                    _state.update { it.copy(nextPages = active.associate { p -> p.id to (nextPages[planKey(p)] ?: 1) }) }
                     persist()
                 }
             }

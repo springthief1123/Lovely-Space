@@ -27,10 +27,12 @@ class RadarRepositoryTest {
         var revision = 0L
         var lastPage = 1
         var clock: Long? = null
+        var onFetch: (suspend (RoomQuery) -> Unit)? = null
         val calls = mutableListOf<RoomQuery>()
         override fun observation(query: RoomQuery) = observations.value[query]
         override suspend fun fetch(query: RoomQuery, force: Boolean): RoomListPage {
             calls += query
+            onFetch?.invoke(query)
             val page = RoomListPage(query.genre.key, rooms, null, null, query.page, lastPage, emptyMap(), null)
             revision++
             observations.value += query to ObservedRoomPage(query, page, clock ?: revision * 1000, revision)
@@ -111,6 +113,65 @@ class RadarRepositoryTest {
             assertEquals(RoomIdentityEvidence.REUSED, restored.state.value.targets.single().evidence)
             assertEquals(500L, restored.state.value.targets.single().observedAt)
             assertTrue(restored.state.value.events.any { "追跡を停止" in it.text })
+        } finally { db.close() }
+    }
+    @Test fun pausingAllPlansDuringFetchSkipsRemainingPlanPagesAndKeepsTheDefinitions() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            searches.save(SearchPreset("a", "合成A", "zenkoku", RoomSearchCriteria()))
+            searches.save(SearchPreset("b", "合成B", "talk", RoomSearchCriteria()))
+            val lists = Lists()
+            val radar = RadarRepository(db.presets(), lists, searches, RoomPreferenceRepository(db), backgroundScope)
+            radar.state.first { it.loaded }; radar.setPlan("a", true); radar.setPlan("b", true)
+            lists.onFetch = { radar.pauseAllPlans() }
+            radar.scan()
+            assertEquals(1, lists.calls.size)
+            assertTrue(radar.state.value.plans.isEmpty())
+            assertEquals(2, searches.presets.first().size)
+            assertFalse(radar.state.value.running)
+            radar.scan()
+            assertEquals(1, lists.calls.size)
+        } finally { db.close() }
+    }
+    @Test fun deletedPresetCannotRemainAnActivePlanOrLeaveVisibleMatches() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            searches.save(SearchPreset("a", "合成", "zenkoku", RoomSearchCriteria()))
+            val lists = Lists().apply { rooms = listOf(room) }
+            val radar = RadarRepository(db.presets(), lists, searches, RoomPreferenceRepository(db), backgroundScope)
+            radar.state.first { it.loaded }; radar.setPlan("a", true); radar.scan()
+            searches.delete("a"); radar.scan()
+            assertTrue(radar.state.value.plans.isEmpty())
+            assertTrue(radar.state.value.results.isEmpty())
+            assertEquals(1, lists.calls.size)
+        } finally { db.close() }
+    }
+    @Test fun failedPauseRestoresThePagePositionAndComparisonBaseline() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            var rejectPause = false
+            val dao = object : PresetDao by db.presets() {
+                override suspend fun put(value: LocalState) {
+                    if (rejectPause && org.json.JSONObject(value.value).getJSONArray("plans").length() == 0) throw java.io.IOException("合成の保存失敗")
+                    db.presets().put(value)
+                }
+            }
+            val searches = SearchPresetRepository(db)
+            searches.save(SearchPreset("a", "合成", "zenkoku", RoomSearchCriteria()))
+            val lists = Lists().apply { rooms = listOf(room); lastPage = 2 }
+            val radar = RadarRepository(dao, lists, searches, RoomPreferenceRepository(db), backgroundScope)
+            radar.state.first { it.loaded }; radar.setPlan("a", true); radar.scan()
+            rejectPause = true
+            try { radar.pauseAllPlans(); fail("保存失敗を通知する") } catch (_: java.io.IOException) { }
+            rejectPause = false
+            assertEquals(setOf("a"), radar.state.value.plans)
+            assertEquals(2, radar.state.value.nextPages["a"])
+            lists.rooms = listOf(room, room.copy(id = 99, name = "追加の合成"))
+            radar.scan(); radar.scan()
+            assertEquals(listOf(1, 2, 1), lists.calls.map { it.page })
+            assertEquals(1, radar.state.value.events.size)
         } finally { db.close() }
     }
     @Test fun divergedPlansAdvanceOnlyOncePerScheduledPage() = runTest {
