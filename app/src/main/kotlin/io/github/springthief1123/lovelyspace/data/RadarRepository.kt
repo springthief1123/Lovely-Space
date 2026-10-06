@@ -14,6 +14,8 @@ data class TrackedRoom(val room: Room, val confirmedAt: Long? = null, val eviden
     val observationRevision: Long = 0,
     val observedPage: Int = 1,
     val sourceQuery: RoomQuery? = null,
+    val pinned: Boolean = false,
+    val note: String = "",
 )
 data class RadarEvent(val at: Long, val text: String, val id: String = java.util.UUID.randomUUID().toString(),
     val rooms: List<Room> = emptyList(), val page: Int? = null, val blocked: Boolean = false, val sourceQuery: RoomQuery? = null,
@@ -32,6 +34,7 @@ data class RadarState(
     val nextCandidatePages: Map<String, Int> = emptyMap(),
     val lastScan: RadarScanReport? = null,
     val lastConfirmedAt: Long? = null,
+    val targetSort: RadarTargetSort = RadarTargetSort.LAST_CONFIRMED,
 ) {
     val unreadEvents: Int get() = events.count { !it.read }
     fun resultFor(preset: SearchPreset): RadarResult? = results[preset.id]?.takeIf { it.genreKey == preset.genreKey && it.criteria == preset.criteria }
@@ -162,6 +165,13 @@ class RadarRepository(
             _state.update { state -> state.copy(events = state.events.map { if (it.id in ids) it.copy(read = true) else it }) }
             persist()
         }
+    }
+    suspend fun setTargetSort(sort: RadarTargetSort) = edit { it.copy(targetSort = sort) }
+    suspend fun updateTarget(identity: Room, pinned: Boolean? = null, note: String? = null) = edit { state ->
+        require(note == null || note.length <= 500) { "メモは500文字までです。" }
+        require(state.targets.any { it.identity == identity }) { "追跡先が変更されています。開き直してください。" }
+        state.copy(targets = state.targets.map { target -> if (target.identity == identity)
+            target.copy(pinned = pinned ?: target.pinned, note = note ?: target.note) else target })
     }
     suspend fun removeTarget(room: Room) = edit { it.copy(targets = it.targets.filterNot { t -> roomIdentity(t.room) == roomIdentity(room) }) }
     private suspend fun edit(block: (RadarState) -> RadarState) = mutex.withLock {
@@ -381,8 +391,8 @@ class RadarRepository(
     private fun planKey(preset: SearchPreset): String = "${preset.id}/${preset.genreKey}/${preset.criteria}"
     private suspend fun persist() {
         val s = _state.value
-        val json = JSONObject().put("plans", JSONArray(s.plans.toList()))
-            .put("targets", JSONArray(s.targets.map { t -> JSONObject().put("room", roomJson(t.room)).put("identity", roomJson(t.identity)).put("at", t.confirmedAt).put("observedAt", t.observedAt).put("evidence", t.evidence.name).put("page", t.observedPage).put("sourceQuery", radarQueryJson(t.sourceQuery)) }))
+        val json = JSONObject().put("plans", JSONArray(s.plans.toList())).put("targetSort", s.targetSort.name)
+            .put("targets", JSONArray(s.targets.map { t -> JSONObject().put("room", roomJson(t.room)).put("identity", roomJson(t.identity)).put("at", t.confirmedAt).put("observedAt", t.observedAt).put("evidence", t.evidence.name).put("page", t.observedPage).put("sourceQuery", radarQueryJson(t.sourceQuery)).put("pinned", t.pinned).put("note", t.note) }))
             .put("events", JSONArray(s.events.map { JSONObject().put("at", it.at).put("text", it.text).put("id", it.id).put("rooms", JSONArray(it.rooms.map(::roomJson))).put("page", it.page).put("blocked", it.blocked).put("sourceQuery", radarQueryJson(it.sourceQuery)).put("kind", it.kind.name).put("origin", radarOriginJson(it.origin)).put("read", it.read) }))
         json.put("candidateRules", JSONArray(s.candidateRules.map { rule -> JSONObject().put("id", rule.id).put("label", rule.label).put("genre", rule.genreKey)
             .put("term", rule.term).put("mode", rule.mode.name).put("enabled", rule.enabled) }))
@@ -395,8 +405,8 @@ class RadarRepository(
         val targets = json.optJSONArray("targets") ?: JSONArray()
         val events = json.optJSONArray("events") ?: JSONArray()
         val candidates = json.optJSONArray("candidateRules") ?: JSONArray()
-        _state.value = RadarState(plans = (0 until plans.length()).map { plans.getString(it) }.toSet(),
-            targets = (0 until targets.length()).map { i -> val t = targets.getJSONObject(i); TrackedRoom(readRoom(t.getJSONObject("room")), if (t.isNull("at")) null else t.getLong("at"), RoomIdentityEvidence.valueOf(t.getString("evidence")), if (t.has("identity")) readRoom(t.getJSONObject("identity")) else readRoom(t.getJSONObject("room")), if (t.isNull("observedAt")) (if (t.isNull("at")) null else t.getLong("at")) else t.getLong("observedAt"), observedPage = t.optInt("page", 1).coerceAtLeast(1), sourceQuery = readRadarQuery(t.optJSONObject("sourceQuery"))) },
+        _state.value = RadarState(targetSort = RadarTargetSort.entries.firstOrNull { it.name == json.optString("targetSort") } ?: RadarTargetSort.LAST_CONFIRMED, plans = (0 until plans.length()).map { plans.getString(it) }.toSet(),
+            targets = (0 until targets.length()).map { i -> val t = targets.getJSONObject(i); TrackedRoom(readRoom(t.getJSONObject("room")), if (t.isNull("at")) null else t.getLong("at"), RoomIdentityEvidence.valueOf(t.getString("evidence")), if (t.has("identity")) readRoom(t.getJSONObject("identity")) else readRoom(t.getJSONObject("room")), if (t.isNull("observedAt")) (if (t.isNull("at")) null else t.getLong("at")) else t.getLong("observedAt"), observedPage = t.optInt("page", 1).coerceAtLeast(1), sourceQuery = readRadarQuery(t.optJSONObject("sourceQuery")), pinned = t.optBoolean("pinned"), note = t.optString("note").take(500)) },
             events = (0 until events.length()).map { i -> events.getJSONObject(i).let { RadarEvent(it.getLong("at"), it.getString("text"), it.optString("id").ifBlank { java.util.UUID.randomUUID().toString() },
                 rooms = it.optJSONArray("rooms")?.let { r -> (0 until r.length()).map { i -> readRoom(r.getJSONObject(i)) } } ?: emptyList(),
                 page = if (it.isNull("page")) null else it.getInt("page").coerceAtLeast(1), blocked = it.optBoolean("blocked"), sourceQuery = readRadarQuery(it.optJSONObject("sourceQuery")),
