@@ -107,6 +107,7 @@ private val DarkLovely = LovelyColors(
 )
 
 val LocalLovelyColors = staticCompositionLocalOf { LightLovely }
+val LocalLovelyTextScale = staticCompositionLocalOf { 1f }
 
 @Composable
 fun LovelySpaceTheme(
@@ -119,7 +120,10 @@ fun LovelySpaceTheme(
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
     }
-    CompositionLocalProvider(LocalLovelyColors provides if (dark) DarkLovely else LightLovely) {
+    CompositionLocalProvider(
+        LocalLovelyColors provides if (dark) DarkLovely else LightLovely,
+        LocalLovelyTextScale provides textScale.multiplier,
+    ) {
         MaterialTheme(
             colorScheme = if (dark) DarkColors else LightColors,
             typography = lovelyTypography(textScale),
