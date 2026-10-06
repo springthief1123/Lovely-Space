@@ -18,7 +18,8 @@ import io.github.springthief1123.lovelyspace.ui.theme.*
 import kotlinx.coroutines.launch
 
 @Composable
-fun RadarScreen(onFindRooms: () -> Unit) {
+@OptIn(ExperimentalMaterial3Api::class)
+fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val state by app.radar.state.collectAsStateWithLifecycle()
     val saved by app.searchPresets.presets.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -26,6 +27,8 @@ fun RadarScreen(onFindRooms: () -> Unit) {
     var working by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var section by rememberSaveable { mutableIntStateOf(0) }
+    var selected by remember { mutableStateOf<RadarRoomSnapshot?>(null) }
+    var result by remember { mutableStateOf<RadarResult?>(null) }
     fun action(block: suspend () -> Unit) {
         working = true
         scope.launch {
@@ -60,7 +63,10 @@ fun RadarScreen(onFindRooms: () -> Unit) {
                         Column(Modifier.weight(1f)) { Text(preset.label, style = MaterialTheme.typography.titleSmall); Text(Genres[preset.genreKey]?.label ?: preset.genreKey, style = MaterialTheme.typography.bodySmall) }
                         Switch(preset.id in state.plans, { enabled -> action { app.radar.setPlan(preset.id, enabled) } }, enabled = state.loaded && !working && !state.running)
                     }
-                    Text(state.scopes[preset.id] ?: "この起動中はまだ確認していません", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if (state.resultFor(preset) == null) "この条件はまだ確認していません" else state.scopes[preset.id].orEmpty(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    state.resultFor(preset)?.let { found ->
+                        TextButton(onClick = { result = found }, enabled = found.rooms.isNotEmpty()) { Text("一致した部屋を確認（${found.rooms.size}件）") }
+                    }
                 } }
             }
             1 -> {
@@ -76,13 +82,41 @@ fun RadarScreen(onFindRooms: () -> Unit) {
                     Text(target.observedAt?.let { "このIDを確認 ${formatObservationTime(it)}" } ?: "追加後のID確認はまだありません", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(target.confirmedAt?.let { "プロフィール照合 ${formatObservationTime(it)}" } ?: "プロフィールを照合した記録はまだありません", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("未取得のページにある可能性があります。表示は現在の在室を保証しません。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton(onClick = { selected = RadarRoomSnapshot(target.identity, target.confirmedAt, target.observedPage, target.evidence == RoomIdentityEvidence.REUSED, target.sourceQuery) }) { Text("部屋の詳細を確認") }
                     TextButton(onClick = { action { app.radar.removeTarget(target.room) } }, enabled = !working && state.loaded) { Text("追跡を解除") }
                 } }
             }
             2 -> {
                 if (state.events.isEmpty()) item { QuietPanel { Text("変化の履歴はまだありません。初回確認以降の変化を端末内に記録します。") } }
-                items(state.events) { event -> QuietPanel { Text(event.text, style = MaterialTheme.typography.bodyMedium); Text(formatObservationTime(event.at), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+                items(state.events, key = { it.id }) { event -> QuietPanel {
+                    Text(event.text, style = MaterialTheme.typography.bodyMedium)
+                    Text(formatObservationTime(event.at), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    event.rooms.forEach { room ->
+                        TextButton(onClick = { selected = RadarRoomSnapshot(room, event.at, event.page ?: 1, event.blocked, event.sourceQuery) }) { Text("${room.name ?: "記録の部屋"}の詳細") }
+                    }
+                    if (event.rooms.size == 20) Text("履歴には最大20件を保存しています。", style = MaterialTheme.typography.bodySmall)
+                } }
             }
         }
+    }
+    result?.let { found ->
+        ModalBottomSheet(onDismissRequest = { result = null }) {
+            LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                item {
+                    Text("確認した一致", style = MaterialTheme.typography.titleLarge)
+                    Text("${formatObservationTime(found.at)} · ${found.page}/${found.lastPage}ページの一覧情報", style = MaterialTheme.typography.bodySmall)
+                }
+                items(found.rooms, key = { roomIdentity(it) }) { room ->
+                    QuietPanel {
+                        Text(room.name ?: "会話中の部屋", style = MaterialTheme.typography.titleSmall)
+                        Text(room.message, style = MaterialTheme.typography.bodyMedium)
+                        TextButton(onClick = { result = null; selected = RadarRoomSnapshot(room, found.at, found.page) }) { Text("部屋の詳細を確認") }
+                    }
+                }
+            }
+        }
+    }
+    selected?.let { snapshot ->
+        RadarRoomSheet(snapshot, onDismiss = { selected = null }, onFindRooms, onEnterRoom, onPeekRoom)
     }
 }

@@ -27,6 +27,7 @@ class ChatNavigationTest {
             composable(Routes.ROOMS) { }
             composable(Routes.SEARCH) { }
             composable(Routes.FAVORITES) { }
+            composable(Routes.RADAR) { }
             composable(Routes.ENTRY, arguments = listOf(
                 navArgument("host") { type = NavType.StringType }, navArgument("genre") { type = NavType.StringType },
                 navArgument("roomId") { type = NavType.LongType }, origin,
@@ -63,6 +64,18 @@ class ChatNavigationTest {
         nav.returnFromChat(origin)
         assertEquals(Routes.FAVORITES, nav.currentDestination!!.route)
         assertSame(favorites, nav.currentBackStackEntry)
+    }
+
+    @Test fun entryFromRadarReturnsToTheSameRadarStateAfterChat() {
+        val nav = controller()
+        nav.navigate(Routes.RADAR)
+        val radar = nav.getBackStackEntry(Routes.RADAR)
+        radar.savedStateHandle["section"] = "履歴"
+        nav.navigate(Routes.entry("chat.shalove.net", "zenkoku", 42, Routes.RADAR))
+        nav.navigateToChat("radar-session", Routes.RADAR)
+        nav.returnFromChat(Routes.RADAR)
+        assertSame(radar, nav.currentBackStackEntry)
+        assertEquals("履歴", radar.savedStateHandle.get<String>("section"))
     }
 
     @Test fun defaultEntryStillReturnsToRoomsAndNeverIncludesRoomPassword() {

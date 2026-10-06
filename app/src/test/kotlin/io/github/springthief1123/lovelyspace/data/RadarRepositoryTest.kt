@@ -37,6 +37,70 @@ class RadarRepositoryTest {
             return page
         }
     }
+    @Test fun matchResultsAndEventRoomSnapshotsSurviveWithoutTreatingHistoryAsCurrent() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            searches.save(SearchPreset("a", "合成条件", "zenkoku", RoomSearchCriteria()))
+            val lists = Lists().apply { rooms = listOf(room) }
+            val job = SupervisorJob(backgroundScope.coroutineContext[Job])
+            val radar = RadarRepository(db.presets(), lists, searches, RoomPreferenceRepository(db), CoroutineScope(backgroundScope.coroutineContext + job))
+            radar.state.first { it.loaded }; radar.setPlan("a", true); radar.scan()
+            assertEquals(listOf(room), radar.state.value.results["a"]?.rooms)
+            lists.rooms = listOf(room, room.copy(id = 43, name = "追加の合成")); radar.scan()
+            val event = radar.state.value.events.single()
+            assertEquals(43L, event.rooms.single().id)
+            assertEquals(1, event.page)
+            job.cancelAndJoin()
+            val restored = RadarRepository(db.presets(), Lists(), searches, RoomPreferenceRepository(db), backgroundScope)
+            restored.state.first { it.loaded }
+            assertEquals(event, restored.state.value.events.single())
+            assertTrue(restored.state.value.results.isEmpty())
+        } finally { db.close() }
+    }
+    @Test fun resultsOfAnOlderDefinitionCannotBeShownAsMatchesForAnEditedPreset() {
+        val original = SearchPreset("a", "合成条件", "zenkoku", RoomSearchCriteria())
+        val result = RadarResult(original.id, 1000, 1, 1, listOf(room), original.genreKey, original.criteria)
+        val state = RadarState(results = mapOf(original.id to result))
+        assertSame(result, state.resultFor(original.copy(label = "名前だけ変更")))
+        assertNull(state.resultFor(original.copy(criteria = RoomSearchCriteria(name = "別条件"))))
+        assertNull(state.resultFor(original.copy(genreKey = "talk")))
+    }
+    @Test fun trackingKeepsTheObservedPageAndFiltersAcrossRestartAndScan() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            val query = RoomQuery(Genres[room.genreKey]!!, sex = Gender.FEMALE, prefecture = 13,
+                ageBand = "20-29", publicOnly = false, waitingOnly = true, name = "合成", message = "本文", page = 3)
+            val lists = Lists().apply { rooms = listOf(room); lastPage = 3 }
+            lists.fetch(query, force = true)
+            val job = SupervisorJob(backgroundScope.coroutineContext[Job])
+            val radar = RadarRepository(db.presets(), lists, searches, RoomPreferenceRepository(db), CoroutineScope(backgroundScope.coroutineContext + job))
+            radar.state.first { it.loaded }; radar.track(room)
+            assertEquals(query, radar.state.value.targets.single().sourceQuery)
+            assertEquals(3, radar.state.value.targets.single().observedPage)
+            job.cancelAndJoin()
+            val fresh = Lists().apply { rooms = listOf(room); lastPage = 3 }
+            val restored = RadarRepository(db.presets(), fresh, searches, RoomPreferenceRepository(db), backgroundScope)
+            restored.state.first { it.loaded }
+            assertEquals(query, restored.state.value.targets.single().sourceQuery)
+            restored.scan()
+            assertEquals(listOf(query), fresh.calls)
+            fresh.rooms = listOf(room.copy(status = RoomStatus.PUBLIC_WAITING, action = RoomAction.PEEK))
+            restored.scan()
+            assertEquals(query, restored.state.value.events.single().sourceQuery)
+        } finally { db.close() }
+    }
+    @Test fun legacyTextOnlyHistoryStillLoads() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            db.presets().put(LocalState("radar_v1", """{"plans":[],"targets":[],"events":[{"at":1000,"text":"合成の旧履歴"}]}"""))
+            val radar = RadarRepository(db.presets(), Lists(), SearchPresetRepository(db), RoomPreferenceRepository(db), backgroundScope)
+            radar.state.first { it.loaded }
+            assertEquals("合成の旧履歴", radar.state.value.events.single().text)
+            assertTrue(radar.state.value.events.single().rooms.isEmpty())
+        } finally { db.close() }
+    }
     @Test fun clockRollbackAndRestoredFutureTimestampsDoNotBlockNewObservations() = runTest {
         val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
         try {

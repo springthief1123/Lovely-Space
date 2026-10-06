@@ -18,7 +18,8 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun RoomDetailsSheet(room: Room, favorite: Boolean, actionsEnabled: Boolean,
     onDismiss: () -> Unit, onFavorite: () -> Unit, onHide: (() -> Unit)? = null,
-    onEnter: (Room) -> Unit, onPeek: (Room) -> Unit, allowEntry: Boolean = true) {
+    onEnter: (Room) -> Unit, onPeek: (Room) -> Unit, allowEntry: Boolean = true,
+    verificationContent: @Composable () -> Unit = {}, sourceQuery: RoomQuery? = null) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val scope = rememberCoroutineScope()
     val radar by app.radar.state.collectAsStateWithLifecycle()
@@ -33,12 +34,13 @@ internal fun RoomDetailsSheet(room: Room, favorite: Boolean, actionsEnabled: Boo
             Text(listOfNotNull(Genres[room.genreKey]?.label, statusName(room.status), room.age?.let { "${it}歳" }, room.area).joinToString(" · "), color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(room.message.ifBlank { "一覧に募集文は表示されていません。" }, style = MaterialTheme.typography.bodyLarge)
             Text("取得時の一覧情報です。入室時には空き状況が変わっている場合があります。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            verificationContent()
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onFavorite, enabled = actionsEnabled) { Text(if (favorite) "保存を解除" else "部屋を保存") }
                 OutlinedButton(enabled = allowEntry && radar.loaded && !working && room.name != null, onClick = {
                     working = true
                     scope.launch {
-                        try { if (tracking) app.radar.removeTarget(room) else app.radar.track(room); notice = if (tracking) "追跡を解除しました" else "レーダーに追加しました" }
+                        try { if (tracking) app.radar.removeTarget(room) else app.radar.track(room, sourceQuery); notice = if (tracking) "追跡を解除しました" else "レーダーに追加しました" }
                         catch (e: kotlinx.coroutines.CancellationException) { throw e }
                         catch (e: Exception) { notice = "追跡設定を保存できませんでした。" }
                         finally { working = false }
@@ -55,7 +57,7 @@ internal fun RoomDetailsSheet(room: Room, favorite: Boolean, actionsEnabled: Boo
     }
     if (confirm) AlertDialog(onDismissRequest = { confirm = false }, title = { Text(if (room.action == RoomAction.PEEK) "公開ルームを表示しますか？" else "入室フォームへ進みますか？") },
         text = { Text(if (room.action == RoomAction.PEEK) "本家の公開ルームを開きます。" else "名前・プロフィールを確認してから入室できます。") },
-        confirmButton = { TextButton(onClick = { confirm = false; onDismiss(); if (room.action == RoomAction.PEEK) onPeek(room) else onEnter(room) }) { Text("進む") } },
+        confirmButton = { TextButton(enabled = allowEntry && room.action != RoomAction.NONE, onClick = { confirm = false; onDismiss(); if (room.action == RoomAction.PEEK) onPeek(room) else onEnter(room) }) { Text("進む") } },
         dismissButton = { TextButton(onClick = { confirm = false }) { Text("戻る") } })
     if (confirmHide) AlertDialog(onDismissRequest = { confirmHide = false }, title = { Text("この部屋を非表示にしますか？") },
         text = { Text("設定の「非表示の部屋」から元に戻せます。") },
