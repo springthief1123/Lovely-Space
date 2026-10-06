@@ -124,6 +124,7 @@ fun RoomListSettingsScreen(onBack: () -> Unit) {
                 )
             }
         }
+        }
         SnackbarHost(
             hostState = snackbar,
             modifier = Modifier
