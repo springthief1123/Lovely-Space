@@ -204,7 +204,7 @@ private fun RoomList(
     val visibleRooms = state.rooms.filterNot(preferences::isHidden)
 
     // 末尾に近づいたら次のページを読む。
-    LaunchedEffect(listState, state.canLoadMore) {
+    LaunchedEffect(listState, state.canLoadMore, state.page) {
         snapshotFlow {
             val info = listState.layoutInfo
             val last = info.visibleItemsInfo.lastOrNull()?.index ?: 0
