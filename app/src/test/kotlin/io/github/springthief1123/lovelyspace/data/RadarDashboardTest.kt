@@ -80,6 +80,26 @@ class RadarDashboardTest {
             assertEquals(1000L, radar.state.first { it.lastConfirmedAt != null }.lastConfirmedAt)
         }
     }
+    @Test fun hiddenTrackedRoomIsExcludedFromPageMatchTotal() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            val lists = Lists()
+            val preferences = RoomPreferenceRepository(db)
+            val radar = RadarRepository(db.presets(), lists, searches, preferences, backgroundScope)
+            radar.state.first { it.loaded }
+            val query = RoomQuery(Genres["zenkoku"]!!, page = 1)
+            val room = Room(42, "zenkoku", RoomStatus.WAITING, RoomAction.ENTER, null, "合成", Gender.FEMALE, 25, null, "本文")
+            radar.track(room, query)
+            preferences.setHidden(room, true)
+
+            radar.scan()
+
+            assertEquals(1, radar.state.value.lastScan!!.confirmed)
+            assertEquals(0, radar.state.value.lastScan!!.matches)
+        } finally { db.close() }
+    }
+
     @Test fun olderScanDoesNotReplaceNewerSharedFetchTimestamp() = runTest {
         withRadar { radar, searches, lists ->
             val sharedQuery = RoomQuery(Genres["talk"]!!, page = 1)
