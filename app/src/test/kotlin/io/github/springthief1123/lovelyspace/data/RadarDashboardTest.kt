@@ -20,6 +20,7 @@ class RadarDashboardTest {
         override val observations = MutableStateFlow<Map<RoomQuery, ObservedRoomPage>>(emptyMap())
         var revision = 0L
         var fresh = true
+        var extra = false
         var failGenre: String? = null
         var onFetch: (suspend () -> Unit)? = null
         val calls = mutableListOf<RoomQuery>()
@@ -29,7 +30,7 @@ class RadarDashboardTest {
             onFetch?.invoke()
             if (query.genre.key == failGenre) error("合成の取得失敗")
             val room = Room(42, query.genre.key, RoomStatus.WAITING, RoomAction.ENTER, null, "合成", Gender.FEMALE, 25, null, "本文")
-            val page = RoomListPage(query.genre.key, listOf(room), null, null, query.page, 2, emptyMap(), null)
+            val page = RoomListPage(query.genre.key, if (extra) listOf(room, room.copy(id = 43)) else listOf(room), null, null, query.page, 2, emptyMap(), null)
             if (fresh) { revision++; observations.value += query to ObservedRoomPage(query, page, revision * 1000, revision) }
             return page
         }
@@ -85,6 +86,39 @@ class RadarDashboardTest {
             assertEquals(old, radar.state.value.results["a"])
             assertEquals(1000L, radar.state.value.lastConfirmedAt)
         }
+    }
+    @Test fun failedPageSaveRestoresCursorsBaselinesAndArrivalDetection() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            var rejectNewEvent = false
+            val dao = object : PresetDao by db.presets() {
+                override suspend fun put(value: LocalState) {
+                    if (rejectNewEvent && org.json.JSONObject(value.value).getJSONArray("events").length() > 0) {
+                        rejectNewEvent = false
+                        throw java.io.IOException("合成の保存失敗")
+                    }
+                    db.presets().put(value)
+                }
+            }
+            val searches = SearchPresetRepository(db)
+            searches.save(SearchPreset("a", "合成", "zenkoku", RoomSearchCriteria()))
+            val lists = Lists()
+            val radar = RadarRepository(dao, lists, searches, RoomPreferenceRepository(db), backgroundScope)
+            radar.state.first { it.loaded }; radar.setPlan("a", true)
+            radar.saveCandidate(CandidateRule(id = "c", label = "合成候補", genreKey = "zenkoku", term = "合成"))
+            radar.scan(); radar.scan()
+            val previous = radar.state.value.results["a"]
+            lists.extra = true; rejectNewEvent = true; radar.scan()
+            assertEquals(1, radar.state.value.lastScan!!.failed)
+            assertEquals(1, radar.state.value.nextPages["a"])
+            assertEquals(1, radar.state.value.nextCandidatePages["c"])
+            assertEquals(previous, radar.state.value.results["a"])
+            assertTrue(radar.state.value.events.isEmpty())
+            radar.scan()
+            assertEquals(listOf(1, 2, 1, 1), lists.calls.map { it.page })
+            assertEquals(2, radar.state.value.events.size)
+            assertEquals(1, radar.state.value.lastScan!!.confirmed)
+        } finally { db.close() }
     }
     @Test fun stoppingDuringARequestMarksTheRemainingPagesAsSkipped() = runTest {
         withRadar { radar, searches, lists ->

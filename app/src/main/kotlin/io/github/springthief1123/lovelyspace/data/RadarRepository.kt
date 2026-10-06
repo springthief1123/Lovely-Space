@@ -154,7 +154,16 @@ class RadarRepository(
     suspend fun removeTarget(room: Room) = edit { it.copy(targets = it.targets.filterNot { t -> roomIdentity(t.room) == roomIdentity(room) }) }
     private suspend fun edit(block: (RadarState) -> RadarState) = mutex.withLock {
         check(_state.value.loaded) { "読み込み中です。" }
+        transaction {
+            _state.value = block(_state.value).copy(error = null)
+            persist()
+        }
+    }
+    /** 1ページの反映・保存をまとめ、失敗時は起動中の比較基準や取得順序も戻す。 */
+    private suspend fun transaction(block: suspend () -> Unit) {
         val old = _state.value
+        val oldSeen = seen.toMap()
+        val oldPlanKeys = planKeys.toMap()
         val oldBaselines = baselines.toMap()
         val oldKnown = knownMatches.mapValues { it.value.toMutableSet() }
         val oldNext = nextPages.toMap()
@@ -164,10 +173,11 @@ class RadarRepository(
         val oldEvaluatedPlans = evaluatedPlans.toMap()
         val oldEvaluatedCandidates = evaluatedCandidates.toMap()
         try {
-            _state.value = block(old).copy(error = null)
-            persist()
+            block()
         } catch (e: Exception) {
             _state.value = old
+            seen.clear(); seen.putAll(oldSeen)
+            planKeys.clear(); planKeys.putAll(oldPlanKeys)
             baselines.clear(); baselines.putAll(oldBaselines)
             knownMatches.clear(); knownMatches.putAll(oldKnown)
             nextPages.clear(); nextPages.putAll(oldNext)
@@ -235,25 +245,27 @@ class RadarRepository(
                     continue
                 }
                 mutex.withLock {
-                    val currentSaved = searches.presets.first()
-                    reconcilePlans(currentSaved)
-                    val active = currentSaved.filter { it.id in _state.value.plans }
-                    val scheduledPlans = active.filter { preset -> request.plans.any { planKey(it) == planKey(preset) } }
-                    val scheduledCandidates = _state.value.candidateRules.filter { rule -> rule.enabled && request.candidates.any { it.key == rule.key } }
-                    process(observation, scheduledPlans, scheduledCandidates)
-                    seen[query] = maxOf(seen[query] ?: 0, observation.revision)
-                    scheduledPlans.forEach { preset ->
-                        nextPages[planKey(preset)] = if (observation.page.hasNextPage) observation.page.page + 1 else 1
+                    transaction {
+                        val currentSaved = searches.presets.first()
+                        reconcilePlans(currentSaved)
+                        val active = currentSaved.filter { it.id in _state.value.plans }
+                        val scheduledPlans = active.filter { preset -> request.plans.any { planKey(it) == planKey(preset) } }
+                        val scheduledCandidates = _state.value.candidateRules.filter { rule -> rule.enabled && request.candidates.any { it.key == rule.key } }
+                        process(observation, scheduledPlans, scheduledCandidates)
+                        seen[query] = maxOf(seen[query] ?: 0, observation.revision)
+                        scheduledPlans.forEach { preset ->
+                            nextPages[planKey(preset)] = if (observation.page.hasNextPage) observation.page.page + 1 else 1
+                        }
+                        scheduledCandidates.forEach { rule ->
+                            candidateNext[rule.key] = if (observation.page.hasNextPage) observation.page.page + 1 else 1
+                        }
+                        val matches = (scheduledPlans.flatMap { _state.value.resultFor(it)?.rooms.orEmpty() } +
+                            scheduledCandidates.flatMap { _state.value.resultFor(it)?.rooms.orEmpty() }).distinctBy(::roomIdentity).size
+                        _state.update { state -> state.copy(nextPages = active.associate { p -> p.id to (nextPages[planKey(p)] ?: 1) },
+                            nextCandidatePages = state.candidateRules.filter { it.enabled }.associate { it.id to (candidateNext[it.key] ?: 1) }) }
+                        persist()
+                        updateCheck(query, RadarCheckStatus.CONFIRMED, observation.confirmedAt, matches)
                     }
-                    scheduledCandidates.forEach { rule ->
-                        candidateNext[rule.key] = if (observation.page.hasNextPage) observation.page.page + 1 else 1
-                    }
-                    val matches = (scheduledPlans.flatMap { _state.value.resultFor(it)?.rooms.orEmpty() } +
-                        scheduledCandidates.flatMap { _state.value.resultFor(it)?.rooms.orEmpty() }).distinctBy(::roomIdentity).size
-                    _state.update { state -> state.copy(nextPages = active.associate { p -> p.id to (nextPages[planKey(p)] ?: 1) },
-                        nextCandidatePages = state.candidateRules.filter { it.enabled }.associate { it.id to (candidateNext[it.key] ?: 1) }) }
-                    persist()
-                    updateCheck(query, RadarCheckStatus.CONFIRMED, observation.confirmedAt, matches)
                 }
             }
         } catch (e: CancellationException) { interrupted = true; throw e }
