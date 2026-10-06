@@ -21,14 +21,32 @@ class RadarRepositoryTest {
         override val observations = MutableStateFlow<Map<RoomQuery, ObservedRoomPage>>(emptyMap())
         var rooms = emptyList<Room>()
         var revision = 0L
+        var lastPage = 1
         val calls = mutableListOf<RoomQuery>()
         override fun observation(query: RoomQuery) = observations.value[query]
         override suspend fun fetch(query: RoomQuery, force: Boolean): RoomListPage {
             calls += query
-            val page = RoomListPage(query.genre.key, rooms, null, null, query.page, 1, emptyMap(), null)
+            val page = RoomListPage(query.genre.key, rooms, null, null, query.page, lastPage, emptyMap(), null)
             observations.value += query to ObservedRoomPage(query, page, ++revision * 1000, revision)
             return page
         }
+    }
+    @Test fun editedConditionStartsAtFirstPageAndCreatesANewBaseline() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            val original = SearchPreset("a", "条件A", "zenkoku", RoomSearchCriteria())
+            searches.save(original)
+            val lists = Lists().apply { lastPage = 2; rooms = listOf(room) }
+            val radar = RadarRepository(db.presets(), lists, searches, RoomPreferenceRepository(db), backgroundScope)
+            radar.state.first { it.loaded }
+            radar.setPlan("a", true)
+            radar.scan()
+            searches.save(original.copy(criteria = RoomSearchCriteria(text = "本文")))
+            radar.scan()
+            assertEquals(listOf(1, 1), lists.calls.map { it.page })
+            assertTrue(radar.state.value.events.isEmpty())
+        } finally { db.close() }
     }
     @Test fun sharedPlansBaselineDedupPartialPageIdentityReuseAndPersistence() = runTest {
         val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()

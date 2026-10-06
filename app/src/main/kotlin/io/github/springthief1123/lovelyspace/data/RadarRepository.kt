@@ -63,7 +63,7 @@ class RadarRepository(
     suspend fun setPlan(id: String, enabled: Boolean) = edit {
         baselines.keys.removeAll { it.startsWith("$id/") }
         knownMatches.keys.removeAll { it.startsWith("$id/") }
-        nextPages.remove(id)
+        nextPages.keys.removeAll { it.startsWith("$id/") }
         it.copy(plans = if (enabled) it.plans + id else it.plans - id)
     }
     suspend fun track(room: Room) = edit {
@@ -88,7 +88,7 @@ class RadarRepository(
             val selected = searches.presets.first().filter { it.id in _state.value.plans }
             // 同じジャンル・ページを複数の計画が要求しても、通信は1回だけ。
             val queries = mutex.withLock {
-                selected.mapNotNull { p -> Genres[p.genreKey]?.let { RoomQuery(it, page = nextPages[p.id] ?: 1) } } +
+                selected.mapNotNull { p -> Genres[p.genreKey]?.let { RoomQuery(it, page = nextPages[planKey(p)] ?: 1) } } +
                     _state.value.targets.filter { it.evidence != RoomIdentityEvidence.REUSED }.mapNotNull { t -> Genres[t.room.genreKey]?.let { RoomQuery(it) } }
             }.distinct()
             for (query in queries) {
@@ -96,8 +96,8 @@ class RadarRepository(
                 val observation = lists.observation(query) ?: continue
                 mutex.withLock {
                     if (seen[query] != observation.revision) { process(observation, selected); seen[query] = observation.revision }
-                    selected.filter { it.genreKey == query.genre.key && (nextPages[it.id] ?: 1) == query.page }.forEach {
-                        nextPages[it.id] = if (observation.page.hasNextPage) observation.page.page + 1 else 1
+                    selected.filter { it.genreKey == query.genre.key && (nextPages[planKey(it)] ?: 1) == query.page }.forEach {
+                        nextPages[planKey(it)] = if (observation.page.hasNextPage) observation.page.page + 1 else 1
                     }
                     persist()
                 }
@@ -129,10 +129,10 @@ class RadarRepository(
         presets.filter { it.genreKey == o.query.genre.key }.forEach { preset ->
             // フィルタ済みの通信結果を無条件一覧の巡回基準には使わない。
             if (o.query != RoomQuery(o.query.genre, page = o.query.page)) return@forEach
-            val key = "${preset.id}/${preset.criteria.hashCode()}/${o.query.page}"
+            val scopeKey = planKey(preset)
+            val key = "$scopeKey/${o.query.page}"
             val matches = searchRooms(o.page.rooms.filterNot { room -> hidden.any { it.appliesTo(room) } }, preset.criteria)
             val identities = matches.map { "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" }.toSet()
-            val scopeKey = "${preset.id}/${preset.criteria.hashCode()}"
             val known = knownMatches.getOrPut(scopeKey) { mutableSetOf() }
             val previous = baselines[key]
             if (previous != null) {
@@ -145,6 +145,7 @@ class RadarRepository(
         }
         _state.value = current.copy(targets = targets, events = (events + current.events).take(100), scopes = scopes)
     }
+    private fun planKey(preset: SearchPreset): String = "${preset.id}/${preset.genreKey}/${preset.criteria}"
     private suspend fun persist() {
         val s = _state.value
         val json = JSONObject().put("plans", JSONArray(s.plans.toList()))
