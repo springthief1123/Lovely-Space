@@ -6,6 +6,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import io.github.springthief1123.lovelyspace.ui.theme.LocalLovelyTextScale
 
 /** 広い画面でも読みやすい幅を保ち、サイズ変更で子の状態を作り直さない。 */
 @Composable
@@ -18,9 +19,9 @@ fun QuietPage(content: @Composable BoxScope.() -> Unit) {
 /** 入力欄を狭い画面・大きい文字では縦に並べる。 */
 @Composable
 fun QuietFieldPair(first: @Composable (Modifier) -> Unit, second: @Composable (Modifier) -> Unit) {
-    val fontScale = LocalDensity.current.fontScale
+    val effectiveFontScale = LocalDensity.current.fontScale * LocalLovelyTextScale.current
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        if (maxWidth / fontScale < 320.dp) {
+        if (maxWidth / effectiveFontScale < 320.dp) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 first(Modifier.fillMaxWidth())
                 second(Modifier.fillMaxWidth())
