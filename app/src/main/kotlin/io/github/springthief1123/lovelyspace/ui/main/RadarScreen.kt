@@ -142,8 +142,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                     Text("未読 ${state.unreadEvents}件 · 表示 ${visibleEvents.size}件", style = MaterialTheme.typography.bodySmall)
                     FilterChip(historyUnread, { historyUnread = !historyUnread }, label = { Text("未読のみ") })
                     RadarDropdown("種類", historyKind, listOf("" to "すべて") + RadarEventKind.entries.map { it.name to it.historyLabel() }, true) { historyKind = it }
-                    val origins = state.events.mapNotNull { it.origin }.distinctBy { it.key }
-                    RadarDropdown("条件・追跡先", historyOrigin, listOf("" to "すべて") + origins.map { it.key to it.historyLabel() }, true) { historyOrigin = it }
+                    RadarDropdown("条件・追跡先", historyOrigin, listOf("" to "すべて") + historyOriginOptions(state.events), true) { historyOrigin = it }
                     TextButton(enabled = state.loaded && !working && state.unreadEvents > 0, onClick = {
                         val ids = state.events.filterNot { it.read }.map { it.id }.toSet()
                         action { app.radar.markEventsRead(ids) }
@@ -160,10 +159,10 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                     event.origin?.let { Text(it.historyLabel(), style = MaterialTheme.typography.bodySmall) }
                     Text(formatObservationTime(event.at), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     event.rooms.forEach { room ->
-                        TextButton(enabled = state.loaded && !working, onClick = { action {
-                            app.radar.markEventsRead(setOf(event.id))
-                            selected = RadarRoomSnapshot(room, event.at, event.page ?: 1, event.blocked, event.sourceQuery)
-                        } }) { Text("${room.name ?: "記録の部屋"}の詳細") }
+                        TextButton(enabled = !working && (event.read || state.loaded), onClick = {
+                            val snapshot = RadarRoomSnapshot(room, event.at, event.page ?: 1, event.blocked, event.sourceQuery)
+                            if (event.read) selected = snapshot else action { app.radar.markEventsRead(setOf(event.id)); selected = snapshot }
+                        }) { Text("${room.name ?: "記録の部屋"}の詳細") }
                     }
                     if (!event.read) TextButton(enabled = state.loaded && !working, onClick = { action { app.radar.markEventsRead(setOf(event.id)) } }) { Text("既読にする") }
                     if (event.rooms.size == 20) Text("履歴には最大20件を保存しています。", style = MaterialTheme.typography.bodySmall)

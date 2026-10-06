@@ -154,8 +154,14 @@ class RadarRepository(
         it.copy(targets = it.targets.filterNot { t -> roomIdentity(t.room) == key } + TrackedRoom(room, observedPage = query?.page ?: 1, sourceQuery = query))
     }
     /** 呼び出し時に渡されたIDだけを既読にし、保存中に到着した新しい履歴は含めない。 */
-    suspend fun markEventsRead(ids: Set<String>) = edit { state ->
-        state.copy(events = state.events.map { if (it.id in ids) it.copy(read = true) else it })
+    suspend fun markEventsRead(ids: Set<String>) = mutex.withLock {
+        // 既読・削除済みの記録を開くために、不要な書き込みを要求しない。
+        if (_state.value.events.none { it.id in ids && !it.read }) return@withLock
+        check(_state.value.loaded) { "読み込み中です。" }
+        transaction {
+            _state.update { state -> state.copy(events = state.events.map { if (it.id in ids) it.copy(read = true) else it }) }
+            persist()
+        }
     }
     suspend fun removeTarget(room: Room) = edit { it.copy(targets = it.targets.filterNot { t -> roomIdentity(t.room) == roomIdentity(room) }) }
     private suspend fun edit(block: (RadarState) -> RadarState) = mutex.withLock {
@@ -342,7 +348,7 @@ class RadarRepository(
                 val added = identities - previous - known
                 if (added.isNotEmpty()) events += RadarEvent(o.confirmedAt, "${preset.label}：${o.page.page}ページで新しい一致を${added.size}件確認",
                     rooms = matches.filter { "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" in added }.take(20), page = o.page.page, sourceQuery = o.query, kind = RadarEventKind.SEARCH_MATCH,
-                    origin = RadarEventOrigin(RadarOriginType.PLAN, preset.id, preset.label))
+                    origin = RadarEventOrigin(RadarOriginType.PLAN, preset.id, preset.label, radarPlanDescription(preset)))
             }
             known.addAll(identities)
             baselines[key] = identities
@@ -363,7 +369,7 @@ class RadarRepository(
                     val added = identities - previous - known
                     if (added.isNotEmpty()) events += RadarEvent(o.confirmedAt, "候補「${rule.label}」：${o.page.page}ページで新しい表示名の一致を${added.size}件確認",
                         rooms = matches.filter { "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" in added }.take(20), page = o.page.page, sourceQuery = o.query, kind = RadarEventKind.CANDIDATE_MATCH,
-                        origin = RadarEventOrigin(RadarOriginType.CANDIDATE, rule.id, rule.label))
+                        origin = RadarEventOrigin(RadarOriginType.CANDIDATE, rule.id, rule.label, "${Genres[rule.genreKey]?.label ?: rule.genreKey} · ${if (rule.mode == CandidateMode.EXACT_NAME) "名前一致" else "表示名"}「${rule.term}」"))
                 }
                 known.addAll(identities)
                 candidateBaselines[key] = identities
