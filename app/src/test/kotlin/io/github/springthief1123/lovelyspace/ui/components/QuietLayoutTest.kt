@@ -19,6 +19,7 @@ import androidx.core.graphics.ColorUtils
 import io.github.springthief1123.lovelyspace.settings.ThemeMode
 import io.github.springthief1123.lovelyspace.ui.shell.LovelyBottomNavigation
 import io.github.springthief1123.lovelyspace.ui.shell.MainDestinations
+import io.github.springthief1123.lovelyspace.ui.shell.lovelyBottomContentInset
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpaceTheme
 import org.junit.Assert.*
 import org.junit.Rule
@@ -102,6 +103,11 @@ class QuietLayoutTest {
             compose.runOnIdle { assertEquals(destination.route, selected) }
         }
         compose.runOnIdle { assertTrue(measured > 0) }
+    }
+
+    @Test fun bottomInsetReservesFabClearanceOnlyWhenShown() {
+        assertEquals(124.dp, lovelyBottomContentInset(100.dp, false))
+        assertEquals(180.dp, lovelyBottomContentInset(100.dp, true))
     }
 
     @Test fun supplementaryTextMaintainsContrastInBothThemes() {
