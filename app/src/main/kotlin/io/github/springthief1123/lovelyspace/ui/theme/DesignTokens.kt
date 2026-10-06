@@ -9,7 +9,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 object LovelySpacing {
-    val screenHorizontal = 18.dp
+    val screenHorizontal = 20.dp
     val section = 24.dp
     val item = 14.dp
     val compact = 8.dp
@@ -20,7 +20,7 @@ object LovelySpacing {
     /** Top Bar と各画面の先頭コンテンツの間に残す余白。 */
     val topBarContentGap = 16.dp
 
-    val bottomContentInset = 108.dp
+    val bottomContentInset = 124.dp
 
     /** 右下の 56dp FAB より上へ Snackbar を逃がすための余白。 */
     val snackbarBottomInset = 160.dp

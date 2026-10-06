@@ -11,6 +11,29 @@ import java.io.IOException
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SearchViewModelTest {
+    @Test fun unifiedDiscoveryStillLoadsWhenGenrePreferenceWriteFails() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val preferences = object : io.github.springthief1123.lovelyspace.settings.RoomListPreferenceStore {
+                override val roomListPreferences = kotlinx.coroutines.flow.flowOf(io.github.springthief1123.lovelyspace.settings.RoomListPreferences(lastGenreKey = "talk"))
+                override suspend fun setLastRoomGenre(genreKey: String) { throw IOException("合成の保存失敗") }
+            }
+            val calls = mutableListOf<String>()
+            val vm = SearchViewModel(RoomListSource { query, _ ->
+                calls += query.genre.key
+                page(query.genre.key, 1, listOf(room(1, query.genre.key)))
+            }, preferences)
+            runCurrent()
+            assertEquals(listOf("talk"), calls)
+            assertTrue(vm.state.value.initialized)
+            assertEquals(1, vm.state.value.rooms.size)
+            assertNotNull(vm.state.value.preferenceError)
+            vm.criteria(RoomSearchCriteria(text = "テスト"))
+            assertEquals(1, calls.size)
+            assertEquals(1, vm.state.value.results.size)
+        } finally { Dispatchers.resetMain() }
+    }
+
     private fun room(id: Long, genre: String = "zenkoku") = Room(id, genre, RoomStatus.WAITING, RoomAction.ENTER,
         null, "合成$id", Gender.UNKNOWN, null, null, "テスト")
     private fun page(genre: String, number: Int, rooms: List<Room>) = RoomListPage(genre, rooms, null, null, number, 2, emptyMap(), null)

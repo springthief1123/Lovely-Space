@@ -116,14 +116,14 @@ private fun SavedSearchNameDialog(value: SearchPreset, working: Boolean, error: 
 internal val SearchPresetSaver = listSaver<SearchPreset?, Any>(
     save = { p -> if (p == null) emptyList() else with(p.criteria) {
         listOf(p.id, p.label, p.genreKey, name, message, excluded, keywordMode.name, gender?.name.orEmpty(),
-            minAge ?: -1, maxAge ?: -1, includeUnknownAge, area.orEmpty(), waitingOnly.toSavedInt(), publicOnly.toSavedInt(), sort.name)
+            minAge ?: -1, maxAge ?: -1, includeUnknownAge, area.orEmpty(), waitingOnly.toSavedInt(), publicOnly.toSavedInt(), sort.name, text)
     } },
     restore = { v -> if (v.isEmpty()) null else SearchPreset(v[0] as String, v[1] as String, v[2] as String,
         RoomSearchCriteria(name = v[3] as String, message = v[4] as String, excluded = v[5] as String,
             keywordMode = KeywordMode.valueOf(v[6] as String), gender = (v[7] as String).takeIf { it.isNotEmpty() }?.let(Gender::valueOf),
             minAge = (v[8] as Int).takeIf { it >= 0 }, maxAge = (v[9] as Int).takeIf { it >= 0 }, includeUnknownAge = v[10] as Boolean,
             area = (v[11] as String).takeIf { it.isNotEmpty() }, waitingOnly = (v[12] as Int).toSavedBoolean(),
-            publicOnly = (v[13] as Int).toSavedBoolean(), sort = RoomSort.valueOf(v[14] as String))) },
+            publicOnly = (v[13] as Int).toSavedBoolean(), sort = RoomSort.valueOf(v[14] as String), text = v.getOrNull(15) as? String ?: "")) },
 )
 
 private fun Boolean?.toSavedInt(): Int = when (this) { null -> -1; true -> 1; false -> 0 }

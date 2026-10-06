@@ -28,7 +28,7 @@ import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
 import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentTopPadding
 
 @Composable
-fun ProfileScreen() {
+fun ProfileScreen(onOpenSettings: () -> Unit, onCreateRoom: () -> Unit) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val vm: PresetViewModel = viewModel(factory = viewModelFactory { initializer { PresetViewModel(app.presets) } })
     val profiles by vm.profiles.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -46,8 +46,12 @@ fun ProfileScreen() {
             top = lovelyMainContentTopPadding(), bottom = LovelySpacing.bottomContentInset + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { Text("マイページ", style = MaterialTheme.typography.titleLarge) }
-        item { Text("保存したプロフィールと待機メッセージを、入室・部屋作成で選べます。", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { io.github.springthief1123.lovelyspace.ui.components.QuietHeading("YOUR OWN SPACE", "マイルーム", "いつものあなたで、心地よい会話を。") }
+        item { io.github.springthief1123.lovelyspace.ui.components.QuietPanel {
+            Button(onClick = onCreateRoom, modifier = Modifier.fillMaxWidth()) { Text("部屋をつくる") }
+            OutlinedButton(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) { Text("表示・一覧・非表示の設定") }
+        } }
+        item { Text("保存したプロフィールと募集文を、入室・部屋作成で選べます。", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         if (error != null) item {
             Text(error.orEmpty(), color = MaterialTheme.colorScheme.error)
             TextButton(onClick = vm::reload, enabled = !working) { Text("もう一度読み込む") }
@@ -59,7 +63,7 @@ fun ProfileScreen() {
                 enabled = !working, onEdit = { profile = p; profileEditor = true },
                 onDefault = { vm.action { vm.repository.setDefaultProfile(p.id) } }, onDelete = { deleting = true to p.id })
         }
-        item { SectionHeading("待機メッセージ", enabled = !working) { message = null; messageEditor = true } }
+        item { SectionHeading("募集文", enabled = !working) { message = null; messageEditor = true } }
         if (messages.isEmpty()) item { Text("よく使う募集文を保存できます。", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         items(messages, key = { "message-${it.id}" }) { m ->
             PresetRow(m.label, m.message, m.isDefault, enabled = !working,
@@ -139,11 +143,11 @@ private fun MessageEditor(preset: MessagePreset?, working: Boolean, error: Strin
     var message by rememberSaveable { mutableStateOf(preset?.message.orEmpty()) }
     var isDefault by rememberSaveable { mutableStateOf(preset?.isDefault ?: false) }
     val width = messageWidth(message)
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("待機メッセージ") }, text = {
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("募集文") }, text = {
         Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             OutlinedTextField(label, { label = it }, label = { Text("保存名") }, singleLine = true)
-            OutlinedTextField(message, { message = it.replace('\n', ' ') }, label = { Text("待機メッセージ") },
+            OutlinedTextField(message, { message = it.replace('\n', ' ') }, label = { Text("募集文") },
                 isError = width > 500, supportingText = { Text("$width / 500（全角は2文字）") })
             Row { Checkbox(isDefault, { isDefault = it }); Text("既定のメッセージにする", modifier = Modifier.padding(top = 12.dp)) }
         }

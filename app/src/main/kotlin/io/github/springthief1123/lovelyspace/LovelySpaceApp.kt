@@ -22,11 +22,14 @@ class LovelySpaceApp : Application() {
     val settings: SettingsRepository by lazy { SettingsRepository(this) }
     private val database: PresetDatabase by lazy {
         Room.databaseBuilder(this, PresetDatabase::class.java, "lovely-space.db")
-            .addMigrations(PresetDatabase.MIGRATION_1_2, PresetDatabase.MIGRATION_2_3)
+            .addMigrations(PresetDatabase.MIGRATION_1_2, PresetDatabase.MIGRATION_2_3, PresetDatabase.MIGRATION_3_4)
             .build()
     }
     val presets: PresetRepository by lazy { PresetRepository(database, settings) }
     val searchPresets: SearchPresetRepository by lazy { SearchPresetRepository(database) }
+    val radar: io.github.springthief1123.lovelyspace.data.RadarRepository by lazy {
+        io.github.springthief1123.lovelyspace.data.RadarRepository(database.presets(), roomLists, searchPresets, roomPreferences)
+    }
     val roomPreferences: RoomPreferenceRepository by lazy { RoomPreferenceRepository(database) }
 
     /** 入室中の部屋（pwd を route に載せないための一時置き場）。 */
