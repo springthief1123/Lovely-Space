@@ -32,14 +32,19 @@ internal fun RadarRoomSheet(snapshot: RadarRoomSnapshot, onDismiss: () -> Unit, 
     val room = inspection?.room ?: snapshot.room
     val blocked = snapshot.blocked || radar.targets.any { roomIdentity(it.room) == roomIdentity(snapshot.room) && it.evidence == RoomIdentityEvidence.REUSED } ||
         preferences.preferences.any { it.host == Genres[snapshot.room.genreKey]?.host && it.roomId == snapshot.room.id && it.stale }
-    val allowed = inspection?.room != null && !blocked && !checking && !preferences.loading
+    val allowed = inspection?.room != null && !blocked && !checking && !preferences.loading && preferences.error == null && radar.loaded
     RoomDetailsSheet(room, preferences.isFavorite(room), allowed && !preferences.loading && preferences.canEdit(room),
         onDismiss = onDismiss, onFavorite = { vm.toggleFavorite(room) }, onEnter = onEnterRoom, onPeek = onPeekRoom,
         allowEntry = allowed, verificationContent = {
             snapshot.at?.let { Text("記録 ${formatObservationTime(it)} · ${snapshot.page}ページ", style = MaterialTheme.typography.bodySmall) }
             Text(if (blocked) "ID再利用を確認した部屋です。「見つける」から選び直してください。" else inspection?.message ?: "履歴の部屋情報です。操作する前に最新の一覧を確認してください。", style = MaterialTheme.typography.bodySmall)
-            preferences.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            if (!blocked && inspection?.reused != true) OutlinedButton(enabled = !checking, onClick = {
+            preferences.error?.let {
+                Text(it, color = MaterialTheme.colorScheme.error)
+                TextButton(onClick = vm::reload) { Text("保存設定を読み直す") }
+            }
+            radar.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            if (!radar.loaded && radar.error != null) TextButton(onClick = app.radar::reload, enabled = !radar.running) { Text("追跡設定を読み直す") }
+            if (!blocked && inspection?.reused != true) OutlinedButton(enabled = !checking && !preferences.loading && preferences.error == null && radar.loaded, onClick = {
                 checking = true
                 inspection = null
                 scope.launch {
