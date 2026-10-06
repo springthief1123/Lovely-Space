@@ -88,6 +88,7 @@ fun FavoritesScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit) {
         items(values, key = { "${it.host}/${it.roomId}" }) { value ->
             FavoriteRoomRow(
                 value = value,
+                actionsEnabled = state.canEdit(value.host, value.roomId),
                 onEnterRoom = onEnterRoom,
                 onPeekRoom = onPeekRoom,
                 onFavoriteClear = { vm.clearFavorite(value) },
@@ -100,6 +101,7 @@ fun FavoritesScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit) {
 @Composable
 private fun FavoriteRoomRow(
     value: RoomPreference,
+    actionsEnabled: Boolean,
     onEnterRoom: (Room) -> Unit,
     onPeekRoom: (Room) -> Unit,
     onFavoriteClear: () -> Unit,
@@ -132,6 +134,7 @@ private fun FavoriteRoomRow(
             },
             isFavorite = true,
             onFavoriteClick = onFavoriteClear,
+            actionsEnabled = actionsEnabled,
         )
     }
 }

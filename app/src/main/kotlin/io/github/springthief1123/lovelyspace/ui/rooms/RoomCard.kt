@@ -28,9 +28,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Favorite
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -276,6 +280,11 @@ fun RoomCard(
             ) {
                 RoomCardSurface(
                     room = room,
+                    actionsEnabled = actionsEnabled,
+                    favoriteAction = onFavoriteClick?.let { { invokeMenuAction(SwipeSide.FAVORITE) } },
+                    hiddenAction = onHideClick?.let { { invokeMenuAction(SwipeSide.HIDDEN) } },
+                    isFavorite = isFavorite,
+                    isHidden = isHidden,
                     enabled = enabled || side != SwipeSide.NONE,
                     onClick = {
                         if (side != SwipeSide.NONE) {
@@ -349,7 +358,17 @@ private fun BoxScope.SwipeActionBackground(
 }
 
 @Composable
-private fun RoomCardSurface(room: Room, enabled: Boolean, onClick: () -> Unit) {
+private fun RoomCardSurface(
+    room: Room,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    actionsEnabled: Boolean,
+    favoriteAction: (() -> Unit)?,
+    hiddenAction: (() -> Unit)?,
+    isFavorite: Boolean,
+    isHidden: Boolean,
+) {
+    var menuOpen by remember(room.id, room.genreKey) { mutableStateOf(false) }
     val lovely = LocalLovelyColors.current
     val genderColor = when (room.gender) {
         Gender.FEMALE -> lovely.female
@@ -418,6 +437,29 @@ private fun RoomCardSurface(room: Room, enabled: Boolean, onClick: () -> Unit) {
                         color = statusColor,
                         modifier = Modifier.padding(start = 10.dp),
                     )
+                    if (favoriteAction != null || hiddenAction != null) {
+                        Box {
+                            IconButton(onClick = { menuOpen = true }, enabled = actionsEnabled) {
+                                Icon(Icons.Outlined.MoreVert, contentDescription = "部屋の操作")
+                            }
+                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                favoriteAction?.let { action ->
+                                    DropdownMenuItem(
+                                        text = { Text(if (isFavorite) "お気に入り解除" else "お気に入り") },
+                                        enabled = actionsEnabled,
+                                        onClick = { menuOpen = false; action() },
+                                    )
+                                }
+                                hiddenAction?.let { action ->
+                                    DropdownMenuItem(
+                                        text = { Text(if (isHidden) "非表示解除" else "非表示") },
+                                        enabled = actionsEnabled,
+                                        onClick = { menuOpen = false; action() },
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
 
                 Spacer(Modifier.height(6.dp))

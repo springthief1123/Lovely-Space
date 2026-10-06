@@ -18,10 +18,33 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class RoomListViewModelTest {
+    @Test fun genreWriteFailureDoesNotPreventInitialOrSubsequentFetch() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val store = FakeRoomListPreferences(RoomListPreferences(), failSaving = true)
+            val fetched = mutableListOf<String>()
+            val source = RoomListSource { query, _ ->
+                fetched += query.genre.key
+                RoomListPage(query.genre.key, emptyList(), 0, 0, 1, 1, emptyMap(), 0)
+            }
+            val vm = RoomListViewModel(source, store)
+            advanceUntilIdle()
+            assertEquals(listOf(Genres.default.key), fetched)
+            assertFalse(vm.state.value.isRefreshing)
+            assertNotNull(vm.state.value.preferenceError)
+            vm.selectGenre(Genres["talk"]!!)
+            advanceUntilIdle()
+            assertEquals(listOf(Genres.default.key, "talk"), fetched)
+            assertFalse(vm.state.value.isRefreshing)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
     @Test
     fun startsFromConfiguredGenreAndRemembersLaterSelection() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
@@ -82,13 +105,14 @@ class RoomListViewModelTest {
     }
 }
 
-private class FakeRoomListPreferences(initial: RoomListPreferences) : RoomListPreferenceStore {
+private class FakeRoomListPreferences(initial: RoomListPreferences, private val failSaving: Boolean = false) : RoomListPreferenceStore {
     private val state = MutableStateFlow(initial)
     override val roomListPreferences: Flow<RoomListPreferences> = state
     var lastWritten: String? = null
         private set
 
     override suspend fun setLastRoomGenre(genreKey: String) {
+        if (failSaving) throw java.io.IOException("storage unavailable")
         lastWritten = genreKey
         state.value = state.value.copy(lastGenreKey = genreKey)
     }

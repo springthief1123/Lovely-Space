@@ -96,6 +96,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit) {
                         }
                     },
                     isFavorite = preferences.isFavorite(room),
+                    actionsEnabled = preferences.canEdit(room),
                     onFavoriteClick = { preferencesVm.toggleFavorite(room) },
                     onHideClick = { preferencesVm.hide(room) },
                 )

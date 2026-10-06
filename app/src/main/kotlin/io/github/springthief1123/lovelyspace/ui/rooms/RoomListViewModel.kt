@@ -33,6 +33,7 @@ data class RoomListUiState(
     val isRefreshing: Boolean = false,
     val isLoadingMore: Boolean = false,
     val error: String? = null,
+    val preferenceError: String? = null,
     /** [error] が次ページの読み込みで起きたものなら true（再試行は次ページを読み直す）。 */
     val errorOnLoadMore: Boolean = false,
 ) {
@@ -61,10 +62,17 @@ class RoomListViewModel(
 
     init {
         viewModelScope.launch {
-            val initialKey = preferences.roomListPreferences.first().initialGenreKey()
+            val initialKey = try {
+                preferences.roomListPreferences.first().initialGenreKey()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { it.copy(preferenceError = describeError(e)) }
+                Genres.default.key
+            }
             _state.update { it.copy(genre = Genres[initialKey] ?: Genres.default) }
-            preferences.setLastRoomGenre(_state.value.genre.key)
             refresh(force = false)
+            rememberGenre(_state.value.genre.key)
         }
     }
 
@@ -74,8 +82,20 @@ class RoomListViewModel(
             val recent = (listOf(it.genre) + it.recentGenres).filter { g -> g != genre }.distinct().take(RECENT_GENRES)
             it.copy(genre = genre, recentGenres = recent).resetResults()
         }
-        viewModelScope.launch { preferences.setLastRoomGenre(genre.key) }
+        rememberGenre(genre.key)
         refresh(force = false)
+    }
+
+    private fun rememberGenre(key: String) {
+        viewModelScope.launch {
+            try {
+                preferences.setLastRoomGenre(key)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { it.copy(preferenceError = describeError(e)) }
+            }
+        }
     }
 
     fun selectSex(sex: Gender?) {
