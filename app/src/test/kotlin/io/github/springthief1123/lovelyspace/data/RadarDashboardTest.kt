@@ -59,6 +59,23 @@ class RadarDashboardTest {
             assertNotNull(report.finishedAt); assertEquals(1000L, radar.state.value.lastConfirmedAt)
         }
     }
+    @Test fun trackingOnlyScanCountsMatchedTarget() = runTest {
+        withRadar { radar, _, _ ->
+            val query = RoomQuery(Genres["zenkoku"]!!, page = 1)
+            val room = Room(42, "zenkoku", RoomStatus.WAITING, RoomAction.ENTER, null, "合成", Gender.FEMALE, 25, null, "本文")
+            radar.track(room, query)
+            radar.scan()
+            assertEquals(1, radar.state.value.lastScan!!.confirmed)
+            assertEquals(1, radar.state.value.lastScan!!.matches)
+        }
+    }
+    @Test fun sharedListFetchUpdatesLastConfirmedAt() = runTest {
+        withRadar { radar, _, lists ->
+            val query = RoomQuery(Genres["zenkoku"]!!, page = 1)
+            lists.fetch(query, force = true)
+            assertEquals(1000L, radar.state.first { it.lastConfirmedAt != null }.lastConfirmedAt)
+        }
+    }
     @Test fun failedPagesDoNotAdvanceAndOtherPagesStillComplete() = runTest {
         withRadar { radar, searches, lists ->
             searches.save(SearchPreset("a", "合成A", "zenkoku", RoomSearchCriteria()))
