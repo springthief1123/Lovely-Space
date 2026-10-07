@@ -111,6 +111,22 @@ class AppNotifierTest {
         assertEquals(NotificationTarget.Radar, inbox.opened.value?.target)
     }
 
+    @Test fun loggedNotificationMissingFromInboxCannotBeReconstructedFromIntent() {
+        notifier.open(AppNotifier.openIntent(app, match))
+        assertNull(inbox.opened.value)
+    }
+
+    @Test fun unloggedNotificationIntentCannotOpenAnArbitraryRoom() {
+        val forged = NotificationSamples.of(NotificationKind.ONGOING).copy(
+            id = "status-room",
+            target = NotificationTarget.Room("example.invalid", "zenkoku", 900000001L),
+        )
+
+        notifier.open(AppNotifier.openIntent(app, forged))
+
+        assertNull(inbox.opened.value)
+    }
+
     @Test fun everyKindHasATestNotification() = runTest {
         grant()
         NotificationKind.entries.forEach { notifier.post(NotificationSamples.of(it)) }
