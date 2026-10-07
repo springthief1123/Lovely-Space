@@ -184,9 +184,15 @@ class ShaloveClient(
         return io.github.springthief1123.lovelyspace.core.chat.PublicRoomParser.parse(get(url), url)
     }
 
-    /** 開いた部屋の新着取得・発言用のセッションを作る。 */
-    fun chatSession(page: ChatPage): ChatSession =
-        ChatSession(longPollHttp, page.room, page.state, clock, sleep)
+    /**
+     * 開いた部屋の新着取得・発言用のセッションを作る。
+     * [previous] が同じ部屋なら、ページから読み出し位置を取り直しても発言・poll の間隔制限を引き継ぐ。
+     */
+    fun chatSession(page: ChatPage, previous: ChatSession? = null): ChatSession =
+        previous
+            ?.takeIf { it.room == page.room }
+            ?.resynchronized(page.state)
+            ?: ChatSession(longPollHttp, page.room, page.state, clock, sleep)
 
     /** 退室する（作成者は [close] で部屋ごと閉じる）。 */
     suspend fun leave(room: ChatRoomRef) {
