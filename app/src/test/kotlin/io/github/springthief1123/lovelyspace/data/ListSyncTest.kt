@@ -38,6 +38,18 @@ class ListSyncTest {
         assertEquals(ListSyncOutcome.Deferred, outcomes[zenkoku2])
     }
 
+    @Test fun deferredPagesArePrioritizedOnTheNextSync() = runTest {
+        val source = CountingSource()
+        val sync = ListSync(source)
+        sync.sync(listOf(zenkoku, kanto, zenkoku2), maxPages = 2)
+        source.calls.clear()
+
+        val outcomes = sync.sync(listOf(zenkoku, kanto, zenkoku2), maxPages = 2)
+
+        assertEquals(listOf(zenkoku2, zenkoku), source.calls)
+        assertEquals(ListSyncOutcome.Deferred, outcomes[kanto])
+    }
+
     @Test fun skippedPagesAreNotFetchedAndDoNotUseTheLimit() = runTest {
         val source = CountingSource()
         val outcomes = ListSync(source).sync(listOf(zenkoku, kanto, zenkoku2), maxPages = 2, shouldFetch = { it != zenkoku })

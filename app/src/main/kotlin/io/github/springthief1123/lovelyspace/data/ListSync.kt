@@ -20,6 +20,9 @@ sealed interface ListSyncOutcome {
  * 取得は [lists]（＝ `ShaloveClient` の間隔制限とキャッシュ）を通り、ページは順番に 1 つずつ取る。
  */
 class ListSync(private val lists: RoomListSource) {
+    /** 前回の上限で延期した先頭ページ。次回はここから始め、後続の要求を取りこぼさない。 */
+    private var nextFirst: RoomQuery? = null
+
     /**
      * [requests] を重複を除いた順に取得する。[shouldFetch] が false を返したページは取得しない。
      * 取得のたびに [onResult] を呼び、次のページへ進む前に各機能が結果を反映できるようにする。
@@ -31,9 +34,13 @@ class ListSync(private val lists: RoomListSource) {
         shouldFetch: suspend (RoomQuery) -> Boolean = { true },
         onResult: suspend (RoomQuery, ListSyncOutcome) -> Unit = { _, _ -> },
     ): Map<RoomQuery, ListSyncOutcome> {
+        val planned = plan(requests)
+        val start = nextFirst?.let { planned.indexOf(it) }?.takeIf { it >= 0 } ?: 0
+        val ordered = if (start == 0) planned else planned.drop(start) + planned.take(start)
+
         val outcomes = linkedMapOf<RoomQuery, ListSyncOutcome>()
         var fetched = 0
-        for (query in plan(requests)) {
+        for (query in ordered) {
             val outcome = when {
                 fetched >= maxPages -> ListSyncOutcome.Deferred
                 !shouldFetch(query) -> ListSyncOutcome.Skipped
@@ -47,6 +54,7 @@ class ListSync(private val lists: RoomListSource) {
             outcomes[query] = outcome
             onResult(query, outcome)
         }
+        nextFirst = outcomes.entries.firstOrNull { it.value is ListSyncOutcome.Deferred }?.key
         return outcomes
     }
 
