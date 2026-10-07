@@ -79,10 +79,15 @@ object ChatPageParser {
         val lines = doc.select("#chatarea > div.hello").mapNotNull { ChatLogParser.parse(it) }
         // 発言欄の前の「<b>名前</b> &gt;」が自分の名前。
         val myName = doc.selectFirst("form#chatForm > b")?.text()?.trim()?.takeIf { it.isNotEmpty() }
-        val waitingMessage = doc.allElements
-            .firstOrNull { it.ownText().trim().startsWith("待機メッセージ") }
-            ?.let { it.text().substringAfter("待機メッセージ").trimStart(':', '：', ' ').trim() }
+        // 作成者には変更用の入力欄があり、改行を含めた元の文が入っている。無ければ表示から読む。
+        val waitingMessage = (doc.selectFirst("textarea[name=message]")?.`val`()?.trim()
+            ?: doc.allElements
+                .firstOrNull { it.ownText().trim().startsWith("待機メッセージ") }
+                ?.let { it.text().substringAfter("待機メッセージ").trimStart(':', '：', ' ').trim() })
             ?.takeIf { it.isNotEmpty() }
+        // 「相手を退室」は相手がいないあいだ display:none で置かれている。
+        val banForm = doc.selectFirst("form:has(input[name=shotact][value=ban])")
+        val canBanGuest = banForm != null && !banForm.attr("style").replace(" ", "").contains("display:none", ignoreCase = true)
         return ChatPage(
             room = room,
             title = doc.title().substringBefore(" - ").trim(),
@@ -94,6 +99,8 @@ object ChatPageParser {
             lines = lines,
             state = state,
             waitingMessage = waitingMessage,
+            canBanGuest = canBanGuest,
+            canChangePublic = doc.selectFirst("input[name=set_is_public]") != null,
         )
     }
 }

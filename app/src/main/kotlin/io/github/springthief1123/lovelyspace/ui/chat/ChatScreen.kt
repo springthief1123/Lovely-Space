@@ -74,6 +74,9 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
+import io.github.springthief1123.lovelyspace.core.messageWidth
+import io.github.springthief1123.lovelyspace.ui.components.QuietMenuItem
+import io.github.springthief1123.lovelyspace.ui.components.QuietOverflowMenu
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import java.time.format.DateTimeFormatter
@@ -90,6 +93,8 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit, onEnded: () -> Unit = {}) 
     val vm: ChatViewModel = viewModel(factory = viewModelFactory { initializer { ChatViewModel(app.client, room) } })
     val state by vm.state.collectAsStateWithLifecycle()
     var confirmLeave by rememberSaveable { mutableStateOf(false) }
+    var confirmOwnerAction by rememberSaveable { mutableStateOf<OwnerAction?>(null) }
+    var editingMessage by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(state.left) {
         if (state.left) onExit()
@@ -125,6 +130,31 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit, onEnded: () -> Unit = {}) 
         )
     }
 
+    confirmOwnerAction?.let { action ->
+        OwnerActionConfirmDialog(
+            action = action,
+            partnerName = state.partnerName,
+            onConfirm = {
+                confirmOwnerAction = null
+                when (action) {
+                    OwnerAction.BAN_GUEST -> vm.banGuest()
+                    OwnerAction.CLEAR_LOG -> vm.clearLog()
+                    OwnerAction.MAKE_PRIVATE -> vm.setPublic(false)
+                    OwnerAction.MAKE_PUBLIC -> vm.setPublic(true)
+                    OwnerAction.CHANGE_MESSAGE -> Unit
+                }
+            },
+            onDismiss = { confirmOwnerAction = null },
+        )
+    }
+    if (editingMessage) {
+        WaitingMessageDialog(
+            current = state.waitingMessage.orEmpty(),
+            onSave = { editingMessage = false; vm.changeWaitingMessage(it) },
+            onDismiss = { editingMessage = false },
+        )
+    }
+
     Scaffold(
         modifier = Modifier.imePadding(),
         topBar = {
@@ -144,6 +174,23 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit, onEnded: () -> Unit = {}) 
                     }
                 },
                 actions = {
+                    if (state.showsOwnerActions) {
+                        val idle = state.ownerAction == null
+                        QuietOverflowMenu(
+                            items = listOfNotNull(
+                                QuietMenuItem("待機メッセージを変更", enabled = idle) { editingMessage = true },
+                                if (state.canChangePublic) {
+                                    if (state.isPublic) QuietMenuItem("非公開にする", enabled = idle) { confirmOwnerAction = OwnerAction.MAKE_PRIVATE }
+                                    else QuietMenuItem("公開にする", enabled = idle) { confirmOwnerAction = OwnerAction.MAKE_PUBLIC }
+                                } else null,
+                                QuietMenuItem("発言をクリア", enabled = idle, destructive = true) { confirmOwnerAction = OwnerAction.CLEAR_LOG },
+                                if (state.canBanGuest) {
+                                    QuietMenuItem("相手を退室させる", enabled = idle, destructive = true) { confirmOwnerAction = OwnerAction.BAN_GUEST }
+                                } else null,
+                            ),
+                            contentDescription = "部屋の操作",
+                        )
+                    }
                     if (!canLeaveSilently && !state.isLoading) {
                         TextButton(onClick = { confirmLeave = true }, enabled = !state.isLeaving) {
                             Text(if (state.isOwner) "閉じる" else "退室")
@@ -174,6 +221,14 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit, onEnded: () -> Unit = {}) 
                         OutlinedButton(onClick = vm::leave, enabled = !state.isLeaving) { Text(if (state.isOwner) "もう一度閉じる" else "もう一度退室する") }
                     }
                 }
+                state.ownerAction?.let { action ->
+                    Banner(action.progress) { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+                }
+                state.ownerNotice?.let {
+                    Banner(it) {
+                        TextButton(onClick = vm::dismissOwnerNotice) { Text("閉じる") }
+                    }
+                }
                 if (state.isWaitingForPartner) {
                     Banner("相手の入室を待っています。この画面を開いている間、入室を確認し続けます")
                 }
@@ -202,6 +257,65 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit, onEnded: () -> Unit = {}) 
             }
         }
     }
+}
+
+private val OwnerAction.progress: String
+    get() = when (this) {
+        OwnerAction.BAN_GUEST -> "相手を退室させています"
+        OwnerAction.CLEAR_LOG -> "発言をクリアしています"
+        OwnerAction.CHANGE_MESSAGE -> "待機メッセージを変更しています"
+        OwnerAction.MAKE_PRIVATE -> "非公開に変更しています"
+        OwnerAction.MAKE_PUBLIC -> "公開に変更しています"
+    }
+
+@Composable
+private fun OwnerActionConfirmDialog(action: OwnerAction, partnerName: String?, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    val (title, text, confirm) = when (action) {
+        OwnerAction.BAN_GUEST -> Triple(
+            "${partnerName?.let { "${it}さん" } ?: "相手"}を退室させますか？",
+            "相手をこの部屋から退室させます。",
+            "退室させる",
+        )
+        OwnerAction.CLEAR_LOG -> Triple("発言をクリアしますか？", "これまでの発言が、自分と相手の両方の画面から消えます。元には戻せません。", "クリア")
+        OwnerAction.MAKE_PRIVATE -> Triple("非公開にしますか？", "会話をほかの人が閲覧できなくなります。非公開にするには、参加者全員の年齢確認が必要です。", "非公開にする")
+        OwnerAction.MAKE_PUBLIC -> Triple("公開にしますか？", "会話をほかの人が閲覧できるようになります。", "公開にする")
+        OwnerAction.CHANGE_MESSAGE -> return
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Text(text) },
+        confirmButton = { TextButton(onClick = onConfirm) { Text(confirm) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("やめる") } },
+    )
+}
+
+@Composable
+private fun WaitingMessageDialog(current: String, onSave: (String) -> Unit, onDismiss: () -> Unit) {
+    var message by rememberSaveable { mutableStateOf(current) }
+    val width = messageWidth(message.trim())
+    val max = ChatViewModel.WAITING_MESSAGE_MAX_WIDTH
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("待機メッセージを変更") },
+        text = {
+            OutlinedTextField(
+                value = message,
+                onValueChange = { message = it },
+                minLines = 3,
+                maxLines = 8,
+                isError = width > max,
+                supportingText = { Text("$width / $max（全角は 2 文字として数えます）") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(message) }, enabled = message.isNotBlank() && width <= max && message.trim() != current) {
+                Text("変更")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("やめる") } },
+    )
 }
 
 @Composable

@@ -193,6 +193,12 @@
 | 画像投稿 | `POST https://chat.shalove.net/?action=Distributed_LocationImgUp`（multipart, `upfile`, `return_host`）。メール `<pwd>@img.shalove.net` 宛添付でも可 |
 | ログ全文 | GET `/RoomLog?room_id=..&pwd=..` |
 
+- `2shot.php` は `charset=UTF-8` のページで、フォームも UTF-8 で送られる（入室前画面の名前も UTF-8 で送信されていた）。
+- フォームは JS で横取りされず、普通に送信されて部屋の画面が再表示される。アプリは応答が部屋の画面なら読み直し、公開設定・待機メッセージ・「相手を退室」の有無を確かめる（`ShaloveClient.banGuest` など）。
+- 「相手を退室」（`form#form_ban`）は相手がいないあいだ `display:none` で置かれている。`2shot.js` は新着取得の応答で `aj_alert_in`（入室者あり）なら表示し、`aj_guest_off` のときは `aj_can_ban_guest` に従って表示・非表示を切り替える。
+- 発言クリアのフォームは `form#form_clear`。`2shot.js` には `ajax.php?…&shotact=clearchatlog` で送る経路もあるが、採取したページからは呼ばれていない。
+- 非公開の部屋で「公開に変更」（`set_is_public=1` と推定）が出るかは未確認。アプリは `set_is_public` の入力欄があるときだけ切り替えを出す。
+
 ### 入室通知（Web プッシュ）
 
 - `webpush.js`: Service Worker `/sw.js` を登録し、購読情報（endpoint, p256dh, auth）を `GET /Jsapi_SubscribeWebPush?endpoint=..&publicKey=..&authToken=..&room_id=..&pwd=..` で登録。会員は `/Ipush_SetQuick` もある

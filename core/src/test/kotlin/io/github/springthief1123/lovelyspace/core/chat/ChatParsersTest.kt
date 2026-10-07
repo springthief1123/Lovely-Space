@@ -124,6 +124,23 @@ class ChatParsersTest {
         assertEquals(120L, page.state.fromSize)
         assertEquals("タロウ", page.myName)
         assertTrue(page.lines.single().isNotice)
+        // 作成者の操作（合成データは待機中の画面）
+        assertEquals("ゆっくり\nお話ししましょう", page.waitingMessage)
+        assertFalse("相手がいないあいだ「相手を退室」は隠れている", page.canBanGuest)
+        assertTrue(page.canChangePublic)
+    }
+
+    @Test
+    fun banIsAvailableWhenItsFormIsShown() {
+        val html = fixture("chat/chat_page_owner.html").replace("""id="form_ban" name="form_ban" style="display:none;"""", """id="form_ban" name="form_ban" style="display: inline;"""")
+        assertTrue(ChatPageParser.parse(html, room).canBanGuest)
+    }
+
+    @Test
+    fun guestHasNoOwnerActions() {
+        val page = ChatPageParser.parse(fixture("chat/chat_page_guest.html"), room)
+        assertFalse(page.canBanGuest)
+        assertFalse(page.canChangePublic)
     }
 
     @Test

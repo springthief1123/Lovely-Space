@@ -189,26 +189,60 @@ class ShaloveClient(
         ChatSession(longPollHttp, page.room, page.state, clock, sleep)
 
     /** 退室する（作成者は [close] で部屋ごと閉じる）。 */
-    suspend fun leave(room: ChatRoomRef) = postRoomAction(room, "bye")
+    suspend fun leave(room: ChatRoomRef) {
+        postRoomForm(room, "shotact" to "bye")
+    }
 
     /** 部屋を閉鎖する（作成者のみ）。 */
-    suspend fun close(room: ChatRoomRef) = postRoomAction(room, "close")
+    suspend fun close(room: ChatRoomRef) {
+        postRoomForm(room, "shotact" to "close")
+    }
 
-    private suspend fun postRoomAction(room: ChatRoomRef, action: String) {
+    // ---- 作成者の操作 ----
+    // 本家ではどれも 2shot.php へのフォーム送信で、応答は送信後の部屋の画面。
+    // 応答が部屋の画面なら読んで返す（操作が反映されたかの確認に使う）。転送や部屋以外の画面なら null。
+
+    /** 相手を退室させる（本家の「相手を退室」）。 */
+    suspend fun banGuest(room: ChatRoomRef): ChatPage? = postRoomForm(room, "shotact" to "ban").asRoomPage(room)
+
+    /** 発言をクリアする（本家の「発言クリア」）。 */
+    suspend fun clearLog(room: ChatRoomRef): ChatPage? = postRoomForm(room, "clearchatlog" to "1").asRoomPage(room)
+
+    /** 待機メッセージを変更する。本家のフォームは空の `chat` を一緒に送る（空発言は記録されない）。 */
+    suspend fun changeWaitingMessage(room: ChatRoomRef, message: String): ChatPage? =
+        postRoomForm(room, "chat" to "", "message" to message).asRoomPage(room)
+
+    /**
+     * 公開・非公開を切り替える。本家は非公開にするには参加者全員の年齢確認が必要で、
+     * 条件を満たさないと変わらないことがあるので、戻り値の [ChatPage.isPublic] で確かめる。
+     */
+    suspend fun setPublic(room: ChatRoomRef, public: Boolean): ChatPage? =
+        postRoomForm(room, "set_is_public" to if (public) "1" else "0").asRoomPage(room)
+
+    private fun String?.asRoomPage(room: ChatRoomRef): ChatPage? =
+        this?.let { runCatching { ChatPageParser.parse(it, room) }.getOrNull() }
+
+    /**
+     * `2shot.php` へ部屋の hidden 項目と [fields] を送る。成功した応答の本文を返す（転送なら null）。
+     * `2shot.php` は UTF-8 のページなので、フォームも UTF-8 で送る。
+     */
+    private suspend fun postRoomForm(room: ChatRoomRef, vararg fields: Pair<String, String>): String? {
         val url = "https://${room.host}/2shot.php"
-        val body = FormBody.Builder()
+        val body = FormBody.Builder(Charsets.UTF_8)
             .add("room_id", room.roomId.toString())
             .add("pwd", room.pwd)
             .add("genre_key", room.genreKey)
-            .add("shotact", action)
+            .apply { fields.forEach { (name, value) -> add(name, value) } }
             .build()
-        gated {
+        return gated {
             val request = Request.Builder().url(url).post(body)
                 .header("User-Agent", USER_AGENT)
                 .header("Referer", room.pageUrl)
                 .build()
             noRedirectHttp.newCall(request).execute().use { res ->
-                if (!res.isSuccessful && !res.isRedirect) throw HttpStatusException(res.code, url)
+                if (res.isRedirect) return@use null
+                if (!res.isSuccessful) throw HttpStatusException(res.code, url)
+                decodeBody(res)
             }
         }
     }

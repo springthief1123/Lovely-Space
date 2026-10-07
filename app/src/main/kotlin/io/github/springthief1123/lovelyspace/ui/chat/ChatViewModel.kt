@@ -3,6 +3,7 @@ package io.github.springthief1123.lovelyspace.ui.chat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.springthief1123.lovelyspace.core.ShaloveClient
+import io.github.springthief1123.lovelyspace.core.messageWidth
 import io.github.springthief1123.lovelyspace.core.chat.ChatLine
 import io.github.springthief1123.lovelyspace.core.chat.ChatPage
 import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
@@ -23,6 +24,15 @@ import kotlinx.coroutines.launch
 data class UiLine(val id: Long, val line: ChatLine, val isMine: Boolean)
 
 enum class Connection { CONNECTED, RECONNECTING, FAILED }
+
+/** 作成者だけが使える部屋の操作（本家の待機・チャット画面のボタン）。 */
+enum class OwnerAction(val failure: String) {
+    BAN_GUEST("相手を退室させられませんでした"),
+    CLEAR_LOG("発言をクリアできませんでした"),
+    CHANGE_MESSAGE("待機メッセージを変更できませんでした"),
+    MAKE_PRIVATE("非公開にできませんでした"),
+    MAKE_PUBLIC("公開にできませんでした"),
+}
 
 data class ChatUiState(
     val isLoading: Boolean = true,
@@ -51,7 +61,22 @@ data class ChatUiState(
     val leaveError: String? = null,
     /** 退室が済んだ。画面はこれを見て一覧へ戻る。 */
     val left: Boolean = false,
+    /** 公開ルームか（会話を他の人が閲覧できる）。 */
+    val isPublic: Boolean = false,
+    /** 作成者が相手を退室させられるか。本家の「相手を退室」ボタンと同じ条件で切り替える。 */
+    val canBanGuest: Boolean = false,
+    /** 作成者に公開・非公開の切り替えがあるか。 */
+    val canChangePublic: Boolean = false,
+    val waitingMessage: String? = null,
+    /** 実行中の作成者の操作。 */
+    val ownerAction: OwnerAction? = null,
+    /** 作成者の操作の結果（失敗の理由など）。閉じるまで表示する。 */
+    val ownerNotice: String? = null,
 ) {
+    /** 作成者の操作を出すか。部屋が終わったら出さない。 */
+    val showsOwnerActions: Boolean
+        get() = isOwner && !isLoading && loadError == null && endMessage == null && !isLeaving
+
     /** 作成者として相手の入室を待っている。 */
     val isWaitingForPartner: Boolean get() = isOwner && !isFilled && endMessage == null
 
@@ -70,6 +95,36 @@ data class ChatUiState(
     } ?: this
 
     fun discardFailedMessage() = copy(failedMessage = null, sendError = null)
+
+    /** 作成者の操作が済んだ後の状態。[page] は応答の部屋の画面（読めなければ null）。 */
+    fun afterOwnerAction(action: OwnerAction, page: ChatPage?): ChatUiState {
+        val done = copy(ownerAction = null)
+        return when (action) {
+            OwnerAction.BAN_GUEST -> done.copy(canBanGuest = page?.canBanGuest ?: false)
+            // 自分の画面からも消す。新着の取得で消去の合図が届いても同じ結果になる。
+            OwnerAction.CLEAR_LOG -> done.copy(lines = emptyList())
+            OwnerAction.CHANGE_MESSAGE -> done.copy(waitingMessage = page?.waitingMessage ?: waitingMessage, ownerNotice = "待機メッセージを変更しました")
+            OwnerAction.MAKE_PRIVATE, OwnerAction.MAKE_PUBLIC -> {
+                val wanted = action == OwnerAction.MAKE_PUBLIC
+                val actual = page?.isPublic ?: wanted
+                done.copy(
+                    isPublic = actual,
+                    ownerNotice = when {
+                        actual != wanted && !wanted -> "非公開にできませんでした。非公開にするには、参加者全員の年齢確認が必要です"
+                        actual != wanted -> action.failure
+                        else -> null
+                    },
+                )
+            }
+        }
+    }
+}
+
+/** 本家の 2shot.js と同じ: 入室者が来たら「相手を退室」を出し、相手が抜けたらサーバーの判定に従う。 */
+internal fun canBanGuestAfter(current: Boolean, update: ChatUpdate): Boolean = when {
+    update.someoneEntered -> true
+    update.guestLeft -> update.canBanGuest
+    else -> current
 }
 
 class ChatViewModel(
@@ -110,6 +165,10 @@ class ChatViewModel(
                 myName = page.myName,
                 isOwner = page.isOwner,
                 isFilled = page.state.isFilledRoom,
+                isPublic = page.isPublic,
+                canBanGuest = page.canBanGuest,
+                canChangePublic = page.canChangePublic,
+                waitingMessage = page.waitingMessage,
                 // ページのログは新しい順なので、古いほうから番号を振る。
                 lines = page.lines.asReversed().map { line -> uiLine(line, page.myName) }.asReversed(),
             )
@@ -154,6 +213,8 @@ class ChatViewModel(
                 information = update.information,
                 endMessage = update.endMessage ?: s.endMessage,
                 isFilled = update.state.isFilledRoom,
+                isPublic = update.isPublic ?: s.isPublic,
+                canBanGuest = canBanGuestAfter(s.canBanGuest, update),
                 connection = Connection.CONNECTED,
             )
         }
@@ -187,6 +248,40 @@ class ChatViewModel(
         }
     }
 
+    fun banGuest() = runOwnerAction(OwnerAction.BAN_GUEST) { client.banGuest(room) }
+    fun clearLog() = runOwnerAction(OwnerAction.CLEAR_LOG) { client.clearLog(room) }
+    fun setPublic(public: Boolean) =
+        runOwnerAction(if (public) OwnerAction.MAKE_PUBLIC else OwnerAction.MAKE_PRIVATE) { client.setPublic(room, public) }
+
+    fun changeWaitingMessage(message: String) {
+        val text = message.trim()
+        if (text.isEmpty() || messageWidth(text) > WAITING_MESSAGE_MAX_WIDTH) return
+        runOwnerAction(OwnerAction.CHANGE_MESSAGE) { client.changeWaitingMessage(room, text) }
+    }
+
+    fun dismissOwnerNotice() = _state.update { it.copy(ownerNotice = null) }
+
+    /**
+     * 作成者の操作を 1 つずつ送る。応答が部屋の画面なら、反映後の状態（公開設定・待機メッセージ・
+     * 「相手を退室」の有無）をそこから読む。読めなければ操作どおりに変わったとみなす。
+     * ログ・読み出し位置は新着の取得に任せる（クリアは新着の取得でも届く）。
+     */
+    private fun runOwnerAction(action: OwnerAction, send: suspend () -> ChatPage?) {
+        val s = _state.value
+        if (!s.showsOwnerActions || s.ownerAction != null) return
+        _state.update { it.copy(ownerAction = action, ownerNotice = null) }
+        viewModelScope.launch {
+            try {
+                val page = send()
+                _state.update { it.afterOwnerAction(action, page) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { it.copy(ownerAction = null, ownerNotice = "${action.failure}。${describeError(e)}") }
+            }
+        }
+    }
+
     /**
      * 退室する（作成者は部屋を閉じる）。終了済みの部屋や、入室者の退室の通信エラーでも画面は閉じる。
      * 作成者が閉じられなかったときは、部屋が一覧に残ってしまうので画面に留まり、やり直せるようにする。
@@ -215,8 +310,10 @@ class ChatViewModel(
         }
     }
 
-    private companion object {
-        const val MAX_RETRIES = 3
-        const val RETRY_DELAY_MS = 10_000L
+    companion object {
+        /** 本家の待機メッセージの上限（半角 1、全角 2 で数える）。 */
+        const val WAITING_MESSAGE_MAX_WIDTH = 500
+        private const val MAX_RETRIES = 3
+        private const val RETRY_DELAY_MS = 10_000L
     }
 }
