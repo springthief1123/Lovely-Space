@@ -85,7 +85,7 @@ private val ReadingSaver = mapSaver(
 )
 
 @Composable
-fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit) {
+fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit, onEnded: () -> Unit = {}) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val vm: ChatViewModel = viewModel(factory = viewModelFactory { initializer { ChatViewModel(app.client, room) } })
     val state by vm.state.collectAsStateWithLifecycle()
@@ -93,6 +93,10 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit) {
 
     LaunchedEffect(state.left) {
         if (state.left) onExit()
+    }
+    // 部屋が終わったら「会話に戻る」の対象から外す（画面は終了の理由を見せるために残す）。
+    LaunchedEffect(state.endMessage != null) {
+        if (state.endMessage != null) onEnded()
     }
 
     // 終了した部屋や開けなかった部屋はそのまま戻る。会話中は確認してから退室する。

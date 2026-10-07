@@ -5,6 +5,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.time.LocalTime
 
@@ -106,6 +107,13 @@ class ChatParsersTest {
         assertEquals("こんばんは\n写真です", partner.text)
         assertEquals(listOf("https://2shot.chat.shalove.net/img/up/sample.jpg"), partner.imageUrls)
         assertTrue(notice.isNotice)
+    }
+
+    @Test
+    fun pageWithoutRoomVarsIsNotOpened() {
+        // 終了した部屋を開き直すと、部屋の画面ではないページが返る（合成データ）。
+        val html = "<html><head><title>ラブルーム</title></head><body><p>この部屋は終了しました</p></body></html>"
+        assertThrows(RoomPageUnavailableException::class.java) { ChatPageParser.parse(html, room) }
     }
 
     @Test

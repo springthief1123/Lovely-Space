@@ -62,9 +62,11 @@ object ChatPageParser {
 
     fun parse(html: String, room: ChatRoomRef): ChatPage {
         val doc = Jsoup.parse(html, room.pageUrl)
+        // 部屋の変数が無いページは部屋の画面ではない（終了した部屋を開き直したときなど）。
+        // 空の値で会話を始めると取得位置が狂うので、開けなかったものとして扱う。
         val vars = ROOM_VARS.find(html)?.groupValues?.get(1)?.let { body ->
             OBJECT_FIELD.findAll(body).associate { it.groupValues[1] to it.groupValues[2].trim('"') }
-        }.orEmpty()
+        } ?: throw RoomPageUnavailableException()
         val state = ChatState(
             fromSize = vars["fromsize"]?.toLongOrNull() ?: 0,
             mugonLimitSeconds = vars["mugonLimit"]?.toIntOrNull(),
@@ -165,3 +167,6 @@ object EntryFormParser {
 
 private val INVISIBLE = Regex("[​-‍⁠﻿]")
 internal fun String.stripInvisible(): String = replace(INVISIBLE, "")
+
+/** 開いたページが部屋の画面ではなかった。部屋が終了している可能性が高い。 */
+class RoomPageUnavailableException : IllegalStateException("部屋のページを読み取れませんでした。部屋が終了している可能性があります。")
