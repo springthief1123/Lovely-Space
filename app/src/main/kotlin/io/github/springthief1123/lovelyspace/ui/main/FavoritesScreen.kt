@@ -94,7 +94,7 @@ fun FavoritesScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onA
         if (section == 0 && !state.loading && state.error == null && values.isEmpty()) {
             item {
                 Text(
-                    "お気に入りはまだありません。部屋カードの保存ボタンから追加できます。",
+                    "保存した部屋はまだありません。部屋カードを右へスワイプするか、長押しのメニューから保存できます。",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 24.dp),
                 )
