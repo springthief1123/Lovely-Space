@@ -452,7 +452,7 @@ private fun RoomCardSurface(
                 if (room.message.isNotBlank()) {
                     Text(room.message, style = MaterialTheme.typography.bodyMedium,
                         color = if (room.isFull) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
-                        maxLines = if (room.isFull) min(messageMaxLines, 2) else messageMaxLines, overflow = TextOverflow.Ellipsis)
+                        maxLines = messageMaxLines, overflow = TextOverflow.Ellipsis)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     MetaChip(statusLabel(room.status), statusColor, filled = true)
