@@ -144,8 +144,9 @@ data class ChatUiState(
 
 /** 本家の 2shot.js と同じ: 入室者が来たら「相手を退室」を出し、相手が抜けたらサーバーの判定に従う。 */
 internal fun canBanGuestAfter(current: Boolean, update: ChatUpdate): Boolean = when {
-    update.someoneEntered -> true
+    // 同じ応答に入室と退室が含まれることがあるので、最終状態である退室側の判定を優先する。
     update.guestLeft -> update.canBanGuest
+    update.someoneEntered -> true
     else -> current
 }
 
