@@ -55,6 +55,13 @@ class ChatOwnerActionsTest {
         )
     }
 
+    @Test fun participantRevisionChangesOnlyForEntryOrExit() {
+        assertEquals(4L, participantRevisionAfter(4L, update()))
+        assertEquals(5L, participantRevisionAfter(4L, update(entered = true)))
+        assertEquals(5L, participantRevisionAfter(4L, update(guestLeft = true)))
+        assertEquals(5L, participantRevisionAfter(4L, update(entered = true, guestLeft = true)))
+    }
+
     @Test fun clearUsesOnlyServerConfirmedPostClearLines() {
         fun line(id: Long) = UiLine(id, ChatLine("ハナコ", true, "合成の発言 $id", null), isMine = false)
         val before = owner.copy(lines = listOf(line(2), line(1), line(0)), ownerAction = OwnerAction.CLEAR_LOG)
