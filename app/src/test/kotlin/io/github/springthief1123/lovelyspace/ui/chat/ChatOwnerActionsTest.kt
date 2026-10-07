@@ -30,6 +30,14 @@ class ChatOwnerActionsTest {
         assertFalse(owner.copy(loadError = "合成のエラー").showsOwnerActions)
     }
 
+    @Test fun sendingAndOwnerActionsDoNotOverlap() {
+        assertTrue(owner.canRunOwnerAction)
+        assertFalse("発言の送信中は始めない", owner.copy(isSending = true).canRunOwnerAction)
+        assertFalse(owner.copy(ownerAction = OwnerAction.CLEAR_LOG).canRunOwnerAction)
+        assertTrue(owner.copy(input = "合成の発言").canSend)
+        assertFalse("作成者の操作中は発言しない", owner.copy(input = "合成の発言", ownerAction = OwnerAction.CLEAR_LOG).canSend)
+    }
+
     @Test fun banFollowsSiteRules() {
         assertTrue("入室者が来たら出す", canBanGuestAfter(false, update(entered = true)))
         assertFalse("相手が抜けたらサーバーの判定に従う", canBanGuestAfter(true, update(guestLeft = true, canBan = false)))

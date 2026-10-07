@@ -175,7 +175,7 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit, onEnded: () -> Unit = {}) 
                 },
                 actions = {
                     if (state.showsOwnerActions) {
-                        val idle = state.ownerAction == null
+                        val idle = state.canRunOwnerAction
                         QuietOverflowMenu(
                             items = listOfNotNull(
                                 QuietMenuItem("待機メッセージを変更", enabled = idle) { editingMessage = true },

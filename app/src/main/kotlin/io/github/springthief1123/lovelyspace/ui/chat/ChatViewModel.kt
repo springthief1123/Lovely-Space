@@ -77,6 +77,13 @@ data class ChatUiState(
     val showsOwnerActions: Boolean
         get() = isOwner && !isLoading && loadError == null && endMessage == null && !isLeaving
 
+    /**
+     * 作成者の操作を始められるか。発言と作成者の操作は通信の経路が別なので、
+     * 本家での処理順が入れ替わらないよう（クリア前の発言が画面に残るなど）、互いの実行中は始めない。
+     */
+    val canRunOwnerAction: Boolean
+        get() = showsOwnerActions && ownerAction == null && !isSending
+
     /** 作成者として相手の入室を待っている。 */
     val isWaitingForPartner: Boolean get() = isOwner && !isFilled && endMessage == null
 
@@ -85,7 +92,8 @@ data class ChatUiState(
         get() = lines.firstOrNull { !it.isMine && !it.line.isNotice }?.line?.speaker
 
     val canSend: Boolean
-        get() = !isLoading && loadError == null && endMessage == null && !isLeaving && input.isNotBlank() && !isSending && failedMessage == null
+        get() = !isLoading && loadError == null && endMessage == null && !isLeaving && input.isNotBlank() && !isSending &&
+            failedMessage == null && ownerAction == null
 
     fun sendingFailed(message: String, error: String) = copy(isSending = false, sendError = error, failedMessage = message)
 
@@ -271,7 +279,7 @@ class ChatViewModel(
      */
     private fun runOwnerAction(action: OwnerAction, send: suspend () -> ChatPage?) {
         val s = _state.value
-        if (!s.showsOwnerActions || s.ownerAction != null) return
+        if (!s.canRunOwnerAction) return
         val lastLineId = s.lines.firstOrNull()?.id
         _state.update { it.copy(ownerAction = action, ownerNotice = null) }
         viewModelScope.launch {
