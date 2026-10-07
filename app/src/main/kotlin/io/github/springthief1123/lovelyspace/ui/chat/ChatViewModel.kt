@@ -8,6 +8,7 @@ import io.github.springthief1123.lovelyspace.core.chat.ChatPage
 import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
 import io.github.springthief1123.lovelyspace.core.chat.ChatSession
 import io.github.springthief1123.lovelyspace.core.chat.ChatUpdate
+import io.github.springthief1123.lovelyspace.core.chat.RoomPageUnavailableException
 import io.github.springthief1123.lovelyspace.ui.describeError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -26,6 +27,8 @@ enum class Connection { CONNECTED, RECONNECTING, FAILED }
 data class ChatUiState(
     val isLoading: Boolean = true,
     val loadError: String? = null,
+    /** 開いたページが部屋の画面ではなかった（部屋が終わっている可能性が高い）。再試行しても戻れない。 */
+    val roomUnavailable: Boolean = false,
     val title: String = "",
     val myName: String? = null,
     /** 自分が部屋の作成者か。作成者の退室は部屋の閉鎖になる。 */
@@ -85,7 +88,7 @@ class ChatViewModel(
     }
 
     fun open() {
-        _state.update { it.copy(isLoading = true, loadError = null) }
+        _state.update { it.copy(isLoading = true, loadError = null, roomUnavailable = false) }
         viewModelScope.launch {
             try {
                 val page = client.openChat(room)
@@ -93,7 +96,7 @@ class ChatViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _state.update { it.copy(isLoading = false, loadError = describeError(e)) }
+                _state.update { it.copy(isLoading = false, loadError = describeError(e), roomUnavailable = e is RoomPageUnavailableException) }
             }
         }
     }

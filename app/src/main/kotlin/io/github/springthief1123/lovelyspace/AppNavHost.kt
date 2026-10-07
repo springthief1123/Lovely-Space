@@ -10,6 +10,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
@@ -60,8 +61,8 @@ fun AppNavHost() {
     val originArg = navArgument("origin") { type = NavType.StringType; defaultValue = Routes.ROOMS }
 
     val resumable by app.activeRooms.resumable.collectAsStateWithLifecycle()
-    // 「閉じる」はこの起動中だけ隠す。記録は退室・部屋の終了で消える。
-    var resumeDismissed by rememberSaveable { mutableStateOf<String?>(null) }
+    // 「閉じる」はこのプロセスの間だけ隠す（保存状態には残さない）。記録は退室・部屋の終了で消える。
+    var resumeDismissed by remember { mutableStateOf<String?>(null) }
     val resumeRoom = resumable?.takeIf { it.sessionId != resumeDismissed && currentRoute in mainRoutes }
 
     LovelyAppShell(

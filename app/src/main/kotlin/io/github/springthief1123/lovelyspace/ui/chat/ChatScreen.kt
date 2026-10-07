@@ -94,9 +94,11 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit, onEnded: () -> Unit = {}) 
     LaunchedEffect(state.left) {
         if (state.left) onExit()
     }
-    // 部屋が終わったら「会話に戻る」の対象から外す（画面は終了の理由を見せるために残す）。
-    LaunchedEffect(state.endMessage != null) {
-        if (state.endMessage != null) onEnded()
+    // 部屋が終わった・開けなかったら「会話に戻る」の対象から外す（画面は理由を見せるために残す）。
+    // 通信エラーは再試行できるので外さない。
+    val ended = state.endMessage != null || state.roomUnavailable
+    LaunchedEffect(ended) {
+        if (ended) onEnded()
     }
 
     // 終了した部屋や開けなかった部屋はそのまま戻る。会話中は確認してから退室する。
