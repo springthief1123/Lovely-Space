@@ -120,6 +120,16 @@ class ChatSession internal constructor(
         }
     }
 
+    /**
+     * ページ操作で読み出し位置を取り直した後のセッションを作る。
+     * 直近の発言間隔と、発言後の次回 poll 許可時刻は引き継ぎ、本家より短い間隔で通信しない。
+     */
+    internal fun resynchronized(initialState: ChatState): ChatSession =
+        ChatSession(http, room, initialState, clock, sleep).also { next ->
+            next.lastSendAt = lastSendAt
+            next.pollNotBefore = pollNotBefore
+        }
+
     /** 発言する。応答には自分の発言を含む新着が入っている。 */
     suspend fun send(text: String): ChatUpdate = lock.withLock {
         lastSendAt?.let { last ->
