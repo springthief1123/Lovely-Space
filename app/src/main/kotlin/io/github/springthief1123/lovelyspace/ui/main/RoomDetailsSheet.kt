@@ -25,7 +25,6 @@ internal fun RoomDetailsSheet(room: Room, favorite: Boolean, actionsEnabled: Boo
     val radar by app.radar.state.collectAsStateWithLifecycle()
     var working by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf<String?>(null) }
-    var confirm by remember { mutableStateOf(false) }
     var confirmUntrack by remember { mutableStateOf(false) }
     var confirmHide by remember { mutableStateOf(false) }
     val tracking = radar.targets.any { roomIdentity(it.room) == roomIdentity(room) }
@@ -52,16 +51,12 @@ internal fun RoomDetailsSheet(room: Room, favorite: Boolean, actionsEnabled: Boo
                 onHide?.let { TextButton(onClick = { confirmHide = true }, enabled = actionsEnabled) { Text("非表示にする") } }
             }
             notice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-            Button(onClick = { confirm = true }, enabled = allowEntry && room.action != RoomAction.NONE, modifier = Modifier.fillMaxWidth()) {
+            Button(onClick = { onDismiss(); if (room.action == RoomAction.PEEK) onPeek(room) else onEnter(room) }, enabled = allowEntry && room.action != RoomAction.NONE, modifier = Modifier.fillMaxWidth()) {
                 Text(if (room.action == RoomAction.PEEK) "公開ルームを見る" else if (room.action == RoomAction.NONE) "満室です" else "入室へ進む")
             }
             Spacer(Modifier.height(24.dp))
         }
     }
-    if (confirm) AlertDialog(onDismissRequest = { confirm = false }, title = { Text(if (room.action == RoomAction.PEEK) "公開ルームを表示しますか？" else "入室フォームへ進みますか？") },
-        text = { Text(if (room.action == RoomAction.PEEK) "本家の公開ルームを開きます。" else "名前・プロフィールを確認してから入室できます。") },
-        confirmButton = { TextButton(enabled = allowEntry && room.action != RoomAction.NONE, onClick = { confirm = false; onDismiss(); if (room.action == RoomAction.PEEK) onPeek(room) else onEnter(room) }) { Text("進む") } },
-        dismissButton = { TextButton(onClick = { confirm = false }) { Text("戻る") } })
     if (confirmUntrack) AlertDialog(onDismissRequest = { if (!working) confirmUntrack = false }, title = { Text("追跡を解除しますか？") },
         text = { Column { Text("追跡と自分用メモを削除します。変化の履歴は残ります。")
             notice?.let { Text(it, style = MaterialTheme.typography.bodySmall) } } },

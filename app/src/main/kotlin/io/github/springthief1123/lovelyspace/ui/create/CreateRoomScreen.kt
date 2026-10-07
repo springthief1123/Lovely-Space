@@ -127,7 +127,7 @@ private fun CreateRoomForm(genre: Genre, state: CreateRoomUiState, vm: CreateRoo
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            QuietHeading("CREATE ROOM", "あなたらしい部屋を", "${genre.label}で待機します。プロフィールと、相手へのひとことを整えましょう。")
+            QuietHeading("部屋を作成")
             QuietPanel {
                 Text("あなたのプロフィール", style = MaterialTheme.typography.titleSmall)
                 ProfilePresetPicker(profiles, onSelect = vm::applyProfile)
@@ -171,7 +171,7 @@ private fun CreateRoomForm(genre: Genre, state: CreateRoomUiState, vm: CreateRoo
 
             }
             QuietPanel {
-                Text("相手へのひとこと", style = MaterialTheme.typography.titleSmall)
+                Text("待機メッセージ", style = MaterialTheme.typography.titleSmall)
                 Text("話したいことや雰囲気が伝わると、会話をはじめやすくなります。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 MessagePresetPicker(messages, onSelect = vm::applyMessage)
@@ -189,7 +189,7 @@ private fun CreateRoomForm(genre: Genre, state: CreateRoomUiState, vm: CreateRoo
 
             }
             QuietPanel {
-                Text("内容を確認して公開", style = MaterialTheme.typography.titleSmall)
+                Text("公開設定", style = MaterialTheme.typography.titleSmall)
                 Text(
                     "部屋の作成には毎回ロボット確認が必要です。ラブルームの作成画面を開くので、確認のあと作成ボタンを押してください。入力した内容は入力済みになります。",
                     style = MaterialTheme.typography.bodyMedium,

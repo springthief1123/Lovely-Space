@@ -50,7 +50,7 @@ fun ProfileScreen(onOpenSettings: () -> Unit, onCreateRoom: () -> Unit) {
             top = lovelyMainContentTopPadding(), bottom = lovelyMainContentBottomInset() + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { io.github.springthief1123.lovelyspace.ui.components.QuietHeading("YOUR OWN SPACE", "マイルーム", "いつものあなたで、心地よい会話を。") }
+        item { io.github.springthief1123.lovelyspace.ui.components.QuietHeading("マイルーム") }
         item { io.github.springthief1123.lovelyspace.ui.components.QuietPanel {
             Button(onClick = onCreateRoom, modifier = Modifier.fillMaxWidth()) { Text("部屋をつくる") }
             OutlinedButton(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) { Text("表示・一覧・非表示の設定") }

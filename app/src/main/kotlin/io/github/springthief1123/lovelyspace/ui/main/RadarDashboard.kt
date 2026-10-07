@@ -12,21 +12,25 @@ import io.github.springthief1123.lovelyspace.ui.components.QuietPanel
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun RadarDashboard(state: RadarState, plans: Int, working: Boolean, onScan: () -> Unit, onPause: () -> Unit) {
+internal fun RadarDashboard(state: RadarState, plans: Int, working: Boolean, onScan: () -> Unit, onPause: () -> Unit, onAutomatic: (Boolean) -> Unit) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     val candidates = state.candidateRules.count { it.enabled }
     val targets = state.targets.count { it.evidence != RoomIdentityEvidence.REUSED }
     val report = state.lastScan
     QuietPanel {
-        Text("あなたのレーダー", style = MaterialTheme.typography.titleMedium)
+        Text("自動巡回", style = MaterialTheme.typography.titleMedium)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("巡回 $plans", style = MaterialTheme.typography.labelLarge)
             Text("候補 $candidates", style = MaterialTheme.typography.labelLarge)
             Text("追跡 $targets", style = MaterialTheme.typography.labelLarge)
         }
         Text(state.lastConfirmedAt?.let { "最後の一覧取得 ${formatObservationTime(it)}" } ?: "この起動中の取得記録はまだありません", style = MaterialTheme.typography.bodySmall)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(if (state.automatic) "自動巡回中" else "自動巡回を停止中", style = MaterialTheme.typography.labelLarge)
+            Switch(state.automatic, onAutomatic)
+        }
         Button(onClick = onScan, enabled = state.loaded && !state.running && !working && plans + candidates + targets > 0,
-            modifier = Modifier.fillMaxWidth()) { Text(if (state.running) "巡回中…" else "いま巡回する") }
+            modifier = Modifier.fillMaxWidth()) { Text(if (state.running) "巡回中…" else "今すぐ新着を確認") }
         if (report != null) {
             if (state.running) {
                 LinearProgressIndicator(progress = { if (report.pages.isEmpty()) 0f else report.completed.toFloat() / report.pages.size }, modifier = Modifier.fillMaxWidth())
@@ -39,7 +43,7 @@ internal fun RadarDashboard(state: RadarState, plans: Int, working: Boolean, onS
         }
         TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "確認範囲を閉じる" else "確認範囲と使い方") }
         if (expanded) {
-            Text("手動巡回で、条件ごとに1ページを取得します。次回は次ページへ進み、同じ一覧の取得は共有します。部屋追跡は記録したページと絞り込みを使います。", style = MaterialTheme.typography.bodySmall)
+            Text("画面を開いている間、最新ページを優先して更新し、残りのページも自動で巡回します。同じ一覧の取得は共有します。部屋追跡は記録したページと絞り込みを使います。", style = MaterialTheme.typography.bodySmall)
             Text("初回は比較基準を作ります。未取得のページから不在を判断しません。一致数はページごとの件数で、全ページの人数ではありません。履歴件数は巡回中に記録された変化です。", style = MaterialTheme.typography.bodySmall)
             report?.pages?.forEach { page ->
                 Text("${radarQueryLabel(page.query)} · ${when (page.status) {

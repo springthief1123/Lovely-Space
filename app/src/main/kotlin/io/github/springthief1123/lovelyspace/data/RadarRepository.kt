@@ -8,7 +8,7 @@ import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** 端末内に保存するレーダー。手動巡回のみ。入室・背景通信は行わない。 */
+/** 端末内に保存するレーダー。前面表示中に自動巡回する。入室・背景通信は行わない。 */
 data class TrackedRoom(val room: Room, val confirmedAt: Long? = null, val evidence: RoomIdentityEvidence = RoomIdentityEvidence.NOT_OBSERVED, val identity: Room = room, val observedAt: Long? = null,
     /** このRoomListRepository内だけの取得順序。再起動時は0から照合し直すため永続化しない。 */
     val observationRevision: Long = 0,
@@ -35,6 +35,8 @@ data class RadarState(
     val lastScan: RadarScanReport? = null,
     val lastConfirmedAt: Long? = null,
     val targetSort: RadarTargetSort = RadarTargetSort.LAST_CONFIRMED,
+    val automatic: Boolean = true,
+    val livePages: Map<String, RoomPageWindow> = emptyMap(),
 ) {
     val unreadEvents: Int get() = events.count { !it.read }
     fun resultFor(preset: SearchPreset): RadarResult? = results[preset.id]?.takeIf { it.genreKey == preset.genreKey && it.criteria == preset.criteria }
@@ -72,7 +74,7 @@ class RadarRepository(
                 mutex.withLock {
                     dao.state(KEY)?.let(::restore)
                     seen.clear(); baselines.clear(); knownMatches.clear(); nextPages.clear(); planKeys.clear(); candidateBaselines.clear(); candidateKnown.clear(); candidateNext.clear(); evaluatedPlans.clear(); evaluatedCandidates.clear()
-                    _state.update { it.copy(loaded = true, scopes = emptyMap(), results = emptyMap(), nextPages = emptyMap(), candidateResults = emptyMap(), nextCandidatePages = emptyMap(), lastScan = null, lastConfirmedAt = null) }
+                    _state.update { it.copy(loaded = true, scopes = emptyMap(), results = emptyMap(), nextPages = emptyMap(), candidateResults = emptyMap(), nextCandidatePages = emptyMap(), lastScan = null, lastConfirmedAt = null, livePages = emptyMap()) }
                 }
                 combine(lists.observations, searches.presets) { _, _ -> Unit }.collect {
                     mutex.withLock {
@@ -178,7 +180,8 @@ class RadarRepository(
     private suspend fun edit(block: (RadarState) -> RadarState) = mutex.withLock {
         check(_state.value.loaded) { "読み込み中です。" }
         transaction {
-            _state.value = block(_state.value).copy(error = null)
+            val edited = block(_state.value).copy(error = null)
+            _state.update { edited.copy(automatic = it.automatic) }
             persist()
         }
     }
@@ -198,7 +201,7 @@ class RadarRepository(
         try {
             block()
         } catch (e: Exception) {
-            _state.value = old
+            _state.update { old.copy(automatic = it.automatic) }
             seen.clear(); seen.putAll(oldSeen)
             planKeys.clear(); planKeys.putAll(oldPlanKeys)
             baselines.clear(); baselines.putAll(oldBaselines)
@@ -212,7 +215,24 @@ class RadarRepository(
             throw e
         }
     }
-    suspend fun scan() {
+    fun automatic(enabled: Boolean) = _state.update { it.copy(automatic = enabled) }
+
+    /** 新着を優先しながら、間に残りのページを取得する。画面のLifecycleが実行を管理する。 */
+    suspend fun monitor() {
+        var headAt: Long? = null
+        while (currentCoroutineContext().isActive && _state.value.automatic) {
+            val now = System.nanoTime() / 1_000_000
+            if (_state.value.loaded && !_state.value.running &&
+                (_state.value.plans.isNotEmpty() || _state.value.candidateRules.any { it.enabled } || _state.value.targets.any { it.evidence != RoomIdentityEvidence.REUSED })) {
+                val head = headAt == null || now - headAt >= RoomPageSchedule.HEAD_INTERVAL_MS
+                scan(latestFirst = head, force = false)
+                if (head) headAt = System.nanoTime() / 1_000_000
+            }
+            delay(if (_state.value.error != null) RoomPageSchedule.HEAD_INTERVAL_MS else RoomPageSchedule.STEP_INTERVAL_MS)
+        }
+    }
+
+    suspend fun scan(latestFirst: Boolean = false, force: Boolean = true) {
         val previousEvents = mutex.withLock {
             check(_state.value.loaded) { "読み込み中です。" }
             if (_state.value.running) return
@@ -229,19 +249,19 @@ class RadarRepository(
                 val requests = linkedMapOf<RoomQuery, MutableList<SearchPreset>>()
                 selected.forEach { preset ->
                     Genres[preset.genreKey]?.let { genre ->
-                        val query = RoomQuery(genre, page = nextPages[planKey(preset)] ?: 1)
+                        val query = RoomQuery(genre, page = if (latestFirst) 1 else nextPages[planKey(preset)] ?: 1)
                         requests.getOrPut(query) { mutableListOf() }.add(preset)
                     }
                 }
                 val candidates = _state.value.candidateRules.filter { it.enabled }
                 candidates.forEach { rule ->
-                    Genres[rule.genreKey]?.let { genre -> requests.getOrPut(RoomQuery(genre, page = candidateNext[rule.key] ?: 1)) { mutableListOf() } }
+                    Genres[rule.genreKey]?.let { genre -> requests.getOrPut(RoomQuery(genre, page = if (latestFirst) 1 else candidateNext[rule.key] ?: 1)) { mutableListOf() } }
                 }
                 _state.value.targets.filter { it.evidence != RoomIdentityEvidence.REUSED }.forEach { target ->
                     target.sourceQueryOrLegacy()?.let { requests.getOrPut(it) { mutableListOf() } }
                 }
                 _state.update { it.copy(lastScan = RadarScanReport(System.currentTimeMillis(), requests.keys.map { query -> RadarPageCheck(query) })) }
-                requests.mapValues { (query, plans) -> ScheduledRadarQuery(plans.toList(), candidates.filter { it.genreKey == query.genre.key && (candidateNext[it.key] ?: 1) == query.page }) }
+                requests.mapValues { (query, plans) -> ScheduledRadarQuery(plans.toList(), candidates.filter { it.genreKey == query.genre.key && (if (latestFirst) 1 else candidateNext[it.key] ?: 1) == query.page }) }
             }
             for ((query, request) in scheduled) {
                 val stillNeeded = mutex.withLock {
@@ -256,14 +276,14 @@ class RadarRepository(
                 }
                 updateCheck(query, RadarCheckStatus.CHECKING)
                 val before = lists.observation(query)?.revision ?: 0
-                try { lists.fetch(query, force = true) }
+                try { lists.fetch(query, force = force) }
                 catch (e: CancellationException) { throw e }
                 catch (e: Exception) {
                     updateCheck(query, RadarCheckStatus.FAILED, message = "一覧を取得できませんでした。次の巡回で同じページを確認します。")
                     continue
                 }
                 val observation = lists.observation(query)
-                if (observation == null || observation.query != query || observation.revision <= before) {
+                if (observation == null || observation.query != query || (force && observation.revision <= before)) {
                     updateCheck(query, RadarCheckStatus.FAILED, message = "新しい一覧を確認できませんでした。次の巡回で同じページを確認します。")
                     continue
                 }
@@ -276,10 +296,10 @@ class RadarRepository(
                         val scheduledCandidates = _state.value.candidateRules.filter { rule -> rule.enabled && request.candidates.any { it.key == rule.key } }
                         process(observation, scheduledPlans, scheduledCandidates)
                         seen[query] = maxOf(seen[query] ?: 0, observation.revision)
-                        scheduledPlans.forEach { preset ->
+                        if (!latestFirst) scheduledPlans.forEach { preset ->
                             nextPages[planKey(preset)] = if (observation.page.hasNextPage) observation.page.page + 1 else 1
                         }
-                        scheduledCandidates.forEach { rule ->
+                        if (!latestFirst) scheduledCandidates.forEach { rule ->
                             candidateNext[rule.key] = if (observation.page.hasNextPage) observation.page.page + 1 else 1
                         }
                         val hidden = preferences.preferences.first().filter { it.hidden }
@@ -396,7 +416,9 @@ class RadarRepository(
                 candidateResults[rule.id] = CandidateResult(rule.key, o.confirmedAt, o.page.page, o.page.lastPage, matches)
             }
         }
-        _state.value = current.copy(targets = targets, events = (events + current.events).take(100), scopes = scopes, results = results, candidateResults = candidateResults)
+        val livePages = if (freshTracking && o.query == RoomQuery(o.query.genre, page = o.query.page))
+            current.livePages + (o.query.genre.key to (current.livePages[o.query.genre.key] ?: RoomPageWindow()).observe(o.page, o.revision)) else current.livePages
+        _state.update { current.copy(automatic = it.automatic, livePages = livePages, targets = targets, events = (events + current.events).take(100), scopes = scopes, results = results, candidateResults = candidateResults) }
     }
     private fun planKey(preset: SearchPreset): String = "${preset.id}/${preset.genreKey}/${preset.criteria}"
     private suspend fun persist() {
@@ -415,7 +437,7 @@ class RadarRepository(
         val targets = json.optJSONArray("targets") ?: JSONArray()
         val events = json.optJSONArray("events") ?: JSONArray()
         val candidates = json.optJSONArray("candidateRules") ?: JSONArray()
-        _state.value = RadarState(targetSort = RadarTargetSort.entries.firstOrNull { it.name == json.optString("targetSort") } ?: RadarTargetSort.LAST_CONFIRMED, plans = (0 until plans.length()).map { plans.getString(it) }.toSet(),
+        val restored = RadarState(targetSort = RadarTargetSort.entries.firstOrNull { it.name == json.optString("targetSort") } ?: RadarTargetSort.LAST_CONFIRMED, plans = (0 until plans.length()).map { plans.getString(it) }.toSet(),
             targets = (0 until targets.length()).map { i -> val t = targets.getJSONObject(i); TrackedRoom(readRoom(t.getJSONObject("room")), if (t.isNull("at")) null else t.getLong("at"), RoomIdentityEvidence.valueOf(t.getString("evidence")), if (t.has("identity")) readRoom(t.getJSONObject("identity")) else readRoom(t.getJSONObject("room")), if (t.isNull("observedAt")) (if (t.isNull("at")) null else t.getLong("at")) else t.getLong("observedAt"), observedPage = t.optInt("page", 1).coerceAtLeast(1), sourceQuery = readRadarQuery(t.optJSONObject("sourceQuery")), pinned = t.optBoolean("pinned"), note = t.optString("note").take(500)) },
             events = (0 until events.length()).map { i -> events.getJSONObject(i).let { RadarEvent(it.getLong("at"), it.getString("text"), it.optString("id").ifBlank { java.util.UUID.randomUUID().toString() },
                 rooms = it.optJSONArray("rooms")?.let { r -> (0 until r.length()).map { i -> readRoom(r.getJSONObject(i)) } } ?: emptyList(),
@@ -423,6 +445,7 @@ class RadarRepository(
                 kind = RadarEventKind.entries.firstOrNull { kind -> kind.name == it.optString("kind") } ?: RadarEventKind.LEGACY,
                 origin = readRadarOrigin(it.optJSONObject("origin")), read = if (it.has("read")) it.getBoolean("read") else true) } },
             candidateRules = (0 until candidates.length()).map { i -> candidates.getJSONObject(i).let { CandidateRule(it.getString("id"), it.getString("label"), it.getString("genre"), it.getString("term"), CandidateMode.valueOf(it.getString("mode")), it.optBoolean("enabled", true)) } })
+        _state.update { restored.copy(automatic = it.automatic) }
     }
     private fun roomJson(r: Room) = JSONObject().put("id", r.id).put("genre", r.genreKey).put("status", r.status.name).put("action", r.action.name)
         .put("name", r.name).put("gender", r.gender.name).put("age", r.age).put("area", r.area).put("message", r.message)

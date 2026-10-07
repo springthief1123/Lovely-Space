@@ -245,7 +245,7 @@ internal fun ChatLog(lines: List<UiLine>, modifier: Modifier) {
         if (lines.isEmpty()) {
             Column(Modifier.align(Alignment.Center).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("ここから、ふたりの会話", style = MaterialTheme.typography.titleMedium)
+                Text("メッセージ", style = MaterialTheme.typography.titleMedium)
                 Text("メッセージが届くとここに表示されます", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }

@@ -1,43 +1,48 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
-
 package io.github.springthief1123.lovelyspace.ui.web
 
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import io.github.springthief1123.lovelyspace.core.SitePages
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import io.github.springthief1123.lovelyspace.LovelySpaceApp
+import io.github.springthief1123.lovelyspace.ui.chat.ChatLog
+import io.github.springthief1123.lovelyspace.ui.components.ForegroundPolling
+import io.github.springthief1123.lovelyspace.ui.components.QuietTopBar
 
-/**
- * 満室の公開ルームを覗く。覗き画面はまだ解析していないので、本家のページをそのまま表示する。
- * 新着の更新はページ自身の仕組み（ブラウザと同じ）に任せる。
- */
+/** 公開ログをアプリのチャット表示で読む。閲覧用なので発言欄・入退室操作は持たない。 */
 @Composable
 fun PublicRoomScreen(host: String, genreKey: String, roomId: Long, onBack: () -> Unit) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("公開ルームを覗く") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "戻る")
-                    }
-                },
-            )
-        },
-    ) { padding ->
-        SiteWebView(
-            url = SitePages.publicRoom(host, genreKey, roomId),
-            genreKey = genreKey,
-            modifier = Modifier.fillMaxSize().padding(padding),
-        )
+    val app = LocalContext.current.applicationContext as LovelySpaceApp
+    val vm: PublicRoomViewModel = viewModel(factory = viewModelFactory {
+        initializer { PublicRoomViewModel { app.client.openPublicRoom(host, genreKey, roomId) } }
+    })
+    val state by vm.state.collectAsStateWithLifecycle()
+    ForegroundPolling(state.automatic, vm, vm::stopRefresh) { vm.monitor() }
+    Scaffold(topBar = { QuietTopBar("公開ルーム", onBack) }) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("閲覧のみ", style = MaterialTheme.typography.labelLarge)
+                Switch(state.automatic, vm::automatic)
+            }
+            state.error?.let { message ->
+                Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+                    Text(message, color = MaterialTheme.colorScheme.error)
+                    TextButton(onClick = vm::refresh, enabled = !state.loading) { Text("再読み込み") }
+                }
+            }
+            if (state.information.isNotBlank()) Text(state.information, Modifier.padding(20.dp),
+                style = MaterialTheme.typography.bodySmall)
+            if (state.loading && !state.opened) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            } else if (state.opened) ChatLog(state.lines, Modifier.weight(1f))
+        }
     }
 }
