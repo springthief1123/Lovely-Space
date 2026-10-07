@@ -94,6 +94,7 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit, onEnded: () -> Unit = {}) 
     val state by vm.state.collectAsStateWithLifecycle()
     var confirmLeave by rememberSaveable { mutableStateOf(false) }
     var confirmOwnerAction by rememberSaveable { mutableStateOf<OwnerAction?>(null) }
+    var confirmBanRevision by rememberSaveable { mutableStateOf<Long?>(null) }
     var editingMessage by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(state.left) {
@@ -104,6 +105,18 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit, onEnded: () -> Unit = {}) 
     val ended = state.endMessage != null || state.roomUnavailable
     LaunchedEffect(ended) {
         if (ended) onEnded()
+    }
+
+    // 「相手を退室」の確認中に入退室が起きたら、別の相手へ古い確認を適用しない。
+    LaunchedEffect(state.participantRevision, confirmOwnerAction, confirmBanRevision) {
+        if (
+            confirmOwnerAction == OwnerAction.BAN_GUEST &&
+            confirmBanRevision != null &&
+            confirmBanRevision != state.participantRevision
+        ) {
+            confirmOwnerAction = null
+            confirmBanRevision = null
+        }
     }
 
     // 終了した部屋や開けなかった部屋はそのまま戻る。会話中は確認してから退室する。
@@ -135,16 +148,24 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit, onEnded: () -> Unit = {}) 
             action = action,
             partnerName = state.partnerName,
             onConfirm = {
+                val stillSameParticipant = action != OwnerAction.BAN_GUEST ||
+                    (confirmBanRevision == state.participantRevision && state.canBanGuest)
                 confirmOwnerAction = null
-                when (action) {
-                    OwnerAction.BAN_GUEST -> vm.banGuest()
-                    OwnerAction.CLEAR_LOG -> vm.clearLog()
-                    OwnerAction.MAKE_PRIVATE -> vm.setPublic(false)
-                    OwnerAction.MAKE_PUBLIC -> vm.setPublic(true)
-                    OwnerAction.CHANGE_MESSAGE -> Unit
+                confirmBanRevision = null
+                if (stillSameParticipant) {
+                    when (action) {
+                        OwnerAction.BAN_GUEST -> vm.banGuest()
+                        OwnerAction.CLEAR_LOG -> vm.clearLog()
+                        OwnerAction.MAKE_PRIVATE -> vm.setPublic(false)
+                        OwnerAction.MAKE_PUBLIC -> vm.setPublic(true)
+                        OwnerAction.CHANGE_MESSAGE -> Unit
+                    }
                 }
             },
-            onDismiss = { confirmOwnerAction = null },
+            onDismiss = {
+                confirmOwnerAction = null
+                confirmBanRevision = null
+            },
         )
     }
     if (editingMessage) {
@@ -180,12 +201,23 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit, onEnded: () -> Unit = {}) 
                             items = listOfNotNull(
                                 QuietMenuItem("待機メッセージを変更", enabled = idle) { editingMessage = true },
                                 if (state.canChangePublic) {
-                                    if (state.isPublic) QuietMenuItem("非公開にする", enabled = idle) { confirmOwnerAction = OwnerAction.MAKE_PRIVATE }
-                                    else QuietMenuItem("公開にする", enabled = idle) { confirmOwnerAction = OwnerAction.MAKE_PUBLIC }
+                                    if (state.isPublic) QuietMenuItem("非公開にする", enabled = idle) {
+                                        confirmBanRevision = null
+                                        confirmOwnerAction = OwnerAction.MAKE_PRIVATE
+                                    } else QuietMenuItem("公開にする", enabled = idle) {
+                                        confirmBanRevision = null
+                                        confirmOwnerAction = OwnerAction.MAKE_PUBLIC
+                                    }
                                 } else null,
-                                QuietMenuItem("発言をクリア", enabled = idle, destructive = true) { confirmOwnerAction = OwnerAction.CLEAR_LOG },
+                                QuietMenuItem("発言をクリア", enabled = idle, destructive = true) {
+                                    confirmBanRevision = null
+                                    confirmOwnerAction = OwnerAction.CLEAR_LOG
+                                },
                                 if (state.canBanGuest) {
-                                    QuietMenuItem("相手を退室させる", enabled = idle, destructive = true) { confirmOwnerAction = OwnerAction.BAN_GUEST }
+                                    QuietMenuItem("相手を退室させる", enabled = idle, destructive = true) {
+                                        confirmBanRevision = state.participantRevision
+                                        confirmOwnerAction = OwnerAction.BAN_GUEST
+                                    }
                                 } else null,
                             ),
                             contentDescription = "部屋の操作",
