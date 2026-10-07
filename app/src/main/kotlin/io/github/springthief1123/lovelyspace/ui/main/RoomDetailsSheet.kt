@@ -26,13 +26,12 @@ internal fun RoomDetailsSheet(room: Room, favorite: Boolean, actionsEnabled: Boo
     var working by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf<String?>(null) }
     var confirmUntrack by remember { mutableStateOf(false) }
-    var confirmHide by remember { mutableStateOf(false) }
     val tracking = radar.targets.any { roomIdentity(it.room) == roomIdentity(room) }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Text(room.name ?: "会話中の部屋", style = MaterialTheme.typography.titleLarge)
             Text(listOfNotNull(Genres[room.genreKey]?.label, statusName(room.status), room.age?.let { "${it}歳" }, room.area).joinToString(" · "), color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(room.message.ifBlank { "一覧に募集文は表示されていません。" }, style = MaterialTheme.typography.bodyLarge)
+            Text(room.message.ifBlank { "一覧に待機メッセージは表示されていません。" }, style = MaterialTheme.typography.bodyLarge)
             Text("取得時の一覧情報です。入室時には空き状況が変わっている場合があります。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             verificationContent()
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -48,7 +47,8 @@ internal fun RoomDetailsSheet(room: Room, favorite: Boolean, actionsEnabled: Boo
                         }
                     }
                 }) { Text(if (tracking) "追跡を解除" else "この部屋を追跡") }
-                onHide?.let { TextButton(onClick = { confirmHide = true }, enabled = actionsEnabled) { Text("非表示にする") } }
+                // 非表示はスワイプと同じく即時に行い、一覧側の「元に戻す」で取り消せるようにする。
+                onHide?.let { TextButton(onClick = it, enabled = actionsEnabled) { Text("非表示にする") } }
             }
             notice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             Button(onClick = { onDismiss(); if (room.action == RoomAction.PEEK) onPeek(room) else onEnter(room) }, enabled = allowEntry && room.action != RoomAction.NONE, modifier = Modifier.fillMaxWidth()) {
@@ -70,8 +70,4 @@ internal fun RoomDetailsSheet(room: Room, favorite: Boolean, actionsEnabled: Boo
             }
         }) { Text("追跡を解除") } },
         dismissButton = { TextButton(enabled = !working, onClick = { confirmUntrack = false }) { Text("戻る") } })
-    if (confirmHide) AlertDialog(onDismissRequest = { confirmHide = false }, title = { Text("この部屋を非表示にしますか？") },
-        text = { Text("設定の「非表示の部屋」から元に戻せます。") },
-        confirmButton = { TextButton(enabled = actionsEnabled, onClick = { confirmHide = false; onHide?.invoke() }) { Text("非表示") } },
-        dismissButton = { TextButton(onClick = { confirmHide = false }) { Text("戻る") } })
 }

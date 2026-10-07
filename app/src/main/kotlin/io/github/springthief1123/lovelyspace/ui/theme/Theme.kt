@@ -75,7 +75,9 @@ private fun lovelyTypography(scale: TextScale) = with(scale.multiplier) {
 @Immutable
 data class LovelyColors(
     val female: Color,
+    val femaleContainer: Color,
     val male: Color,
+    val maleContainer: Color,
     val waiting: Color,
     val publicWaiting: Color,
     val full: Color,
@@ -85,22 +87,26 @@ data class LovelyColors(
 )
 
 private val LightLovely = LovelyColors(
-    female = Color(0xFF675A63),
-    male = Color(0xFF675A63),
+    female = Color(0xFFA8456A),
+    femaleContainer = Color(0xFFF7E3EA),
+    male = Color(0xFF3C6496),
+    maleContainer = Color(0xFFE2EAF5),
     waiting = Color(0xFF396452),
-    publicWaiting = Color(0xFF396452),
-    full = Color(0xFF675A63),
+    publicWaiting = Color(0xFF2F6A73),
+    full = Color(0xFF7A6E75),
     glassTint = Color(0xCCFFFDFB),
     glassBorder = Color(0xA6FFFFFF),
     divider = Color(0xFFE9E0E0),
 )
 
 private val DarkLovely = LovelyColors(
-    female = Color(0xFFD0C3CD),
-    male = Color(0xFFD0C3CD),
+    female = Color(0xFFF2A7C0),
+    femaleContainer = Color(0xFF432836),
+    male = Color(0xFFA9C6F0),
+    maleContainer = Color(0xFF26324A),
     waiting = Color(0xFF9BD1B6),
-    publicWaiting = Color(0xFF9BD1B6),
-    full = Color(0xFFD0C3CD),
+    publicWaiting = Color(0xFF8FCFD6),
+    full = Color(0xFFB5A8AF),
     glassTint = Color(0xC9242229),
     glassBorder = Color(0x33FFFFFF),
     divider = Color(0xFF3A343E),

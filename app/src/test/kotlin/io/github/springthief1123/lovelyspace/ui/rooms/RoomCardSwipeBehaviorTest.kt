@@ -17,14 +17,26 @@ class RoomCardSwipeBehaviorTest {
     }
 
     @Test
-    fun quickShortFlickRevealsMenuWithoutCommitting() {
+    fun flickRightAfterTouchDoesNotThrowCardAheadOfFinger() {
         assertEquals(
-            RoomCardSwipeRelease.REVEAL_FAVORITE,
+            RoomCardSwipeRelease.CLOSED,
             release(offset = 12f, velocity = 900f),
         )
         assertEquals(
-            RoomCardSwipeRelease.REVEAL_HIDDEN,
+            RoomCardSwipeRelease.CLOSED,
             release(offset = -12f, velocity = -900f),
+        )
+    }
+
+    @Test
+    fun flickAfterMovingCardRevealsMenu() {
+        assertEquals(
+            RoomCardSwipeRelease.REVEAL_FAVORITE,
+            release(offset = 30f, velocity = 900f),
+        )
+        assertEquals(
+            RoomCardSwipeRelease.REVEAL_HIDDEN,
+            release(offset = -30f, velocity = -900f),
         )
     }
 
@@ -64,6 +76,12 @@ class RoomCardSwipeBehaviorTest {
         )
     }
 
+    @Test
+    fun openCardClosesWithSmallerReturnThanItTakesToOpen() {
+        assertEquals(40.6f, roomCardRevealThreshold(116f, startedOpen = false), 0.01f)
+        assertEquals(81.2f, roomCardRevealThreshold(116f, startedOpen = true), 0.01f)
+    }
+
     private fun release(offset: Float, velocity: Float) = resolveRoomCardSwipeRelease(
         offsetPx = offset,
         velocityPx = velocity,
@@ -72,5 +90,6 @@ class RoomCardSwipeBehaviorTest {
         velocityThresholdPx = 720f,
         favoriteEnabled = true,
         hiddenEnabled = true,
+        flickMinOffsetPx = 24f,
     )
 }

@@ -29,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
@@ -87,6 +88,12 @@ fun RoomListScreen(
         snackbar.currentSnackbarData?.dismiss()
         snackbar.showSnackbar(error)
         preferencesVm.clearError()
+    }
+    LaunchedEffect(preferencesVm) {
+        preferencesVm.hiddenRooms.collect { room ->
+            snackbar.currentSnackbarData?.dismiss()
+            if (snackbar.showSnackbar("部屋を非表示にしました", actionLabel = "元に戻す", withDismissAction = true) == SnackbarResult.ActionPerformed) preferencesVm.unhide(room)
+        }
     }
 
     Box(Modifier.fillMaxSize()) {
