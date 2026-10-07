@@ -110,14 +110,17 @@ data class ChatUiState(
      */
     fun afterOwnerAction(action: OwnerAction, page: ChatPage?, lastLineIdAtStart: Long? = null): ChatUiState {
         val done = copy(ownerAction = null)
+        // 転送・認証切れ・エラーページなど、部屋画面として確認できない応答を成功扱いしない。
+        // 特にクリアや公開設定を楽観的に反映すると、サーバーの状態と表示が食い違う。
+        if (page == null) return done.copy(ownerNotice = action.failure)
         return when (action) {
-            OwnerAction.BAN_GUEST -> done.copy(canBanGuest = page?.canBanGuest ?: false)
+            OwnerAction.BAN_GUEST -> done.copy(canBanGuest = page.canBanGuest)
             // 自分の画面からも消す。操作中に新着の取得で届いた行は、クリアの後の発言なので残す。
             OwnerAction.CLEAR_LOG -> done.copy(lines = lines.filter { lastLineIdAtStart == null || it.id > lastLineIdAtStart })
-            OwnerAction.CHANGE_MESSAGE -> done.copy(waitingMessage = page?.waitingMessage ?: waitingMessage, ownerNotice = "待機メッセージを変更しました")
+            OwnerAction.CHANGE_MESSAGE -> done.copy(waitingMessage = page.waitingMessage ?: waitingMessage, ownerNotice = "待機メッセージを変更しました")
             OwnerAction.MAKE_PRIVATE, OwnerAction.MAKE_PUBLIC -> {
                 val wanted = action == OwnerAction.MAKE_PUBLIC
-                val actual = page?.isPublic ?: wanted
+                val actual = page.isPublic
                 done.copy(
                     isPublic = actual,
                     ownerNotice = when {
@@ -274,7 +277,7 @@ class ChatViewModel(
 
     /**
      * 作成者の操作を 1 つずつ送る。応答が部屋の画面なら、反映後の状態（公開設定・待機メッセージ・
-     * 「相手を退室」の有無）をそこから読む。読めなければ操作どおりに変わったとみなす。
+     * 「相手を退室」の有無）をそこから読む。読めなければ成功を確認できないため失敗扱いにする。
      * ログ・読み出し位置は新着の取得に任せる（クリアは新着の取得でも届く）。
      */
     private fun runOwnerAction(action: OwnerAction, send: suspend () -> ChatPage?) {
