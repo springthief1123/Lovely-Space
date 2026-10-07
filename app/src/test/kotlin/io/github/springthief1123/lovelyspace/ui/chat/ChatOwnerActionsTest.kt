@@ -17,9 +17,15 @@ class ChatOwnerActionsTest {
         guestLeft = guestLeft, canBanGuest = canBan, endMessage = null, information = "", romCount = null, isPublic = null,
     )
 
-    private fun page(isPublic: Boolean = true, message: String? = "合成の待機文", canBan: Boolean = false) = ChatPage(
-        room = room, title = "チャH", myName = "タロウ", isOwner = true, isPublic = isPublic, lines = emptyList(),
-        state = ChatState(fromSize = 0), waitingMessage = message, canBanGuest = canBan, canChangePublic = true,
+    private fun page(
+        isPublic: Boolean = true,
+        message: String? = "合成の待機文",
+        canBan: Boolean = false,
+        lines: List<ChatLine> = emptyList(),
+        filled: Boolean = false,
+    ) = ChatPage(
+        room = room, title = "チャH", myName = "タロウ", isOwner = true, isPublic = isPublic, lines = lines,
+        state = ChatState(fromSize = 0, isFilledRoom = filled), waitingMessage = message, canBanGuest = canBan, canChangePublic = true,
     )
 
     @Test fun ownerActionsAreOnlyForOwnerInOpenRoom() {
@@ -54,16 +60,26 @@ class ChatOwnerActionsTest {
 
     @Test fun clearKeepsLinesThatArrivedDuringTheAction() {
         fun line(id: Long) = UiLine(id, ChatLine("ハナコ", true, "合成の発言 $id", null), isMine = false)
-        // 新しい順。id 1 までが操作の開始時点にあった行、id 2 は操作中に届いた行。開始時に行が無ければ全部が操作中の行。
-        val s = owner.copy(lines = listOf(line(2), line(1), line(0)), ownerAction = OwnerAction.CLEAR_LOG)
-        assertEquals(listOf(2L), s.afterOwnerAction(OwnerAction.CLEAR_LOG, page(), lastLineIdAtStart = 1).lines.map { it.id })
-        assertEquals(listOf(2L, 1L, 0L), s.afterOwnerAction(OwnerAction.CLEAR_LOG, page(), lastLineIdAtStart = null).lines.map { it.id })
+        // 新しい順。id 1 までが操作の開始時点にあった行、id 2・3 は操作中に届いた行。
+        // クリア後の部屋の画面に残っている行（id 3）だけがクリアの後の発言。
+        val s = owner.copy(lines = listOf(line(3), line(2), line(1), line(0)), ownerAction = OwnerAction.CLEAR_LOG)
+        val after = page(lines = listOf(line(3).line))
+        assertEquals(listOf(3L), s.afterOwnerAction(OwnerAction.CLEAR_LOG, after, lastLineIdAtStart = 1).lines.map { it.id })
+        assertEquals("開始時に行が無ければ全部を応答と照らし合わせる", listOf(3L), s.afterOwnerAction(OwnerAction.CLEAR_LOG, after, lastLineIdAtStart = null).lines.map { it.id })
+        assertTrue("応答に残っていなければ消す", s.afterOwnerAction(OwnerAction.CLEAR_LOG, page(), lastLineIdAtStart = 1).lines.isEmpty())
     }
 
     @Test fun banHidesBanUnlessPageStillShowsIt() {
         val s = owner.copy(canBanGuest = true)
         assertFalse(s.afterOwnerAction(OwnerAction.BAN_GUEST, page(canBan = false)).canBanGuest)
         assertTrue(s.afterOwnerAction(OwnerAction.BAN_GUEST, page(canBan = true)).canBanGuest)
+    }
+
+    @Test fun banTakesOccupancyFromResponse() {
+        val s = owner.copy(canBanGuest = true, isFilled = true)
+        val after = s.afterOwnerAction(OwnerAction.BAN_GUEST, page(filled = false))
+        assertFalse(after.isFilled)
+        assertTrue("相手の入室を待つ表示に戻る", after.isWaitingForPartner)
     }
 
     @Test fun waitingMessageComesFromResponsePage() {
