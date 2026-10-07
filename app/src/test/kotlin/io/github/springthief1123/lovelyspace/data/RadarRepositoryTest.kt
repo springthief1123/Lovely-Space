@@ -539,4 +539,50 @@ class RadarRepositoryTest {
             assertTrue(restored.state.value.backgroundPlans.isEmpty())
         } finally { db.close() }
     }
+    @Test fun savingOtherStateDoesNotKeepAnUnrefreshedBaselineAlive() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            val prefs = RoomPreferenceRepository(db)
+            searches.save(SearchPreset("bg", "合成の背景", "zenkoku", RoomSearchCriteria()))
+            var clock = 1_000_000L
+            var running = SupervisorJob(backgroundScope.coroutineContext[Job])
+            suspend fun restart(): CoroutineScope { running.cancelAndJoin(); running = SupervisorJob(backgroundScope.coroutineContext[Job]); return CoroutineScope(backgroundScope.coroutineContext + running) }
+            val first = RadarRepository(db.presets(), Lists().apply { rooms = listOf(room) }, searches, prefs, CoroutineScope(backgroundScope.coroutineContext + running)) { clock }
+            first.state.first { it.loaded }; first.setPlanBackground("bg", true)
+            first.scan(latestFirst = true, force = false, backgroundOnly = true)
+            // 取得に失敗し続ける間も、起動や設定の保存は起きる。それで基準の時刻を新しくしない。
+            clock += 5 * 60 * 60 * 1000L
+            val failing = RadarRepository(db.presets(), Lists(), searches, prefs, restart()) { clock }
+            failing.state.first { it.loaded }; failing.setBackgroundInterval(30)
+            clock += 2 * 60 * 60 * 1000L
+            val recovered = RadarRepository(db.presets(), Lists().apply { rooms = listOf(room, room.copy(id = 43, name = "追加の合成")) }, searches, prefs, restart()) { clock }
+            recovered.state.first { it.loaded }
+            assertTrue(recovered.scan(latestFirst = true, force = false, backgroundOnly = true).isEmpty())
+        } finally { db.close() }
+    }
+    @Test fun plansDeferredByThePageLimitComeFirstInTheNextProcess() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            val prefs = RoomPreferenceRepository(db)
+            val genres = listOf("zenkoku", "talk", "game", "cosplay")
+            genres.forEach { searches.save(SearchPreset("p-$it", "合成 $it", it, RoomSearchCriteria())) }
+            var clock = 1_000_000L
+            var running = SupervisorJob(backgroundScope.coroutineContext[Job])
+            suspend fun restart(): CoroutineScope { running.cancelAndJoin(); running = SupervisorJob(backgroundScope.coroutineContext[Job]); return CoroutineScope(backgroundScope.coroutineContext + running) }
+            val firstLists = Lists()
+            val first = RadarRepository(db.presets(), firstLists, searches, prefs, CoroutineScope(backgroundScope.coroutineContext + running)) { clock }
+            first.state.first { it.loaded }
+            genres.forEach { first.setPlanBackground("p-$it", true) }
+            first.scan(latestFirst = true, force = false, maxPages = 3, backgroundOnly = true)
+            val skipped = genres.single { genre -> firstLists.calls.none { it.genre.key == genre } }
+            clock += 15 * 60 * 1000L
+            val nextLists = Lists()
+            val next = RadarRepository(db.presets(), nextLists, searches, prefs, restart()) { clock }
+            next.state.first { it.loaded }
+            next.scan(latestFirst = true, force = false, maxPages = 3, backgroundOnly = true)
+            assertEquals(skipped, nextLists.calls.first().genre.key)
+        } finally { db.close() }
+    }
 }

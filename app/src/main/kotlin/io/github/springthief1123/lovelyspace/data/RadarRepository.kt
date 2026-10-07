@@ -67,6 +67,8 @@ class RadarRepository(
     val state = _state.asStateFlow()
     private val seen = mutableMapOf<RoomQuery, Long>()
     private val baselines = mutableMapOf<String, Set<String>>()
+    /** 比較基準をページの取得で最後に作り直した時刻。保存した基準の期限と、背景で確認する順番に使う。 */
+    private val baselineAt = mutableMapOf<String, Long>()
     private val knownMatches = mutableMapOf<String, MutableSet<String>>()
     private val nextPages = mutableMapOf<String, Int>()
     private val planKeys = mutableMapOf<String, String>()
@@ -86,7 +88,7 @@ class RadarRepository(
                 mutex.withLock {
                     val saved = dao.state(KEY)
                     saved?.let(::restore)
-                    seen.clear(); baselines.clear(); knownMatches.clear(); nextPages.clear(); planKeys.clear(); candidateBaselines.clear(); candidateKnown.clear(); candidateNext.clear(); evaluatedPlans.clear(); evaluatedCandidates.clear()
+                    seen.clear(); baselines.clear(); baselineAt.clear(); knownMatches.clear(); nextPages.clear(); planKeys.clear(); candidateBaselines.clear(); candidateKnown.clear(); candidateNext.clear(); evaluatedPlans.clear(); evaluatedCandidates.clear()
                     saved?.let(::restoreBaselines)
                     _state.update { it.copy(loaded = true, scopes = emptyMap(), results = emptyMap(), nextPages = emptyMap(), candidateResults = emptyMap(), nextCandidatePages = emptyMap(), lastScan = null, lastConfirmedAt = null, livePages = emptyMap()) }
                 }
@@ -164,6 +166,7 @@ class RadarRepository(
     }
     private fun resetPlan(id: String) {
         baselines.keys.removeAll { it.startsWith("$id/") }
+        baselineAt.keys.removeAll { it.startsWith("$id/") }
         knownMatches.keys.removeAll { it.startsWith("$id/") }
         nextPages.keys.removeAll { it.startsWith("$id/") }
         evaluatedPlans.keys.removeAll { it.startsWith("$id/") }
@@ -219,6 +222,7 @@ class RadarRepository(
         val oldSeen = seen.toMap()
         val oldPlanKeys = planKeys.toMap()
         val oldBaselines = baselines.toMap()
+        val oldBaselineAt = baselineAt.toMap()
         val oldKnown = knownMatches.mapValues { it.value.toMutableSet() }
         val oldNext = nextPages.toMap()
         val oldCandidateBaselines = candidateBaselines.toMap()
@@ -233,6 +237,7 @@ class RadarRepository(
             seen.clear(); seen.putAll(oldSeen)
             planKeys.clear(); planKeys.putAll(oldPlanKeys)
             baselines.clear(); baselines.putAll(oldBaselines)
+            baselineAt.clear(); baselineAt.putAll(oldBaselineAt)
             knownMatches.clear(); knownMatches.putAll(oldKnown)
             nextPages.clear(); nextPages.putAll(oldNext)
             candidateBaselines.clear(); candidateBaselines.putAll(oldCandidateBaselines)
@@ -279,7 +284,10 @@ class RadarRepository(
             val scheduled = mutex.withLock {
                 val saved = searches.presets.first()
                 reconcilePlans(saved)
+                // 背景の実行はプロセスごと作り直されることがあるので、ページ数の上限で後回しになった計画が
+                // 取り残されないよう、比較基準が古い（確認していない）計画から順に取得する。
                 val selected = saved.filter { it.id in plansOf(_state.value) }
+                    .let { plans -> if (backgroundOnly) plans.sortedBy { baselineAt["${planKey(it)}/1"] ?: Long.MIN_VALUE } else plans }
                 val requests = linkedMapOf<RoomQuery, MutableList<SearchPreset>>()
                 selected.forEach { preset ->
                     Genres[preset.genreKey]?.let { genre ->
@@ -435,6 +443,7 @@ class RadarRepository(
             }
             known.addAll(identities)
             baselines[key] = identities
+            baselineAt[key] = now()
             results[preset.id] = RadarResult(preset.id, o.confirmedAt, o.page.page, o.page.lastPage, matches, preset.genreKey, preset.criteria)
             scopes[preset.id] = "${formatObservationTime(o.confirmedAt)} · ${o.page.page}/${o.page.lastPage}ページ · 一致${matches.size}件"
         }
@@ -472,25 +481,37 @@ class RadarRepository(
         json.put("candidateRules", JSONArray(s.candidateRules.map { rule -> JSONObject().put("id", rule.id).put("label", rule.label).put("genre", rule.genreKey)
             .put("term", rule.term).put("mode", rule.mode.name).put("enabled", rule.enabled) }))
         json.put("backgroundPlans", JSONArray(s.backgroundPlans.toList())).put("backgroundInterval", s.backgroundIntervalMinutes)
-        // 背景の巡回は実行ごとにプロセスが作り直されるので、背景で巡回する計画の比較基準だけを保存時刻つきで残す。
+        // 背景の巡回は実行ごとにプロセスが作り直されるので、背景で巡回する計画の比較基準だけを、ページを取得した時刻つきで残す。
         // 古い基準は再起動時に捨て（[BASELINE_TTL_MS]）、久しぶりの起動で大量の「新しい一致」を出さない。巡回位置は残さない。
         val background = s.activeBackgroundPlans
         val backgroundKeys = planKeys.filterKeys { it in background }.values.toSet()
         fun ownedByBackground(key: String) = backgroundKeys.any { key == it || key.startsWith("$it/") }
         json.put("baselines", JSONObject().apply {
-            put("at", now())
-            put("pages", JSONObject().apply { baselines.filterKeys(::ownedByBackground).forEach { (key, ids) -> put(key, JSONArray(ids.toList())) } })
-            put("known", JSONObject().apply { knownMatches.filterKeys(::ownedByBackground).forEach { (key, ids) -> put(key, JSONArray(ids.toList().takeLast(MAX_KNOWN))) } })
+            put("pages", JSONObject().apply { baselines.filterKeys(::ownedByBackground).forEach { (key, ids) ->
+                val at = baselineAt[key] ?: return@forEach
+                put(key, JSONObject().put("at", at).put("ids", JSONArray(ids.toList())))
+            } })
+            put("known", JSONObject().apply { knownMatches.filterKeys(::ownedByBackground).forEach { (key, ids) ->
+                // 一度一致した部屋は、その計画のいずれかのページを最後に取得した時刻で期限を判断する。
+                val at = baselineAt.filterKeys { it.startsWith("$key/") }.values.maxOrNull() ?: return@forEach
+                put(key, JSONObject().put("at", at).put("ids", JSONArray(ids.toList().takeLast(MAX_KNOWN))))
+            } })
         })
         dao.put(LocalState(KEY, json.toString()))
     }
     private fun restoreBaselines(value: String) {
         val saved = JSONObject(value).optJSONObject("baselines") ?: return
-        val age = now() - saved.optLong("at", Long.MIN_VALUE)
-        if (age !in 0..BASELINE_TTL_MS) return
-        fun JSONObject.sets() = keys().asSequence().associateWith { key -> getJSONArray(key).let { a -> (0 until a.length()).map(a::getString) } }
-        saved.optJSONObject("pages")?.sets()?.forEach { (key, ids) -> baselines[key] = ids.toSet() }
-        saved.optJSONObject("known")?.sets()?.forEach { (key, ids) -> knownMatches[key] = ids.toMutableSet() }
+        val current = now()
+        /** 期限内のものだけを（取得時刻, ID）で返す。 */
+        fun JSONObject.fresh() = keys().asSequence().mapNotNull { key ->
+            val entry = optJSONObject(key) ?: return@mapNotNull null
+            val at = entry.optLong("at", Long.MIN_VALUE)
+            if (at == Long.MIN_VALUE || current - at !in 0..BASELINE_TTL_MS) return@mapNotNull null
+            val ids = entry.getJSONArray("ids").let { a -> (0 until a.length()).map(a::getString) }
+            Triple(key, at, ids)
+        }
+        saved.optJSONObject("pages")?.fresh()?.forEach { (key, at, ids) -> baselines[key] = ids.toSet(); baselineAt[key] = at }
+        saved.optJSONObject("known")?.fresh()?.forEach { (key, _, ids) -> knownMatches[key] = ids.toMutableSet() }
     }
     private fun restore(value: String) {
         val json = JSONObject(value)
