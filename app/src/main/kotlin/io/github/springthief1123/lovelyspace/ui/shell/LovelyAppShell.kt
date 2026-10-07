@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Explore
+import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.Radar
@@ -29,7 +30,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import io.github.springthief1123.lovelyspace.ui.theme.LocalLovelyBottomContentInset
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
-import io.github.springthief1123.lovelyspace.data.formatObservationTime
+import io.github.springthief1123.lovelyspace.notify.unreadCount
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -68,6 +69,7 @@ fun LovelyAppShell(
     onDestinationSelected: (MainDestination) -> Unit,
     showCreateFab: Boolean, onCreateRoom: () -> Unit,
     resumeBar: (@Composable () -> Unit)? = null,
+    onOpenNotificationSettings: () -> Unit = {},
     content: @Composable () -> Unit,
 ) {
     val hazeState = remember { HazeState() }
@@ -81,7 +83,7 @@ fun LovelyAppShell(
                 CompositionLocalProvider(LocalLovelyBottomContentInset provides bottomInset) { content() }
             }
             if (showChrome) {
-                LovelyTopBar(Modifier.align(Alignment.TopCenter))
+                LovelyTopBar(onOpenNotificationSettings, Modifier.align(Alignment.TopCenter))
                 LovelyBottomNavigation(if (currentRoute == Routes.SEARCH) Routes.ROOMS else currentRoute,
                     onDestinationSelected, Modifier.align(Alignment.BottomCenter), onHeight = { navigationHeight = with(density) { it.toDp() } })
                 if (resumeBar != null) Box(Modifier.align(Alignment.BottomStart).navigationBarsPadding()
@@ -97,10 +99,11 @@ fun LovelyAppShell(
 }
 
 @Composable
-private fun LovelyTopBar(modifier: Modifier = Modifier) {
+private fun LovelyTopBar(onOpenNotificationSettings: () -> Unit, modifier: Modifier = Modifier) {
     var notificationsOpen by remember { mutableStateOf(false) }
     val app = LocalContext.current.applicationContext as LovelySpaceApp
-    val radar by app.radar.state.collectAsStateWithLifecycle()
+    val notifications by app.notificationInbox.entries.collectAsStateWithLifecycle()
+    val unread = notifications.unreadCount
     val rose = MaterialTheme.colorScheme.primary
     LovelyGlassSurface(modifier.fillMaxWidth(), RectangleShape) {
         Row(Modifier.statusBarsPadding().fillMaxWidth().height(LovelySpacing.topBarHeight).padding(horizontal = 20.dp),
@@ -115,17 +118,18 @@ private fun LovelyTopBar(modifier: Modifier = Modifier) {
                 color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Box {
                 IconButton(onClick = { notificationsOpen = true }) {
-                    Icon(Icons.Outlined.NotificationsNone, contentDescription = "お知らせ")
+                    BadgedBox(badge = { if (unread > 0) Badge { Text(if (unread > 99) "99+" else "$unread") } }) {
+                        Icon(if (unread > 0) Icons.Outlined.NotificationsActive else Icons.Outlined.NotificationsNone,
+                            contentDescription = if (unread > 0) "お知らせ（未読${unread}件）" else "お知らせ")
+                    }
                 }
                 DropdownMenu(notificationsOpen, { notificationsOpen = false }) {
-                    Column(Modifier.widthIn(max = 280.dp).padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("お知らせ", style = MaterialTheme.typography.titleSmall)
-                        if (radar.events.isEmpty()) Text("変化の履歴はまだありません", style = MaterialTheme.typography.bodyMedium)
-                        radar.events.take(3).forEach { event ->
-                            Text(event.text, style = MaterialTheme.typography.bodySmall)
-                            Text(formatObservationTime(event.at), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
+                    NotificationPanel(
+                        entries = notifications,
+                        onOpen = { notificationsOpen = false; app.notifier.open(it.id) },
+                        onMarkAllRead = { app.notificationInbox.markAllRead() },
+                        onOpenSettings = { notificationsOpen = false; onOpenNotificationSettings() },
+                    )
                 }
             }
         }

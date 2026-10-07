@@ -9,6 +9,9 @@ import androidx.navigation.createGraph
 import androidx.navigation.navArgument
 import androidx.navigation.testing.TestNavHostController
 import androidx.test.core.app.ApplicationProvider
+import io.github.springthief1123.lovelyspace.notify.AppNotification
+import io.github.springthief1123.lovelyspace.notify.NotificationKind
+import io.github.springthief1123.lovelyspace.notify.NotificationTarget
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -97,5 +100,35 @@ class ChatNavigationTest {
         assertSame(profile, nav.getBackStackEntry(Routes.PROFILE))
         nav.returnFromChat(Routes.PROFILE)
         assertSame(profile, nav.currentBackStackEntry)
+    }
+
+    // 合成データ。本家の実データは使わない。
+    private fun notification(kind: NotificationKind, target: NotificationTarget) =
+        AppNotification("n-1", kind, "見出し", "本文", target, 0L)
+
+    @Test fun radarMatchOpensTheEntryOverRadarAndBackReturnsToRadar() {
+        val nav = controller()
+        nav.navigate(Routes.FAVORITES)
+        nav.openNotification(notification(NotificationKind.RADAR_MATCH,
+            NotificationTarget.Room("chat.shalove.net", "zenkoku", 77))) { null }
+        assertEquals(Routes.ENTRY, nav.currentDestination!!.route)
+        assertEquals(77L, nav.currentBackStackEntry!!.arguments!!.getLong("roomId"))
+        assertEquals(Routes.RADAR, nav.currentBackStackEntry!!.arguments!!.getString("origin"))
+        nav.popBackStack()
+        assertEquals(Routes.RADAR, nav.currentDestination!!.route)
+    }
+
+    @Test fun roomEntryNotificationResumesTheActiveChat() {
+        val nav = controller()
+        nav.openNotification(notification(NotificationKind.ROOM_ENTRY, NotificationTarget.ActiveChat)) { "owner-session" }
+        assertEquals(Routes.CHAT, nav.currentDestination!!.route)
+        assertEquals("owner-session", nav.currentBackStackEntry!!.arguments!!.getString("session"))
+    }
+
+    @Test fun roomEntryNotificationWithoutAnActiveRoomOpensTheList() {
+        val nav = controller()
+        nav.navigate(Routes.PROFILE)
+        nav.openNotification(notification(NotificationKind.ROOM_ENTRY, NotificationTarget.ActiveChat)) { null }
+        assertEquals(Routes.ROOMS, nav.currentDestination!!.route)
     }
 }

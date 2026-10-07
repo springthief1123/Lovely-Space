@@ -140,7 +140,7 @@ fun DisplaySettingsScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun SettingsSectionTitle(text: String) {
+internal fun SettingsSectionTitle(text: String) {
     Text(
         text,
         style = MaterialTheme.typography.labelLarge,
@@ -151,7 +151,7 @@ private fun SettingsSectionTitle(text: String) {
 }
 
 @Composable
-private fun SettingsChoiceRow(
+internal fun SettingsChoiceRow(
     title: String,
     selected: Boolean,
     onClick: () -> Unit,

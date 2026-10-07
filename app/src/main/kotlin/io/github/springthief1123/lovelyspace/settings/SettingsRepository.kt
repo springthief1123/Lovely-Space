@@ -30,6 +30,13 @@ enum class RoomMessageLines(val label: String, val maxLines: Int) {
     ALL("すべて", Int.MAX_VALUE),
 }
 
+/** 端末通知に出す内容。他の利用者の待機メッセージ（募集文）をどこまで見せるか。 */
+enum class NotificationPreview(val label: String, val description: String) {
+    FULL("すべて表示", "ロック画面でも待機メッセージまで表示"),
+    HIDE_ON_LOCK_SCREEN("ロック画面では隠す", "ロック中は「新しいお知らせ」とだけ表示"),
+    NO_MESSAGE("待機メッセージを出さない", "通知には待機メッセージを出さず、ロック画面でも隠す"),
+}
+
 enum class RoomListStartMode(val label: String) {
     LAST_USED("最後に見たカテゴリ"),
     DEFAULT("指定したカテゴリ"),
@@ -65,6 +72,7 @@ class SettingsRepository(private val context: Context) : RoomListPreferenceStore
     private val entryYearsKey = intPreferencesKey("entry_years")
     private val roomPrefectureKey = intPreferencesKey("room_prefecture")
     private val roomMessageKey = stringPreferencesKey("room_message")
+    private val notificationPreviewKey = stringPreferencesKey("notification_preview")
 
     val themeMode: Flow<ThemeMode> = context.dataStore.data.map { prefs ->
         prefs[themeKey]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.SYSTEM
@@ -90,6 +98,15 @@ class SettingsRepository(private val context: Context) : RoomListPreferenceStore
                 ?.takeIf { Genres[it] != null }
                 ?: Genres.default.key,
         )
+    }
+
+    val notificationPreview: Flow<NotificationPreview> = context.dataStore.data.map { prefs ->
+        prefs[notificationPreviewKey]?.let { runCatching { NotificationPreview.valueOf(it) }.getOrNull() }
+            ?: NotificationPreview.HIDE_ON_LOCK_SCREEN
+    }
+
+    suspend fun setNotificationPreview(preview: NotificationPreview) {
+        context.dataStore.edit { it[notificationPreviewKey] = preview.name }
     }
 
     suspend fun setThemeMode(mode: ThemeMode) {
