@@ -141,6 +141,19 @@ class ChatClientTest {
     }
 
     @Test
+    fun resyncPreservesMinimumSendInterval() = runTest {
+        respond(fixture("chat/ajax_send.txt"))
+        respond(fixture("chat/ajax_send.txt"))
+        val first = client.chatSession(page(fromSize = 690))
+
+        first.send("1回目")
+        val resynced = client.chatSession(page(fromSize = 726), previous = first)
+        resynced.send("2回目")
+
+        assertEquals("再同期しても連続発言は 1.5 秒空ける", listOf(ChatSession.MIN_SEND_INTERVAL_MS), sleeps)
+    }
+
+    @Test
     fun pollWaitsForIntervalAfterSend() = runTest {
         respond(fixture("chat/ajax_send.txt"))
         respond(fixture("chat/ajax_no_new.txt"))
@@ -211,6 +224,62 @@ class ChatClientTest {
             mapOf("room_id" to "900000001", "pwd" to room.pwd, "genre_key" to "chah", "shotact" to "bye"),
             form(body),
         )
+    }
+
+    private fun roomForm(vararg fields: Pair<String, String>) =
+        mapOf("room_id" to "900000001", "pwd" to room.pwd, "genre_key" to "chah") + fields
+
+    @Test
+    fun banGuestPostsBan() = runTest {
+        respond("", "text/html")
+        client.banGuest(room)
+        val (req, body) = requests.single()
+        assertEquals("POST", req.method)
+        assertEquals("/2shot.php", req.url.encodedPath)
+        assertEquals(roomForm("shotact" to "ban"), form(body))
+    }
+
+    @Test
+    fun clearLogPostsClearChatLog() = runTest {
+        respond("", "text/html")
+        client.clearLog(room)
+        assertEquals(roomForm("clearchatlog" to "1"), form(requests.single().second))
+    }
+
+    @Test
+    fun changeWaitingMessagePostsUtf8WithEmptyChat() = runTest {
+        respond(fixture("chat/chat_page_owner.html"), "text/html; charset=UTF-8")
+        val page = client.changeWaitingMessage(room, "ゆっくり\nお話ししましょう")
+        assertEquals(roomForm("chat" to "", "message" to "ゆっくり\nお話ししましょう"), form(requests.single().second))
+        assertTrue("本文は UTF-8 でエンコードする", "%E3%82%86" in requests.single().second)
+        // 応答の部屋の画面から、反映後の待機メッセージを読める。
+        assertEquals("ゆっくり\nお話ししましょう", page?.waitingMessage)
+    }
+
+    @Test
+    fun setPublicPostsFlag() = runTest {
+        respond("", "text/html")
+        respond("", "text/html")
+        client.setPublic(room, public = false)
+        client.setPublic(room, public = true)
+        assertEquals(roomForm("set_is_public" to "0"), form(requests[0].second))
+        assertEquals(roomForm("set_is_public" to "1"), form(requests[1].second))
+        assertEquals("ページ操作の間隔を空ける", listOf(3_000L), sleeps)
+    }
+
+    @Test
+    fun ownerActionReturnsNullForNonRoomPageOrRedirect() = runTest {
+        respond("<html><body>エラー</body></html>", "text/html")
+        responses += { code(302).message("Found").header("Location", "/2shot.php?room_id=900000001") }
+        assertEquals(null, client.clearLog(room))
+        assertEquals(null, client.banGuest(room))
+    }
+
+    @Test
+    fun ownerActionErrorDoesNotLeakPwd() = runTest {
+        responses += { code(500).message("Server Error") }
+        val error = runCatching { client.banGuest(room) }.exceptionOrNull() as HttpStatusException
+        assertTrue(room.pwd !in error.message.orEmpty())
     }
 
     private fun page(fromSize: Long) = ChatPage(

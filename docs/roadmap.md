@@ -24,7 +24,7 @@
 | --- | --- | --- | --- |
 | [#30](https://github.com/springthief1123/Lovely-Space/issues/30) | 実機確認: ロボット確認つき入室・部屋作成・閉鎖・公開ルーム閲覧 | needs-device-test | — |
 | [#31](https://github.com/springthief1123/Lovely-Space/issues/31) | 採取: 作成者側の ajax.php 応答（入室者あり・相手退室・部屋終了） | needs-capture | — |
-| [#32](https://github.com/springthief1123/Lovely-Space/issues/32) | 作成者の操作: 相手を退室・発言クリア・待機メッセージ変更・公開設定 | | #31 があると確実 |
+| [#32](https://github.com/springthief1123/Lovely-Space/issues/32) | 作成者の操作: 相手を退室・発言クリア・待機メッセージ変更・公開設定（実装済み・実機確認待ち） | needs-device-test | #31 があると確実 |
 | [#33](https://github.com/springthief1123/Lovely-Space/issues/33) | 進行中の部屋への復帰（アプリ終了・再起動後） | | — |
 | [#34](https://github.com/springthief1123/Lovely-Space/issues/34) | 画像の送信・会話ログ全文の表示 | | — |
 
