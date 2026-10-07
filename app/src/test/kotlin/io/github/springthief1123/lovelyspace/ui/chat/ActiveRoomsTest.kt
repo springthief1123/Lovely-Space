@@ -81,6 +81,18 @@ class ActiveRoomsTest {
         assertNull(ActiveRooms(disk).resumable.value)
     }
 
+    @Test fun dismissalLastsForTheProcessOnly() {
+        val disk = MemoryPersistence()
+        val rooms = ActiveRooms(disk)
+        val id = rooms.register(room)
+        rooms.dismiss(id)
+        assertEquals(id, rooms.dismissed.value)
+        // 再起動後（新しいインスタンス）は記録が残っていても閉じた状態は戻らない。
+        val restarted = ActiveRooms(disk)
+        assertEquals(id, restarted.resumable.value?.sessionId)
+        assertNull(restarted.dismissed.value)
+    }
+
     @Test fun storageFailureDoesNotBreakTheChat() {
         val broken = object : ActiveRoomPersistence {
             override fun load(): ResumableRoom? = throw IllegalStateException("keystore")

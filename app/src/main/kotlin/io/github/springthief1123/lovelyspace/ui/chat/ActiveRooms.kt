@@ -34,6 +34,15 @@ class ActiveRooms(
     /** 起動時などに「会話に戻る」を出す対象。 */
     val resumable: StateFlow<ResumableRoom?> = _resumable.asStateFlow()
 
+    private val _dismissed = MutableStateFlow<String?>(null)
+
+    /** 「会話に戻る」を閉じた部屋の一時 ID。プロセスの間だけ持ち、保存はしない。 */
+    val dismissed: StateFlow<String?> = _dismissed.asStateFlow()
+
+    fun dismiss(id: String) {
+        _dismissed.value = id
+    }
+
     fun register(room: ChatRoomRef): String {
         val id = UUID.randomUUID().toString()
         rooms[id] = room

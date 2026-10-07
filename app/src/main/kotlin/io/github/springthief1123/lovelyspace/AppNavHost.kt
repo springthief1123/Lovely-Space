@@ -10,7 +10,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
@@ -61,8 +60,8 @@ fun AppNavHost() {
     val originArg = navArgument("origin") { type = NavType.StringType; defaultValue = Routes.ROOMS }
 
     val resumable by app.activeRooms.resumable.collectAsStateWithLifecycle()
-    // 「閉じる」はこのプロセスの間だけ隠す（保存状態には残さない）。記録は退室・部屋の終了で消える。
-    var resumeDismissed by remember { mutableStateOf<String?>(null) }
+    // 「閉じる」はこのプロセスの間だけ隠す（画面の作り直しでは戻らず、再起動後はまた出る）。記録は退室・部屋の終了で消える。
+    val resumeDismissed by app.activeRooms.dismissed.collectAsStateWithLifecycle()
     val resumeRoom = resumable?.takeIf { it.sessionId != resumeDismissed && currentRoute in mainRoutes }
 
     LovelyAppShell(
@@ -71,7 +70,7 @@ fun AppNavHost() {
         resumeBar = if (resumeRoom == null) null else { {
             ResumeChatBar(resumeRoom.room,
                 onResume = { app.activeRooms.resume()?.let { nav.navigateToChat(it, currentRoute ?: Routes.ROOMS) } },
-                onDismiss = { resumeDismissed = resumeRoom.sessionId })
+                onDismiss = { app.activeRooms.dismiss(resumeRoom.sessionId) })
         } },
         onDestinationSelected = { destination ->
             nav.navigate(destination.route) {
