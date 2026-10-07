@@ -46,10 +46,10 @@ class AppNotifier(
         manager.getNotificationChannelCompat(kind.channelId)?.importance != NotificationManagerCompat.IMPORTANCE_NONE
 
     @SuppressLint("MissingPermission") // canPost() で権限を確かめてから出す
-    suspend fun post(notification: AppNotification) {
+    suspend fun post(notification: AppNotification, timeoutAfterMs: Long? = null) {
         inbox.add(notification)
         if (!canPost()) return
-        manager.notify(notification.id, NOTIFICATION_ID, build(notification, preview()))
+        manager.notify(notification.id, NOTIFICATION_ID, build(notification, preview(), timeoutAfterMs))
     }
 
     /** 処理終了時などに、指定した端末通知を明示的に消す。常駐通知はこの経路で解除する。 */
@@ -71,7 +71,11 @@ class AppNotifier(
         inbox.show(notification)
     }
 
-    internal fun build(notification: AppNotification, preview: NotificationPreview): Notification {
+    internal fun build(
+        notification: AppNotification,
+        preview: NotificationPreview,
+        timeoutAfterMs: Long? = null,
+    ): Notification {
         val body = notification.body(preview)
         val builder = NotificationCompat.Builder(context, notification.kind.channelId)
             .setSmallIcon(R.drawable.ic_notification)
@@ -87,6 +91,7 @@ class AppNotifier(
         if (notification.kind == NotificationKind.ONGOING) {
             builder.setCategory(NotificationCompat.CATEGORY_STATUS)
         }
+        timeoutAfterMs?.let { builder.setTimeoutAfter(it) }
         if (notification.publicOnLockScreen(preview)) {
             builder.setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
         } else {
