@@ -24,7 +24,7 @@
 
 | モジュール | 内容 |
 | --- | --- |
-| `core` | 純粋な Kotlin/JVM（OkHttp・Jsoup・Coroutines）。本家への通信、HTML の解析、チャットのセッション、検索条件の判定。**サイトに依存する処理はすべてここに置き、JUnit でテストする。** |
+| `core` | 純粋な Kotlin/JVM（OkHttp・Jsoup・Coroutines）。本家への通信、HTML の解析、チャットのセッション、検索条件の判定。**サイトに依存する処理はここに置き、JUnit でテストする。**（例外: WebView の入力済み化で使うフォーム名・項目名は app の `EntryScreen.kt`・`CreateRoomScreen.kt` にある。[docs/architecture.md](docs/architecture.md) 参照） |
 | `app` | Android アプリ（Jetpack Compose・Material 3・Room・DataStore・Haze）。画面、端末内の保存、WebView との Cookie 共有。 |
 
 詳しくは [docs/architecture.md](docs/architecture.md)。

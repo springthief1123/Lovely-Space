@@ -17,7 +17,9 @@ app   (Android)     画面（Compose）・端末内の保存（Room / DataStore�
   └─ Robolectric のユニットテスト、Lint
 ```
 
-サイトに依存する処理（URL・フォーム項目・HTML の構造・JS 応答の形式）は必ず `core` に置きます。本家の HTML が変わったときに直す場所を 1 か所にするためです。
+サイトに依存する処理（URL・フォーム項目・HTML の構造・JS 応答の形式）は `core` に置きます。本家の HTML が変わったときに直す場所を 1 か所にするためです。
+
+**現在の例外**: WebView で本家の画面を入力済みにする処理は app にあります。フォーム名・項目名・対象パスが `ui/entry/EntryScreen.kt`（`entry` フォーム、`/PreEnterRoom`）と `ui/create/CreateRoomScreen.kt`（`makeroom` フォーム、`/PreMakeRoom`）に、入力スクリプトが `ui/web/SiteWebView.kt`（`prefillFormScript`）に直接書かれています。本家の入室・部屋作成フォームが変わったときは core に加えてここも直してください。
 
 ## core の主なクラス
 
