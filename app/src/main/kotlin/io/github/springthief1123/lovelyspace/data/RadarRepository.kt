@@ -71,6 +71,8 @@ class RadarRepository(
     private val baselines = mutableMapOf<String, Set<String>>()
     /** 比較基準をページの取得で最後に作り直した時刻。保存した基準の期限と、背景で確認する順番に使う。 */
     private val baselineAt = mutableMapOf<String, Long>()
+    /** 背景の巡回で各計画（planKey）の取得を最後に試した時刻。成否を問わず進め、保存して次のプロセスへ引き継ぐ。 */
+    private val backgroundTriedAt = mutableMapOf<String, Long>()
     private val knownMatches = mutableMapOf<String, MutableSet<String>>()
     private val nextPages = mutableMapOf<String, Int>()
     private val planKeys = mutableMapOf<String, String>()
@@ -91,6 +93,7 @@ class RadarRepository(
                     val saved = dao.state(KEY)
                     saved?.let(::restore)
                     seen.clear(); baselines.clear(); baselineAt.clear(); knownMatches.clear(); nextPages.clear(); planKeys.clear(); candidateBaselines.clear(); candidateKnown.clear(); candidateNext.clear(); evaluatedPlans.clear(); evaluatedCandidates.clear()
+                    backgroundTriedAt.clear()
                     saved?.let(::restoreBaselines)
                     _state.update { it.copy(loaded = true, scopes = emptyMap(), results = emptyMap(), nextPages = emptyMap(), candidateResults = emptyMap(), nextCandidatePages = emptyMap(), lastScan = null, lastConfirmedAt = null, livePages = emptyMap()) }
                 }
@@ -296,10 +299,10 @@ class RadarRepository(
             val scheduled = mutex.withLock {
                 val saved = searches.presets.first()
                 reconcilePlans(saved)
-                // 背景の実行はプロセスごと作り直されることがあるので、ページ数の上限で後回しになった計画が
-                // 取り残されないよう、比較基準が古い（確認していない）計画から順に取得する。
+                // 背景の実行はプロセスごと作り直されることがあるので、ページ数の上限で後回しになった計画や
+                // 取得に失敗し続ける計画で順番が止まらないよう、取得を試していない（試したのが古い）計画から順に取得する。
                 val selected = saved.filter { it.id in plansOf(_state.value) }
-                    .let { plans -> if (backgroundOnly) plans.sortedBy { baselineAt["${planKey(it)}/1"] ?: Long.MIN_VALUE } else plans }
+                    .let { plans -> if (backgroundOnly) plans.sortedBy { backgroundTriedAt[planKey(it)] ?: Long.MIN_VALUE } else plans }
                 val requests = linkedMapOf<RoomQuery, MutableList<SearchPreset>>()
                 selected.forEach { preset ->
                     Genres[preset.genreKey]?.let { genre ->
@@ -329,6 +332,7 @@ class RadarRepository(
                     }
                     if (!stillNeeded) updateCheck(query, RadarCheckStatus.SKIPPED, message = "条件の停止・変更により取得を見送りました。")
                     else {
+                        if (backgroundOnly) mutex.withLock { request.plans.forEach { backgroundTriedAt[planKey(it)] = now() } }
                         updateCheck(query, RadarCheckStatus.CHECKING)
                         before[query] = lists.observation(query)?.revision ?: 0
                     }
@@ -342,6 +346,8 @@ class RadarRepository(
                         ListSyncOutcome.Skipped -> Unit
                     }
                 })
+            // 取得に失敗したページの試行順も次のプロセスへ残す（成功したページは反映時に保存済み）。
+            if (backgroundOnly) mutex.withLock { persist() }
         } catch (e: CancellationException) { interrupted = true; throw e }
         catch (e: Exception) {
             interrupted = true
@@ -498,6 +504,7 @@ class RadarRepository(
         val background = s.activeBackgroundPlans
         val backgroundKeys = planKeys.filterKeys { it in background }.values.toSet()
         fun ownedByBackground(key: String) = backgroundKeys.any { key == it || key.startsWith("$it/") }
+        json.put("backgroundTried", JSONObject().apply { backgroundTriedAt.filterKeys { it in backgroundKeys }.forEach { (key, at) -> put(key, at) } })
         json.put("baselines", JSONObject().apply {
             put("pages", JSONObject().apply { baselines.filterKeys(::ownedByBackground).forEach { (key, ids) ->
                 val at = baselineAt[key] ?: return@forEach
@@ -512,6 +519,7 @@ class RadarRepository(
         dao.put(LocalState(KEY, json.toString()))
     }
     private fun restoreBaselines(value: String) {
+        JSONObject(value).optJSONObject("backgroundTried")?.let { tried -> tried.keys().forEach { key -> backgroundTriedAt[key] = tried.getLong(key) } }
         val saved = JSONObject(value).optJSONObject("baselines") ?: return
         val current = now()
         /** 期限内のものだけを（取得時刻, ID）で返す。 */

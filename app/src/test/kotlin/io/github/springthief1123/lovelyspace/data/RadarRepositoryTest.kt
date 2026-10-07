@@ -591,4 +591,29 @@ class RadarRepositoryTest {
             assertEquals(skipped, nextLists.calls.first().genre.key)
         } finally { db.close() }
     }
+    @Test fun plansThatKeepFailingDoNotBlockTheRestInLaterProcesses() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            val prefs = RoomPreferenceRepository(db)
+            val genres = listOf("zenkoku", "talk", "game", "cosplay")
+            genres.forEach { searches.save(SearchPreset("p-$it", "合成 $it", it, RoomSearchCriteria())) }
+            var clock = 1_000_000L
+            var running = SupervisorJob(backgroundScope.coroutineContext[Job])
+            suspend fun restart(): CoroutineScope { running.cancelAndJoin(); running = SupervisorJob(backgroundScope.coroutineContext[Job]); return CoroutineScope(backgroundScope.coroutineContext + running) }
+            fun failing() = Lists().apply { onFetch = { throw java.io.IOException("合成の通信失敗") } }
+            val firstLists = failing()
+            val first = RadarRepository(db.presets(), firstLists, searches, prefs, CoroutineScope(backgroundScope.coroutineContext + running)) { clock }
+            first.state.first { it.loaded }
+            genres.forEach { first.setPlanBackground("p-$it", true) }
+            first.scan(latestFirst = true, force = false, maxPages = 3, backgroundOnly = true)
+            val untried = genres.single { genre -> firstLists.calls.none { it.genre.key == genre } }
+            clock += 15 * 60 * 1000L
+            val nextLists = failing()
+            val next = RadarRepository(db.presets(), nextLists, searches, prefs, restart()) { clock }
+            next.state.first { it.loaded }
+            next.scan(latestFirst = true, force = false, maxPages = 3, backgroundOnly = true)
+            assertEquals(untried, nextLists.calls.first().genre.key)
+        } finally { db.close() }
+    }
 }
