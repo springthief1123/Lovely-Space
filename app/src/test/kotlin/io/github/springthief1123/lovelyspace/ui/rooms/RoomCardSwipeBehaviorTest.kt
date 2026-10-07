@@ -64,6 +64,19 @@ class RoomCardSwipeBehaviorTest {
         )
     }
 
+    @Test
+    fun openCardClosesWithSmallerReturnThanItTakesToOpen() {
+        assertEquals(52.2f, roomCardRevealThreshold(116f, startedOpen = false), 0.01f)
+        assertEquals(81.2f, roomCardRevealThreshold(116f, startedOpen = true), 0.01f)
+    }
+
+    @Test
+    fun dragBeyondRevealWidthMovesWithResistance() {
+        assertEquals(80f, roomCardRubberBand(80f, 116f), 0.01f)
+        assertEquals(116f + 84f * 0.55f, roomCardRubberBand(200f, 116f), 0.01f)
+        assertEquals(-(116f + 84f * 0.55f), roomCardRubberBand(-200f, 116f), 0.01f)
+    }
+
     private fun release(offset: Float, velocity: Float) = resolveRoomCardSwipeRelease(
         offsetPx = offset,
         velocityPx = velocity,

@@ -10,6 +10,12 @@ import androidx.compose.material.icons.outlined.Female
 import androidx.compose.material.icons.outlined.Male
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -84,6 +90,38 @@ import kotlin.time.Duration
 /** 部屋カードの待機メッセージの最大行数。表示設定から MainActivity で与える。 */
 val LocalRoomMessageMaxLines = compositionLocalOf { 4 }
 
+/**
+ * スワイプで開いている部屋カードを1枚に保つ。開いたカードの印だけを持ち、
+ * 他のカードは印が自分でなくなったら閉じる。
+ */
+@Stable
+class RoomCardSwipeCoordinator {
+    var openToken: Any? by mutableStateOf<Any?>(null)
+        private set
+
+    fun open(token: Any) { openToken = token }
+    fun closed(token: Any) { if (openToken === token) openToken = null }
+    fun closeAll() { openToken = null }
+}
+
+/** アプリ内で1つを共有する。画面ごとに分けないので、別画面に開いたカードが残ることもない。 */
+val LocalRoomCardSwipeCoordinator = staticCompositionLocalOf { RoomCardSwipeCoordinator() }
+
+/**
+ * 開くのに必要な移動量。閉じた状態からは操作幅の45%、開いた状態からは70%未満まで戻すと閉じる。
+ * 開いたカードを少し戻すだけで閉じられ、閉じたカードは軽く触れただけでは開かない。
+ */
+internal fun roomCardRevealThreshold(revealWidthPx: Float, startedOpen: Boolean): Float =
+    revealWidthPx * if (startedOpen) CLOSE_FROM_OPEN_FRACTION else OPEN_FROM_CLOSED_FRACTION
+
+/** 操作幅を超えた分は抵抗を付けて動かし、勢い余って確定域へ入りにくくする。 */
+internal fun roomCardRubberBand(dragPx: Float, revealWidthPx: Float): Float {
+    val magnitude = abs(dragPx)
+    if (magnitude <= revealWidthPx) return dragPx
+    val resisted = revealWidthPx + (magnitude - revealWidthPx) * OVERDRAG_RESISTANCE
+    return if (dragPx > 0f) resisted else -resisted
+}
+
 private enum class SwipeSide { NONE, FAVORITE, HIDDEN }
 
 internal enum class RoomCardSwipeRelease {
@@ -146,12 +184,18 @@ fun RoomCard(
     var dragPositionPx by remember(room.id, room.genreKey) { mutableFloatStateOf(0f) }
     var commitArmed by remember(room.id, room.genreKey) { mutableStateOf(false) }
     var settleJob by remember(room.id, room.genreKey) { mutableStateOf<Job?>(null) }
+    var settleTarget by remember(room.id, room.genreKey) { mutableFloatStateOf(0f) }
+    var dragging by remember(room.id, room.genreKey) { mutableStateOf(false) }
+    // 開いた状態から始めた操作では反対側へ通り抜けさせない（戻しすぎ防止）。
+    var gestureStartSide by remember(room.id, room.genreKey) { mutableFloatStateOf(0f) }
+    var lastRootY by remember(room.id, room.genreKey) { mutableStateOf<Float?>(null) }
+    val coordinator = LocalRoomCardSwipeCoordinator.current
+    val swipeToken = remember(room.id, room.genreKey) { Any() }
 
     val revealWidthPx = min(
         with(density) { SWIPE_ACTION_WIDTH.toPx() },
         cardWidthPx * MAX_REVEAL_FRACTION,
     )
-    val revealThresholdPx = with(density) { SWIPE_REVEAL_THRESHOLD.toPx() }
     val velocityThresholdPx = with(density) { SWIPE_VELOCITY_THRESHOLD.toPx() }
     val commitThresholdPx = max(
         cardWidthPx * MIN_COMMIT_FRACTION,
@@ -162,7 +206,8 @@ fun RoomCard(
         animate(
             initialValue = offsetPx,
             targetValue = target,
-            animationSpec = spring(dampingRatio = 0.86f, stiffness = 620f),
+            // 跳ね返りのない減衰で落ち着かせ、戻りすぎ・行きすぎに見えないようにする。
+            animationSpec = spring(dampingRatio = 1f, stiffness = SETTLE_STIFFNESS),
         ) { value, _ ->
             offsetPx = value
         }
@@ -171,10 +216,21 @@ fun RoomCard(
 
     fun launchSettle(target: Float, after: (() -> Unit)? = null) {
         settleJob?.cancel()
+        settleTarget = target
+        if (target == 0f) coordinator.closed(swipeToken) else coordinator.open(swipeToken)
         settleJob = scope.launch {
             animateOffsetTo(target)
             after?.invoke()
         }
+    }
+
+    // スクロールで一覧から外れたカードが「開いている」まま残らないようにする。
+    DisposableEffect(coordinator, swipeToken) { onDispose { coordinator.closed(swipeToken) } }
+
+    // 別のカードが開いたら、このカードは閉じる。
+    val openToken = coordinator.openToken
+    LaunchedEffect(openToken) {
+        if (openToken !== swipeToken && !dragging && settleTarget != 0f) launchSettle(0f)
     }
 
     fun invokeMenuAction(side: SwipeSide) {
@@ -202,6 +258,8 @@ fun RoomCard(
             SwipeSide.NONE -> 0f
         }
         settleJob?.cancel()
+        settleTarget = 0f
+        coordinator.closed(swipeToken)
         settleJob = scope.launch {
             animateOffsetTo(target)
             action()
@@ -215,6 +273,8 @@ fun RoomCard(
         var next = (dragPositionPx + delta).coerceIn(-maxOffset, maxOffset)
         if (next > 0f && !favoriteEnabled) next = 0f
         if (next < 0f && !hiddenEnabled) next = 0f
+        if (gestureStartSide > 0f && next < 0f) next = 0f
+        if (gestureStartSide < 0f && next > 0f) next = 0f
         dragPositionPx = next
 
         val nowArmed = cardWidthPx > 0f && when {
@@ -231,7 +291,7 @@ fun RoomCard(
         offsetPx = when {
             nowArmed && next > 0f -> maxOffset
             nowArmed && next < 0f -> -maxOffset
-            else -> next
+            else -> roomCardRubberBand(next, revealWidthPx)
         }
         commitArmed = nowArmed
     }
@@ -250,7 +310,14 @@ fun RoomCard(
         Box(
             Modifier
                 .fillMaxWidth()
-                .onSizeChanged { cardWidthPx = it.width.toFloat() },
+                .onSizeChanged { cardWidthPx = it.width.toFloat() }
+                .onGloballyPositioned { coordinates ->
+                    // 一覧をスクロールしたら開いているカードを閉じる。
+                    val y = coordinates.positionInRoot().y
+                    val previous = lastRootY
+                    lastRootY = y
+                    if (previous != null && abs(y - previous) > 1f && !dragging && settleTarget != 0f) launchSettle(0f)
+                },
         ) {
             SwipeActionBackground(
                 side = side,
@@ -270,14 +337,22 @@ fun RoomCard(
                         enabled = favoriteEnabled || hiddenEnabled,
                         onDragStarted = {
                             settleJob?.cancel()
+                            dragging = true
+                            coordinator.open(swipeToken)
+                            gestureStartSide = when {
+                                offsetPx > 0.5f -> 1f
+                                offsetPx < -0.5f -> -1f
+                                else -> 0f
+                            }
                             dragPositionPx = offsetPx
                             commitArmed = cardWidthPx > 0f && abs(dragPositionPx) >= commitThresholdPx
                         },
                         onDragStopped = { velocity ->
+                            dragging = false
                             val release = resolveRoomCardSwipeRelease(
                                 offsetPx = dragPositionPx,
                                 velocityPx = velocity,
-                                revealThresholdPx = revealThresholdPx,
+                                revealThresholdPx = roomCardRevealThreshold(revealWidthPx, startedOpen = gestureStartSide != 0f),
                                 commitThresholdPx = commitThresholdPx,
                                 velocityThresholdPx = velocityThresholdPx,
                                 favoriteEnabled = favoriteEnabled,
@@ -304,7 +379,11 @@ fun RoomCard(
                     isHidden = isHidden,
                     enabled = enabled || side != SwipeSide.NONE,
                     onClick = {
-                        if (side != SwipeSide.NONE) {
+                        val other = coordinator.openToken
+                        if (other != null && other !== swipeToken) {
+                            // 他のカードが開いている間のタップは、そのカードを閉じるだけにする。
+                            coordinator.closeAll()
+                        } else if (side != SwipeSide.NONE) {
                             launchSettle(0f)
                         } else if (enabled) {
                             onClick()
@@ -550,8 +629,11 @@ internal fun formatElapsed(d: Duration): String {
 }
 
 private val SWIPE_ACTION_WIDTH = 116.dp
-private val SWIPE_REVEAL_THRESHOLD = 36.dp
-private val SWIPE_VELOCITY_THRESHOLD = 720.dp
+private val SWIPE_VELOCITY_THRESHOLD = 1100.dp
+private const val OPEN_FROM_CLOSED_FRACTION = 0.45f
+private const val CLOSE_FROM_OPEN_FRACTION = 0.7f
+private const val OVERDRAG_RESISTANCE = 0.55f
+private const val SETTLE_STIFFNESS = 380f
 private val SWIPE_EDGE_REMAINING = 64.dp
 private const val MAX_REVEAL_FRACTION = 0.42f
 private const val MIN_COMMIT_FRACTION = 0.72f

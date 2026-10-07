@@ -10,6 +10,13 @@ import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.test.swipeRight
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import org.junit.Assert.assertTrue
 import io.github.springthief1123.lovelyspace.core.Gender
 import io.github.springthief1123.lovelyspace.core.Room
 import io.github.springthief1123.lovelyspace.core.RoomAction
@@ -76,6 +83,33 @@ class RoomCardLayoutTest {
         val results = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
         node.config[SemanticsActions.GetTextLayoutResult].action?.invoke(results)
         assertEquals(3, results.single().lineCount)
+    }
+
+    @Test fun onlyOneCardStaysSwipedOpen() {
+        val other = room.copy(id = 2L, name = "別の部屋")
+        compose.setContent {
+            LovelySpaceTheme {
+                CompositionLocalProvider(LocalRoomCardSwipeCoordinator provides RoomCardSwipeCoordinator()) {
+                    Column(Modifier.width(360.dp)) {
+                        RoomCard(room = room, onClick = {}, onFavoriteClick = {}, onHideClick = {})
+                        RoomCard(room = other, onClick = {}, onFavoriteClick = {}, onHideClick = {})
+                    }
+                }
+            }
+        }
+        val first = compose.onNodeWithText("テスト", useUnmergedTree = true)
+        val second = compose.onNodeWithText("別の部屋", useUnmergedTree = true)
+        val firstLeft = first.getUnclippedBoundsInRoot().left
+        val secondLeft = second.getUnclippedBoundsInRoot().left
+
+        compose.onNodeWithText("テスト").performTouchInput { swipeRight(startX = centerX, endX = centerX + 90.dp.toPx(), durationMillis = 400) }
+        compose.waitForIdle()
+        assertTrue(first.getUnclippedBoundsInRoot().left > firstLeft + 40.dp)
+
+        compose.onNodeWithText("別の部屋").performTouchInput { swipeRight(startX = centerX, endX = centerX + 90.dp.toPx(), durationMillis = 400) }
+        compose.waitForIdle()
+        assertTrue(second.getUnclippedBoundsInRoot().left > secondLeft + 40.dp)
+        assertEquals(firstLeft.value, first.getUnclippedBoundsInRoot().left.value, 1f)
     }
 
     @Test fun elapsedLabelDistinguishesWaitingAndConversation() {
