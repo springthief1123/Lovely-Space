@@ -1,6 +1,6 @@
 # ロードマップ
 
-最終更新: 2026-10-07
+最終更新: 2026-10-08
 
 実装は 7 つのフェーズに分けて進めています。GitHub では親 issue [#26](https://github.com/springthief1123/Lovely-Space/issues/26) の下にフェーズ issue、その下にタスク issue をサブ issue として置いています。このファイルはその要約で、**最新の状態は issue が正**です。
 
@@ -13,7 +13,7 @@
 | 2. チャット（入室・会話・退室・部屋作成） | 主要部分は完了 | [#29](https://github.com/springthief1123/Lovely-Space/issues/29) | #3, #4, #5, #7, #8, #17, #54, #55 |
 | 3. プロフィールプリセット | 完了 | [#35](https://github.com/springthief1123/Lovely-Space/issues/35) | #9 |
 | 4. 検索・整理 | 主要部分は完了 | [#36](https://github.com/springthief1123/Lovely-Space/issues/36) | #10, #12, #13, #15, #16, #24 |
-| 5. 巡回・通知・順番待ち | 端末通知の基盤と背景の定期巡回まで完了、順番待ちはレビュー中 | [#39](https://github.com/springthief1123/Lovely-Space/issues/39) | #15, #18〜#23, #25, #54, #56, #57 |
+| 5. 巡回・通知・順番待ち | 端末通知の基盤・背景の定期巡回・順番待ちまで完了（実機確認待ち） | [#39](https://github.com/springthief1123/Lovely-Space/issues/39) | #15, #18〜#23, #25, #54, #56, #57, #63 |
 | 6. 仕上げとリリース | 未着手 | [#47](https://github.com/springthief1123/Lovely-Space/issues/47) | — |
 
 ## 残りのタスク
@@ -26,6 +26,9 @@
 | [#31](https://github.com/springthief1123/Lovely-Space/issues/31) | 採取: 作成者側の ajax.php 応答（入室者あり・相手退室・部屋終了） | needs-capture | — |
 | [#32](https://github.com/springthief1123/Lovely-Space/issues/32) | 作成者の操作: 相手を退室・発言クリア・待機メッセージ変更・公開設定（実装済み・実機確認待ち） | needs-device-test | #31 があると確実 |
 | [#34](https://github.com/springthief1123/Lovely-Space/issues/34) | 画像の送信・会話ログ全文の表示 | | — |
+| [#58](https://github.com/springthief1123/Lovely-Space/issues/58) | 会話の表示: 自分の発言を右・相手を左に確実に分け、お知らせ行をグレーの角丸で囲む | needs-device-test | — |
+| [#59](https://github.com/springthief1123/Lovely-Space/issues/59) | 公開ルーム: 「閲覧のみ」のスイッチを「自動で新着を読み込む」と分かる表示にする | | — |
+| [#60](https://github.com/springthief1123/Lovely-Space/issues/60) | 調査: 公開ルームを開く・部屋を覗くときの読み込みが遅い | research, needs-device-test | — |
 
 ### フェーズ4: 検索・整理
 
@@ -33,6 +36,7 @@
 | --- | --- | --- | --- |
 | [#37](https://github.com/springthief1123/Lovely-Space/issues/37) | 調査: 人を見分ける手がかり（一時ID・トリップ）の持続性 | needs-capture, research | — |
 | [#38](https://github.com/springthief1123/Lovely-Space/issues/38) | 人単位のブロック・非表示（名前・トリップ） | | #37 |
+| [#61](https://github.com/springthief1123/Lovely-Space/issues/61) | 見つける: スクロールしても検索・絞り込み・更新を上部のバーから開けるようにする | | — |
 
 ### フェーズ5: 巡回・通知・順番待ち
 
@@ -40,7 +44,6 @@
 | --- | --- | --- | --- |
 | [#43](https://github.com/springthief1123/Lovely-Space/issues/43) | 入室者あり通知（自分の部屋で待機中） | | #41, #31, #33 |
 | [#44](https://github.com/springthief1123/Lovely-Space/issues/44) | 調査: 本家の Web プッシュ（UnifiedPush）で入室通知を受け取れるか | research | — |
-| [#45](https://github.com/springthief1123/Lovely-Space/issues/45) | 順番待ち（満室の部屋に空きが出たら知らせる） | | #40, #41 |
 | [#46](https://github.com/springthief1123/Lovely-Space/issues/46) | 背景機能の設定と電池最適化の案内 | | #42, #43, #45 |
 
 ### フェーズ6: 仕上げとリリース
@@ -51,13 +54,14 @@
 | [#49](https://github.com/springthief1123/Lovely-Space/issues/49) | エラー処理とアクセス頻度の最終確認 | | フェーズ5 |
 | [#50](https://github.com/springthief1123/Lovely-Space/issues/50) | 署名付き APK と GitHub Releases での配布 | | — |
 | [#51](https://github.com/springthief1123/Lovely-Space/issues/51) | 実機で 1 週間の運用確認 | needs-device-test | #50, フェーズ5 |
+| [#62](https://github.com/springthief1123/Lovely-Space/issues/62) | アプリロック（パスコード・パターン・生体認証、ロックまでの時間を選べる） | needs-device-test | — |
 
 ## おすすめの着手順
 
 依存の少ないものから並べています。`needs-capture` と `needs-device-test` は Yuya の作業が必要なので、開発と並行して依頼します。
 
 1. #30（実機確認）と #31・#37（採取）を Yuya に依頼する
-2. #45 順番待ち（レビュー中。#42 背景の定期巡回・#33 復帰・#40 一覧取得の一元化・#41 通知の基盤は実装済み）
+2. 実機の報告から: #59 公開ルームのスイッチの表示 → #58 会話の吹き出し → #60 読み込みの遅さの調査 → #61 検索パネルの固定 → #62 アプリロック（#42 背景の定期巡回・#45 順番待ち・#33 復帰・#40 一覧取得の一元化・#41 通知の基盤は実装済み）
 3. #43 入室者あり通知（#44 の調査結果で方式を決める）
 4. #38 人単位のブロック、#34 画像とログ（#32 作成者の操作は実装済みで実機確認待ち）
 5. #46 背景機能の設定 → フェーズ6
@@ -74,4 +78,5 @@
 - 2026-10-03: 実装プランを作成。Kotlin + Jetpack Compose を採用。
 - 2026-10-04: フェーズ0〜2 の主要部分を実装（#1〜#5）。実機で入室・会話・退室を確認。
 - 2026-10-05〜06: プリセット・検索・お気に入り・非表示・レーダー（前面での巡回）と画面の再設計を実装（#6〜#24）。
-- 2026-10-07: ロードマップを親子 issue（#26〜#51）に整理。進行中の部屋への復帰（#33）と一覧取得の一元化（#40）を実装（PR #54）。作成者の操作（#32 / PR #55）、端末通知の基盤と通知ベル（#41 / PR #56）を実装。巡回計画ごとの背景の定期巡回と一致の通知（#42 / PR #57）を実装。順番待ち（#45）に着手。
+- 2026-10-07: ロードマップを親子 issue（#26〜#51）に整理。進行中の部屋への復帰（#33）と一覧取得の一元化（#40）を実装（PR #54）。作成者の操作（#32 / PR #55）、端末通知の基盤と通知ベル（#41 / PR #56）を実装。巡回計画ごとの背景の定期巡回と一致の通知（#42 / PR #57）を実装。
+- 2026-10-08: 順番待ち（#45 / PR #63）を実装。実機の報告から #58〜#62 を追加（お知らせのベルで落ちる不具合は #57 で修正）。公開ルームのスイッチの表示を直す（#59）。
