@@ -34,6 +34,20 @@ class AutomaticSearchTest {
             assertEquals(stopped, calls.size)
         } finally { Dispatchers.resetMain() }
     }
+    @Test fun leavingDuringManualRefreshCancelsTheRequestOwnedByTheViewModel() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            var cancelled = false
+            val vm = SearchViewModel(RoomListSource { _, _ ->
+                try { awaitCancellation() } finally { cancelled = true }
+            })
+            vm.refresh(); runCurrent()
+            val job = backgroundScope.launch { vm.monitor() }
+            runCurrent(); job.cancelAndJoin(); runCurrent()
+            assertTrue(cancelled)
+            assertFalse(vm.state.value.loading)
+        } finally { Dispatchers.resetMain() }
+    }
     @Test fun automaticFailureRetriesTheSamePageAndCancellationReachesTheSource() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {

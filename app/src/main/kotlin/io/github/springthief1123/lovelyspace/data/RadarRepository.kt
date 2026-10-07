@@ -219,7 +219,7 @@ class RadarRepository(
     /** 新着を優先しながら、間に残りのページを取得する。画面のLifecycleが実行を管理する。 */
     suspend fun monitor() {
         var headAt: Long? = null
-        while (currentCoroutineContext().isActive) {
+        while (currentCoroutineContext().isActive && _state.value.automatic) {
             val now = System.nanoTime() / 1_000_000
             if (_state.value.loaded && !_state.value.running &&
                 (_state.value.plans.isNotEmpty() || _state.value.candidateRules.any { it.enabled } || _state.value.targets.any { it.evidence != RoomIdentityEvidence.REUSED })) {

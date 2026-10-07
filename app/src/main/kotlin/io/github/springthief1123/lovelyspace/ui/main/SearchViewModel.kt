@@ -110,7 +110,7 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
     suspend fun monitor() {
         val schedule = RoomPageSchedule(clock)
         try {
-            while (currentCoroutineContext().isActive) {
+            while (currentCoroutineContext().isActive && _state.value.automatic) {
                 if (!_state.value.initialized) { state.first { it.initialized }; continue }
                 job?.join()
                 val page = schedule.next(_state.value.lastPage)
@@ -118,7 +118,7 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
                 if (_state.value.error == null) schedule.completed(page, _state.value.lastPage)
                 delay(if (_state.value.error != null || _state.value.lastPage <= 1) RoomPageSchedule.HEAD_INTERVAL_MS else RoomPageSchedule.STEP_INTERVAL_MS)
             }
-        } finally { _state.update { it.copy(loading = false) } }
+        } finally { job?.cancel(); _state.update { it.copy(loading = false) } }
     }
 
     private fun load(page: Int, force: Boolean) {
