@@ -141,6 +141,19 @@ class ChatClientTest {
     }
 
     @Test
+    fun resyncPreservesMinimumSendInterval() = runTest {
+        respond(fixture("chat/ajax_send.txt"))
+        respond(fixture("chat/ajax_send.txt"))
+        val first = client.chatSession(page(fromSize = 690))
+
+        first.send("1回目")
+        val resynced = client.chatSession(page(fromSize = 726), previous = first)
+        resynced.send("2回目")
+
+        assertEquals("再同期しても連続発言は 1.5 秒空ける", listOf(ChatSession.MIN_SEND_INTERVAL_MS), sleeps)
+    }
+
+    @Test
     fun pollWaitsForIntervalAfterSend() = runTest {
         respond(fixture("chat/ajax_send.txt"))
         respond(fixture("chat/ajax_no_new.txt"))
