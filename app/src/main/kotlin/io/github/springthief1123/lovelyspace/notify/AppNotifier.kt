@@ -130,8 +130,9 @@ class AppNotifier(
             val target = notificationTarget(JSONObject(intent.getStringExtra(EXTRA_TARGET)!!))
             // MainActivity はランチャーのため exported。外部アプリが同じ action/extras を偽装できるので、
             // 履歴に無い通知の復元は本当に履歴へ保存しない種類だけに限定する。
-            // パラメータ付き Room は任意 host を含められるため、履歴外の intent からは受け付けない。
-            if (kind.logged || target is NotificationTarget.Room) return@runCatching null
+            // 開けるのは主画面（レーダー・一覧）だけにし、部屋や進行中の会話は履歴にある通知からしか開かない。
+            val safeTarget = target == NotificationTarget.Radar || target == NotificationTarget.Rooms
+            if (kind.logged || !safeTarget) return@runCatching null
             AppNotification(
                 id = id,
                 kind = kind,

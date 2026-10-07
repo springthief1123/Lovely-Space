@@ -127,6 +127,12 @@ class AppNotifierTest {
         assertNull(inbox.opened.value)
     }
 
+    @Test fun unloggedNotificationIntentCannotOpenTheActiveChat() {
+        val forged = NotificationSamples.of(NotificationKind.ONGOING).copy(id = "status-chat", target = NotificationTarget.ActiveChat)
+        notifier.open(AppNotifier.openIntent(app, forged))
+        assertNull(inbox.opened.value)
+    }
+
     @Test fun everyKindHasATestNotification() = runTest {
         grant()
         NotificationKind.entries.forEach { notifier.post(NotificationSamples.of(it)) }
