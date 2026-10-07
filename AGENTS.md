@@ -17,7 +17,7 @@
 2. **チャット中の通信は `ChatSession` に任せる。** `ajax.php` の新着取得・発言は、本家ブラウザの `2shot.js` と同じ規則（`PollSchedule` の間隔、発言は 1.5 秒以上空ける、新着取得は常に 1 本）で行う。本家より攻撃的にしない。
 3. **ロボット確認（Cloudflare Turnstile / hCaptcha）は回避しない。** 入室（条件付き）と部屋作成（毎回）では、本家の画面を WebView で開き、入力欄をアプリが埋めたうえで、確認と送信は利用者が行う。
 4. **本家の実データをコミットしない。** リポジトリは公開。他の利用者の名前・募集文・発言、部屋の `pwd`、Cookie は、テスト用データ・issue・PR・ログに入れない。テスト用 HTML（`core/src/test/resources/fixtures`）は本家の構造だけを再現した合成データにする。
-5. **`pwd` は部屋の鍵として扱う。** URL・例外メッセージ・ナビゲーションの route・ログに出さない（`ShaloveClient.redact` を使う）。
+5. **`pwd` は部屋の鍵として扱う。** URL・例外メッセージ・ナビゲーションの route・ログに出さない。core の通信エラー（`HttpStatusException`）は URL の `pwd` を伏せて持つ。伏せる処理（`HttpStatusException.redact`）は core 内部用なので、app 側で `pwd` を含む URL を扱う必要が出たら core に公開の関数を用意してから使う。
 6. **一覧の解析は PC 版レイアウト前提。** `ShaloveClient.USER_AGENT` は PC の Chrome のままにする。
 
 ## 構成
