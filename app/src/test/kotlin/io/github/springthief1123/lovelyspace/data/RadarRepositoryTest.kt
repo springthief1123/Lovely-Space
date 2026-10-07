@@ -432,4 +432,24 @@ class RadarRepositoryTest {
             assertEquals(radar.state.value.targets.single().observedAt, restored.state.value.targets.single().observedAt)
         } finally { db.close() }
     }
+    @Test fun pageLimitDefersTheRestAndAConcurrentScanDoesNotFetchTwice() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            searches.save(SearchPreset("a", "合成A", "zenkoku", RoomSearchCriteria()))
+            searches.save(SearchPreset("b", "合成B", "talk", RoomSearchCriteria()))
+            val lists = Lists()
+            val radar = RadarRepository(db.presets(), lists, searches, RoomPreferenceRepository(db), backgroundScope)
+            radar.state.first { it.loaded }; radar.setPlan("a", true); radar.setPlan("b", true)
+            // 背景実行と同じ上限付きの巡回。上限を超えたページは取得せず次回に回す。
+            radar.scan(latestFirst = true, force = false, maxPages = 1)
+            assertEquals(1, lists.calls.size)
+            val pages = radar.state.value.lastScan!!.pages
+            assertEquals(listOf(RadarCheckStatus.CONFIRMED, RadarCheckStatus.SKIPPED), pages.map { it.status })
+            // 取得中に別の巡回（前面と背景など）が始まっても、同じページを二重に取得しない。
+            lists.onFetch = { radar.scan(latestFirst = true) }
+            radar.scan(latestFirst = true)
+            assertEquals(3, lists.calls.size)
+        } finally { db.close() }
+    }
 }
