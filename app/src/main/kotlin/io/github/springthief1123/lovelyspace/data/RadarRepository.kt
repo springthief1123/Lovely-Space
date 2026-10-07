@@ -19,7 +19,9 @@ data class TrackedRoom(val room: Room, val confirmedAt: Long? = null, val eviden
 )
 data class RadarEvent(val at: Long, val text: String, val id: String = java.util.UUID.randomUUID().toString(),
     val rooms: List<Room> = emptyList(), val page: Int? = null, val blocked: Boolean = false, val sourceQuery: RoomQuery? = null,
-    val kind: RadarEventKind = RadarEventKind.LEGACY, val origin: RadarEventOrigin? = null, val read: Boolean = false)
+    val kind: RadarEventKind = RadarEventKind.LEGACY, val origin: RadarEventOrigin? = null, val read: Boolean = false,
+    /** 背景の巡回で記録し、まだ端末通知に出していない。通知を出し終えるまで保存しておき、途中で止まっても次の実行で出す。 */
+    val pendingNotice: Boolean = false)
 data class RadarResult(val presetId: String, val at: Long, val page: Int, val lastPage: Int, val rooms: List<Room>, val genreKey: String, val criteria: RoomSearchCriteria)
 private data class ScheduledRadarQuery(val plans: List<SearchPreset>, val candidates: List<CandidateRule>)
 data class RadarState(
@@ -200,6 +202,16 @@ class RadarRepository(
             persist()
         }
     }
+    /** 背景の巡回で記録し、まだ端末通知に出していない履歴。 */
+    fun pendingNotices(): List<RadarEvent> = _state.value.events.filter { it.pendingNotice }
+    /** 端末通知に出し終えた履歴を記録する。 */
+    suspend fun markNoticed(ids: Set<String>) = mutex.withLock {
+        if (_state.value.events.none { it.id in ids && it.pendingNotice }) return@withLock
+        transaction {
+            _state.update { state -> state.copy(events = state.events.map { if (it.id in ids) it.copy(pendingNotice = false) else it }) }
+            persist()
+        }
+    }
     suspend fun setTargetSort(sort: RadarTargetSort) = edit { it.copy(targetSort = sort) }
     suspend fun updateTarget(identity: Room, pinned: Boolean? = null, note: String? = null) = edit { state ->
         require(note == null || note.length <= 500) { "メモは500文字までです。" }
@@ -324,7 +336,7 @@ class RadarRepository(
                 },
                 onResult = { query, outcome ->
                     when (outcome) {
-                        is ListSyncOutcome.Fetched -> applyFetched(query, scheduled.getValue(query), before[query] ?: 0, force, latestFirst, ::plansOf)
+                        is ListSyncOutcome.Fetched -> applyFetched(query, scheduled.getValue(query), before[query] ?: 0, force, latestFirst, ::plansOf, notice = backgroundOnly)
                         is ListSyncOutcome.Failed -> updateCheck(query, RadarCheckStatus.FAILED, message = "一覧を取得できませんでした。次の巡回で同じページを確認します。")
                         ListSyncOutcome.Deferred -> updateCheck(query, RadarCheckStatus.SKIPPED, message = "1回の巡回で取得するページ数の上限に達したため、次の巡回で確認します。")
                         ListSyncOutcome.Skipped -> Unit
@@ -350,7 +362,7 @@ class RadarRepository(
         return _state.value.events.filter { it.id !in previousEvents }
     }
     /** 取得した1ページを各計画・候補・追跡先へ反映する。 */
-    private suspend fun applyFetched(query: RoomQuery, request: ScheduledRadarQuery, before: Long, force: Boolean, latestFirst: Boolean, plansOf: (RadarState) -> Set<String>) {
+    private suspend fun applyFetched(query: RoomQuery, request: ScheduledRadarQuery, before: Long, force: Boolean, latestFirst: Boolean, plansOf: (RadarState) -> Set<String>, notice: Boolean) {
         val observation = lists.observation(query)
         if (observation == null || observation.query != query || (force && observation.revision <= before)) {
             updateCheck(query, RadarCheckStatus.FAILED, message = "新しい一覧を確認できませんでした。次の巡回で同じページを確認します。")
@@ -363,7 +375,7 @@ class RadarRepository(
                 val active = currentSaved.filter { it.id in _state.value.plans }
                 val scheduledPlans = active.filter { preset -> preset.id in plansOf(_state.value) && request.plans.any { planKey(it) == planKey(preset) } }
                 val scheduledCandidates = _state.value.candidateRules.filter { rule -> rule.enabled && request.candidates.any { it.key == rule.key } }
-                process(observation, scheduledPlans, scheduledCandidates)
+                process(observation, scheduledPlans, scheduledCandidates, notice)
                 seen[query] = maxOf(seen[query] ?: 0, observation.revision)
                 if (!latestFirst) scheduledPlans.forEach { preset ->
                     nextPages[planKey(preset)] = if (observation.page.hasNextPage) observation.page.page + 1 else 1
@@ -394,7 +406,7 @@ class RadarRepository(
             report.copy(pages = report.pages.map { if (it.query == query) it.copy(status = status, confirmedAt = at, matches = matches, message = message) else it })
         }, lastConfirmedAt = if (at != null) maxOf(state.lastConfirmedAt ?: at, at) else state.lastConfirmedAt) }
     }
-    private suspend fun process(o: ObservedRoomPage, presets: List<SearchPreset>, candidates: List<CandidateRule> = emptyList()) {
+    private suspend fun process(o: ObservedRoomPage, presets: List<SearchPreset>, candidates: List<CandidateRule> = emptyList(), notice: Boolean = false) {
         val freshTracking = (seen[o.query] ?: 0) < o.revision
         if (freshTracking) preferences.observe(o.page.rooms)
         val hidden = preferences.preferences.first().filter { it.hidden }
@@ -439,7 +451,7 @@ class RadarRepository(
                 val added = identities - previous - known
                 if (added.isNotEmpty()) events += RadarEvent(o.confirmedAt, "${preset.label}：${o.page.page}ページで新しい一致を${added.size}件確認",
                     rooms = matches.filter { "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" in added }.take(20), page = o.page.page, sourceQuery = o.query, kind = RadarEventKind.SEARCH_MATCH,
-                    origin = RadarEventOrigin(RadarOriginType.PLAN, preset.id, preset.label, radarPlanDescription(preset)))
+                    origin = RadarEventOrigin(RadarOriginType.PLAN, preset.id, preset.label, radarPlanDescription(preset)), pendingNotice = notice)
             }
             known.addAll(identities)
             baselines[key] = identities
@@ -477,7 +489,7 @@ class RadarRepository(
         val s = _state.value
         val json = JSONObject().put("plans", JSONArray(s.plans.toList())).put("targetSort", s.targetSort.name)
             .put("targets", JSONArray(s.targets.map { t -> JSONObject().put("room", roomJson(t.room)).put("identity", roomJson(t.identity)).put("at", t.confirmedAt).put("observedAt", t.observedAt).put("evidence", t.evidence.name).put("page", t.observedPage).put("sourceQuery", radarQueryJson(t.sourceQuery)).put("pinned", t.pinned).put("note", t.note) }))
-            .put("events", JSONArray(s.events.map { JSONObject().put("at", it.at).put("text", it.text).put("id", it.id).put("rooms", JSONArray(it.rooms.map(::roomJson))).put("page", it.page).put("blocked", it.blocked).put("sourceQuery", radarQueryJson(it.sourceQuery)).put("kind", it.kind.name).put("origin", radarOriginJson(it.origin)).put("read", it.read) }))
+            .put("events", JSONArray(s.events.map { JSONObject().put("at", it.at).put("text", it.text).put("id", it.id).put("rooms", JSONArray(it.rooms.map(::roomJson))).put("page", it.page).put("blocked", it.blocked).put("sourceQuery", radarQueryJson(it.sourceQuery)).put("kind", it.kind.name).put("origin", radarOriginJson(it.origin)).put("read", it.read).put("pendingNotice", it.pendingNotice) }))
         json.put("candidateRules", JSONArray(s.candidateRules.map { rule -> JSONObject().put("id", rule.id).put("label", rule.label).put("genre", rule.genreKey)
             .put("term", rule.term).put("mode", rule.mode.name).put("enabled", rule.enabled) }))
         json.put("backgroundPlans", JSONArray(s.backgroundPlans.toList())).put("backgroundInterval", s.backgroundIntervalMinutes)
@@ -525,7 +537,7 @@ class RadarRepository(
                 rooms = it.optJSONArray("rooms")?.let { r -> (0 until r.length()).map { i -> readRoom(r.getJSONObject(i)) } } ?: emptyList(),
                 page = if (it.isNull("page")) null else it.getInt("page").coerceAtLeast(1), blocked = it.optBoolean("blocked"), sourceQuery = readRadarQuery(it.optJSONObject("sourceQuery")),
                 kind = RadarEventKind.entries.firstOrNull { kind -> kind.name == it.optString("kind") } ?: RadarEventKind.LEGACY,
-                origin = readRadarOrigin(it.optJSONObject("origin")), read = if (it.has("read")) it.getBoolean("read") else true) } },
+                origin = readRadarOrigin(it.optJSONObject("origin")), read = if (it.has("read")) it.getBoolean("read") else true, pendingNotice = it.optBoolean("pendingNotice")) } },
             candidateRules = (0 until candidates.length()).map { i -> candidates.getJSONObject(i).let { CandidateRule(it.getString("id"), it.getString("label"), it.getString("genre"), it.getString("term"), CandidateMode.valueOf(it.getString("mode")), it.optBoolean("enabled", true)) } },
             backgroundPlans = json.optJSONArray("backgroundPlans")?.let { b -> (0 until b.length()).map(b::getString).toSet() } ?: emptySet(),
             backgroundIntervalMinutes = json.optInt("backgroundInterval").takeIf { it in RadarState.BACKGROUND_INTERVALS } ?: RadarState.BACKGROUND_INTERVALS.first())

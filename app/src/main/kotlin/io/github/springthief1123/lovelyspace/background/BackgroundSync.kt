@@ -67,8 +67,12 @@ class RadarSyncWorker(context: Context, params: WorkerParameters) : CoroutineWor
         // 前面で巡回中なら、同じページを二重に取らないよう今回は見送る。
         if (state.running) return Result.success()
         return try {
-            val events = radar.scan(latestFirst = true, force = false, maxPages = MAX_PAGES, backgroundOnly = true)
-            events.mapNotNull { it.toMatchNotification() }.forEach { app.notifier.post(it) }
+            radar.scan(latestFirst = true, force = false, maxPages = MAX_PAGES, backgroundOnly = true)
+            // 一致は履歴に「未通知」として保存されている。前回の実行が通知の途中で止まった分もここで出す
+            // （同じ ID の通知・お知らせは置き換わるので、二重には並ばない）。
+            val pending = radar.pendingNotices()
+            pending.forEach { event -> event.toMatchNotification()?.let { app.notifier.post(it) } }
+            radar.markNoticed(pending.map { it.id }.toSet())
             Result.success()
         } catch (e: CancellationException) {
             throw e

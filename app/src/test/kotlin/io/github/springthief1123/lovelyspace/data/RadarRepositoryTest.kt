@@ -492,10 +492,16 @@ class RadarRepositoryTest {
             val events = second.scan(latestFirst = true, force = false, backgroundOnly = true)
             assertEquals(listOf(RadarEventKind.SEARCH_MATCH), events.map { it.kind })
             assertEquals(listOf(43L), events.single().rooms.map { it.id })
+            // 通知を出す前に止まっても、未通知の一致として保存されている。
+            assertTrue(events.single().pendingNotice)
             // 一度知らせた部屋は、次の再起動後にも新しい一致として出さない。
             clock += 15 * 60 * 1000L
             val third = RadarRepository(db.presets(), Lists().apply { rooms = listOf(added) }, searches, prefs, restart()) { clock }
             third.state.first { it.loaded }
+            assertEquals(listOf(events.single().id), third.pendingNotices().map { it.id })
+            third.markNoticed(setOf(events.single().id))
+            assertTrue(third.pendingNotices().isEmpty())
+            assertFalse(db.presets().state("radar_v1")!!.contains("\"pendingNotice\":true"))
             assertTrue(third.scan(latestFirst = true, force = false, backgroundOnly = true).isEmpty())
         } finally { db.close() }
     }
