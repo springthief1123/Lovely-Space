@@ -28,6 +28,7 @@ class ChatNavigationTest {
             composable(Routes.SEARCH) { }
             composable(Routes.FAVORITES) { }
             composable(Routes.RADAR) { }
+            composable(Routes.PROFILE) { }
             composable(Routes.ENTRY, arguments = listOf(
                 navArgument("host") { type = NavType.StringType }, navArgument("genre") { type = NavType.StringType },
                 navArgument("roomId") { type = NavType.LongType }, origin,
@@ -86,5 +87,15 @@ class ChatNavigationTest {
         assertNull(nav.currentBackStackEntry!!.arguments!!.getString("pwd"))
         nav.returnFromChat(Routes.ROOMS)
         assertEquals(Routes.ROOMS, nav.currentDestination!!.route)
+    }
+
+    @Test fun resumingFromProfileReturnsToProfileAfterChat() {
+        val nav = controller()
+        nav.navigate(Routes.PROFILE)
+        val profile = nav.getBackStackEntry(Routes.PROFILE)
+        nav.navigateToChat("resumed-session", Routes.PROFILE)
+        assertSame(profile, nav.getBackStackEntry(Routes.PROFILE))
+        nav.returnFromChat(Routes.PROFILE)
+        assertSame(profile, nav.currentBackStackEntry)
     }
 }
