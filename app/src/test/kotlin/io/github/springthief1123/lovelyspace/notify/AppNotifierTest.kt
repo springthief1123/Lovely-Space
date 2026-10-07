@@ -148,6 +148,15 @@ class AppNotifierTest {
         assertTrue(posted().isEmpty())
     }
 
+    @Test fun temporaryOngoingNotificationGetsSystemTimeout() = runTest {
+        grant()
+        val status = NotificationSamples.of(NotificationKind.ONGOING)
+
+        notifier.post(status, timeoutAfterMs = 15_000L)
+
+        assertEquals(15_000L, posted().single().timeoutAfter)
+    }
+
     @Test fun everyKindHasATestNotification() = runTest {
         grant()
         NotificationKind.entries.forEach { notifier.post(NotificationSamples.of(it)) }
