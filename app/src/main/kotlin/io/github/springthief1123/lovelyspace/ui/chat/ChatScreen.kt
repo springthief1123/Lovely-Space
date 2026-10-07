@@ -412,13 +412,19 @@ internal fun ChatLog(lines: List<UiLine>, modifier: Modifier) {
 
 @Composable
 private fun Notice(ui: UiLine) {
-    Text(
-        text = ui.line.text,
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        textAlign = TextAlign.Center,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp),
-    )
+    // 入室・発言クリアなどのお知らせは、発言と区別できるよう中央のグレーの角丸に入れる。
+    Box(Modifier.fillMaxWidth().padding(horizontal = 24.dp), contentAlignment = Alignment.Center) {
+        Surface(color = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            shape = RoundedCornerShape(12.dp), modifier = Modifier.testTag("chat-notice")) {
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(ui.line.text, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+                ui.line.time?.let {
+                    Text(it.format(TIME), style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f))
+                }
+            }
+        }
+    }
 }
 
 @Composable
