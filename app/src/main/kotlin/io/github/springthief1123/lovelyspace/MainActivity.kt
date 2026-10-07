@@ -25,10 +25,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val app = application as LovelySpaceApp
-        // 回転などの再生成では処理済み ID を引き継ぐ。一方、OS によるプロセス再生成でも
-        // 新しい通知 Intent の ID が異なれば通常どおり処理する。
+        // 回転やプロセス破棄からの再生成では処理済み ID を引き継ぐ。このとき届く intent は前回のものなので、
+        // 処理済みの通知なら開き直さない（ID が異なれば通常どおり処理する）。新しいタップは onNewIntent に届く。
         handledNotificationId = savedInstanceState?.getString(STATE_HANDLED_NOTIFICATION_ID)
-        openNotification(intent)
+        if (savedInstanceState == null || AppNotifier.notificationId(intent) != handledNotificationId) {
+            openNotification(intent)
+        }
         setContent {
             val themeMode by app.settings.themeMode.collectAsStateWithLifecycle(initialValue = ThemeMode.SYSTEM)
             val textScale by app.settings.textScale.collectAsStateWithLifecycle(initialValue = TextScale.STANDARD)
@@ -58,6 +60,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         // 次の Activity 再生成でも、この最新 Intent を重複判定の対象にする。
         setIntent(intent)
+        // 新しく届いた intent は利用者のタップなので、同じ ID（消えない常駐通知の再タップ）でも開く。
         openNotification(intent)
     }
 
@@ -69,7 +72,6 @@ class MainActivity : ComponentActivity() {
     /** 通知のタップで開かれたら、お知らせを既読にして該当の画面へ移す（移動は AppNavHost が行う）。 */
     private fun openNotification(intent: Intent?) {
         val id = AppNotifier.notificationId(intent) ?: return
-        if (id == handledNotificationId) return
         handledNotificationId = id
         (application as LovelySpaceApp).notifier.open(intent)
     }
