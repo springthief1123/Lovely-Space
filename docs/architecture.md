@@ -25,7 +25,7 @@ app   (Android)     画面（Compose）・端末内の保存（Room / DataStore�
 
 | クラス | 役割 |
 | --- | --- |
-| `ShaloveClient` | 本家への全通信の入口。リクエスト同士の最小間隔（3 秒）、一覧の URL ごとのキャッシュ（20 秒）、文字コード判定、`pwd` を伏せたエラー（`HttpStatusException`）。入室・退室・閉鎖・チャット画面の取得もここ |
+| `ShaloveClient` | 本家への全通信の入口。リクエスト同士の最小間隔（3 秒）、一覧の URL ごとのキャッシュ（20 秒）、文字コード判定、`pwd` を伏せたエラー（`HttpStatusException`）。入室・退室・閉鎖・作成者の操作・チャット画面の取得もここ |
 | `SharedSiteCookieJar` / `SiteCookieStore` | OkHttp の Cookie を Android の `CookieManager`（WebView と同じ保管先）に委ねる |
 | `Genres.kt`（`Genre`, `RoomQuery`） | ジャンル（3 つのサブドメインに分かれる）と、一覧 URL・サイト側の絞り込みパラメータの組み立て |
 | `RoomListParser` | 一覧ページ（PC 版レイアウト）の解析。`Room`, `RoomListPage` を返す |
@@ -74,7 +74,7 @@ AppNavHost / LovelyAppShell
 
 ### 会話
 
-`ChatViewModel` が `ShaloveClient.openChat` で初回表示を読み、`ChatSession.updates()` で新着を受け取り続けます。発言は `ChatSession.send`。退室は `shotact=bye`、作成者の閉鎖は `shotact=close`（失敗したら画面に留まってやり直せる）。
+`ChatViewModel` が `ShaloveClient.openChat` で初回表示を読み、`ChatSession.updates()` で新着を受け取り続けます。発言は `ChatSession.send`。退室は `shotact=bye`、作成者の閉鎖は `shotact=close`（失敗したら画面に留まってやり直せる）。作成者は右上のメニューから、相手を退室させる・発言クリア・待機メッセージの変更・公開設定の切り替えができる（`ShaloveClient.banGuest` / `clearLog` / `changeWaitingMessage` / `setPublic`）。
 
 ### 部屋作成
 

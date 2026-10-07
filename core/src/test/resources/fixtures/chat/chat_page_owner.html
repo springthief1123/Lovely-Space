@@ -28,4 +28,35 @@
 <input type="hidden" name="shotact" value="close">
 <input type="submit" value="部屋を閉鎖">
 </form>
+<form id="form_clear" name="form_clear" style="display:inline;" method="POST" action="/2shot.php">
+<input type="hidden" name="room_id" value="900000003">
+<input type="hidden" name="pwd" value="aaaabbbbccccddddaaaabbbbccccdddd">
+<input type="hidden" name="genre_key" value="chah">
+<input type="hidden" name="clearchatlog" value="1">
+<input type="submit" class="small" value="発言クリア">
+</form><form id="form_ban" name="form_ban" style="display:none;" method="POST" action="/2shot.php">
+<input type="hidden" name="room_id" value="900000003">
+<input type="hidden" name="pwd" value="aaaabbbbccccddddaaaabbbbccccdddd">
+<input type="hidden" name="genre_key" value="chah">
+<input type="hidden" name="shotact" value="ban">
+<input type="submit" value="相手を退室">
+</form>
+<form style="display:inline;" method="POST" action="/2shot.php">
+<input type="hidden" name="room_id" value="900000003">
+<input type="hidden" name="pwd" value="aaaabbbbccccddddaaaabbbbccccdddd">
+<input type="hidden" name="genre_key" value="chah">
+<input type="hidden" name="set_is_public" value="0">
+<input id="changepublic" class="small" type="submit" value="非公開ルームに変更">
+（非公開ルームに変更するにはチャット参加者が年齢確認済みである必要があります）
+</form>
+<form method="POST" action="/2shot.php" style="display:inline;">
+<input type="hidden" name="room_id" value="900000003">
+<input type="hidden" name="pwd" value="aaaabbbbccccddddaaaabbbbccccdddd">
+<input type="hidden" name="genre_key" value="chah">
+<input type="hidden" name="chat" value="">
+待機メッセージ: ゆっくり<br>お話ししましょう
+<textarea id="message" name="message" rows="2" cols="60">ゆっくり
+お話ししましょう</textarea>
+<input type="submit" class="small" value="変更">
+</form>
 </body></html>

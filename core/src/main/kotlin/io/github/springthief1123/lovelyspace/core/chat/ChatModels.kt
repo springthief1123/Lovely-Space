@@ -46,6 +46,10 @@ data class ChatPage(
     val state: ChatState,
     /** 待機メッセージ（募集文）。 */
     val waitingMessage: String?,
+    /** 作成者が相手を退室させられるか（本家の「相手を退室」ボタンが出ているか）。 */
+    val canBanGuest: Boolean = false,
+    /** 作成者に公開・非公開の切り替えが出ているか。 */
+    val canChangePublic: Boolean = false,
 )
 
 /** ページと ajax 応答の両方で更新される値。 */
