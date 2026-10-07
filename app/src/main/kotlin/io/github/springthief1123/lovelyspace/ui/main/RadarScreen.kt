@@ -6,6 +6,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.background
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,7 +47,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
     ForegroundPolling(state.automatic, onStop = { scanJob?.cancel() }) { app.radar.monitor() }
     var working by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var section by rememberSaveable { mutableIntStateOf(0) }
+    var section by rememberSaveable { mutableIntStateOf(4) }
     var selected by remember { mutableStateOf<RadarRoomSnapshot?>(null) }
     var result by remember { mutableStateOf<RadarRoomsDisplay?>(null) }
     var editing by rememberSaveable(stateSaver = SearchPresetSaver) { mutableStateOf<SearchPreset?>(null) }
@@ -69,53 +71,75 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
             finally { working = false }
         }
     }
+    val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(preferencesVm) {
+        preferencesVm.hiddenRooms.collect { room ->
+            if (snackbar.showSnackbar("部屋を非表示にしました", actionLabel = "元に戻す", withDismissAction = true) == SnackbarResult.ActionPerformed) preferencesVm.unhide(room)
+        }
+    }
+    val planCount = saved.count { it.id in state.plans }
     QuietPage {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = LovelySpacing.screenHorizontal, end = LovelySpacing.screenHorizontal,
-        top = lovelyMainContentTopPadding(), bottom = lovelyMainContentBottomInset() + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        top = lovelyMainContentTopPadding(), bottom = lovelyMainContentBottomInset() + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item { QuietHeading("レーダー") }
-        item { RadarDashboard(state, saved.count { it.id in state.plans }, working,
+        item { RadarDashboard(state, planCount, working,
             onScan = { scanJob?.cancel(); scanJob = scope.launch {
                 try { app.radar.scan(latestFirst = true) }
                 catch (e: kotlinx.coroutines.CancellationException) { throw e }
                 catch (e: Exception) { error = "レーダーの状態を確認できませんでした。再読み込みしてお試しください。" }
             } }, onPause = { pauseConfirm = true }, onAutomatic = app.radar::automatic) }
-        if (liveRooms.isNotEmpty()) {
-            item { Text("一致した部屋（${liveRooms.size}件）", style = MaterialTheme.typography.titleSmall) }
-            items(liveRooms, key = { "live/${roomIdentity(it)}" }) { room ->
-                io.github.springthief1123.lovelyspace.ui.rooms.RoomCard(room,
-                    onClick = { when (room.action) { RoomAction.ENTER -> onEnterRoom(room); RoomAction.PEEK -> onPeekRoom(room); RoomAction.NONE -> liveDetails = room } },
-                    onDetailsClick = { liveDetails = room }, isFavorite = preferences.isFavorite(room),
-                    actionsEnabled = preferences.canEdit(room), onFavoriteClick = { preferencesVm.toggleFavorite(room) }, onHideClick = { preferencesVm.hide(room) })
-            }
-        }
         savedState.loadError?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error); TextButton(onClick = savedVm::reload) { Text("条件を読み直す") } } }
-        item { FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf(0 to "巡回", 1 to "部屋追跡", 3 to "候補", 2 to if (state.unreadEvents == 0) "履歴" else "履歴 ${state.unreadEvents}").forEach { (index, label) -> FilterChip(section == index, { section = index }, label = { Text(label) }) }
-        } }
+        item { QuietTabs(listOf(
+            4 to "一致 ${liveRooms.size}",
+            0 to "巡回 $planCount",
+            1 to "追跡 ${state.targets.size}",
+            3 to "候補 ${state.candidateRules.count { it.enabled }}",
+            2 to if (state.unreadEvents == 0) "履歴" else "履歴 ${state.unreadEvents}",
+        ), section) { section = it } }
         if (!state.loaded && state.error == null) item { CircularProgressIndicator() }
         (error ?: state.error)?.let { message -> item {
             Text(message, color = MaterialTheme.colorScheme.error)
             if (!state.loaded) TextButton(onClick = app.radar::reload, enabled = !state.running) { Text("再試行") }
         } }
         when (section) {
+            4 -> {
+                if (liveRooms.isEmpty()) item { RadarEmpty(
+                    if (planCount == 0 && state.candidateRules.none { it.enabled }) "巡回か候補条件を有効にすると、条件に合う部屋がここに並びます。"
+                    else "いま条件に合う部屋はありません。新着を確認すると、ここに並びます。",
+                    if (planCount == 0) "巡回を設定" else null) { section = 0 } }
+                items(liveRooms, key = { "live/${roomIdentity(it)}" }) { room ->
+                    io.github.springthief1123.lovelyspace.ui.rooms.RoomCard(room,
+                        onClick = { when (room.action) { RoomAction.ENTER -> onEnterRoom(room); RoomAction.PEEK -> onPeekRoom(room); RoomAction.NONE -> liveDetails = room } },
+                        onDetailsClick = { liveDetails = room }, isFavorite = preferences.isFavorite(room),
+                        actionsEnabled = preferences.canEdit(room), onFavoriteClick = { preferencesVm.toggleFavorite(room) }, onHideClick = { preferencesVm.hide(room) })
+                }
+            }
             0 -> {
                 if (savedState.loading) item { CircularProgressIndicator() }
-                if (!savedState.loading && savedState.loadError == null && saved.isEmpty()) item { QuietPanel { Text("巡回条件", style = MaterialTheme.typography.titleSmall); Text("「見つける」の絞り込みで条件を保存すると、ここで巡回を有効にできます。", style = MaterialTheme.typography.bodySmall); TextButton(onClick = onFindRooms) { Text("条件を探す") } } }
-                items(saved, key = { it.id }) { preset -> QuietPanel {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Column(Modifier.weight(1f)) { Text(preset.label, style = MaterialTheme.typography.titleSmall); Text(Genres[preset.genreKey]?.label ?: preset.genreKey, style = MaterialTheme.typography.bodySmall) }
-                        Switch(preset.id in state.plans, { enabled -> action { app.radar.setPlan(preset.id, enabled) } }, enabled = state.loaded && !working && !state.running)
-                    }
+                if (!savedState.loading && savedState.loadError == null && saved.isEmpty()) item {
+                    RadarEmpty("「見つける」の絞り込みで条件を保存すると、ここで巡回を有効にできます。", "条件を探す", onFindRooms)
+                }
+                if (saved.isNotEmpty()) item { RadarNote("有効にした条件は新着を優先して全ページを巡回します。") }
+                items(saved, key = { it.id }) { preset ->
                     val found = state.resultFor(preset)
-                    Text(if (found == null) "この条件はまだ確認していません" else state.scopes[preset.id].orEmpty(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("新着を優先して全ページを自動巡回", style = MaterialTheme.typography.bodySmall)
-                    if (found != null) TextButton(onClick = { result = RadarRoomsDisplay("確認した一致", found.at, found.page, found.lastPage, found.rooms) }, enabled = found.rooms.isNotEmpty()) { Text("一致した部屋を確認（${found.rooms.size}件）") }
-                    TextButton(enabled = !state.running && !working && !savedState.working, onClick = { savedVm.clearEditError(); editing = preset }) { Text("計画を編集") }
-
-                } }
+                    RadarRuleRow(
+                        title = preset.label,
+                        subtitle = Genres[preset.genreKey]?.label ?: preset.genreKey,
+                        enabled = preset.id in state.plans,
+                        switchEnabled = state.loaded && !working && !state.running,
+                        onEnabled = { enabled -> action { app.radar.setPlan(preset.id, enabled) } },
+                        status = if (found == null) "まだ確認していません" else state.scopes[preset.id].orEmpty(),
+                        matches = found?.rooms?.size,
+                        onMatches = { found?.let { result = RadarRoomsDisplay("確認した一致", it.at, it.page, it.lastPage, it.rooms) } },
+                        menuLabel = "計画の操作",
+                        menu = listOf(QuietMenuItem("計画を編集", enabled = !state.running && !working && !savedState.working) { savedVm.clearEditError(); editing = preset }),
+                    )
+                }
             }
             1 -> {
-                if (state.targets.isEmpty()) item { QuietPanel { Text("部屋追跡", style = MaterialTheme.typography.titleSmall); Text("部屋の詳細から「この部屋を追跡」を選んでください。人の本人確認ではなく、一覧で確認できる部屋の変化を記録します。", style = MaterialTheme.typography.bodySmall); TextButton(onClick = onFindRooms) { Text("部屋を見つける") } } }
+                if (state.targets.isEmpty()) item {
+                    RadarEmpty("部屋の詳細から「この部屋を追跡」を選ぶと、一覧で確認できる部屋の変化を記録します。人の本人確認ではありません。", "部屋を見つける", onFindRooms)
+                }
                 if (state.targets.isNotEmpty()) item {
                     RadarDropdown("並べ替え", state.targetSort.name, RadarTargetSort.entries.map { it.name to when (it) {
                         RadarTargetSort.LAST_CONFIRMED -> "プロフィール照合が新しい順"
@@ -135,67 +159,81 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                 }
             }
             3 -> {
-                item { QuietPanel {
-                    Text("候補条件", style = MaterialTheme.typography.titleSmall)
-                    Text("名前の一致と部屋の追跡は別の記録です。一致した候補の情報を見てから、気になる部屋を選べます。", style = MaterialTheme.typography.bodySmall)
-                    OutlinedButton(enabled = state.loaded && !working && state.candidateRules.size < 20 && !state.running, onClick = {
+                item { QuietSectionHeader("候補条件", "名前で部屋を探します。部屋の追跡とは別の記録です。") {
+                    TextButton(enabled = state.loaded && !working && state.candidateRules.size < 20 && !state.running, onClick = {
                         error = null
                         candidateDraft = CandidateRule(label = "", genreKey = Genres.default.key, term = "")
-                    }) { Text("候補条件を追加") }
+                    }) { Text("追加") }
                 } }
-                items(state.candidateRules, key = { "candidate/${it.id}" }) { rule -> QuietPanel {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Column(Modifier.weight(1f)) {
-                            Text(rule.label, style = MaterialTheme.typography.titleSmall)
-                            Text("${Genres[rule.genreKey]?.label ?: rule.genreKey} · ${if (rule.mode == CandidateMode.EXACT_NAME) "名前の完全一致" else "表示名の文字列"}", style = MaterialTheme.typography.bodySmall)
-                        }
-                        Switch(rule.enabled, { enabled -> action { app.radar.setCandidateEnabled(rule.id, enabled) } }, enabled = state.loaded && !working)
-                    }
-                    Text(rule.term, style = MaterialTheme.typography.bodyMedium)
+                if (state.candidateRules.isEmpty()) item { RadarEmpty("候補条件はまだありません。名前の一致や表示名の文字列で、新着の部屋を見つけられます。名前非表示の部屋は判定しません。") }
+                items(state.candidateRules, key = { "candidate/${it.id}" }) { rule ->
                     val found = state.resultFor(rule)
-                    Text(if (found == null) "この条件はまだ確認していません" else "${formatObservationTime(found.at)} · ${found.page}/${found.lastPage}ページ · 候補${found.rooms.size}件", style = MaterialTheme.typography.bodySmall)
-                    Text("新着を優先して全ページを自動巡回。名前非表示の部屋は判定しません。", style = MaterialTheme.typography.bodySmall)
-                    if (found != null) TextButton(enabled = found.rooms.isNotEmpty(), onClick = {
-                        result = RadarRoomsDisplay("確認した候補", found.at, found.page, found.lastPage, found.rooms)
-                    }) { Text("一致した候補を確認（${found.rooms.size}件）") }
-                    TextButton(enabled = state.loaded && !working && !state.running, onClick = { error = null; candidateDraft = rule }) { Text("条件を編集") }
-                    TextButton(enabled = state.loaded && !working, onClick = { error = null; deletingCandidate = rule }) { Text("条件を削除") }
-                } }
+                    RadarRuleRow(
+                        title = rule.label,
+                        subtitle = "${Genres[rule.genreKey]?.label ?: rule.genreKey}・${if (rule.mode == CandidateMode.EXACT_NAME) "名前が「${rule.term}」" else "表示名に「${rule.term}」"}",
+                        enabled = rule.enabled,
+                        switchEnabled = state.loaded && !working,
+                        onEnabled = { enabled -> action { app.radar.setCandidateEnabled(rule.id, enabled) } },
+                        status = if (found == null) "まだ確認していません" else "${formatObservationTime(found.at)}・${found.page}/${found.lastPage}ページ",
+                        matches = found?.rooms?.size,
+                        onMatches = { found?.let { result = RadarRoomsDisplay("確認した候補", it.at, it.page, it.lastPage, it.rooms) } },
+                        menuLabel = "候補条件の操作",
+                        menu = listOf(
+                            QuietMenuItem("条件を編集", enabled = state.loaded && !working && !state.running) { error = null; candidateDraft = rule },
+                            QuietMenuItem("条件を削除", enabled = state.loaded && !working, destructive = true) { error = null; deletingCandidate = rule },
+                        ),
+                    )
+                }
             }
             2 -> {
-                item { QuietPanel {
-                    Text("変化の履歴", style = MaterialTheme.typography.titleSmall)
-                    Text("未読 ${state.unreadEvents}件 · 表示 ${visibleEvents.size}件", style = MaterialTheme.typography.bodySmall)
-                    FilterChip(historyUnread, { historyUnread = !historyUnread }, label = { Text("未読のみ") })
-                    RadarDropdown("種類", historyKind, listOf("" to "すべて") + RadarEventKind.entries.map { it.name to it.historyLabel() }, true) { historyKind = it }
-                    RadarDropdown("条件・追跡先", historyOrigin, listOf("" to "すべて") + historyOriginOptions(state.events), true) { historyOrigin = it }
-                    TextButton(enabled = state.loaded && !working && state.unreadEvents > 0, onClick = {
-                        val ids = state.events.filterNot { it.read }.map { it.id }.toSet()
-                        action { app.radar.markEventsRead(ids) }
-                    }) { Text("すべて既読にする") }
-                } }
-                if (visibleEvents.isEmpty()) item { QuietPanel {
-                    Text(if (state.events.isEmpty()) "変化の履歴はまだありません。初回確認以降の変化を端末内に記録します。" else "この絞り込みに合う履歴はありません。")
-                    if (state.events.isNotEmpty()) TextButton(onClick = { historyUnread = false; historyKind = ""; historyOrigin = "" }) { Text("絞り込みを解除") }
-                } }
-                items(visibleEvents, key = { it.id }) { event -> QuietPanel {
-                    Text("${if (event.read) "既読" else "未読"} · ${event.kind.historyLabel()}", style = MaterialTheme.typography.labelMedium,
-                        color = if (event.read) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary)
-                    Text(event.text, style = MaterialTheme.typography.bodyMedium)
-                    event.origin?.let { Text(it.historyLabel(), style = MaterialTheme.typography.bodySmall) }
-                    Text(formatObservationTime(event.at), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    event.rooms.forEach { room ->
-                        TextButton(enabled = !working && (event.read || state.loaded), onClick = {
-                            val snapshot = RadarRoomSnapshot(room, event.at, event.page ?: 1, event.blocked, event.sourceQuery)
-                            if (event.read) selected = snapshot else action { app.radar.markEventsRead(setOf(event.id)); selected = snapshot }
-                        }) { Text("${room.name ?: "記録の部屋"}の詳細") }
+                item { Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("未読 ${state.unreadEvents}件・表示 ${visibleEvents.size}件", style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                        TextButton(enabled = state.loaded && !working && state.unreadEvents > 0, onClick = {
+                            val ids = state.events.filterNot { it.read }.map { it.id }.toSet()
+                            action { app.radar.markEventsRead(ids) }
+                        }) { Text("すべて既読にする") }
                     }
-                    if (!event.read) TextButton(enabled = state.loaded && !working, onClick = { action { app.radar.markEventsRead(setOf(event.id)) } }) { Text("既読にする") }
+                    FilterChip(historyUnread, { historyUnread = !historyUnread }, label = { Text("未読のみ") })
+                    QuietFieldPair(
+                        { m -> Box(m) { RadarDropdown("種類", historyKind, listOf("" to "すべて") + RadarEventKind.entries.map { it.name to it.historyLabel() }, true) { historyKind = it } } },
+                        { m -> Box(m) { RadarDropdown("条件・追跡先", historyOrigin, listOf("" to "すべて") + historyOriginOptions(state.events), true) { historyOrigin = it } } },
+                    )
+                } }
+                if (visibleEvents.isEmpty()) item {
+                    if (state.events.isEmpty()) RadarEmpty("変化の履歴はまだありません。初回確認以降の変化を端末内に記録します。")
+                    else RadarEmpty("この絞り込みに合う履歴はありません。", "絞り込みを解除") { historyUnread = false; historyKind = ""; historyOrigin = "" }
+                }
+                items(visibleEvents, key = { it.id }) { event -> QuietListPanel {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (!event.read) Box(Modifier.padding(end = 6.dp).size(8.dp)
+                            .background(MaterialTheme.colorScheme.primary, androidx.compose.foundation.shape.CircleShape))
+                        Text(listOfNotNull(event.kind.historyLabel(), event.origin?.historyLabel()).joinToString("・"),
+                            style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            color = if (event.read) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.weight(1f))
+                        Text(formatObservationTime(event.at), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        QuietOverflowMenu(listOfNotNull(
+                            if (!event.read) QuietMenuItem("既読にする", enabled = state.loaded && !working) { action { app.radar.markEventsRead(setOf(event.id)) } } else null,
+                        ), contentDescription = "履歴の操作")
+                        if (event.read) Spacer(Modifier.width(10.dp))
+                    }
+                    Text(event.text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(end = 10.dp))
+                    if (event.rooms.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        event.rooms.forEach { room ->
+                            AssistChip(enabled = !working && (event.read || state.loaded), onClick = {
+                                val snapshot = RadarRoomSnapshot(room, event.at, event.page ?: 1, event.blocked, event.sourceQuery)
+                                if (event.read) selected = snapshot else action { app.radar.markEventsRead(setOf(event.id)); selected = snapshot }
+                            }, label = { Text(room.name ?: "記録の部屋", maxLines = 1, overflow = TextOverflow.Ellipsis) })
+                        }
+                    }
                     if (event.rooms.size == 20) Text("履歴には最大20件を保存しています。", style = MaterialTheme.typography.bodySmall)
                 } }
             }
         }
     }
+    SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = lovelyMainContentBottomInset()))
     }
     state.targets.firstOrNull { roomIdentity(it.identity) == editingTargetKey }?.let { target ->
         RadarTargetNoteEditor(target, working, error, onDismiss = { editingTargetKey = null },
@@ -251,5 +289,44 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
         onHide = { preferencesVm.hide(room); liveDetails = null }, onEnter = onEnterRoom, onPeek = onPeekRoom) }
     selected?.let { snapshot ->
         RadarRoomSheet(snapshot, onDismiss = { selected = null }, onFindRooms, onEnterRoom, onPeekRoom)
+    }
+}
+
+/** 巡回計画・候補条件の1行。スイッチと一致件数を右に寄せ、編集・削除は「︙」にまとめる。 */
+@Composable
+private fun RadarRuleRow(
+    title: String, subtitle: String, enabled: Boolean, switchEnabled: Boolean, onEnabled: (Boolean) -> Unit,
+    status: String, matches: Int?, onMatches: () -> Unit, menuLabel: String, menu: List<QuietMenuItem>,
+) {
+    QuietListPanel {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Switch(enabled, onEnabled, enabled = switchEnabled, modifier = Modifier.padding(start = 8.dp))
+            QuietOverflowMenu(menu, contentDescription = menuLabel)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            if (matches != null && matches > 0) TextButton(onClick = onMatches) { Text("一致 ${matches}件") }
+            else Spacer(Modifier.width(10.dp))
+        }
+    }
+}
+
+@Composable
+private fun RadarNote(text: String) {
+    Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+/** タブが空のときの案内。操作は1つだけにする。 */
+@Composable
+private fun RadarEmpty(text: String, actionLabel: String? = null, onAction: () -> Unit = {}) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        actionLabel?.let { OutlinedButton(onClick = onAction) { Text(it) } }
     }
 }

@@ -5,6 +5,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import io.github.springthief1123.lovelyspace.core.Gender
@@ -44,10 +45,11 @@ class RadarTargetCardTest {
             }
         }
 
-        compose.onNodeWithText("詳細を確認").assertIsEnabled().performClick()
-        compose.runOnIdle { assertTrue(opened) }
+        compose.onNodeWithContentDescription("追跡先の操作").performClick()
         compose.onNodeWithText("ピン留め").assertIsNotEnabled()
         compose.onNodeWithText("メモを追加").assertIsNotEnabled()
         compose.onNodeWithText("追跡を解除").assertIsNotEnabled()
+        compose.onNodeWithText("詳細を確認").assertIsEnabled().performClick()
+        compose.runOnIdle { assertTrue(opened) }
     }
 }

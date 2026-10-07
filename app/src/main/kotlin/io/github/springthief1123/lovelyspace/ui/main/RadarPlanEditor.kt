@@ -37,7 +37,7 @@ internal fun RadarPlanEditor(value: SearchPreset, working: Boolean, error: Strin
             OutlinedTextField(preset.label, { draft = preset.copy(label = it) }, enabled = !working,
                 label = { Text("計画名") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             RadarDropdown("ジャンル", preset.genreKey, Genres.all.map { it.key to it.label }, !working) { draft = preset.copy(genreKey = it) }
-            OutlinedTextField(c.text, { criteria(c.copy(text = it)) }, enabled = !working, label = { Text("名前と募集文の検索語") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(c.text, { criteria(c.copy(text = it)) }, enabled = !working, label = { Text("名前と待機メッセージの検索語") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(c.name, { criteria(c.copy(name = it)) }, enabled = !working, label = { Text("名前のキーワード") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(c.message, { criteria(c.copy(message = it)) }, enabled = !working, label = { Text("待機メッセージのキーワード") }, modifier = Modifier.fillMaxWidth())
             RadarChoice("語句の一致", c.keywordMode, listOf(KeywordMode.ALL to "すべて", KeywordMode.ANY to "いずれか"), !working) { criteria(c.copy(keywordMode = it)) }

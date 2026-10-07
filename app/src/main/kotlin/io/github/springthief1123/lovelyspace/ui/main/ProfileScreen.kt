@@ -1,8 +1,18 @@
 package io.github.springthief1123.lovelyspace.ui.main
 
 import androidx.compose.foundation.layout.*
+import io.github.springthief1123.lovelyspace.ui.components.QuietHeading
+import io.github.springthief1123.lovelyspace.ui.components.QuietListPanel
+import io.github.springthief1123.lovelyspace.ui.components.QuietMenuItem
+import io.github.springthief1123.lovelyspace.ui.components.QuietOverflowMenu
 import io.github.springthief1123.lovelyspace.ui.components.QuietPage
-import io.github.springthief1123.lovelyspace.ui.components.QuietPanel
+import io.github.springthief1123.lovelyspace.ui.components.QuietSectionHeader
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -50,25 +60,36 @@ fun ProfileScreen(onOpenSettings: () -> Unit, onCreateRoom: () -> Unit) {
             top = lovelyMainContentTopPadding(), bottom = lovelyMainContentBottomInset() + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { io.github.springthief1123.lovelyspace.ui.components.QuietHeading("マイルーム") }
-        item { io.github.springthief1123.lovelyspace.ui.components.QuietPanel {
-            Button(onClick = onCreateRoom, modifier = Modifier.fillMaxWidth()) { Text("部屋をつくる") }
-            OutlinedButton(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) { Text("表示・一覧・非表示の設定") }
+        item { QuietHeading("マイルーム") }
+        item { Button(onClick = onCreateRoom, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+            Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("部屋をつくる")
         } }
-        item { Text("保存したプロフィールと募集文を、入室・部屋作成で選べます。", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { QuietListPanel(onClick = onOpenSettings) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                    Text("設定", style = MaterialTheme.typography.titleSmall)
+                    Text("表示・一覧・非表示にした部屋", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 10.dp))
+            }
+        } }
         if (error != null) item {
             Text(error.orEmpty(), color = MaterialTheme.colorScheme.error)
             TextButton(onClick = vm::reload, enabled = !working) { Text("もう一度読み込む") }
         }
-        item { SectionHeading("プロフィール", enabled = !working) { profile = null; profileEditor = true } }
+        item { SectionHeading("プロフィール", "入室・部屋作成で選べます", enabled = !working) { profile = null; profileEditor = true } }
         if (profiles.isEmpty()) item { Text("プロフィールを保存すると、名前・性別・年齢・地域をまとめて使えます。", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         items(profiles, key = { "profile-${it.id}" }) { p ->
-            PresetRow(p.label, "${p.name} · ${if (p.sex == 1) "男" else "女"} · ${p.years?.let { "${it}歳" } ?: "年齢は秘密"}", p.isDefault,
+            PresetRow(p.label, listOfNotNull(p.name, if (p.sex == 1) "男性" else "女性", p.years?.let { "${it}歳" } ?: "年齢は秘密").joinToString("・"), p.isDefault,
                 enabled = !working, onEdit = { profile = p; profileEditor = true },
                 onDefault = { vm.action { vm.repository.setDefaultProfile(p.id) } }, onDelete = { deleting = true to p.id })
         }
-        item { SectionHeading("募集文", enabled = !working) { message = null; messageEditor = true } }
-        if (messages.isEmpty()) item { Text("よく使う募集文を保存できます。", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { SectionHeading("待機メッセージ", "部屋作成で選べます", enabled = !working) { message = null; messageEditor = true } }
+        if (messages.isEmpty()) item { Text("よく使う待機メッセージを保存できます。", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         items(messages, key = { "message-${it.id}" }) { m ->
             PresetRow(m.label, m.message, m.isDefault, enabled = !working,
                 onEdit = { message = m; messageEditor = true },
@@ -93,27 +114,44 @@ fun ProfileScreen(onOpenSettings: () -> Unit, onCreateRoom: () -> Unit) {
 }
 
 @Composable
-private fun SectionHeading(title: String, enabled: Boolean, onAdd: () -> Unit) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f).padding(top = 12.dp))
-        TextButton(onClick = onAdd, enabled = enabled) { Text("追加") }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun PresetRow(label: String, detail: String, isDefault: Boolean, enabled: Boolean, onEdit: () -> Unit, onDefault: () -> Unit, onDelete: () -> Unit) {
-    QuietPanel {
-        Text(label + if (isDefault) " · 既定" else "", style = MaterialTheme.typography.titleSmall)
-        Text(detail, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            TextButton(onClick = onEdit, enabled = enabled) { Text("編集") }
-            if (!isDefault) TextButton(onClick = onDefault, enabled = enabled) { Text("既定にする") }
-            TextButton(onClick = onDelete, enabled = enabled) { Text("削除") }
+private fun SectionHeading(title: String, supporting: String, enabled: Boolean, onAdd: () -> Unit) {
+    QuietSectionHeader(title, supporting) {
+        TextButton(onClick = onAdd, enabled = enabled) {
+            Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(4.dp))
+            Text("追加")
         }
     }
 }
 
+/** 保存したプリセットの1行。タップで編集し、既定・削除は「︙」にまとめる。 */
+@Composable
+private fun PresetRow(label: String, detail: String, isDefault: Boolean, enabled: Boolean, onEdit: () -> Unit, onDefault: () -> Unit, onDelete: () -> Unit) {
+    QuietListPanel(onClick = if (enabled) onEdit else null) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(label, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false))
+                    if (isDefault) Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.small,
+                        modifier = Modifier.padding(start = 8.dp)) {
+                        Text("既定", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                    }
+                }
+                Text(detail, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            QuietOverflowMenu(listOfNotNull(
+                QuietMenuItem("編集", enabled = enabled, onClick = onEdit),
+                if (!isDefault) QuietMenuItem("既定にする", enabled = enabled, onClick = onDefault) else null,
+                QuietMenuItem("削除", enabled = enabled, destructive = true, onClick = onDelete),
+            ), contentDescription = "${label}の操作")
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ProfileEditor(preset: ProfilePreset?, working: Boolean, error: String?, onDismiss: () -> Unit, onSave: (ProfilePreset) -> Unit) {
     var label by rememberSaveable { mutableStateOf(preset?.label.orEmpty()) }
@@ -130,7 +168,10 @@ private fun ProfileEditor(preset: ProfilePreset?, working: Boolean, error: Strin
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 OutlinedTextField(label, { label = it }, label = { Text("保存名") }, singleLine = true)
                 OutlinedTextField(name, { name = it }, label = { Text("名前") }, singleLine = true)
-                Row { TextButton(onClick = { sex = 1 }) { Text(if (sex == 1) "✓ 男" else "男") }; TextButton(onClick = { sex = 2 }) { Text(if (sex == 2) "✓ 女" else "女") } }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(sex == 1, { sex = 1 }, label = { Text("男性") })
+                    FilterChip(sex == 2, { sex = 2 }, label = { Text("女性") })
+                }
                 OutlinedTextField(years, { years = it.filter(Char::isDigit).take(2) }, label = { Text("年齢（空欄は秘密）") }, singleLine = true,
                     isError = !validYears, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                 PrefectureField(prefecture) { prefecture = it }
@@ -148,11 +189,11 @@ private fun MessageEditor(preset: MessagePreset?, working: Boolean, error: Strin
     var message by rememberSaveable { mutableStateOf(preset?.message.orEmpty()) }
     var isDefault by rememberSaveable { mutableStateOf(preset?.isDefault ?: false) }
     val width = messageWidth(message)
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("募集文") }, text = {
+    AlertDialog(onDismissRequest = onDismiss, title = { Text(if (preset == null) "待機メッセージを追加" else "待機メッセージを編集") }, text = {
         Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             OutlinedTextField(label, { label = it }, label = { Text("保存名") }, singleLine = true)
-            OutlinedTextField(message, { message = it.replace('\n', ' ') }, label = { Text("募集文") },
+            OutlinedTextField(message, { message = it.replace('\n', ' ') }, label = { Text("待機メッセージ") },
                 isError = width > 500, supportingText = { Text("$width / 500（全角は2文字）") })
             Row { Checkbox(isDefault, { isDefault = it }); Text("既定のメッセージにする", modifier = Modifier.padding(top = 12.dp)) }
         }
