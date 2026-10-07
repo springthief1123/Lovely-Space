@@ -13,7 +13,7 @@
 | 2. チャット（入室・会話・退室・部屋作成） | 主要部分は完了 | [#29](https://github.com/springthief1123/Lovely-Space/issues/29) | #3, #4, #5, #7, #8, #17 |
 | 3. プロフィールプリセット | 完了 | [#35](https://github.com/springthief1123/Lovely-Space/issues/35) | #9 |
 | 4. 検索・整理 | 主要部分は完了 | [#36](https://github.com/springthief1123/Lovely-Space/issues/36) | #10, #12, #13, #15, #16, #24 |
-| 5. 巡回・通知・順番待ち | 前面での巡回まで完了 | [#39](https://github.com/springthief1123/Lovely-Space/issues/39) | #15, #18〜#23, #25（レビュー中） |
+| 5. 巡回・通知・順番待ち | 端末通知の基盤まで完了 | [#39](https://github.com/springthief1123/Lovely-Space/issues/39) | #15, #18〜#23, #25, #56（レビュー中） |
 | 6. 仕上げとリリース | 未着手 | [#47](https://github.com/springthief1123/Lovely-Space/issues/47) | — |
 
 ## 残りのタスク
@@ -40,7 +40,6 @@
 | issue | 内容 | ラベル | 依存 |
 | --- | --- | --- | --- |
 | [#40](https://github.com/springthief1123/Lovely-Space/issues/40) | 一覧取得の一元化（ListSync）と背景実行の土台 | | — |
-| [#41](https://github.com/springthief1123/Lovely-Space/issues/41) | 端末通知の基盤と通知ベルの接続 | | — |
 | [#42](https://github.com/springthief1123/Lovely-Space/issues/42) | 定期巡回の背景実行と一致の通知 | | #40, #41 |
 | [#43](https://github.com/springthief1123/Lovely-Space/issues/43) | 入室者あり通知（自分の部屋で待機中） | | #41, #31, #33 |
 | [#44](https://github.com/springthief1123/Lovely-Space/issues/44) | 調査: 本家の Web プッシュ（UnifiedPush）で入室通知を受け取れるか | research | — |
@@ -62,7 +61,7 @@
 
 1. #30（実機確認）と #31・#37（採取）を Yuya に依頼する
 2. #33 進行中の部屋への復帰（#43 の前提）
-3. #40 一覧取得の一元化 → #41 通知の基盤
+3. #40 一覧取得の一元化（#41 通知の基盤は実装済み）
 4. #42 定期巡回の背景実行、#45 順番待ち
 5. #43 入室者あり通知（#44 の調査結果で方式を決める）
 6. #32 作成者の操作、#38 人単位のブロック、#34 画像とログ
@@ -80,4 +79,4 @@
 - 2026-10-03: 実装プランを作成。Kotlin + Jetpack Compose を採用。
 - 2026-10-04: フェーズ0〜2 の主要部分を実装（#1〜#5）。実機で入室・会話・退室を確認。
 - 2026-10-05〜06: プリセット・検索・お気に入り・非表示・レーダー（前面での巡回）と画面の再設計を実装（#6〜#24）。
-- 2026-10-07: ロードマップを親子 issue（#26〜#51）に整理。
+- 2026-10-07: ロードマップを親子 issue（#26〜#51）に整理。端末通知の基盤と通知ベル（#41 / PR #56）を実装。
