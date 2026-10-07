@@ -22,6 +22,14 @@ enum class TextScale(val label: String, val multiplier: Float) {
     LARGE("大きめ", 1.1f),
 }
 
+/** 部屋カードに表示する待機メッセージの最大行数。 */
+enum class RoomMessageLines(val label: String, val maxLines: Int) {
+    TWO("2行", 2),
+    THREE("3行", 3),
+    FOUR("4行", 4),
+    ALL("すべて", Int.MAX_VALUE),
+}
+
 enum class RoomListStartMode(val label: String) {
     LAST_USED("最後に見たカテゴリ"),
     DEFAULT("指定したカテゴリ"),
@@ -48,6 +56,7 @@ private val Context.dataStore by preferencesDataStore(name = "settings")
 class SettingsRepository(private val context: Context) : RoomListPreferenceStore {
     private val themeKey = stringPreferencesKey("theme_mode")
     private val textScaleKey = stringPreferencesKey("text_scale")
+    private val roomMessageLinesKey = stringPreferencesKey("room_message_lines")
     private val roomListStartModeKey = stringPreferencesKey("room_list_start_mode")
     private val defaultRoomGenreKey = stringPreferencesKey("default_room_genre")
     private val lastRoomGenreKey = stringPreferencesKey("last_room_genre")
@@ -63,6 +72,10 @@ class SettingsRepository(private val context: Context) : RoomListPreferenceStore
 
     val textScale: Flow<TextScale> = context.dataStore.data.map { prefs ->
         prefs[textScaleKey]?.let { runCatching { TextScale.valueOf(it) }.getOrNull() } ?: TextScale.STANDARD
+    }
+
+    val roomMessageLines: Flow<RoomMessageLines> = context.dataStore.data.map { prefs ->
+        prefs[roomMessageLinesKey]?.let { runCatching { RoomMessageLines.valueOf(it) }.getOrNull() } ?: RoomMessageLines.FOUR
     }
 
     override val roomListPreferences: Flow<RoomListPreferences> = context.dataStore.data.map { prefs ->
@@ -85,6 +98,10 @@ class SettingsRepository(private val context: Context) : RoomListPreferenceStore
 
     suspend fun setTextScale(scale: TextScale) {
         context.dataStore.edit { it[textScaleKey] = scale.name }
+    }
+
+    suspend fun setRoomMessageLines(lines: RoomMessageLines) {
+        context.dataStore.edit { it[roomMessageLinesKey] = lines.name }
     }
 
     suspend fun setRoomListStartMode(mode: RoomListStartMode) {

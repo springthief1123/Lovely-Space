@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
+import io.github.springthief1123.lovelyspace.settings.RoomMessageLines
 import io.github.springthief1123.lovelyspace.settings.TextScale
 import io.github.springthief1123.lovelyspace.settings.ThemeMode
 import io.github.springthief1123.lovelyspace.ui.describeError
@@ -46,6 +47,7 @@ fun DisplaySettingsScreen(onBack: () -> Unit) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val themeMode by app.settings.themeMode.collectAsStateWithLifecycle(initialValue = ThemeMode.SYSTEM)
     val textScale by app.settings.textScale.collectAsStateWithLifecycle(initialValue = TextScale.STANDARD)
+    val messageLines by app.settings.roomMessageLines.collectAsStateWithLifecycle(initialValue = RoomMessageLines.FOUR)
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     val bottomContentPadding = 14.dp +
@@ -102,6 +104,27 @@ fun DisplaySettingsScreen(onBack: () -> Unit) {
                     },
                     selected = scale == textScale,
                     onClick = { saveSetting { app.settings.setTextScale(scale) } },
+                )
+            }
+            item {
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    modifier = Modifier.padding(vertical = 10.dp),
+                )
+            }
+            item { SettingsSectionTitle("部屋カードの待機メッセージ") }
+            items(RoomMessageLines.entries.size) { index ->
+                val lines = RoomMessageLines.entries[index]
+                SettingsChoiceRow(
+                    title = lines.label,
+                    description = when (lines) {
+                        RoomMessageLines.TWO -> "一覧に多くの部屋を並べる"
+                        RoomMessageLines.THREE -> null
+                        RoomMessageLines.FOUR -> "標準"
+                        RoomMessageLines.ALL -> "省略せずに全文を表示"
+                    },
+                    selected = lines == messageLines,
+                    onClick = { saveSetting { app.settings.setRoomMessageLines(lines) } },
                 )
             }
         }
