@@ -13,6 +13,7 @@ import io.github.springthief1123.lovelyspace.core.chat.RoomPageUnavailableExcept
 import io.github.springthief1123.lovelyspace.ui.describeError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -106,9 +107,9 @@ data class ChatUiState(
 
     /**
      * 作成者の操作が済んだ後の状態。[page] は応答の部屋の画面（読めなければ null）。
-     * [lastLineIdAtStart] は操作を始めた時点の最新行の id。
+     * [clearedLines] は発言クリア後の応答ページに実際に残っていたログ。
      */
-    fun afterOwnerAction(action: OwnerAction, page: ChatPage?, lastLineIdAtStart: Long? = null): ChatUiState {
+    fun afterOwnerAction(action: OwnerAction, page: ChatPage?, clearedLines: List<UiLine> = emptyList()): ChatUiState {
         val done = copy(ownerAction = null)
         // 転送・認証切れ・エラーページなど、部屋画面として確認できない応答を成功扱いしない。
         // 特にクリアや公開設定を楽観的に反映すると、サーバーの状態と表示が食い違う。
@@ -266,7 +267,7 @@ class ChatViewModel(
     }
 
     fun banGuest() = runOwnerAction(OwnerAction.BAN_GUEST) { client.banGuest(room) }
-    fun clearLog() = runOwnerAction(OwnerAction.CLEAR_LOG) { client.clearLog(room) }
+    fun clearLog() = runOwnerAction(OwnerAction.CLEAR_LOG, pauseUpdates = true) { client.clearLog(room) }
     fun setPublic(public: Boolean) =
         runOwnerAction(if (public) OwnerAction.MAKE_PUBLIC else OwnerAction.MAKE_PRIVATE) { client.setPublic(room, public) }
 
@@ -283,19 +284,34 @@ class ChatViewModel(
      * 「相手を退室」の有無）をそこから読む。読めなければ成功を確認できないため失敗扱いにする。
      * ログ・読み出し位置は新着の取得に任せる（クリアは新着の取得でも届く）。
      */
-    private fun runOwnerAction(action: OwnerAction, send: suspend () -> ChatPage?) {
+    private fun runOwnerAction(action: OwnerAction, pauseUpdates: Boolean = false, send: suspend () -> ChatPage?) {
         val s = _state.value
         if (!s.canRunOwnerAction) return
-        val lastLineId = s.lines.firstOrNull()?.id
         _state.update { it.copy(ownerAction = action, ownerNotice = null) }
         viewModelScope.launch {
+            var shouldRestartUpdates = false
             try {
+                if (pauseUpdates) {
+                    // クリアの POST が 3 秒のゲートを待つ間に相手の発言を受信すると、
+                    // サーバーでは消えた発言をローカルに残し得る。進行中の long poll まで止めてから送る。
+                    updatesJob?.cancelAndJoin()
+                    shouldRestartUpdates = true
+                }
                 val page = send()
-                _state.update { it.afterOwnerAction(action, page, lastLineId) }
+                val clearedLines = if (action == OwnerAction.CLEAR_LOG && page != null) {
+                    // 応答ページはサーバーが確定したクリア後の状態。この位置から新しい ChatSession を開始する。
+                    session = client.chatSession(page)
+                    page.lines.asReversed().map { line -> uiLine(line, page.myName) }.asReversed()
+                } else {
+                    emptyList()
+                }
+                _state.update { it.afterOwnerAction(action, page, clearedLines) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 _state.update { it.copy(ownerAction = null, ownerNotice = "${action.failure}。${describeError(e)}") }
+            } finally {
+                if (shouldRestartUpdates && _state.value.endMessage == null && !_state.value.left) startUpdates()
             }
         }
     }
