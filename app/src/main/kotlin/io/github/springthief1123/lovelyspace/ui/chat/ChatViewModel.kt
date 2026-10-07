@@ -96,13 +96,16 @@ data class ChatUiState(
 
     fun discardFailedMessage() = copy(failedMessage = null, sendError = null)
 
-    /** 作成者の操作が済んだ後の状態。[page] は応答の部屋の画面（読めなければ null）。 */
-    fun afterOwnerAction(action: OwnerAction, page: ChatPage?): ChatUiState {
+    /**
+     * 作成者の操作が済んだ後の状態。[page] は応答の部屋の画面（読めなければ null）。
+     * [lastLineIdAtStart] は操作を始めた時点の最新行の id。
+     */
+    fun afterOwnerAction(action: OwnerAction, page: ChatPage?, lastLineIdAtStart: Long? = null): ChatUiState {
         val done = copy(ownerAction = null)
         return when (action) {
             OwnerAction.BAN_GUEST -> done.copy(canBanGuest = page?.canBanGuest ?: false)
-            // 自分の画面からも消す。新着の取得で消去の合図が届いても同じ結果になる。
-            OwnerAction.CLEAR_LOG -> done.copy(lines = emptyList())
+            // 自分の画面からも消す。操作中に新着の取得で届いた行は、クリアの後の発言なので残す。
+            OwnerAction.CLEAR_LOG -> done.copy(lines = lines.filter { lastLineIdAtStart == null || it.id > lastLineIdAtStart })
             OwnerAction.CHANGE_MESSAGE -> done.copy(waitingMessage = page?.waitingMessage ?: waitingMessage, ownerNotice = "待機メッセージを変更しました")
             OwnerAction.MAKE_PRIVATE, OwnerAction.MAKE_PUBLIC -> {
                 val wanted = action == OwnerAction.MAKE_PUBLIC
@@ -269,11 +272,12 @@ class ChatViewModel(
     private fun runOwnerAction(action: OwnerAction, send: suspend () -> ChatPage?) {
         val s = _state.value
         if (!s.showsOwnerActions || s.ownerAction != null) return
+        val lastLineId = s.lines.firstOrNull()?.id
         _state.update { it.copy(ownerAction = action, ownerNotice = null) }
         viewModelScope.launch {
             try {
                 val page = send()
-                _state.update { it.afterOwnerAction(action, page) }
+                _state.update { it.afterOwnerAction(action, page, lastLineId) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
