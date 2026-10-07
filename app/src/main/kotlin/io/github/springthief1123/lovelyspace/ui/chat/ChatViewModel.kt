@@ -66,6 +66,8 @@ data class ChatUiState(
     val isPublic: Boolean = false,
     /** 作成者が相手を退室させられるか。本家の「相手を退室」ボタンと同じ条件で切り替える。 */
     val canBanGuest: Boolean = false,
+    /** 入退室が変わるたびに増える。確認ダイアログが別の相手へ誤適用されるのを防ぐ。 */
+    val participantRevision: Long = 0,
     /** 作成者に公開・非公開の切り替えがあるか。 */
     val canChangePublic: Boolean = false,
     val waitingMessage: String? = null,
@@ -141,6 +143,10 @@ data class ChatUiState(
         }
     }
 }
+
+/** 入室・退室が含まれる応答を受けるたび、在室者の世代を進める。 */
+internal fun participantRevisionAfter(current: Long, update: ChatUpdate): Long =
+    if (update.someoneEntered || update.guestLeft) current + 1 else current
 
 /** 本家の 2shot.js と同じ: 入室者が来たら「相手を退室」を出し、相手が抜けたらサーバーの判定に従う。 */
 internal fun canBanGuestAfter(current: Boolean, update: ChatUpdate): Boolean = when {
@@ -238,6 +244,7 @@ class ChatViewModel(
                 isFilled = update.state.isFilledRoom,
                 isPublic = update.isPublic ?: s.isPublic,
                 canBanGuest = canBanGuestAfter(s.canBanGuest, update),
+                participantRevision = participantRevisionAfter(s.participantRevision, update),
                 connection = Connection.CONNECTED,
             )
         }
