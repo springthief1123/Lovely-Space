@@ -49,6 +49,10 @@ class ChatOwnerActionsTest {
         assertFalse("相手が抜けたらサーバーの判定に従う", canBanGuestAfter(true, update(guestLeft = true, canBan = false)))
         assertTrue(canBanGuestAfter(false, update(guestLeft = true, canBan = true)))
         assertTrue("どちらでもなければそのまま", canBanGuestAfter(true, update()))
+        assertFalse(
+            "入室と退室が同じ応答なら退室後のサーバー判定を優先する",
+            canBanGuestAfter(true, update(entered = true, guestLeft = true, canBan = false)),
+        )
     }
 
     @Test fun clearUsesOnlyServerConfirmedPostClearLines() {
