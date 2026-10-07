@@ -115,11 +115,15 @@ data class ChatUiState(
         // 特にクリアや公開設定を楽観的に反映すると、サーバーの状態と表示が食い違う。
         if (page == null) return done.copy(ownerNotice = action.failure)
         return when (action) {
-            OwnerAction.BAN_GUEST -> done.copy(canBanGuest = page.canBanGuest, isFilled = page.state.isFilledRoom)
-            // 自分の画面からも消す。操作中に新着の取得で届いた行は、クリア後の部屋の画面（応答）に
-            // 残っているものだけ残す（相手がクリアの処理より先に送った発言はサーバーでも消えている）。
+            OwnerAction.BAN_GUEST -> done.copy(
+                canBanGuest = page.canBanGuest,
+                isFilled = page.state.isFilledRoom,
+            )
+            // クリア中は新着取得を止め、応答ページをサーバー確認済みの境界として表示を置き換える。
             OwnerAction.CLEAR_LOG -> done.copy(
-                lines = lines.filter { ui -> (lastLineIdAtStart == null || ui.id > lastLineIdAtStart) && ui.line in page.lines },
+                lines = clearedLines,
+                isFilled = page.state.isFilledRoom,
+                canBanGuest = page.canBanGuest,
             )
             OwnerAction.CHANGE_MESSAGE -> done.copy(waitingMessage = page.waitingMessage ?: waitingMessage, ownerNotice = "待機メッセージを変更しました")
             OwnerAction.MAKE_PRIVATE, OwnerAction.MAKE_PUBLIC -> {
