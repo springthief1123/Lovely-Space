@@ -12,6 +12,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.CompositionLocalProvider
+import io.github.springthief1123.lovelyspace.notify.AppNotifier
 import io.github.springthief1123.lovelyspace.settings.RoomMessageLines
 import io.github.springthief1123.lovelyspace.settings.TextScale
 import io.github.springthief1123.lovelyspace.ui.rooms.LocalRoomMessageMaxLines
@@ -19,11 +20,15 @@ import io.github.springthief1123.lovelyspace.settings.ThemeMode
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpaceTheme
 
 class MainActivity : ComponentActivity() {
+    private var handledNotificationId: String? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val app = application as LovelySpaceApp
-        // 画面の作り直し（回転など）では同じ通知を開き直さない。
-        if (savedInstanceState == null) openNotification(intent)
+        // 回転などの再生成では処理済み ID を引き継ぐ。一方、OS によるプロセス再生成でも
+        // 新しい通知 Intent の ID が異なれば通常どおり処理する。
+        handledNotificationId = savedInstanceState?.getString(STATE_HANDLED_NOTIFICATION_ID)
+        openNotification(intent)
         setContent {
             val themeMode by app.settings.themeMode.collectAsStateWithLifecycle(initialValue = ThemeMode.SYSTEM)
             val textScale by app.settings.textScale.collectAsStateWithLifecycle(initialValue = TextScale.STANDARD)
@@ -51,11 +56,25 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        // 次の Activity 再生成でも、この最新 Intent を重複判定の対象にする。
+        setIntent(intent)
         openNotification(intent)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        handledNotificationId?.let { outState.putString(STATE_HANDLED_NOTIFICATION_ID, it) }
+        super.onSaveInstanceState(outState)
     }
 
     /** 通知のタップで開かれたら、お知らせを既読にして該当の画面へ移す（移動は AppNavHost が行う）。 */
     private fun openNotification(intent: Intent?) {
+        val id = AppNotifier.notificationId(intent) ?: return
+        if (id == handledNotificationId) return
+        handledNotificationId = id
         (application as LovelySpaceApp).notifier.open(intent)
+    }
+
+    companion object {
+        private const val STATE_HANDLED_NOTIFICATION_ID = "handled_notification_id"
     }
 }
