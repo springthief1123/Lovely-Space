@@ -64,11 +64,20 @@ internal fun NavController.openNotification(notification: AppNotification, resum
     when (val target = notification.target) {
         is NotificationTarget.Room -> {
             val origin = if (notification.kind == NotificationKind.RADAR_MATCH) Routes.RADAR else Routes.ROOMS
-            navigateMain(origin)
+            showMain(origin)
             navigate(Routes.entry(target.host, target.genreKey, target.roomId, origin)) { launchSingleTop = true }
         }
-        NotificationTarget.ActiveChat -> resumeChat()?.let { navigateToChat(it, Routes.ROOMS) } ?: navigateMain(Routes.ROOMS)
-        NotificationTarget.Radar -> navigateMain(Routes.RADAR)
-        NotificationTarget.Rooms -> navigateMain(Routes.ROOMS)
+        NotificationTarget.ActiveChat -> resumeChat()?.let { navigateToChat(it, Routes.ROOMS) } ?: showMain(Routes.ROOMS)
+        NotificationTarget.Radar -> showMain(Routes.RADAR)
+        NotificationTarget.Rooms -> showMain(Routes.ROOMS)
     }
+}
+
+/**
+ * 通知から主画面を出す。一覧（開始画面）は常に履歴の底にあるので、その上を閉じて戻る。
+ * 一覧へ [navigateMain] で移ると、他のタブにいたときにそのタブが出たままになる（ChatNavigationTest で確認）。
+ */
+private fun NavController.showMain(route: String) {
+    if (route != Routes.ROOMS) return navigateMain(route)
+    if (currentDestination?.route != Routes.ROOMS) popBackStack(Routes.ROOMS, inclusive = false)
 }
