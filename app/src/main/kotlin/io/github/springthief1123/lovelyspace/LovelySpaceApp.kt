@@ -15,12 +15,27 @@ import io.github.springthief1123.lovelyspace.notify.AppNotifier
 import io.github.springthief1123.lovelyspace.notify.NotificationInbox
 import io.github.springthief1123.lovelyspace.notify.NotificationInboxStore
 import io.github.springthief1123.lovelyspace.ui.chat.ActiveRooms
+import io.github.springthief1123.lovelyspace.background.BackgroundSync
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.launch
 
 class LovelySpaceApp : Application() {
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     override fun onCreate() {
         super.onCreate()
         notifier.ensureChannels()
+        // 背景で巡回する計画があるときだけ周期実行を登録し、すべて止めたら解除する。
+        appScope.launch {
+            radar.state.mapNotNull { state -> if (state.loaded) state.activeBackgroundPlans.isNotEmpty() to state.backgroundIntervalMinutes else null }
+                .distinctUntilChanged()
+                .collect { (enabled, minutes) -> BackgroundSync.update(this@LovelySpaceApp, enabled, minutes.toLong()) }
+        }
     }
 
 

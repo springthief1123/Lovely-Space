@@ -78,6 +78,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
         }
     }
     val planCount = saved.count { it.id in state.plans }
+    val requestNotifications = io.github.springthief1123.lovelyspace.notify.rememberNotificationPermissionRequest()
     QuietPage {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = LovelySpacing.screenHorizontal, end = LovelySpacing.screenHorizontal,
         top = lovelyMainContentTopPadding(), bottom = lovelyMainContentBottomInset() + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -119,12 +120,18 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                 if (!savedState.loading && savedState.loadError == null && saved.isEmpty()) item {
                     RadarEmpty("「見つける」の絞り込みで条件を保存すると、ここで巡回を有効にできます。", "条件を探す", onFindRooms)
                 }
-                if (saved.isNotEmpty()) item { RadarNote("有効にした条件は新着を優先して全ページを巡回します。") }
+                if (saved.isNotEmpty()) item { RadarNote("有効にした条件は、画面を開いている間に新着を優先して全ページを巡回します。「︙」から背景でも巡回するを選ぶと、アプリを閉じていても新着の1ページ目を確認し、新しく一致した部屋を通知します。") }
+                if (state.activeBackgroundPlans.isNotEmpty()) item {
+                    RadarDropdown("背景で巡回する間隔", state.backgroundIntervalMinutes.toString(),
+                        RadarState.BACKGROUND_INTERVALS.map { it.toString() to if (it < 60) "${it}分ごと" else "${it / 60}時間ごと" },
+                        state.loaded && !working) { value -> action { app.radar.setBackgroundInterval(value.toInt()) } }
+                }
                 items(saved, key = { it.id }) { preset ->
                     val found = state.resultFor(preset)
+                    val background = preset.id in state.activeBackgroundPlans
                     RadarRuleRow(
                         title = preset.label,
-                        subtitle = Genres[preset.genreKey]?.label ?: preset.genreKey,
+                        subtitle = listOfNotNull(Genres[preset.genreKey]?.label ?: preset.genreKey, if (background) "背景でも巡回" else null).joinToString("・"),
                         enabled = preset.id in state.plans,
                         switchEnabled = state.loaded && !working && !state.running,
                         onEnabled = { enabled -> action { app.radar.setPlan(preset.id, enabled) } },
@@ -132,7 +139,14 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                         matches = found?.rooms?.size,
                         onMatches = { found?.let { result = RadarRoomsDisplay("確認した一致", it.at, it.page, it.lastPage, it.rooms) } },
                         menuLabel = "計画の操作",
-                        menu = listOf(QuietMenuItem("計画を編集", enabled = !state.running && !working && !savedState.working) { savedVm.clearEditError(); editing = preset }),
+                        menu = listOf(
+                            QuietMenuItem("計画を編集", enabled = !state.running && !working && !savedState.working) { savedVm.clearEditError(); editing = preset },
+                            QuietMenuItem(if (background) "背景の巡回をやめる" else "背景でも巡回する", enabled = state.loaded && !working && !state.running) {
+                                // 背景の巡回は一致を端末通知で知らせるので、オンにするときに通知の許可も求める。
+                                if (!background) requestNotifications()
+                                action { app.radar.setPlanBackground(preset.id, !background) }
+                            },
+                        ),
                     )
                 }
             }
@@ -252,7 +266,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
     }
     if (pauseConfirm) AlertDialog(onDismissRequest = { if (!working) pauseConfirm = false }, title = { Text("計画・候補監視をすべて停止しますか？") },
         text = { Column {
-            Text("計画・候補条件と確認済みの結果は残します。実行中の通信は完了させ、以降の計画・候補ページは取得しません。部屋の追跡設定は保持します。")
+            Text("計画・候補条件と確認済みの結果は残します。実行中の通信は完了させ、以降の計画・候補ページは取得しません。背景の巡回も止めます。部屋の追跡設定は保持します。")
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         } },
         confirmButton = { TextButton(enabled = !working, onClick = { action { app.radar.pauseAllPlans(); pauseConfirm = false } }) { Text("すべて停止") } },

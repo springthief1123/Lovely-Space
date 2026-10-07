@@ -452,4 +452,91 @@ class RadarRepositoryTest {
             assertEquals(3, lists.calls.size)
         } finally { db.close() }
     }
+    @Test fun backgroundScanChecksOnlyBackgroundPlansAndLeavesCandidatesAndTargetsToTheForeground() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            searches.save(SearchPreset("bg", "合成の背景", "zenkoku", RoomSearchCriteria()))
+            searches.save(SearchPreset("fg", "合成の前面", "talk", RoomSearchCriteria()))
+            val lists = Lists()
+            val radar = RadarRepository(db.presets(), lists, searches, RoomPreferenceRepository(db), backgroundScope)
+            radar.state.first { it.loaded }
+            radar.setPlanBackground("bg", true); radar.setPlan("fg", true)
+            radar.saveCandidate(CandidateRule("c", "合成の候補", "game", "合成"))
+            radar.track(room.copy(genreKey = "cosplay"), RoomQuery(Genres["cosplay"]!!, page = 2))
+            assertEquals(setOf("bg", "fg"), radar.state.value.plans)
+            assertEquals(setOf("bg"), radar.state.value.activeBackgroundPlans)
+            radar.scan(latestFirst = true, force = false, backgroundOnly = true)
+            assertEquals(listOf(RoomQuery(Genres["zenkoku"]!!, page = 1)), lists.calls)
+        } finally { db.close() }
+    }
+    @Test fun backgroundBaselineSurvivesARestartSoOnlyNewMatchesAreReported() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            val prefs = RoomPreferenceRepository(db)
+            searches.save(SearchPreset("bg", "合成の背景", "zenkoku", RoomSearchCriteria()))
+            var clock = 1_000_000L
+            // 前の起動は止めてから次を作る（背景の実行ごとにプロセスが作り直される想定）。
+            var running = SupervisorJob(backgroundScope.coroutineContext[Job])
+            suspend fun restart(): CoroutineScope { running.cancelAndJoin(); running = SupervisorJob(backgroundScope.coroutineContext[Job]); return CoroutineScope(backgroundScope.coroutineContext + running) }
+            val first = RadarRepository(db.presets(), Lists().apply { rooms = listOf(room) }, searches, prefs, CoroutineScope(backgroundScope.coroutineContext + running)) { clock }
+            first.state.first { it.loaded }; first.setPlanBackground("bg", true)
+            // 初回は比較基準を作るだけで、一致を「新しい」とは扱わない。
+            assertTrue(first.scan(latestFirst = true, force = false, backgroundOnly = true).isEmpty())
+            // 背景の実行ごとにプロセスが作り直されても、保存した基準と比べる。
+            clock += 15 * 60 * 1000L
+            val added = room.copy(id = 43, name = "追加の合成")
+            val second = RadarRepository(db.presets(), Lists().apply { rooms = listOf(room, added) }, searches, prefs, restart()) { clock }
+            second.state.first { it.loaded }
+            val events = second.scan(latestFirst = true, force = false, backgroundOnly = true)
+            assertEquals(listOf(RadarEventKind.SEARCH_MATCH), events.map { it.kind })
+            assertEquals(listOf(43L), events.single().rooms.map { it.id })
+            // 一度知らせた部屋は、次の再起動後にも新しい一致として出さない。
+            clock += 15 * 60 * 1000L
+            val third = RadarRepository(db.presets(), Lists().apply { rooms = listOf(added) }, searches, prefs, restart()) { clock }
+            third.state.first { it.loaded }
+            assertTrue(third.scan(latestFirst = true, force = false, backgroundOnly = true).isEmpty())
+        } finally { db.close() }
+    }
+    @Test fun anOldSavedBaselineIsRebuiltInsteadOfReportingEverythingAsNew() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            val prefs = RoomPreferenceRepository(db)
+            searches.save(SearchPreset("bg", "合成の背景", "zenkoku", RoomSearchCriteria()))
+            var clock = 1_000_000L
+            // 前の起動は止めてから次を作る（背景の実行ごとにプロセスが作り直される想定）。
+            var running = SupervisorJob(backgroundScope.coroutineContext[Job])
+            suspend fun restart(): CoroutineScope { running.cancelAndJoin(); running = SupervisorJob(backgroundScope.coroutineContext[Job]); return CoroutineScope(backgroundScope.coroutineContext + running) }
+            val first = RadarRepository(db.presets(), Lists().apply { rooms = listOf(room) }, searches, prefs, CoroutineScope(backgroundScope.coroutineContext + running)) { clock }
+            first.state.first { it.loaded }; first.setPlanBackground("bg", true)
+            first.scan(latestFirst = true, force = false, backgroundOnly = true)
+            clock += 7 * 60 * 60 * 1000L
+            val later = RadarRepository(db.presets(), Lists().apply { rooms = listOf(room, room.copy(id = 43, name = "追加の合成")) }, searches, prefs, restart()) { clock }
+            later.state.first { it.loaded }
+            assertTrue(later.scan(latestFirst = true, force = false, backgroundOnly = true).isEmpty())
+        } finally { db.close() }
+    }
+    @Test fun backgroundSettingsPersistAndStoppingPlansStopsTheBackgroundToo() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            searches.save(SearchPreset("a", "合成A", "zenkoku", RoomSearchCriteria()))
+            searches.save(SearchPreset("b", "合成B", "talk", RoomSearchCriteria()))
+            val radar = RadarRepository(db.presets(), Lists(), searches, RoomPreferenceRepository(db), backgroundScope)
+            radar.state.first { it.loaded }
+            radar.setPlanBackground("a", true); radar.setPlanBackground("b", true); radar.setBackgroundInterval(30)
+            val restored = RadarRepository(db.presets(), Lists(), searches, RoomPreferenceRepository(db), backgroundScope)
+            restored.state.first { it.loaded }
+            assertEquals(setOf("a", "b"), restored.state.value.activeBackgroundPlans)
+            assertEquals(30, restored.state.value.backgroundIntervalMinutes)
+            assertThrows(IllegalArgumentException::class.java) { kotlinx.coroutines.runBlocking { restored.setBackgroundInterval(5) } }
+            restored.setPlan("b", false)
+            assertEquals(setOf("a"), restored.state.value.activeBackgroundPlans)
+            restored.pauseAllPlans()
+            assertTrue(restored.state.value.activeBackgroundPlans.isEmpty())
+            assertTrue(restored.state.value.backgroundPlans.isEmpty())
+        } finally { db.close() }
+    }
 }

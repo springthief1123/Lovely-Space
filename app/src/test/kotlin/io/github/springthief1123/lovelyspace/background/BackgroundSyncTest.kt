@@ -36,4 +36,12 @@ class BackgroundSyncTest {
         BackgroundSync.update(context, enabled = false)
         assertEquals(listOf(WorkInfo.State.CANCELLED), periodic().map { it.state })
     }
+
+    @Test fun changingTheIntervalUpdatesTheSameWorkInsteadOfAddingAnother() {
+        BackgroundSync.update(context, enabled = true, intervalMinutes = 15)
+        val id = periodic().single().id
+        BackgroundSync.update(context, enabled = true, intervalMinutes = 60)
+        val active = periodic().filter { !it.state.isFinished }
+        assertEquals(listOf(id), active.map { it.id })
+    }
 }
