@@ -303,8 +303,9 @@ class ChatViewModel(
                 }
                 val page = send()
                 val clearedLines = if (action == OwnerAction.CLEAR_LOG && page != null) {
-                    // 応答ページはサーバーが確定したクリア後の状態。この位置から新しい ChatSession を開始する。
-                    session = client.chatSession(page)
+                    // 応答ページはサーバーが確定したクリア後の状態。読み出し位置を取り直しつつ、
+                    // 直前の発言・poll の間隔制限を引き継いだ ChatSession で再開する。
+                    session = client.chatSession(page, previous = session)
                     page.lines.asReversed().map { line -> uiLine(line, page.myName) }.asReversed()
                 } else {
                     emptyList()
