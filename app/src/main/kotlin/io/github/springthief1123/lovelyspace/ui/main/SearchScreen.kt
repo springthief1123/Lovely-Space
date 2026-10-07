@@ -5,8 +5,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.ArrowUpward
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Sync
+import androidx.compose.material.icons.outlined.SyncDisabled
 import androidx.compose.material.icons.outlined.Tune
-import io.github.springthief1123.lovelyspace.ui.components.QuietHeading
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import io.github.springthief1123.lovelyspace.ui.components.QuietPage
 import io.github.springthief1123.lovelyspace.ui.components.QuietFieldPair
 import io.github.springthief1123.lovelyspace.data.SearchPreset
@@ -64,40 +72,60 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
             if (snackbar.showSnackbar("部屋を非表示にしました", actionLabel = "元に戻す", withDismissAction = true) == SnackbarResult.ActionPerformed) preferencesVm.unhide(room)
         }
     }
+    // 引っ張って更新したときだけインジケーターを出す。自動取得のたびには出さない。
+    var userRefreshing by remember { mutableStateOf(false) }
+    LaunchedEffect(state.loading) { if (!state.loading) userRefreshing = false }
+    val newCount = visibleResults.count { roomIdentity(it) in state.newRoomIds }
     QuietPage {
+    val pullState = rememberPullToRefreshState()
+    val pullRefreshing = userRefreshing && state.loading
+    val indicatorTop = lovelyMainContentTopPadding()
+    PullToRefreshBox(
+        isRefreshing = pullRefreshing,
+        onRefresh = { if (state.initialized && !state.loading) { userRefreshing = true; vm.refresh() } },
+        modifier = Modifier.fillMaxSize(),
+        state = pullState,
+        // 上部のガラスのバーに隠れないよう、一覧の先頭の位置に出す。
+        indicator = {
+            PullToRefreshDefaults.Indicator(state = pullState, isRefreshing = pullRefreshing,
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = indicatorTop))
+        },
+    ) {
     LazyColumn(Modifier.fillMaxSize(), state = listState,
         contentPadding = PaddingValues(start = LovelySpacing.screenHorizontal, end = LovelySpacing.screenHorizontal,
             top = lovelyMainContentTopPadding(), bottom = lovelyMainContentBottomInset() + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
-        verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { QuietHeading("見つける") }
-        item {
-            OutlinedTextField(c.text, { vm.criteria(c.copy(text = it)) }, placeholder = { Text("名前・募集文を検索") },
-                leadingIcon = { Icon(Icons.Outlined.Search, null) },
-                trailingIcon = { IconButton(onClick = { showFilters = true }) { Icon(Icons.Outlined.Tune, "検索条件") } },
-                singleLine = true, shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth())
-        }
+        verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // ジャンル名が画面の見出しを兼ねる。
         if (state.initialized) item { GenreBar(state.genre, emptyList(), emptyMap(), { vm.genre(it); vm.refresh() }) }
         item {
-            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(c.waitingOnly == true, { vm.criteria(c.copy(waitingOnly = if (c.waitingOnly == true) null else true)) }, label = { Text("待機中") })
-                TextButton(onClick = { showFilters = true }) { Text("絞り込み・条件保存") }
-            }
+            OutlinedTextField(c.text, { vm.criteria(c.copy(text = it)) }, placeholder = { Text("名前・待機メッセージを検索") },
+                leadingIcon = { Icon(Icons.Outlined.Search, null) },
+                trailingIcon = if (c.text.isNotEmpty()) ({ IconButton(onClick = { vm.criteria(c.copy(text = "")) }) { Icon(Icons.Outlined.Close, "検索語を消す") } }) else null,
+                singleLine = true, shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth())
         }
         item {
-            Text(if (state.page == 0) (if (state.loading || !state.initialized) "一覧を読み込んでいます。" else "「今すぐ更新」でこのジャンルを取得します。") else "取得済み ${state.page}/${state.lastPage}ページ・${state.rooms.size}部屋から ${if (validAges) visibleResults.size else 0}件表示",
-                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            state.pageTimes.values.minOrNull()?.let { at -> Text("表示範囲の最も古い確認 ${io.github.springthief1123.lovelyspace.data.formatObservationTime(at)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            Text("新着ページを優先して更新し、残りのページも自動で取得します。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            QuickFilterRow(
+                criteria = c,
+                advancedCount = advancedFilterCount(c),
+                onChange = vm::criteria,
+                onOpenFilters = { showFilters = true },
+            )
         }
         item {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(if (state.automatic) "自動更新中" else "自動更新を停止中", style = MaterialTheme.typography.labelLarge)
-                Switch(state.automatic, vm::automatic)
-            }
-            if (visibleResults.any { roomIdentity(it) in state.newRoomIds }) TextButton(onClick = {
-                scope.launch { listState.scrollToItem(0); vm.clearNewRooms() }
-            }) { Text("新しく取得した部屋 ${visibleResults.count { roomIdentity(it) in state.newRoomIds }}件 · 先頭へ") }
-            TextButton(onClick = vm::refresh, enabled = state.initialized && !state.loading) { Text("今すぐ更新") }
+            SearchStatusRow(
+                text = searchStatusText(state.page, state.lastPage, if (validAges) visibleResults.size else 0, state.loading || !state.initialized,
+                    state.pageTimes.values.minOrNull()?.let { io.github.springthief1123.lovelyspace.data.formatObservationTime(it) }),
+                automatic = state.automatic,
+                loading = state.loading,
+                onAutomaticChange = vm::automatic,
+                onRefresh = { vm.refresh() },
+                refreshEnabled = state.initialized && !state.loading,
+            )
+        }
+        if (newCount > 0) item {
+            AssistChip(onClick = { scope.launch { listState.scrollToItem(0); vm.clearNewRooms() } },
+                label = { Text("新着 ${newCount}件・先頭へ") },
+                leadingIcon = { Icon(Icons.Outlined.ArrowUpward, null, Modifier.size(16.dp)) })
         }
         state.preferenceError?.let { error -> item { Text("設定を保存できませんでした：$error", color = MaterialTheme.colorScheme.error) } }
         preferences.error?.let { error -> item {
@@ -124,7 +152,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
                 Text(if (state.results.isEmpty()) "取得済みの一覧に、条件に合う部屋はありません。" else "条件に合う部屋はすべて非表示です。")
             }
         }
-        if (state.loading) item { CircularProgressIndicator(Modifier.size(28.dp)) }
+    }
     }
     SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = lovelyMainContentBottomInset()))
     }
@@ -196,3 +224,86 @@ private fun AreaFilter(selected: String?, onSelect: (String?) -> Unit) {
         }
     }
 }
+
+/** 性別・待機中・公開は一覧の上で1タップで切り替える。それ以外の条件はシートに置き、件数だけ示す。 */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun QuickFilterRow(
+    criteria: RoomSearchCriteria,
+    advancedCount: Int,
+    onChange: (RoomSearchCriteria) -> Unit,
+    onOpenFilters: () -> Unit,
+) {
+    LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        item {
+            FilterChip(criteria.gender == Gender.FEMALE,
+                { onChange(criteria.copy(gender = if (criteria.gender == Gender.FEMALE) null else Gender.FEMALE)) },
+                label = { Text("女性") })
+        }
+        item {
+            FilterChip(criteria.gender == Gender.MALE,
+                { onChange(criteria.copy(gender = if (criteria.gender == Gender.MALE) null else Gender.MALE)) },
+                label = { Text("男性") })
+        }
+        item {
+            FilterChip(criteria.waitingOnly == true,
+                { onChange(criteria.copy(waitingOnly = if (criteria.waitingOnly == true) null else true)) },
+                label = { Text("待機中") })
+        }
+        item {
+            FilterChip(criteria.publicOnly == true,
+                { onChange(criteria.copy(publicOnly = if (criteria.publicOnly == true) null else true)) },
+                label = { Text("公開") })
+        }
+        item {
+            FilterChip(advancedCount > 0, onOpenFilters,
+                label = { Text(if (advancedCount > 0) "絞り込み $advancedCount" else "絞り込み") },
+                leadingIcon = { Icon(Icons.Outlined.Tune, null, Modifier.size(16.dp)) })
+        }
+    }
+}
+
+@Composable
+private fun SearchStatusRow(
+    text: String,
+    automatic: Boolean,
+    loading: Boolean,
+    onAutomaticChange: (Boolean) -> Unit,
+    onRefresh: () -> Unit,
+    refreshEnabled: Boolean,
+) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f))
+        IconButton(onClick = { onAutomaticChange(!automatic) }) {
+            Icon(if (automatic) Icons.Outlined.Sync else Icons.Outlined.SyncDisabled,
+                contentDescription = if (automatic) "自動更新を一時停止" else "自動更新を再開",
+                tint = if (automatic) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (loading) {
+            Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) }
+        } else {
+            IconButton(onClick = onRefresh, enabled = refreshEnabled) { Icon(Icons.Outlined.Refresh, "今すぐ更新") }
+        }
+    }
+}
+
+/** 一覧の状態を1行にまとめる。例: 「41件・3/5ページ・12:04 確認」。 */
+internal fun searchStatusText(page: Int, lastPage: Int, shown: Int, loading: Boolean, oldestCheck: String?): String = when {
+    page == 0 && loading -> "一覧を読み込んでいます"
+    page == 0 -> "下に引いて一覧を取得"
+    else -> listOfNotNull("${shown}件", "${page}/${lastPage}ページ", oldestCheck?.let { "$it 確認" }).joinToString("・")
+}
+
+/** シートで指定した、一覧上部のチップ以外の条件の数。 */
+internal fun advancedFilterCount(c: RoomSearchCriteria): Int = listOf(
+    c.name.isNotBlank(),
+    c.message.isNotBlank(),
+    c.excluded.isNotBlank(),
+    c.minAge != null || c.maxAge != null,
+    !c.includeUnknownAge,
+    c.area != null,
+    c.waitingOnly == false,
+    c.publicOnly == false,
+    c.sort != RoomSort.SITE,
+).count { it }
