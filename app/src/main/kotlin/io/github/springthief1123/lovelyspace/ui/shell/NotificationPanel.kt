@@ -11,14 +11,15 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -48,9 +49,11 @@ internal fun NotificationPanel(
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp))
         } else {
             // 保存上限まで全件を確認できるよう、一覧部分だけをスクロール可能にする。
-            LazyColumn(Modifier.heightIn(max = 420.dp)) {
-                items(entries, key = { it.id }) { entry ->
-                    NotificationPanelItem(entry, onClick = { onOpen(entry) })
+            // DropdownMenu は中身の幅を固有サイズで測るため、LazyColumn は使えない（測れずに落ちる）。
+            // 件数は保存上限（100 件）までなので、通常の Column で足りる。
+            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                entries.forEach { entry ->
+                    key(entry.id) { NotificationPanelItem(entry, onClick = { onOpen(entry) }) }
                 }
             }
         }
