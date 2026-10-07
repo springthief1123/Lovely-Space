@@ -73,7 +73,11 @@ fun NotificationSettingsScreen(onBack: () -> Unit) {
     fun sendTest(kind: NotificationKind) {
         scope.launch {
             try {
-                app.notifier.post(NotificationSamples.of(kind))
+                val sample = NotificationSamples.of(kind)
+                app.notifier.post(
+                    sample,
+                    timeoutAfterMs = if (kind == NotificationKind.ONGOING) ONGOING_TEST_TIMEOUT_MS else null,
+                )
                 when {
                     !canPost -> show("通知が許可されていないため、お知らせにだけ追加しました")
                     kind !in enabledKinds -> show("「${kind.label}」の通知は端末の設定でオフになっています")
@@ -170,3 +174,6 @@ private fun NotificationKindRow(kind: NotificationKind, enabled: Boolean, onOpen
         TextButton(onClick = onSendTest) { Text("テスト") }
     }
 }
+
+
+private const val ONGOING_TEST_TIMEOUT_MS = 15_000L
