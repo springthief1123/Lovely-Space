@@ -52,6 +52,11 @@ class AppNotifier(
         manager.notify(notification.id, NOTIFICATION_ID, build(notification, preview()))
     }
 
+    /** 処理終了時などに、指定した端末通知を明示的に消す。常駐通知はこの経路で解除する。 */
+    fun cancel(id: String) {
+        manager.cancel(id, NOTIFICATION_ID)
+    }
+
     /** お知らせを開く（既読にして画面側へ渡し、残っている端末通知を消す）。 */
     fun open(id: String) {
         inbox.open(id) ?: return
@@ -75,7 +80,8 @@ class AppNotifier(
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setWhen(notification.at)
             .setShowWhen(true)
-            .setAutoCancel(true)
+            .setAutoCancel(notification.kind != NotificationKind.ONGOING)
+            .setOngoing(notification.kind == NotificationKind.ONGOING)
             .setOnlyAlertOnce(true)
             .setContentIntent(contentIntent(notification))
         if (notification.kind == NotificationKind.ONGOING) {
