@@ -10,6 +10,7 @@ import androidx.test.core.app.ApplicationProvider
 import io.github.springthief1123.lovelyspace.settings.NotificationPreview
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -131,6 +132,20 @@ class AppNotifierTest {
         val forged = NotificationSamples.of(NotificationKind.ONGOING).copy(id = "status-chat", target = NotificationTarget.ActiveChat)
         notifier.open(AppNotifier.openIntent(app, forged))
         assertNull(inbox.opened.value)
+    }
+
+    @Test fun ongoingNotificationStaysUntilExplicitlyCancelled() = runTest {
+        grant()
+        val status = NotificationSamples.of(NotificationKind.ONGOING)
+
+        notifier.post(status)
+
+        val notification = posted().single()
+        assertTrue(notification.flags and Notification.FLAG_ONGOING_EVENT != 0)
+        assertFalse(notification.flags and Notification.FLAG_AUTO_CANCEL != 0)
+
+        notifier.cancel(status.id)
+        assertTrue(posted().isEmpty())
     }
 
     @Test fun everyKindHasATestNotification() = runTest {
