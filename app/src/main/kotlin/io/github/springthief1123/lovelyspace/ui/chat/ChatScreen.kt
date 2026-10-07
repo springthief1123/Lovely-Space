@@ -191,7 +191,12 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit, onEnded: () -> Unit = {}) 
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(state.loadError.orEmpty(), textAlign = TextAlign.Center)
-                    OutlinedButton(onClick = vm::open) { Text("もう一度読み込む") }
+                    // 部屋の画面でなかったときは「会話に戻る」から外しているので、再試行させずに戻るだけにする。
+                    if (state.roomUnavailable) {
+                        OutlinedButton(onClick = vm::leave) { Text("戻る") }
+                    } else {
+                        OutlinedButton(onClick = vm::open) { Text("もう一度読み込む") }
+                    }
                 }
                 else -> ChatLog(state.lines, Modifier.weight(1f))
             }
