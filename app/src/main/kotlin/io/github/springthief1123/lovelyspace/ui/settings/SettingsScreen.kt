@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.automirrored.outlined.ViewList
 import androidx.compose.material.icons.outlined.VisibilityOff
@@ -39,6 +40,7 @@ fun SettingsScreen(
     onOpenDisplay: () -> Unit,
     onOpenRoomList: () -> Unit,
     onOpenHiddenRooms: () -> Unit,
+    onOpenNotifications: () -> Unit,
     onBack: () -> Unit,
 ) {
     val bottomContentPadding = 18.dp +
@@ -57,7 +59,7 @@ fun SettingsScreen(
         ) {
             item {
                 Text(
-                    "アプリの表示と部屋一覧の動作を、用途ごとに整理しています。",
+                    "アプリの表示・部屋一覧・通知の設定を、用途ごとに整理しています。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 4.dp, end = 4.dp, bottom = 6.dp),
@@ -85,6 +87,14 @@ fun SettingsScreen(
                     title = "非表示にした部屋",
                     description = "一覧から隠した部屋の確認と解除",
                     onClick = onOpenHiddenRooms,
+                )
+            }
+            item {
+                SettingsCategoryCard(
+                    icon = Icons.Outlined.NotificationsNone,
+                    title = "通知",
+                    description = "端末通知の許可、ロック画面での表示、テスト通知",
+                    onClick = onOpenNotifications,
                 )
             }
         }

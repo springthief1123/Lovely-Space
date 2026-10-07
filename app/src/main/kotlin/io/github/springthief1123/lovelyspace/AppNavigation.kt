@@ -2,6 +2,10 @@ package io.github.springthief1123.lovelyspace
 
 import android.net.Uri
 import androidx.navigation.NavController
+import androidx.navigation.NavGraph.Companion.findStartDestination
+import io.github.springthief1123.lovelyspace.notify.AppNotification
+import io.github.springthief1123.lovelyspace.notify.NotificationKind
+import io.github.springthief1123.lovelyspace.notify.NotificationTarget
 
 internal object Routes {
     const val ROOMS = "rooms"
@@ -13,6 +17,7 @@ internal object Routes {
     const val SETTINGS_DISPLAY = "settings/display"
     const val SETTINGS_ROOMS = "settings/rooms"
     const val SETTINGS_HIDDEN = "settings/hidden"
+    const val SETTINGS_NOTIFICATIONS = "settings/notifications"
     const val ENTRY = "entry/{host}/{genre}/{roomId}?origin={origin}"
     /** pwdはrouteに載せず、ActiveRoomsの一時IDだけを渡す。 */
     const val CHAT = "chat/{session}?origin={origin}"
@@ -39,5 +44,31 @@ internal fun NavController.navigateToChat(sessionId: String, origin: String = Ro
 internal fun NavController.returnFromChat(origin: String) {
     if (!popBackStack(Routes.mainOrigin(origin), inclusive = false)) {
         popBackStack(Routes.ROOMS, inclusive = false)
+    }
+}
+
+/** 下のタブと同じ移り方で主画面へ移る（各タブの状態を残す）。 */
+internal fun NavController.navigateMain(route: String) {
+    navigate(route) {
+        popUpTo(graph.findStartDestination().id) { saveState = true }
+        launchSingleTop = true
+        restoreState = true
+    }
+}
+
+/**
+ * 通知・お知らせから該当の画面を開く。部屋は元のタブの上に入室画面を重ね、戻ると元のタブに戻る。
+ * [resumeChat] は進行中の部屋の一時 ID を返す（無ければ null）。
+ */
+internal fun NavController.openNotification(notification: AppNotification, resumeChat: () -> String?) {
+    when (val target = notification.target) {
+        is NotificationTarget.Room -> {
+            val origin = if (notification.kind == NotificationKind.RADAR_MATCH) Routes.RADAR else Routes.ROOMS
+            navigateMain(origin)
+            navigate(Routes.entry(target.host, target.genreKey, target.roomId, origin)) { launchSingleTop = true }
+        }
+        NotificationTarget.ActiveChat -> resumeChat()?.let { navigateToChat(it, Routes.ROOMS) } ?: navigateMain(Routes.ROOMS)
+        NotificationTarget.Radar -> navigateMain(Routes.RADAR)
+        NotificationTarget.Rooms -> navigateMain(Routes.ROOMS)
     }
 }

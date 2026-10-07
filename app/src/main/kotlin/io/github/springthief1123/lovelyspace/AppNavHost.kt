@@ -13,7 +13,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
-import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -34,6 +33,7 @@ import io.github.springthief1123.lovelyspace.ui.main.SearchPresetSaver
 import io.github.springthief1123.lovelyspace.data.SearchPreset
 import io.github.springthief1123.lovelyspace.ui.settings.DisplaySettingsScreen
 import io.github.springthief1123.lovelyspace.ui.settings.HiddenRoomsScreen
+import io.github.springthief1123.lovelyspace.ui.settings.NotificationSettingsScreen
 import io.github.springthief1123.lovelyspace.ui.settings.RoomListSettingsScreen
 import io.github.springthief1123.lovelyspace.ui.settings.SettingsScreen
 import io.github.springthief1123.lovelyspace.ui.shell.LovelyAppShell
@@ -64,6 +64,14 @@ fun AppNavHost() {
     val resumeDismissed by app.activeRooms.dismissed.collectAsStateWithLifecycle()
     val resumeRoom = resumable?.takeIf { it.sessionId != resumeDismissed && currentRoute in mainRoutes }
 
+    // 通知・お知らせが開かれたら該当の画面へ移る。
+    val openedNotification by app.notificationInbox.opened.collectAsStateWithLifecycle()
+    LaunchedEffect(openedNotification) {
+        val notification = openedNotification ?: return@LaunchedEffect
+        app.notificationInbox.consumeOpened()
+        nav.openNotification(notification) { app.activeRooms.resume() }
+    }
+
     LovelyAppShell(
         currentRoute = currentRoute,
         showChrome = currentRoute != null && currentRoute in mainRoutes,
@@ -72,13 +80,8 @@ fun AppNavHost() {
                 onResume = { app.activeRooms.resume()?.let { nav.navigateToChat(it, currentRoute ?: Routes.ROOMS) } },
                 onDismiss = { app.activeRooms.dismiss(resumeRoom.sessionId) })
         } },
-        onDestinationSelected = { destination ->
-            nav.navigate(destination.route) {
-                popUpTo(nav.graph.findStartDestination().id) { saveState = true }
-                launchSingleTop = true
-                restoreState = true
-            }
-        },
+        onDestinationSelected = { destination -> nav.navigateMain(destination.route) },
+        onOpenNotificationSettings = { nav.navigate(Routes.SETTINGS_NOTIFICATIONS) { launchSingleTop = true } },
         showCreateFab = currentRoute == Routes.ROOMS,
         onCreateRoom = { nav.navigate(Routes.create(createGenreKey)) { launchSingleTop = true } },
     ) {
@@ -158,6 +161,7 @@ fun AppNavHost() {
                     onOpenDisplay = { nav.navigate(Routes.SETTINGS_DISPLAY) { launchSingleTop = true } },
                     onOpenRoomList = { nav.navigate(Routes.SETTINGS_ROOMS) { launchSingleTop = true } },
                     onOpenHiddenRooms = { nav.navigate(Routes.SETTINGS_HIDDEN) { launchSingleTop = true } },
+                    onOpenNotifications = { nav.navigate(Routes.SETTINGS_NOTIFICATIONS) { launchSingleTop = true } },
                     onBack = { nav.popBackStack() },
                 )
             }
@@ -169,6 +173,9 @@ fun AppNavHost() {
             }
             composable(Routes.SETTINGS_HIDDEN) {
                 HiddenRoomsScreen(onBack = { nav.popBackStack() })
+            }
+            composable(Routes.SETTINGS_NOTIFICATIONS) {
+                NotificationSettingsScreen(onBack = { nav.popBackStack() })
             }
             composable(Routes.ENTRY, arguments = roomArgs + originArg) { entry ->
                 val args = entry.arguments!!
