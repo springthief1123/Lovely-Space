@@ -62,6 +62,16 @@ class AppNotifierTest {
         assertEquals("match-1", AppNotifier.notificationId(tap))
     }
 
+    @Test fun collidingStringHashesStillUseDifferentPendingIntents() {
+        // "FB" と "Ea" は Java/Kotlin の String.hashCode() が同じ。
+        val first = notifier.build(match.copy(id = "FB"), preview)
+        val second = notifier.build(match.copy(id = "Ea"), preview)
+
+        assertEquals("FB", AppNotifier.notificationId(shadowOf(first.contentIntent).savedIntent))
+        assertEquals("Ea", AppNotifier.notificationId(shadowOf(second.contentIntent).savedIntent))
+        assertTrue(shadowOf(first.contentIntent).savedIntent.data != shadowOf(second.contentIntent).savedIntent.data)
+    }
+
     @Test fun messageIsLeftOutOfTheNotificationWhenAsked() = runTest {
         grant()
         preview = NotificationPreview.NO_MESSAGE
