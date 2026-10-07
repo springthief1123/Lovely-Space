@@ -114,14 +114,6 @@ val LocalRoomCardSwipeCoordinator = staticCompositionLocalOf { RoomCardSwipeCoor
 internal fun roomCardRevealThreshold(revealWidthPx: Float, startedOpen: Boolean): Float =
     revealWidthPx * if (startedOpen) CLOSE_FROM_OPEN_FRACTION else OPEN_FROM_CLOSED_FRACTION
 
-/** 操作幅を超えた分は抵抗を付けて動かし、勢い余って確定域へ入りにくくする。 */
-internal fun roomCardRubberBand(dragPx: Float, revealWidthPx: Float): Float {
-    val magnitude = abs(dragPx)
-    if (magnitude <= revealWidthPx) return dragPx
-    val resisted = revealWidthPx + (magnitude - revealWidthPx) * OVERDRAG_RESISTANCE
-    return if (dragPx > 0f) resisted else -resisted
-}
-
 private enum class SwipeSide { NONE, FAVORITE, HIDDEN }
 
 internal enum class RoomCardSwipeRelease {
@@ -140,14 +132,17 @@ internal fun resolveRoomCardSwipeRelease(
     velocityThresholdPx: Float,
     favoriteEnabled: Boolean,
     hiddenEnabled: Boolean,
+    flickMinOffsetPx: Float = 0f,
 ): RoomCardSwipeRelease {
     if (favoriteEnabled && offsetPx >= commitThresholdPx) return RoomCardSwipeRelease.COMMIT_FAVORITE
     if (hiddenEnabled && offsetPx <= -commitThresholdPx) return RoomCardSwipeRelease.COMMIT_HIDDEN
 
-    if (abs(velocityPx) >= velocityThresholdPx) {
+    // 弾く操作は、指がある程度カードを動かしているときだけ受け付ける。
+    // 触れた直後の小さな弾きでカードが指より先へ飛ばないようにするため。
+    if (abs(velocityPx) >= velocityThresholdPx && abs(offsetPx) >= flickMinOffsetPx) {
         return when {
-            velocityPx > 0f && offsetPx >= 0f && favoriteEnabled -> RoomCardSwipeRelease.REVEAL_FAVORITE
-            velocityPx < 0f && offsetPx <= 0f && hiddenEnabled -> RoomCardSwipeRelease.REVEAL_HIDDEN
+            velocityPx > 0f && offsetPx > 0f && favoriteEnabled -> RoomCardSwipeRelease.REVEAL_FAVORITE
+            velocityPx < 0f && offsetPx < 0f && hiddenEnabled -> RoomCardSwipeRelease.REVEAL_HIDDEN
             else -> RoomCardSwipeRelease.CLOSED
         }
     }
@@ -188,7 +183,8 @@ fun RoomCard(
     var dragging by remember(room.id, room.genreKey) { mutableStateOf(false) }
     // 開いた状態から始めた操作では反対側へ通り抜けさせない（戻しすぎ防止）。
     var gestureStartSide by remember(room.id, room.genreKey) { mutableFloatStateOf(0f) }
-    var lastRootY by remember(room.id, room.genreKey) { mutableStateOf<Float?>(null) }
+    // 開いた時点の縦位置。ここから一定以上動いたらスクロールとみなして閉じる。
+    var openedRootY by remember(room.id, room.genreKey) { mutableStateOf<Float?>(null) }
     val coordinator = LocalRoomCardSwipeCoordinator.current
     val swipeToken = remember(room.id, room.genreKey) { Any() }
 
@@ -197,6 +193,8 @@ fun RoomCard(
         cardWidthPx * MAX_REVEAL_FRACTION,
     )
     val velocityThresholdPx = with(density) { SWIPE_VELOCITY_THRESHOLD.toPx() }
+    val flickMinOffsetPx = with(density) { SWIPE_FLICK_MIN_OFFSET.toPx() }
+    val scrollCloseDistancePx = with(density) { SCROLL_CLOSE_DISTANCE.toPx() }
     val commitThresholdPx = max(
         cardWidthPx * MIN_COMMIT_FRACTION,
         cardWidthPx - with(density) { SWIPE_EDGE_REMAINING.toPx() },
@@ -286,13 +284,9 @@ fun RoomCard(
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
         }
 
-        // 確定域へ入った瞬間だけ前面カードを端へ吸着させる。
-        // 指を戻して確定域を抜ければ、実移動量へ戻るためそのまま取り消せる。
-        offsetPx = when {
-            nowArmed && next > 0f -> maxOffset
-            nowArmed && next < 0f -> -maxOffset
-            else -> roomCardRubberBand(next, revealWidthPx)
-        }
+        // カードは常に指の位置どおりに動かす。確定域に入ったことは触覚と背景色で知らせ、
+        // 指を戻して確定域を抜ければそのまま取り消せる。
+        offsetPx = next
         commitArmed = nowArmed
     }
 
@@ -314,13 +308,17 @@ fun RoomCard(
                 .onGloballyPositioned { coordinates ->
                     // 一覧をスクロールしたら開いているカードを閉じる。
                     val y = coordinates.positionInRoot().y
-                    val previous = lastRootY
-                    lastRootY = y
-                    if (previous != null && abs(y - previous) > 1f && !dragging && settleTarget != 0f) launchSettle(0f)
+                    if (dragging || settleTarget == 0f) {
+                        openedRootY = null
+                    } else {
+                        val anchor = openedRootY ?: y.also { openedRootY = it }
+                        if (abs(y - anchor) > scrollCloseDistancePx) launchSettle(0f)
+                    }
                 },
         ) {
             SwipeActionBackground(
                 side = side,
+                armed = commitArmed,
                 isFavorite = isFavorite,
                 isHidden = isHidden,
                 enabled = side != SwipeSide.NONE,
@@ -357,6 +355,7 @@ fun RoomCard(
                                 velocityThresholdPx = velocityThresholdPx,
                                 favoriteEnabled = favoriteEnabled,
                                 hiddenEnabled = hiddenEnabled,
+                                flickMinOffsetPx = flickMinOffsetPx,
                             )
                             commitArmed = false
                             when (release) {
@@ -398,6 +397,7 @@ fun RoomCard(
 @Composable
 private fun BoxScope.SwipeActionBackground(
     side: SwipeSide,
+    armed: Boolean,
     isFavorite: Boolean,
     isHidden: Boolean,
     enabled: Boolean,
@@ -405,17 +405,25 @@ private fun BoxScope.SwipeActionBackground(
 ) {
     val shape = RoundedCornerShape(16.dp)
     val isFavoriteSide = side == SwipeSide.FAVORITE
+    val scheme = MaterialTheme.colorScheme
+    // 離すと確定する位置まで来たら、背景を濃い色に切り替えて知らせる。
+    val container = when {
+        isFavoriteSide && armed -> scheme.primary
+        isFavoriteSide -> scheme.primaryContainer
+        armed -> scheme.inverseSurface
+        else -> scheme.surfaceContainerHigh
+    }
+    val content = when {
+        isFavoriteSide && armed -> scheme.onPrimary
+        isFavoriteSide -> scheme.onPrimaryContainer
+        armed -> scheme.inverseOnSurface
+        else -> scheme.onSurface
+    }
     Box(
         Modifier
             .matchParentSize()
             .clip(shape)
-            .background(
-                if (isFavoriteSide) {
-                    MaterialTheme.colorScheme.primaryContainer
-                } else {
-                    MaterialTheme.colorScheme.surfaceContainerHigh
-                },
-            )
+            .background(container)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 18.dp),
         contentAlignment = if (isFavoriteSide) Alignment.CenterStart else Alignment.CenterEnd,
@@ -429,23 +437,23 @@ private fun BoxScope.SwipeActionBackground(
                     Icon(
                         if (isFavorite) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = if (armed) content else scheme.primary,
                     )
                     Text(
                         if (isFavorite) "保存を解除" else "保存",
                         style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        color = content,
                     )
                 } else {
                     Text(
                         if (isHidden) "非表示を解除" else "非表示",
                         style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = content,
                     )
                     Icon(
                         Icons.Outlined.VisibilityOff,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = if (armed) content else scheme.onSurfaceVariant,
                     )
                 }
             }
@@ -630,9 +638,10 @@ internal fun formatElapsed(d: Duration): String {
 
 private val SWIPE_ACTION_WIDTH = 116.dp
 private val SWIPE_VELOCITY_THRESHOLD = 1100.dp
-private const val OPEN_FROM_CLOSED_FRACTION = 0.45f
+private const val OPEN_FROM_CLOSED_FRACTION = 0.35f
 private const val CLOSE_FROM_OPEN_FRACTION = 0.7f
-private const val OVERDRAG_RESISTANCE = 0.55f
+private val SWIPE_FLICK_MIN_OFFSET = 24.dp
+private val SCROLL_CLOSE_DISTANCE = 12.dp
 private const val SETTLE_STIFFNESS = 380f
 private val SWIPE_EDGE_REMAINING = 64.dp
 private const val MAX_REVEAL_FRACTION = 0.42f
