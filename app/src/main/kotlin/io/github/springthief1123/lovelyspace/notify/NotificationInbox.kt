@@ -44,6 +44,11 @@ class NotificationInbox(private val persistence: NotificationInboxPersistence? =
         return entry.copy(read = true).also { _opened.value = it }
     }
 
+    /** 履歴に残していない通知（常駐など）を開く。開く先だけを画面側に渡す。 */
+    fun show(notification: AppNotification) {
+        _opened.value = notification
+    }
+
     fun consumeOpened() {
         _opened.value = null
     }

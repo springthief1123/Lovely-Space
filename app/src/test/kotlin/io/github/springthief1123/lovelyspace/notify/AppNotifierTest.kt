@@ -93,11 +93,22 @@ class AppNotifierTest {
     }
 
     @Test fun relaunchFromRecentsDoesNotReopenTheNotification() {
-        val intent = AppNotifier.openIntent(app, "match-1")
+        val intent = AppNotifier.openIntent(app, match)
         assertEquals("match-1", AppNotifier.notificationId(intent))
         intent.addFlags(Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY)
         assertNull(AppNotifier.notificationId(intent))
         assertNull(AppNotifier.notificationId(Intent(Intent.ACTION_MAIN)))
+    }
+
+    @Test fun tappingAnUnloggedNotificationStillOpensItsTarget() = runTest {
+        grant()
+        val status = NotificationSamples.of(NotificationKind.ONGOING)
+        notifier.post(status)
+        assertTrue(inbox.entries.value.isEmpty())
+
+        notifier.open(shadowOf(posted().single().contentIntent).savedIntent)
+
+        assertEquals(NotificationTarget.Radar, inbox.opened.value?.target)
     }
 
     @Test fun everyKindHasATestNotification() = runTest {

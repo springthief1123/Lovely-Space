@@ -25,7 +25,7 @@ class NotificationInboxStore(private val prefs: SharedPreferences) : Notificatio
 
     private fun encode(n: AppNotification) = JSONObject()
         .put("id", n.id).put("kind", n.kind.name).put("title", n.title).put("text", n.text)
-        .put("at", n.at).put("read", n.read).put("target", encodeTarget(n.target))
+        .put("at", n.at).put("read", n.read).put("target", n.target.toJson())
         .apply { n.message?.let { put("message", it) } }
 
     private fun decode(o: JSONObject) = AppNotification(
@@ -33,27 +33,11 @@ class NotificationInboxStore(private val prefs: SharedPreferences) : Notificatio
         kind = NotificationKind.valueOf(o.getString("kind")),
         title = o.getString("title"),
         text = o.getString("text"),
-        target = decodeTarget(o.getJSONObject("target")),
+        target = notificationTarget(o.getJSONObject("target")),
         at = o.getLong("at"),
         message = if (o.has("message")) o.getString("message") else null,
         read = o.optBoolean("read"),
     )
-
-    private fun encodeTarget(target: NotificationTarget) = when (target) {
-        is NotificationTarget.Room -> JSONObject().put("type", "room")
-            .put("host", target.host).put("genre", target.genreKey).put("roomId", target.roomId)
-        NotificationTarget.ActiveChat -> JSONObject().put("type", "chat")
-        NotificationTarget.Radar -> JSONObject().put("type", "radar")
-        NotificationTarget.Rooms -> JSONObject().put("type", "rooms")
-    }
-
-    private fun decodeTarget(o: JSONObject): NotificationTarget = when (val type = o.getString("type")) {
-        "room" -> NotificationTarget.Room(o.getString("host"), o.getString("genre"), o.getLong("roomId"))
-        "chat" -> NotificationTarget.ActiveChat
-        "radar" -> NotificationTarget.Radar
-        "rooms" -> NotificationTarget.Rooms
-        else -> error("Unknown target: $type")
-    }
 
     companion object {
         const val PREFS = "notifications"

@@ -37,6 +37,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.notify.NotificationKind
 import io.github.springthief1123.lovelyspace.notify.NotificationSamples
+import io.github.springthief1123.lovelyspace.notify.appNotificationSettingsIntent
 import io.github.springthief1123.lovelyspace.notify.channelSettingsIntent
 import io.github.springthief1123.lovelyspace.notify.rememberNotificationPermissionRequest
 import io.github.springthief1123.lovelyspace.settings.NotificationPreview
@@ -95,7 +96,8 @@ fun NotificationSettingsScreen(onBack: () -> Unit) {
                         title = if (canPost) "オン" else "オフ",
                         description = if (canPost) "端末の設定から変更できます" else "タップして通知を許可する",
                         selected = canPost,
-                        onClick = requestPermission,
+                        // 許可済みなら、アプリの通知をまとめてオフにできるよう端末の設定を開く。
+                        onClick = { if (canPost) context.startActivity(appNotificationSettingsIntent(context)) else requestPermission() },
                     )
                 }
                 item { SettingsDivider() }

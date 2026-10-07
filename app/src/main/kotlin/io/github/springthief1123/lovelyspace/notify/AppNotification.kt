@@ -1,6 +1,7 @@
 package io.github.springthief1123.lovelyspace.notify
 
 import io.github.springthief1123.lovelyspace.settings.NotificationPreview
+import org.json.JSONObject
 
 /**
  * 端末通知の種類。種類ごとに通知チャンネルを分け、利用者が端末の設定で個別にオン・オフできるようにする。
@@ -22,6 +23,21 @@ sealed interface NotificationTarget {
     data object ActiveChat : NotificationTarget
     data object Radar : NotificationTarget
     data object Rooms : NotificationTarget
+}
+
+internal fun NotificationTarget.toJson(): JSONObject = when (this) {
+    is NotificationTarget.Room -> JSONObject().put("type", "room").put("host", host).put("genre", genreKey).put("roomId", roomId)
+    NotificationTarget.ActiveChat -> JSONObject().put("type", "chat")
+    NotificationTarget.Radar -> JSONObject().put("type", "radar")
+    NotificationTarget.Rooms -> JSONObject().put("type", "rooms")
+}
+
+internal fun notificationTarget(o: JSONObject): NotificationTarget = when (val type = o.getString("type")) {
+    "room" -> NotificationTarget.Room(o.getString("host"), o.getString("genre"), o.getLong("roomId"))
+    "chat" -> NotificationTarget.ActiveChat
+    "radar" -> NotificationTarget.Radar
+    "rooms" -> NotificationTarget.Rooms
+    else -> error("Unknown target: $type")
 }
 
 /**

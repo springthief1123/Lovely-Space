@@ -12,7 +12,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.CompositionLocalProvider
-import io.github.springthief1123.lovelyspace.notify.AppNotifier
 import io.github.springthief1123.lovelyspace.settings.RoomMessageLines
 import io.github.springthief1123.lovelyspace.settings.TextScale
 import io.github.springthief1123.lovelyspace.ui.rooms.LocalRoomMessageMaxLines
@@ -57,7 +56,6 @@ class MainActivity : ComponentActivity() {
 
     /** 通知のタップで開かれたら、お知らせを既読にして該当の画面へ移す（移動は AppNavHost が行う）。 */
     private fun openNotification(intent: Intent?) {
-        val id = AppNotifier.notificationId(intent) ?: return
-        (application as LovelySpaceApp).notifier.open(id)
+        (application as LovelySpaceApp).notifier.open(intent)
     }
 }
