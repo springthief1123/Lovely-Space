@@ -5,6 +5,8 @@ import androidx.room.Room as RoomDb
 import androidx.test.core.app.ApplicationProvider
 import io.github.springthief1123.lovelyspace.core.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -59,6 +61,39 @@ class RadarRepositoryTest {
             restored.state.first { it.loaded }
             assertEquals(event, restored.state.value.events.single())
             assertTrue(restored.state.value.results.isEmpty())
+        } finally { db.close() }
+    }
+    @Test fun failingTransactionCannotUndoAutomaticPollingStop() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            var suspendWrites = false
+            val writing = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            val dao = object : PresetDao by db.presets() {
+                override suspend fun put(value: LocalState) {
+                    if (suspendWrites && org.json.JSONObject(value.value).getJSONArray("plans").length() == 0) {
+                        writing.complete(Unit)
+                        release.await()
+                        throw java.io.IOException("合成の保存失敗")
+                    }
+                    db.presets().put(value)
+                }
+            }
+            val searches = SearchPresetRepository(db)
+            searches.save(SearchPreset("auto", "合成", "zenkoku", RoomSearchCriteria()))
+            val radar = RadarRepository(dao, Lists(), searches, RoomPreferenceRepository(db), backgroundScope)
+            radar.state.first { it.loaded }; radar.setPlan("auto", true)
+            suspendWrites = true
+            var failed = false
+            val edit = backgroundScope.launch {
+                try { radar.pauseAllPlans() } catch (_: java.io.IOException) { failed = true }
+            }
+            writing.await()
+            radar.automatic(false)
+            release.complete(Unit); edit.join()
+            assertTrue(failed)
+            assertFalse(radar.state.value.automatic)
+            assertEquals(setOf("auto"), radar.state.value.plans)
         } finally { db.close() }
     }
     @Test fun latestPagePriorityDoesNotResetTheRemainingPageCursorAndLiveRoomsSpanPages() = runTest {

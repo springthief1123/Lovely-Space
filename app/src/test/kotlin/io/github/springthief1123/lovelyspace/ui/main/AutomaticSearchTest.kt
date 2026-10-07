@@ -34,6 +34,23 @@ class AutomaticSearchTest {
             assertEquals(stopped, calls.size)
         } finally { Dispatchers.resetMain() }
     }
+    @Test fun discoveryUsesRepositoryObservationOrderInsteadOfCacheReadOrder() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val newest = room(1).copy(status = RoomStatus.FULL, action = RoomAction.PEEK, name = null)
+            val source = object : RoomListSource {
+                override suspend fun fetch(query: RoomQuery, force: Boolean) = observation(query).page
+                override fun observation(query: RoomQuery) = io.github.springthief1123.lovelyspace.data.ObservedRoomPage(query,
+                    page(query.page, if (query.page == 1) listOf(newest) else listOf(room(1), room(2))),
+                    if (query.page == 1) 10_000L else 2_000L, if (query.page == 1) 10L else 2L)
+            }
+            val vm = SearchViewModel(source)
+            vm.refresh(); runCurrent(); vm.more(); runCurrent()
+            assertEquals(RoomAction.PEEK, vm.state.value.rooms.first().action)
+            assertNull(vm.state.value.rooms.first().name)
+            assertEquals(2, vm.state.value.rooms.size)
+        } finally { Dispatchers.resetMain() }
+    }
     @Test fun leavingDuringManualRefreshCancelsTheRequestOwnedByTheViewModel() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {

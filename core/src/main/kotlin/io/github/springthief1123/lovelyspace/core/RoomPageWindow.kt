@@ -7,13 +7,16 @@ data class RoomPageWindow(
     val lastPage: Int = 1,
     val revision: Long = 0,
 ) {
-    fun observe(page: RoomListPage): RoomPageWindow {
-        val limit = page.lastPage.coerceAtLeast(1)
+    fun observe(page: RoomListPage, observationRevision: Long? = null): RoomPageWindow {
+        val nextRevision = observationRevision ?: revision + 1
+        // キャッシュを再利用した呼び出しを新たな観測として数えない。
+        if (observationRevision != null && nextRevision <= (revisions[page.page] ?: Long.MIN_VALUE)) return this
+        val limit = if (nextRevision >= revision) page.lastPage.coerceAtLeast(1) else lastPage
         return copy(
             pages = (pages + (page.page to page.rooms)).filterKeys { it <= limit },
-            revisions = (revisions + (page.page to revision + 1)).filterKeys { it <= limit },
+            revisions = (revisions + (page.page to nextRevision)).filterKeys { it <= limit },
             lastPage = limit,
-            revision = revision + 1,
+            revision = maxOf(revision, nextRevision),
         )
     }
 

@@ -180,7 +180,8 @@ class RadarRepository(
     private suspend fun edit(block: (RadarState) -> RadarState) = mutex.withLock {
         check(_state.value.loaded) { "読み込み中です。" }
         transaction {
-            _state.value = block(_state.value).copy(error = null)
+            val edited = block(_state.value).copy(error = null)
+            _state.update { edited.copy(automatic = it.automatic) }
             persist()
         }
     }
@@ -200,7 +201,7 @@ class RadarRepository(
         try {
             block()
         } catch (e: Exception) {
-            _state.value = old
+            _state.update { old.copy(automatic = it.automatic) }
             seen.clear(); seen.putAll(oldSeen)
             planKeys.clear(); planKeys.putAll(oldPlanKeys)
             baselines.clear(); baselines.putAll(oldBaselines)
@@ -416,8 +417,8 @@ class RadarRepository(
             }
         }
         val livePages = if (freshTracking && o.query == RoomQuery(o.query.genre, page = o.query.page))
-            current.livePages + (o.query.genre.key to (current.livePages[o.query.genre.key] ?: RoomPageWindow()).observe(o.page)) else current.livePages
-        _state.value = current.copy(livePages = livePages, targets = targets, events = (events + current.events).take(100), scopes = scopes, results = results, candidateResults = candidateResults)
+            current.livePages + (o.query.genre.key to (current.livePages[o.query.genre.key] ?: RoomPageWindow()).observe(o.page, o.revision)) else current.livePages
+        _state.update { current.copy(automatic = it.automatic, livePages = livePages, targets = targets, events = (events + current.events).take(100), scopes = scopes, results = results, candidateResults = candidateResults) }
     }
     private fun planKey(preset: SearchPreset): String = "${preset.id}/${preset.genreKey}/${preset.criteria}"
     private suspend fun persist() {
@@ -436,7 +437,7 @@ class RadarRepository(
         val targets = json.optJSONArray("targets") ?: JSONArray()
         val events = json.optJSONArray("events") ?: JSONArray()
         val candidates = json.optJSONArray("candidateRules") ?: JSONArray()
-        _state.value = RadarState(targetSort = RadarTargetSort.entries.firstOrNull { it.name == json.optString("targetSort") } ?: RadarTargetSort.LAST_CONFIRMED, plans = (0 until plans.length()).map { plans.getString(it) }.toSet(),
+        val restored = RadarState(targetSort = RadarTargetSort.entries.firstOrNull { it.name == json.optString("targetSort") } ?: RadarTargetSort.LAST_CONFIRMED, plans = (0 until plans.length()).map { plans.getString(it) }.toSet(),
             targets = (0 until targets.length()).map { i -> val t = targets.getJSONObject(i); TrackedRoom(readRoom(t.getJSONObject("room")), if (t.isNull("at")) null else t.getLong("at"), RoomIdentityEvidence.valueOf(t.getString("evidence")), if (t.has("identity")) readRoom(t.getJSONObject("identity")) else readRoom(t.getJSONObject("room")), if (t.isNull("observedAt")) (if (t.isNull("at")) null else t.getLong("at")) else t.getLong("observedAt"), observedPage = t.optInt("page", 1).coerceAtLeast(1), sourceQuery = readRadarQuery(t.optJSONObject("sourceQuery")), pinned = t.optBoolean("pinned"), note = t.optString("note").take(500)) },
             events = (0 until events.length()).map { i -> events.getJSONObject(i).let { RadarEvent(it.getLong("at"), it.getString("text"), it.optString("id").ifBlank { java.util.UUID.randomUUID().toString() },
                 rooms = it.optJSONArray("rooms")?.let { r -> (0 until r.length()).map { i -> readRoom(r.getJSONObject(i)) } } ?: emptyList(),
@@ -444,6 +445,7 @@ class RadarRepository(
                 kind = RadarEventKind.entries.firstOrNull { kind -> kind.name == it.optString("kind") } ?: RadarEventKind.LEGACY,
                 origin = readRadarOrigin(it.optJSONObject("origin")), read = if (it.has("read")) it.getBoolean("read") else true) } },
             candidateRules = (0 until candidates.length()).map { i -> candidates.getJSONObject(i).let { CandidateRule(it.getString("id"), it.getString("label"), it.getString("genre"), it.getString("term"), CandidateMode.valueOf(it.getString("mode")), it.optBoolean("enabled", true)) } })
+        _state.update { restored.copy(automatic = it.automatic) }
     }
     private fun roomJson(r: Room) = JSONObject().put("id", r.id).put("genre", r.genreKey).put("status", r.status.name).put("action", r.action.name)
         .put("name", r.name).put("gender", r.gender.name).put("age", r.age).put("area", r.area).put("message", r.message)

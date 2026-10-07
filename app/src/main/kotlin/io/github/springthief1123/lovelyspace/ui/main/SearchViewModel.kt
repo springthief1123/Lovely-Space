@@ -130,17 +130,19 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
         _state.update { it.copy(loading = true, error = null) }
         try {
             // AND/OR・除外・並び替えは取得済み一覧に適用。入力ごとに通信しない。
-            val result = repository.fetch(RoomQuery(genre, page = page), force)
+            val query = RoomQuery(genre, page = page)
+            val result = repository.fetch(query, force)
             currentCoroutineContext().ensureActive()
             if (_state.value.genre != genre) return@withLock
+            val observation = repository.observation(query)?.takeIf { it.query == query }
             val previous = _state.value.rooms.map(::roomIdentity).toSet()
-            window = window.observe(result)
+            window = window.observe(observation?.page ?: result, observation?.revision)
             val rooms = window.rooms
             _state.update { it.copy(rooms = rooms,
-                page = window.pages.keys.maxOrNull() ?: 0, lastPage = result.lastPage, loading = false, errorOnMore = false,
+                page = window.pages.keys.maxOrNull() ?: 0, lastPage = window.lastPage, loading = false, errorOnMore = false,
                 newRoomIds = (it.newRoomIds + if (previous.isEmpty()) emptySet() else rooms.map(::roomIdentity).toSet() - previous).intersect(rooms.map(::roomIdentity).toSet()),
-                pageTimes = it.pageTimes.filterKeys { it <= result.lastPage } +
-                    (repository.observation(RoomQuery(genre, page = page))?.let { observation -> mapOf(page to observation.confirmedAt) } ?: emptyMap())) }
+                pageTimes = (it.pageTimes + (observation?.let { mapOf(page to it.confirmedAt) } ?: emptyMap()))
+                    .filterKeys { it <= window.lastPage }) }
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) { _state.update { it.copy(loading = false, error = describeError(e), errorOnMore = page > 1) } }
     }

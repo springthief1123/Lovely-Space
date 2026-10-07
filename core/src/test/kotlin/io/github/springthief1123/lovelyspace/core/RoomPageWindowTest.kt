@@ -28,6 +28,25 @@ class RoomPageWindowTest {
         assertEquals(listOf(newer), shrunk.rooms)
         assertEquals(setOf(1), shrunk.pages.keys)
     }
+    @Test fun olderCachedPageCannotOverrideTheLatestActionOrReExpandThePageCount() {
+        val old = room(1)
+        val latest = old.copy(status = RoomStatus.FULL, action = RoomAction.PEEK, name = null)
+        val window = RoomPageWindow().observe(page(1, listOf(latest), last = 2), observationRevision = 10)
+            .observe(page(2, listOf(old, room(2)), last = 3), observationRevision = 2)
+        assertEquals(latest, window.rooms.first())
+        assertEquals(2, window.lastPage)
+        val shrunk = window.observe(page(1, listOf(latest), last = 1), observationRevision = 11)
+            .observe(page(2, listOf(old), last = 3), observationRevision = 2)
+        assertEquals(listOf(latest), shrunk.rooms)
+        assertEquals(1, shrunk.lastPage)
+        assertEquals(setOf(1), shrunk.pages.keys)
+    }
+    @Test fun delayedOlderObservationOfTheSamePageDoesNotReplaceFreshContents() {
+        val latest = room(1).copy(message = "新しい合成")
+        val window = RoomPageWindow().observe(page(1, listOf(latest)), observationRevision = 10)
+        assertSame(window, window.observe(page(1, listOf(room(1))), observationRevision = 2))
+        assertEquals(listOf(latest), window.rooms)
+    }
     @Test fun schedulePrioritizesNewRoomsWithoutRestartingTheRemainingPageCursor() {
         var now = 0L
         val schedule = RoomPageSchedule { now }
