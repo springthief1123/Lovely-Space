@@ -11,6 +11,12 @@
 | `core` | Kotlin/JVM。通信、HTML解析、チャットセッション、検索条件判定 |
 | `app` | Android / Compose。Glassデザイン、画面、WebViewとHTTPのCookie共有、Roomによるプリセット・検索条件・部屋設定保存 |
 
+## ドキュメント
+
+- [AGENTS.md](AGENTS.md): 開発ルールと進め方（人と AI エージェント共通）
+- [docs/roadmap.md](docs/roadmap.md): ロードマップと残りのタスク（親 issue [#26](https://github.com/springthief1123/Lovely-Space/issues/26)）
+- [docs/](docs/README.md): 要件・設計・本家サイトの仕様
+
 ## ビルド・検証
 
 ```sh
