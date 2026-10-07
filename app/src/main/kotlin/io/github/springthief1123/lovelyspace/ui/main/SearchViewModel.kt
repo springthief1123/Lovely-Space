@@ -105,6 +105,7 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
     fun more() { if (_state.value.canLoadMore) load(_state.value.page + 1, false) }
     fun automatic(enabled: Boolean) = _state.update { it.copy(automatic = enabled) }
     fun clearNewRooms() = _state.update { it.copy(newRoomIds = emptySet()) }
+    fun stopRefresh() { job?.cancel(); _state.update { it.copy(loading = false) } }
 
     /** 画面が前面にある間だけ実行。取消はHTTP取得にも伝わる。 */
     suspend fun monitor() {
@@ -118,7 +119,7 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
                 if (_state.value.error == null) schedule.completed(page, _state.value.lastPage)
                 delay(if (_state.value.error != null || _state.value.lastPage <= 1) RoomPageSchedule.HEAD_INTERVAL_MS else RoomPageSchedule.STEP_INTERVAL_MS)
             }
-        } finally { job?.cancel(); _state.update { it.copy(loading = false) } }
+        } finally { stopRefresh() }
     }
 
     private fun load(page: Int, force: Boolean) {

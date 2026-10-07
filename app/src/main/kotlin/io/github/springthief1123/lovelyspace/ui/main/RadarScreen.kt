@@ -31,7 +31,6 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
     val savedVm: SavedSearchViewModel = viewModel(factory = viewModelFactory { initializer { SavedSearchViewModel(app.searchPresets) } })
     val savedState by savedVm.state.collectAsStateWithLifecycle()
     val saved = savedState.presets
-    ForegroundPolling(state.automatic) { app.radar.monitor() }
     val preferencesVm: io.github.springthief1123.lovelyspace.ui.rooms.RoomPreferenceViewModel = viewModel(
         factory = viewModelFactory { initializer { io.github.springthief1123.lovelyspace.ui.rooms.RoomPreferenceViewModel(app.roomPreferences) } })
     val preferences by preferencesVm.state.collectAsStateWithLifecycle()
@@ -42,6 +41,8 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
     LaunchedEffect(liveRooms) { preferencesVm.observe(liveRooms) }
     var liveDetails by remember { mutableStateOf<Room?>(null) }
     val scope = rememberCoroutineScope()
+    var scanJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    ForegroundPolling(state.automatic, onStop = { scanJob?.cancel() }) { app.radar.monitor() }
     var working by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var section by rememberSaveable { mutableIntStateOf(0) }
@@ -73,7 +74,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
         top = lovelyMainContentTopPadding(), bottom = lovelyMainContentBottomInset() + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { QuietHeading("レーダー") }
         item { RadarDashboard(state, saved.count { it.id in state.plans }, working,
-            onScan = { scope.launch {
+            onScan = { scanJob?.cancel(); scanJob = scope.launch {
                 try { app.radar.scan(latestFirst = true) }
                 catch (e: kotlinx.coroutines.CancellationException) { throw e }
                 catch (e: Exception) { error = "レーダーの状態を確認できませんでした。再読み込みしてお試しください。" }

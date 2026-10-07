@@ -65,6 +65,25 @@ class AutomaticSearchTest {
             assertFalse(vm.state.value.loading)
         } finally { Dispatchers.resetMain() }
     }
+    @Test fun leavingWithAutomaticOffCancelsManualRefreshWithoutAMonitor() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            var requests = 0
+            var cancelled = false
+            val vm = SearchViewModel(RoomListSource { _, _ ->
+                requests++
+                try { awaitCancellation() } finally { cancelled = true }
+            })
+            vm.automatic(false); vm.refresh(); runCurrent()
+            assertTrue(vm.state.value.loading)
+            // ON_PAUSE/onDisposeから呼び出す。自動巡回コルーチンは起動していない。
+            vm.stopRefresh(); runCurrent(); advanceTimeBy(30_000); runCurrent()
+            assertTrue(cancelled)
+            assertFalse(vm.state.value.loading)
+            assertFalse(vm.state.value.automatic)
+            assertEquals(1, requests)
+        } finally { Dispatchers.resetMain() }
+    }
     @Test fun automaticFailureRetriesTheSamePageAndCancellationReachesTheSource() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {

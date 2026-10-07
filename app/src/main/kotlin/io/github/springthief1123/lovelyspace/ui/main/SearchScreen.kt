@@ -46,7 +46,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
     val preferences by preferencesVm.state.collectAsStateWithLifecycle()
     LaunchedEffect(state.rooms) { preferencesVm.observe(state.rooms) }
     val visibleResults = state.results.filterNot(preferences::isHidden)
-    io.github.springthief1123.lovelyspace.ui.components.ForegroundPolling(state.automatic, state.genre.key) { vm.monitor() }
+    io.github.springthief1123.lovelyspace.ui.components.ForegroundPolling(state.automatic, state.genre.key, vm::stopRefresh) { vm.monitor() }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val scope = rememberCoroutineScope()
     val c = state.criteria

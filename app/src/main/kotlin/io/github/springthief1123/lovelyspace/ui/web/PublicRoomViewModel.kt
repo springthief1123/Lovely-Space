@@ -22,8 +22,10 @@ class PublicRoomViewModel(private val fetch: suspend () -> PublicRoomPage) : Vie
     val state = _state.asStateFlow()
     private val mutex = Mutex()
     private var nextId = 0L
+    private var refreshJob: Job? = null
     fun automatic(value: Boolean) = _state.update { it.copy(automatic = value) }
-    fun refresh() { if (!_state.value.loading) viewModelScope.launch { read() } }
+    fun refresh() { if (!_state.value.loading && refreshJob?.isActive != true) refreshJob = viewModelScope.launch { read() } }
+    fun stopRefresh() { refreshJob?.cancel() }
     suspend fun monitor() {
         while (currentCoroutineContext().isActive && _state.value.automatic) {
             read()

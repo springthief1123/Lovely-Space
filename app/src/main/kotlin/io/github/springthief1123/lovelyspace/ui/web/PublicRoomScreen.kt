@@ -24,7 +24,7 @@ fun PublicRoomScreen(host: String, genreKey: String, roomId: Long, onBack: () ->
         initializer { PublicRoomViewModel { app.client.openPublicRoom(host, genreKey, roomId) } }
     })
     val state by vm.state.collectAsStateWithLifecycle()
-    ForegroundPolling(state.automatic, vm) { vm.monitor() }
+    ForegroundPolling(state.automatic, vm, vm::stopRefresh) { vm.monitor() }
     Scaffold(topBar = { QuietTopBar("公開ルーム", onBack) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),

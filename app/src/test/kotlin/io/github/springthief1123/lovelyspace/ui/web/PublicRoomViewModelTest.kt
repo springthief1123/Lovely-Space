@@ -30,6 +30,23 @@ class PublicRoomViewModelTest {
             assertNotNull(vm.state.value.error)
         } finally { Dispatchers.resetMain() }
     }
+    @Test fun leavingWithAutomaticOffCancelsManualPublicRead() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            var requests = 0
+            var cancelled = false
+            val vm = PublicRoomViewModel {
+                requests++
+                try { awaitCancellation() } finally { cancelled = true }
+            }
+            vm.automatic(false); vm.refresh(); runCurrent()
+            vm.stopRefresh(); runCurrent(); advanceTimeBy(60_000); runCurrent()
+            assertTrue(cancelled)
+            assertFalse(vm.state.value.loading)
+            assertFalse(vm.state.value.automatic)
+            assertEquals(1, requests)
+        } finally { Dispatchers.resetMain() }
+    }
     @Test fun leavingPublicScreenCancelsReadAndDoesNotPollInBackground() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {
