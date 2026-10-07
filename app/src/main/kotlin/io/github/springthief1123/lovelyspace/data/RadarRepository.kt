@@ -51,6 +51,7 @@ class RadarRepository(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) {
     private val mutex = Mutex()
+    private val sync = ListSync(lists)
     private val _state = MutableStateFlow(RadarState())
     val state = _state.asStateFlow()
     private val seen = mutableMapOf<RoomQuery, Long>()
@@ -232,7 +233,8 @@ class RadarRepository(
         }
     }
 
-    suspend fun scan(latestFirst: Boolean = false, force: Boolean = true) {
+    /** [maxPages] は1回の巡回で取得するページ数の上限（背景実行で使う）。超えたページは次回に回す。 */
+    suspend fun scan(latestFirst: Boolean = false, force: Boolean = true, maxPages: Int = Int.MAX_VALUE) {
         val previousEvents = mutex.withLock {
             check(_state.value.loaded) { "読み込み中です。" }
             if (_state.value.running) return
@@ -263,63 +265,31 @@ class RadarRepository(
                 _state.update { it.copy(lastScan = RadarScanReport(System.currentTimeMillis(), requests.keys.map { query -> RadarPageCheck(query) })) }
                 requests.mapValues { (query, plans) -> ScheduledRadarQuery(plans.toList(), candidates.filter { it.genreKey == query.genre.key && (if (latestFirst) 1 else candidateNext[it.key] ?: 1) == query.page }) }
             }
-            for ((query, request) in scheduled) {
-                val stillNeeded = mutex.withLock {
-                    val currentSaved = searches.presets.first()
-                    request.plans.any { scheduledPlan -> currentSaved.any { it.id in _state.value.plans && planKey(it) == planKey(scheduledPlan) } } ||
-                        request.candidates.any { scheduledRule -> _state.value.candidateRules.any { it.enabled && it.key == scheduledRule.key } } ||
-                        _state.value.targets.any { it.sourceQueryOrLegacy() == query && it.evidence != RoomIdentityEvidence.REUSED }
-                }
-                if (!stillNeeded) {
-                    updateCheck(query, RadarCheckStatus.SKIPPED, message = "条件の停止・変更により取得を見送りました。")
-                    continue
-                }
-                updateCheck(query, RadarCheckStatus.CHECKING)
-                val before = lists.observation(query)?.revision ?: 0
-                try { lists.fetch(query, force = force) }
-                catch (e: CancellationException) { throw e }
-                catch (e: Exception) {
-                    updateCheck(query, RadarCheckStatus.FAILED, message = "一覧を取得できませんでした。次の巡回で同じページを確認します。")
-                    continue
-                }
-                val observation = lists.observation(query)
-                if (observation == null || observation.query != query || (force && observation.revision <= before)) {
-                    updateCheck(query, RadarCheckStatus.FAILED, message = "新しい一覧を確認できませんでした。次の巡回で同じページを確認します。")
-                    continue
-                }
-                mutex.withLock {
-                    transaction {
+            val before = mutableMapOf<RoomQuery, Long>()
+            sync.sync(scheduled.keys, maxPages, force,
+                shouldFetch = { query ->
+                    val request = scheduled.getValue(query)
+                    val stillNeeded = mutex.withLock {
                         val currentSaved = searches.presets.first()
-                        reconcilePlans(currentSaved)
-                        val active = currentSaved.filter { it.id in _state.value.plans }
-                        val scheduledPlans = active.filter { preset -> request.plans.any { planKey(it) == planKey(preset) } }
-                        val scheduledCandidates = _state.value.candidateRules.filter { rule -> rule.enabled && request.candidates.any { it.key == rule.key } }
-                        process(observation, scheduledPlans, scheduledCandidates)
-                        seen[query] = maxOf(seen[query] ?: 0, observation.revision)
-                        if (!latestFirst) scheduledPlans.forEach { preset ->
-                            nextPages[planKey(preset)] = if (observation.page.hasNextPage) observation.page.page + 1 else 1
-                        }
-                        if (!latestFirst) scheduledCandidates.forEach { rule ->
-                            candidateNext[rule.key] = if (observation.page.hasNextPage) observation.page.page + 1 else 1
-                        }
-                        val hidden = preferences.preferences.first().filter { it.hidden }
-                        val trackedMatches = _state.value.targets.filter { target ->
-                            target.sourceQueryOrLegacy() == query &&
-                                target.evidence == RoomIdentityEvidence.MATCH &&
-                                target.observationRevision == observation.revision &&
-                                target.confirmedAt == observation.confirmedAt &&
-                                hidden.none { it.appliesTo(target.room) }
-                        }.map { it.room }
-                        val matches = (scheduledPlans.flatMap { _state.value.resultFor(it)?.rooms.orEmpty() } +
-                            scheduledCandidates.flatMap { _state.value.resultFor(it)?.rooms.orEmpty() } +
-                            trackedMatches).distinctBy(::roomIdentity).size
-                        _state.update { state -> state.copy(nextPages = active.associate { p -> p.id to (nextPages[planKey(p)] ?: 1) },
-                            nextCandidatePages = state.candidateRules.filter { it.enabled }.associate { it.id to (candidateNext[it.key] ?: 1) }) }
-                        persist()
-                        updateCheck(query, RadarCheckStatus.CONFIRMED, observation.confirmedAt, matches)
+                        request.plans.any { scheduledPlan -> currentSaved.any { it.id in _state.value.plans && planKey(it) == planKey(scheduledPlan) } } ||
+                            request.candidates.any { scheduledRule -> _state.value.candidateRules.any { it.enabled && it.key == scheduledRule.key } } ||
+                            _state.value.targets.any { it.sourceQueryOrLegacy() == query && it.evidence != RoomIdentityEvidence.REUSED }
                     }
-                }
-            }
+                    if (!stillNeeded) updateCheck(query, RadarCheckStatus.SKIPPED, message = "条件の停止・変更により取得を見送りました。")
+                    else {
+                        updateCheck(query, RadarCheckStatus.CHECKING)
+                        before[query] = lists.observation(query)?.revision ?: 0
+                    }
+                    stillNeeded
+                },
+                onResult = { query, outcome ->
+                    when (outcome) {
+                        is ListSyncOutcome.Fetched -> applyFetched(query, scheduled.getValue(query), before[query] ?: 0, force, latestFirst)
+                        is ListSyncOutcome.Failed -> updateCheck(query, RadarCheckStatus.FAILED, message = "一覧を取得できませんでした。次の巡回で同じページを確認します。")
+                        ListSyncOutcome.Deferred -> updateCheck(query, RadarCheckStatus.SKIPPED, message = "1回の巡回で取得するページ数の上限に達したため、次の巡回で確認します。")
+                        ListSyncOutcome.Skipped -> Unit
+                    }
+                })
         } catch (e: CancellationException) { interrupted = true; throw e }
         catch (e: Exception) {
             interrupted = true
@@ -335,6 +305,46 @@ class RadarRepository(
                     } }) }
                 state.copy(running = false, lastScan = report,
                     error = state.error ?: if (report != null && report.failed > 0) "取得できなかったページがあります。確認済みの結果は保持しています。" else null)
+            }
+        }
+    }
+    /** 取得した1ページを各計画・候補・追跡先へ反映する。 */
+    private suspend fun applyFetched(query: RoomQuery, request: ScheduledRadarQuery, before: Long, force: Boolean, latestFirst: Boolean) {
+        val observation = lists.observation(query)
+        if (observation == null || observation.query != query || (force && observation.revision <= before)) {
+            updateCheck(query, RadarCheckStatus.FAILED, message = "新しい一覧を確認できませんでした。次の巡回で同じページを確認します。")
+            return
+        }
+        mutex.withLock {
+            transaction {
+                val currentSaved = searches.presets.first()
+                reconcilePlans(currentSaved)
+                val active = currentSaved.filter { it.id in _state.value.plans }
+                val scheduledPlans = active.filter { preset -> request.plans.any { planKey(it) == planKey(preset) } }
+                val scheduledCandidates = _state.value.candidateRules.filter { rule -> rule.enabled && request.candidates.any { it.key == rule.key } }
+                process(observation, scheduledPlans, scheduledCandidates)
+                seen[query] = maxOf(seen[query] ?: 0, observation.revision)
+                if (!latestFirst) scheduledPlans.forEach { preset ->
+                    nextPages[planKey(preset)] = if (observation.page.hasNextPage) observation.page.page + 1 else 1
+                }
+                if (!latestFirst) scheduledCandidates.forEach { rule ->
+                    candidateNext[rule.key] = if (observation.page.hasNextPage) observation.page.page + 1 else 1
+                }
+                val hidden = preferences.preferences.first().filter { it.hidden }
+                val trackedMatches = _state.value.targets.filter { target ->
+                    target.sourceQueryOrLegacy() == query &&
+                        target.evidence == RoomIdentityEvidence.MATCH &&
+                        target.observationRevision == observation.revision &&
+                        target.confirmedAt == observation.confirmedAt &&
+                        hidden.none { it.appliesTo(target.room) }
+                }.map { it.room }
+                val matches = (scheduledPlans.flatMap { _state.value.resultFor(it)?.rooms.orEmpty() } +
+                    scheduledCandidates.flatMap { _state.value.resultFor(it)?.rooms.orEmpty() } +
+                    trackedMatches).distinctBy(::roomIdentity).size
+                _state.update { state -> state.copy(nextPages = active.associate { p -> p.id to (nextPages[planKey(p)] ?: 1) },
+                    nextCandidatePages = state.candidateRules.filter { it.enabled }.associate { it.id to (candidateNext[it.key] ?: 1) }) }
+                persist()
+                updateCheck(query, RadarCheckStatus.CONFIRMED, observation.confirmedAt, matches)
             }
         }
     }

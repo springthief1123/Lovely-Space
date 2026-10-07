@@ -58,20 +58,22 @@ val MainDestinations = listOf(
     MainDestination(Routes.PROFILE, "マイルーム", Icons.Outlined.PersonOutline),
 )
 
-internal fun lovelyBottomContentInset(navigationHeight: Dp, showCreateFab: Boolean) =
-    maxOf(LovelySpacing.bottomContentInset, navigationHeight + if (showCreateFab) 80.dp else 0.dp)
+/** FAB や「会話に戻る」の帯がナビゲーションの上に並ぶときは、その分だけ一覧の下を空ける。 */
+internal fun lovelyBottomContentInset(navigationHeight: Dp, showCreateFab: Boolean, showResumeBar: Boolean = false) =
+    maxOf(LovelySpacing.bottomContentInset, navigationHeight + if (showCreateFab || showResumeBar) 80.dp else 0.dp)
 
 @Composable
 fun LovelyAppShell(
     currentRoute: String?, showChrome: Boolean,
     onDestinationSelected: (MainDestination) -> Unit,
     showCreateFab: Boolean, onCreateRoom: () -> Unit,
+    resumeBar: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
     val hazeState = remember { HazeState() }
     val density = LocalDensity.current
     var navigationHeight by remember { mutableStateOf(100.dp) }
-    val bottomInset = lovelyBottomContentInset(navigationHeight, showCreateFab)
+    val bottomInset = lovelyBottomContentInset(navigationHeight, showCreateFab, showChrome && resumeBar != null)
     ProvideLovelyHazeState(hazeState) {
         Box(Modifier.fillMaxSize()) {
             Surface(Modifier.fillMaxSize().hazeSource(state = hazeState),
@@ -82,6 +84,8 @@ fun LovelyAppShell(
                 LovelyTopBar(Modifier.align(Alignment.TopCenter))
                 LovelyBottomNavigation(if (currentRoute == Routes.SEARCH) Routes.ROOMS else currentRoute,
                     onDestinationSelected, Modifier.align(Alignment.BottomCenter), onHeight = { navigationHeight = with(density) { it.toDp() } })
+                if (resumeBar != null) Box(Modifier.align(Alignment.BottomStart).navigationBarsPadding()
+                    .padding(start = 16.dp, end = if (showCreateFab) 92.dp else 16.dp, bottom = navigationHeight + 12.dp)) { resumeBar() }
                 AnimatedVisibility(showCreateFab, enter = fadeIn() + scaleIn(initialScale = 0.9f),
                     exit = fadeOut() + scaleOut(targetScale = 0.9f),
                     modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 20.dp, bottom = navigationHeight + 12.dp)) {

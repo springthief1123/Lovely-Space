@@ -85,7 +85,7 @@ private val ReadingSaver = mapSaver(
 )
 
 @Composable
-fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit) {
+fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit, onEnded: () -> Unit = {}) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val vm: ChatViewModel = viewModel(factory = viewModelFactory { initializer { ChatViewModel(app.client, room) } })
     val state by vm.state.collectAsStateWithLifecycle()
@@ -93,6 +93,12 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit) {
 
     LaunchedEffect(state.left) {
         if (state.left) onExit()
+    }
+    // 部屋が終わった・開けなかったら「会話に戻る」の対象から外す（画面は理由を見せるために残す）。
+    // 通信エラーは再試行できるので外さない。
+    val ended = state.endMessage != null || state.roomUnavailable
+    LaunchedEffect(ended) {
+        if (ended) onEnded()
     }
 
     // 終了した部屋や開けなかった部屋はそのまま戻る。会話中は確認してから退室する。
@@ -185,7 +191,12 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit) {
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(state.loadError.orEmpty(), textAlign = TextAlign.Center)
-                    OutlinedButton(onClick = vm::open) { Text("もう一度読み込む") }
+                    // 部屋の画面でなかったときは「会話に戻る」から外しているので、再試行させずに戻るだけにする。
+                    if (state.roomUnavailable) {
+                        OutlinedButton(onClick = vm::leave) { Text("戻る") }
+                    } else {
+                        OutlinedButton(onClick = vm::open) { Text("もう一度読み込む") }
+                    }
                 }
                 else -> ChatLog(state.lines, Modifier.weight(1f))
             }

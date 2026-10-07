@@ -32,6 +32,11 @@ class LovelySpaceApp : Application() {
     }
     val roomPreferences: RoomPreferenceRepository by lazy { RoomPreferenceRepository(database) }
 
-    /** 入室中の部屋（pwd を route に載せないための一時置き場）。 */
-    val activeRooms: ActiveRooms = ActiveRooms()
+    /** 入室中の部屋（pwd を route に載せないための置き場）。進行中の部屋は暗号化して端末に残す。 */
+    val activeRooms: ActiveRooms by lazy {
+        ActiveRooms(io.github.springthief1123.lovelyspace.data.ActiveRoomStore(
+            getSharedPreferences(io.github.springthief1123.lovelyspace.data.ActiveRoomStore.PREFS, MODE_PRIVATE),
+            io.github.springthief1123.lovelyspace.data.KeystoreSecretBox(),
+        ))
+    }
 }

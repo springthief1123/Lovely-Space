@@ -20,6 +20,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.springthief1123.lovelyspace.ui.chat.ResumeChatBar
 import io.github.springthief1123.lovelyspace.core.Genres
 import io.github.springthief1123.lovelyspace.ui.chat.ChatScreen
 import io.github.springthief1123.lovelyspace.ui.create.CreateRoomScreen
@@ -57,9 +59,19 @@ fun AppNavHost() {
 
     val originArg = navArgument("origin") { type = NavType.StringType; defaultValue = Routes.ROOMS }
 
+    val resumable by app.activeRooms.resumable.collectAsStateWithLifecycle()
+    // 「閉じる」はこのプロセスの間だけ隠す（画面の作り直しでは戻らず、再起動後はまた出る）。記録は退室・部屋の終了で消える。
+    val resumeDismissed by app.activeRooms.dismissed.collectAsStateWithLifecycle()
+    val resumeRoom = resumable?.takeIf { it.sessionId != resumeDismissed && currentRoute in mainRoutes }
+
     LovelyAppShell(
         currentRoute = currentRoute,
         showChrome = currentRoute != null && currentRoute in mainRoutes,
+        resumeBar = if (resumeRoom == null) null else { {
+            ResumeChatBar(resumeRoom.room,
+                onResume = { app.activeRooms.resume()?.let { nav.navigateToChat(it, currentRoute ?: Routes.ROOMS) } },
+                onDismiss = { app.activeRooms.dismiss(resumeRoom.sessionId) })
+        } },
         onDestinationSelected = { destination ->
             nav.navigate(destination.route) {
                 popUpTo(nav.graph.findStartDestination().id) { saveState = true }
@@ -201,7 +213,7 @@ fun AppNavHost() {
                 if (room == null) {
                     LaunchedEffect(Unit) { exit() }
                 } else {
-                    ChatScreen(room = room, onExit = exit)
+                    ChatScreen(room = room, onExit = exit, onEnded = { app.activeRooms.ended(sessionId) })
                 }
             }
         }
