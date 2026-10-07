@@ -126,12 +126,18 @@ class AppNotifier(
             .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
 
         private fun unloggedNotification(intent: Intent, id: String): AppNotification? = runCatching {
+            val kind = NotificationKind.valueOf(intent.getStringExtra(EXTRA_KIND)!!)
+            val target = notificationTarget(JSONObject(intent.getStringExtra(EXTRA_TARGET)!!))
+            // MainActivity はランチャーのため exported。外部アプリが同じ action/extras を偽装できるので、
+            // 履歴に無い通知の復元は本当に履歴へ保存しない種類だけに限定する。
+            // パラメータ付き Room は任意 host を含められるため、履歴外の intent からは受け付けない。
+            if (kind.logged || target is NotificationTarget.Room) return@runCatching null
             AppNotification(
                 id = id,
-                kind = NotificationKind.valueOf(intent.getStringExtra(EXTRA_KIND)!!),
+                kind = kind,
                 title = "",
                 text = "",
-                target = notificationTarget(JSONObject(intent.getStringExtra(EXTRA_TARGET)!!)),
+                target = target,
                 at = System.currentTimeMillis(),
                 read = true,
             )
