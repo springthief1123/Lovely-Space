@@ -50,6 +50,19 @@ class ListSyncTest {
         assertEquals(ListSyncOutcome.Deferred, outcomes[kanto])
     }
 
+    @Test fun deferredPageKeepsPriorityAcrossAnUnrelatedSync() = runTest {
+        val source = CountingSource()
+        val sync = ListSync(source)
+        sync.sync(listOf(zenkoku, kanto, zenkoku2), maxPages = 2)
+        // 延期したページを含まない別の同期（例：前面の続きページ）が挟まっても優先が消えない。
+        sync.sync(listOf(kanto))
+        source.calls.clear()
+
+        sync.sync(listOf(zenkoku, kanto, zenkoku2), maxPages = 2)
+
+        assertEquals(listOf(zenkoku2, zenkoku), source.calls)
+    }
+
     @Test fun skippedPagesAreNotFetchedAndDoNotUseTheLimit() = runTest {
         val source = CountingSource()
         val outcomes = ListSync(source).sync(listOf(zenkoku, kanto, zenkoku2), maxPages = 2, shouldFetch = { it != zenkoku })

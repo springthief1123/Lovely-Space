@@ -54,7 +54,9 @@ class ListSync(private val lists: RoomListSource) {
             outcomes[query] = outcome
             onResult(query, outcome)
         }
-        nextFirst = outcomes.entries.firstOrNull { it.value is ListSyncOutcome.Deferred }?.key
+        val deferred = outcomes.entries.firstOrNull { it.value is ListSyncOutcome.Deferred }?.key
+        // 今回の要求に含まれなかった延期分は、別の要求の同期で上書きせずに持ち越す。
+        nextFirst = deferred ?: nextFirst?.takeUnless { it in outcomes }
         return outcomes
     }
 

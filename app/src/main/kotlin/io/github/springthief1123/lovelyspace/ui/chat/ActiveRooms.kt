@@ -39,7 +39,8 @@ class ActiveRooms(
         rooms[id] = room
         val saved = ResumableRoom(id, room, now())
         _resumable.value = saved
-        runCatching { persistence?.save(saved) }
+        // 保存できなかったときは前の部屋の記録を消す。残すと再起動後に前の部屋へ戻ってしまう。
+        runCatching { persistence?.save(saved) }.onFailure { runCatching { persistence?.clear() } }
         return id
     }
 

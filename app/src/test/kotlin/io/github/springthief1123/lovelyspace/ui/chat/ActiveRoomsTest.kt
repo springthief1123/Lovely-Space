@@ -66,6 +66,21 @@ class ActiveRoomsTest {
         assertEquals(second, rooms.resumable.value?.sessionId)
     }
 
+    @Test fun failedSaveDoesNotLeaveThePreviousRoomResumable() {
+        val disk = object : ActiveRoomPersistence {
+            var value: ResumableRoom? = null
+            var failSave = false
+            override fun load() = value
+            override fun save(value: ResumableRoom) { if (failSave) throw IllegalStateException("keystore"); this.value = value }
+            override fun clear() { value = null }
+        }
+        ActiveRooms(disk).register(room)
+        disk.failSave = true
+        ActiveRooms(disk).register(room.copy(roomId = 900000002L))
+        // 再起動後に前の部屋が「会話に戻る」に出ない。
+        assertNull(ActiveRooms(disk).resumable.value)
+    }
+
     @Test fun storageFailureDoesNotBreakTheChat() {
         val broken = object : ActiveRoomPersistence {
             override fun load(): ResumableRoom? = throw IllegalStateException("keystore")
