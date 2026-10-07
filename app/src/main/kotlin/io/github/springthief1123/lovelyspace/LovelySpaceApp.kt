@@ -14,6 +14,7 @@ import io.github.springthief1123.lovelyspace.settings.WebViewCookieStore
 import io.github.springthief1123.lovelyspace.notify.AppNotifier
 import io.github.springthief1123.lovelyspace.notify.NotificationInbox
 import io.github.springthief1123.lovelyspace.notify.NotificationInboxStore
+import io.github.springthief1123.lovelyspace.notify.toOpenedNotification
 import io.github.springthief1123.lovelyspace.ui.chat.ActiveRooms
 import io.github.springthief1123.lovelyspace.background.BackgroundSync
 import kotlinx.coroutines.CoroutineScope
@@ -21,7 +22,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 
 class LovelySpaceApp : Application() {
@@ -30,11 +32,17 @@ class LovelySpaceApp : Application() {
     override fun onCreate() {
         super.onCreate()
         notifier.ensureChannels()
-        // 背景で巡回する計画があるときだけ周期実行を登録し、すべて止めたら解除する。
+        // 背景で巡回する計画か、待っている順番待ちがあるときだけ周期実行を登録し、どちらも無くなれば解除する。
+        // 順番待ちがあるときは最短の 15 分ごとに確認する。
         appScope.launch {
-            radar.state.mapNotNull { state -> if (state.loaded) state.activeBackgroundPlans.isNotEmpty() to state.backgroundIntervalMinutes else null }
+            combine(radar.state, waitlist.entries) { state, _ ->
+                if (!state.loaded) return@combine null
+                val waiting = waitlist.hasActive()
+                (state.activeBackgroundPlans.isNotEmpty() || waiting) to
+                    if (waiting) BackgroundSync.INTERVAL_MINUTES else state.backgroundIntervalMinutes.toLong()
+            }.filterNotNull()
                 .distinctUntilChanged()
-                .collect { (enabled, minutes) -> BackgroundSync.update(this@LovelySpaceApp, enabled, minutes.toLong()) }
+                .collect { (enabled, minutes) -> BackgroundSync.update(this@LovelySpaceApp, enabled, minutes) }
         }
     }
 
@@ -60,6 +68,14 @@ class LovelySpaceApp : Application() {
     /** お知らせ（通知ベル）の履歴。端末通知と同じ内容を残す。 */
     val notificationInbox: NotificationInbox by lazy {
         NotificationInbox(NotificationInboxStore(getSharedPreferences(NotificationInboxStore.PREFS, MODE_PRIVATE)))
+    }
+    /** 順番待ち。空きを見つけたら端末通知とお知らせに出す。 */
+    val waitlist: io.github.springthief1123.lovelyspace.data.WaitlistRepository by lazy {
+        io.github.springthief1123.lovelyspace.data.WaitlistRepository(
+            io.github.springthief1123.lovelyspace.data.WaitlistStore(getSharedPreferences(io.github.springthief1123.lovelyspace.data.WaitlistStore.PREFS, MODE_PRIVATE)),
+            roomLists,
+            onOpened = { entry -> entry.toOpenedNotification()?.let { notifier.post(it) } },
+        )
     }
     val notifier: AppNotifier by lazy { AppNotifier(this, notificationInbox) { settings.notificationPreview.first() } }
 

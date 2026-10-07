@@ -27,6 +27,9 @@ internal fun RoomDetailsSheet(room: Room, favorite: Boolean, actionsEnabled: Boo
     var notice by remember { mutableStateOf<String?>(null) }
     var confirmUntrack by remember { mutableStateOf(false) }
     val tracking = radar.targets.any { roomIdentity(it.room) == roomIdentity(room) }
+    val waitlist by app.waitlist.entries.collectAsStateWithLifecycle()
+    val waiting = waitlist.any { it.key == roomIdentity(room) && it.status == io.github.springthief1123.lovelyspace.data.WaitlistStatus.WATCHING }
+    val requestNotifications = io.github.springthief1123.lovelyspace.notify.rememberNotificationPermissionRequest()
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Text(room.name ?: "会話中の部屋", style = MaterialTheme.typography.titleLarge)
@@ -50,6 +53,21 @@ internal fun RoomDetailsSheet(room: Room, favorite: Boolean, actionsEnabled: Boo
                 // 非表示はスワイプと同じく即時に行い、一覧側の「元に戻す」で取り消せるようにする。
                 onHide?.let { TextButton(onClick = it, enabled = actionsEnabled) { Text("非表示にする") } }
             }
+            // 満室の部屋は順番待ちに登録できる。空いたら通知し、入室とロボット確認は利用者が行う。
+            if (room.status == RoomStatus.FULL || waiting) OutlinedButton(enabled = !working, modifier = Modifier.fillMaxWidth(), onClick = {
+                working = true
+                if (!waiting) requestNotifications()
+                scope.launch {
+                    try {
+                        if (waiting) { app.waitlist.remove(roomIdentity(room)); notice = "順番待ちを取り消しました" }
+                        else { app.waitlist.register(room, sourceQuery); notice = "順番待ちに登録しました。空いたら通知します（${io.github.springthief1123.lovelyspace.data.WaitlistRepository.DEFAULT_HOURS}時間まで）" }
+                    }
+                    catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                    catch (e: IllegalArgumentException) { notice = e.message }
+                    catch (e: Exception) { notice = "順番待ちを保存できませんでした。" }
+                    finally { working = false }
+                }
+            }) { Text(if (waiting) "順番待ちを取り消す" else "空いたら知らせる（順番待ち）") }
             notice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             Button(onClick = { onDismiss(); if (room.action == RoomAction.PEEK) onPeek(room) else onEnter(room) }, enabled = allowEntry && room.action != RoomAction.NONE, modifier = Modifier.fillMaxWidth()) {
                 Text(if (room.action == RoomAction.PEEK) "公開ルームを見る" else if (room.action == RoomAction.NONE) "満室です" else "入室へ進む")

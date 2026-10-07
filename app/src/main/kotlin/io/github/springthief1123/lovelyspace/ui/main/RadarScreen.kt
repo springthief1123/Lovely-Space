@@ -78,6 +78,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
         }
     }
     val planCount = saved.count { it.id in state.plans }
+    val waitlist by app.waitlist.entries.collectAsStateWithLifecycle()
     val requestNotifications = io.github.springthief1123.lovelyspace.notify.rememberNotificationPermissionRequest()
     QuietPage {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = LovelySpacing.screenHorizontal, end = LovelySpacing.screenHorizontal,
@@ -95,6 +96,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
             0 to "巡回 $planCount",
             1 to "追跡 ${state.targets.size}",
             3 to "候補 ${state.candidateRules.count { it.enabled }}",
+            5 to "順番待ち ${waitlist.count { it.status == WaitlistStatus.WATCHING }}",
             2 to if (state.unreadEvents == 0) "履歴" else "履歴 ${state.unreadEvents}",
         ), section) { section = it } }
         if (!state.loaded && state.error == null) item { CircularProgressIndicator() }
@@ -197,6 +199,14 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                             QuietMenuItem("条件を削除", enabled = state.loaded && !working, destructive = true) { error = null; deletingCandidate = rule },
                         ),
                     )
+                }
+            }
+            5 -> {
+                item { RadarNote("満室の部屋の詳細から「空いたら知らせる」を選ぶと、${WaitlistRepository.DEFAULT_HOURS}時間まで空きを待ちます（同時に${WaitlistRepository.MAX_ACTIVE}件まで）。アプリを閉じている間は15分ごとに確認します。入室とロボット確認はご自身で行ってください。") }
+                if (waitlist.isEmpty()) item { RadarEmpty("順番待ちはまだありません。", "部屋を見つける", onFindRooms) }
+                items(waitlist, key = { "waitlist/${it.key}" }) { entry ->
+                    WaitlistRow(entry, onEnter = { entry.openedRoom?.let(onEnterRoom) },
+                        onRemove = { scope.launch { runCatching { app.waitlist.remove(entry.key) } } })
                 }
             }
             2 -> {
@@ -328,6 +338,31 @@ private fun RadarRuleRow(
             if (matches != null && matches > 0) TextButton(onClick = onMatches) { Text("一致 ${matches}件") }
             else Spacer(Modifier.width(10.dp))
         }
+    }
+}
+
+/** 順番待ちの1件。空いたら入室へ進めるようにし、取り消し・削除は「︙」にまとめる。 */
+@Composable
+private fun WaitlistRow(entry: WaitlistEntry, onEnter: () -> Unit, onRemove: () -> Unit) {
+    val now = System.currentTimeMillis()
+    QuietListPanel {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(entry.openedRoom?.name ?: entry.room.name ?: "会話中の部屋", style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(listOfNotNull(Genres[entry.room.genreKey]?.label, entry.room.message.takeIf { it.isNotBlank() }).joinToString("・"),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            QuietOverflowMenu(listOf(QuietMenuItem(if (entry.active(now)) "順番待ちを取り消す" else "記録を削除", destructive = entry.active(now), onClick = onRemove)),
+                contentDescription = "順番待ちの操作")
+        }
+        Text(when {
+            entry.status == WaitlistStatus.OPENED -> "${formatObservationTime(entry.changedAt ?: now)}に空きを確認しました。入室時には埋まっている場合があります。"
+            entry.status == WaitlistStatus.STOPPED -> "同じIDに別の部屋を確認したため、待つのをやめました。"
+            !entry.active(now) -> "期限（${formatObservationTime(entry.expiresAt)}）を過ぎました。"
+            entry.missed > 0 -> "満室を待っています・最近の確認では一覧に見つかっていません（閉鎖とは限りません）・期限 ${formatObservationTime(entry.expiresAt)}"
+            else -> "満室を待っています・${entry.lastSeenAt?.let { formatObservationTime(it) } ?: "-"}に確認・期限 ${formatObservationTime(entry.expiresAt)}"
+        }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (entry.status == WaitlistStatus.OPENED) FilledTonalButton(onClick = onEnter, modifier = Modifier.fillMaxWidth()) { Text("入室へ進む") }
     }
 }
 
