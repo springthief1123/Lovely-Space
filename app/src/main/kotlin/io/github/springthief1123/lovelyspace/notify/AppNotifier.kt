@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.net.Uri
 import androidx.core.app.NotificationChannelCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -108,7 +109,11 @@ class AppNotifier(
     }
 
     private fun contentIntent(notification: AppNotification): PendingIntent = PendingIntent.getActivity(
-        context, notification.id.hashCode(), openIntent(context, notification),
+        context,
+        0,
+        openIntent(context, notification).setData(
+            Uri.Builder().scheme("lovelyspace").authority("notification").appendPath(notification.id).build(),
+        ),
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
 
