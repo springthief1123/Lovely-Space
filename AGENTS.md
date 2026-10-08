@@ -53,9 +53,18 @@ GitHub Actions（`.github/workflows/android.yml`）が PR と main への push �
 - 作業中に新しいタスクを見つけたら、該当するフェーズ issue のサブ issue として追加する。
 - 本家の仕様について新しく分かったことは [docs/site-protocol.md](docs/site-protocol.md) に追記する。ロードマップの状態が変わったら [docs/roadmap.md](docs/roadmap.md) を更新する。
 
+## UI・デザインの共通ルール
+
+- **Lovely Space の UI は Quiet Rose に統一する。** UI 実装・変更・レビューの前に [docs/design-system.md](docs/design-system.md) を読み、既存の [docs/quiet-rose-redesign.md](docs/quiet-rose-redesign.md) と実装を照合する。
+- **Google 標準の Material 3 の外観を無調整で追加しない。** Material 3 自体の使用は禁止しない。色、形状、余白、タイポグラフィ、選択・無効・エラー状態を Quiet Rose に合わせる。
+- **既存の Lovely / Quiet コンポーネントとトークンを優先**する。重複する独自 UI を増やさず、必要なら共通化してから利用する。特にメニュー、チップ、入力欄、ダイアログ、シート、スイッチ、ヘッダーは標準デザインの露出を確認する。
+- Glass は原則として既存のメインヘッダー、下部ナビ、作成 FAB 等の意図された浮遊 UI で使い、通常カード・フォームへの無秩序な展開はしない。
+- **UI 変更は見た目だけでなく挙動を維持する。** Back、画面外タップ、フォーカス、IME、状態保持、TalkBack、文字拡大、ライト／ダークを確認する。ビルド・Lint が通っても実画面を確認できなければ「視覚検証済み」とは扱わず、実機確認項目を PR に残す。
+- 例外的に Material の既定外観を残す場合は、その理由と比較対象を PR に記載する。新たな色・形状・共通部品は [docs/design-system.md](docs/design-system.md) と同期する。
+
 ## 書き方
 
 - UI の文言・コードのコメント・コミットメッセージ・PR・issue は**日本語**。
 - PR の本文は「変更前 / 変更後 / 方法」と、検証したこと・実機確認が必要なことを書く。
-- 既存のコードの書き方（命名・コメントの量・Compose の部品）に合わせる。デザインの方針は [docs/quiet-rose-redesign.md](docs/quiet-rose-redesign.md)。
+- 既存のコードの書き方（命名・コメントの量・Compose の部品）に合わせる。デザインの実装基準は [docs/design-system.md](docs/design-system.md)、画面・機能の意図は [docs/quiet-rose-redesign.md](docs/quiet-rose-redesign.md)。
 - Room のスキーマを変えるときは `version` を上げて移行を書き、`app/schemas` の生成物をコミットする。既存の保存データ（プリセット・検索条件・お気に入り・非表示）を消さない。
