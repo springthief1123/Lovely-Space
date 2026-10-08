@@ -32,12 +32,14 @@ class LovelySpaceApp : Application() {
     override fun onCreate() {
         super.onCreate()
         notifier.ensureChannels()
-        // 背景で巡回する計画か、待っている順番待ちがあるときだけ周期実行を登録し、どちらも無くなれば解除する。
-        // 順番待ちがあるときは最短の 15 分ごとに確認する。
+        // 前回の実行が空きの通知を出す前に止まっていれば、起動時に出し直す。
+        appScope.launch { waitlist.deliverPending() }
+        // 背景で巡回する計画か、待っている（または通知を出し終えていない）順番待ちがあるときだけ周期実行を登録し、
+        // どちらも無くなれば解除する。順番待ちがあるときは最短の 15 分ごとに確認する。
         appScope.launch {
             combine(radar.state, waitlist.entries) { state, _ ->
                 if (!state.loaded) return@combine null
-                val waiting = waitlist.hasActive()
+                val waiting = waitlist.hasPendingWork()
                 (state.activeBackgroundPlans.isNotEmpty() || waiting) to
                     if (waiting) BackgroundSync.INTERVAL_MINUTES else state.backgroundIntervalMinutes.toLong()
             }.filterNotNull()

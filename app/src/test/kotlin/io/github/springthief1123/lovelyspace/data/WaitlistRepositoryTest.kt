@@ -132,6 +132,9 @@ class WaitlistRepositoryTest {
         first.register(full)
         first.check(3)
         assertFalse(memory.saved.single().noticed)
+        // 通知を出し終えるまでは、周期実行を続ける必要がある。
+        assertFalse(first.hasActive())
+        assertTrue(first.hasPendingWork())
         val opened = mutableListOf<WaitlistEntry>()
         val next = WaitlistRepository(memory, Lists(), { opened += it }, backgroundScope) { 0L }
         next.check(3)
@@ -139,5 +142,20 @@ class WaitlistRepositoryTest {
         assertTrue(memory.saved.single().noticed)
         next.check(3)
         assertEquals(1, opened.size)
+    }
+
+    @Test fun withoutASourcePageWaitingStartsFromThePageWhereTheRoomWasSeen() = runTest {
+        val lists = Lists().apply { lastPage = 20; pages = mapOf(14 to listOf(full)) }
+        lists.fetch(RoomQuery(zenkoku, page = 14), force = false)
+        val waitlist = WaitlistRepository(Memory(), lists, {}, backgroundScope) { 0L }
+        waitlist.register(full)
+        assertEquals(14, waitlist.entries.value.single().query.page)
+        // 呼び出し元のページにその部屋が見えていなければ、見えたページを優先する。
+        waitlist.register(full, RoomQuery(zenkoku, page = 2))
+        assertEquals(14, waitlist.entries.value.single().query.page)
+        // どこにも見えていなければ 1 ページ目から。
+        val other = full.copy(id = 7)
+        waitlist.register(other)
+        assertEquals(1, waitlist.entries.value.first { it.key == roomIdentity(other) }.query.page)
     }
 }

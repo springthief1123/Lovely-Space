@@ -43,6 +43,7 @@ data class WaitlistEntry(
 ) {
     val key: String get() = roomIdentity(room)
     fun active(now: Long): Boolean = status == WaitlistStatus.WATCHING && now < expiresAt
+    val unnoticed: Boolean get() = status == WaitlistStatus.OPENED && !noticed
 }
 
 interface WaitlistPersistence {
@@ -75,6 +76,12 @@ class WaitlistRepository(
 
     fun hasActive(): Boolean = _entries.value.any { it.active(now()) }
 
+    /**
+     * 背景の実行が必要か。待っている部屋に加え、空きを保存したが通知を出し終えていない登録も数える
+     * （通知の前に止まったとき、周期実行が解除されて出し直せなくなるのを防ぐ）。
+     */
+    fun hasPendingWork(): Boolean = hasActive() || _entries.value.any { it.unnoticed }
+
     /** 満室の部屋を登録する。同じ部屋の古い登録は置き換える。 */
     suspend fun register(room: Room, sourceQuery: RoomQuery? = null, hours: Int = DEFAULT_HOURS) = mutex.withLock {
         require(room.status == RoomStatus.FULL) { "満室の部屋だけ順番待ちに登録できます。" }
@@ -82,8 +89,20 @@ class WaitlistRepository(
         val at = now()
         val others = _entries.value.filterNot { it.key == roomIdentity(room) }
         require(others.count { it.active(at) } < MAX_ACTIVE) { "順番待ちは同時に${MAX_ACTIVE}件までです。" }
-        val query = sourceQuery?.takeIf { it.genre.key == room.genreKey } ?: RoomQuery(genre)
+        val query = startQuery(room, sourceQuery) ?: RoomQuery(genre)
         save(listOf(WaitlistEntry(room, query, at, at + hours * HOUR_MS, lastSeenAt = at)) + others)
+    }
+
+    /**
+     * 最初に確認するページ。呼び出し元のページにその部屋が見えていればそこから、
+     * そうでなければ取得済みの一覧でその部屋が見えた最新のページから始める（後ろのページの部屋を 1 ページ目から探して期限が切れないように）。
+     */
+    private fun startQuery(room: Room, sourceQuery: RoomQuery?): RoomQuery? {
+        val key = roomIdentity(room)
+        fun ObservedRoomPage.shows() = query.genre.key == room.genreKey && page.rooms.any { roomIdentity(it) == key }
+        val source = sourceQuery?.takeIf { it.genre.key == room.genreKey }
+        if (source != null && lists.observation(source)?.shows() == true) return source
+        return lists.observations.value.values.filter { it.shows() }.maxByOrNull { it.revision }?.query ?: source
     }
 
     suspend fun remove(key: String) = mutex.withLock {
@@ -100,8 +119,7 @@ class WaitlistRepository(
     /** 背景の実行から呼ぶ。待っている部屋のページを [maxPages] まで取得して反映する。 */
     suspend fun check(maxPages: Int) {
         expire()
-        // 前回、空きを保存した後に通知を出す前に止まっていれば、ここで出し直す。
-        notify(_entries.value.filter { it.status == WaitlistStatus.OPENED && !it.noticed })
+        deliverPending()
         val queries = mutex.withLock { _entries.value.filter { it.active(now()) }.map { it.query } }
         if (queries.isEmpty()) return
         sync.sync(queries, maxPages, force = false, onResult = { query, outcome ->
@@ -109,6 +127,9 @@ class WaitlistRepository(
         })
         expire()
     }
+
+    /** 前回、空きを保存した後に通知を出す前に止まっていれば、ここで出し直す。通信はしない。 */
+    suspend fun deliverPending() = notify(_entries.value.filter { it.unnoticed })
 
     private suspend fun apply(o: ObservedRoomPage) {
         val opened = mutableListOf<WaitlistEntry>()
