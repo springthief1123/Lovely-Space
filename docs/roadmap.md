@@ -37,6 +37,7 @@
 | [#37](https://github.com/springthief1123/Lovely-Space/issues/37) | 調査: 人を見分ける手がかり（一時ID・トリップ）の持続性 | needs-capture, research | — |
 | [#38](https://github.com/springthief1123/Lovely-Space/issues/38) | 人単位のブロック・非表示（名前・トリップ） | | #37 |
 | [#61](https://github.com/springthief1123/Lovely-Space/issues/61) | 見つける: スクロールしても検索・絞り込み・更新を上部のバーから開けるようにする | | — |
+| [#65](https://github.com/springthief1123/Lovely-Space/issues/65) | 見つける: 長押しメニューを指の位置に出し、保存・追跡・順番待ちを直接選べる独自デザインにする | needs-device-test | — |
 
 ### フェーズ5: 巡回・通知・順番待ち
 
