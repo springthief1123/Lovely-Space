@@ -162,7 +162,8 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically { -it / 2 },
         exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically { -it / 2 },
         modifier = Modifier.align(Alignment.TopCenter)
-            .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + LovelySpacing.topBarHeight + 8.dp),
+            .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + LovelySpacing.topBarHeight + 8.dp)
+            .padding(horizontal = 12.dp),
     ) {
         CompactSearchBar(
             query = c.text,
@@ -322,9 +323,10 @@ private fun CompactSearchBar(
 ) {
     io.github.springthief1123.lovelyspace.ui.components.LovelyGlassSurface(shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp)) {
         Row(Modifier.padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onSearch, modifier = Modifier.widthIn(max = 180.dp)) {
+            // 狭い画面でも右の操作ボタンの幅を先に確保し、検索語の部分だけを縮める。
+            TextButton(onClick = onSearch, modifier = Modifier.weight(1f, fill = false).widthIn(max = 180.dp)) {
                 Icon(Icons.Outlined.Search, null, Modifier.size(18.dp))
-                Text(query.ifEmpty { "検索" }, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                Text(query.ifEmpty { "検索" }, maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     modifier = Modifier.padding(start = 6.dp))
             }
             IconButton(onClick = onFilters) {
