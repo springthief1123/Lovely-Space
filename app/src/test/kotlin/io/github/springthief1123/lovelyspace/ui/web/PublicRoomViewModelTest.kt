@@ -28,9 +28,28 @@ class PublicRoomViewModelTest {
             assertFalse(vm.state.value.automatic)
             assertFalse(vm.state.value.opened)
             assertNotNull(vm.state.value.error)
+            unavailable = false; vm.refresh(); runCurrent()
+            assertTrue(vm.state.value.automatic)
+            assertTrue(vm.state.value.opened)
         } finally { Dispatchers.resetMain() }
     }
-    @Test fun leavingWithAutomaticOffCancelsManualPublicRead() = runTest {
+    @Test fun guestLinesGoRightAndRolesSurviveScrollingOut() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val entered = ChatLine(null, false, "タロウ(男)さん(Android 一時ID Ab3dE)が入室しましたので、このチャットルームをロックしました。", null)
+            val owner = ChatLine("ミナ", true, "合成の発言", null)
+            val guest = ChatLine("タロウ", false, "合成の返事", null)
+            var page = listOf(guest, owner, entered)
+            val vm = PublicRoomViewModel { PublicRoomPage("合成", page, "") }
+            vm.refresh(); runCurrent()
+            assertEquals(listOf(true, false, false), vm.state.value.lines.map { it.isMine })
+            // お知らせが直近の行から外れても、覚えた名前で見分け続ける。
+            page = listOf(guest.copy(text = "次の返事"), guest, owner)
+            vm.refresh(); runCurrent()
+            assertEquals(listOf(true, true, false), vm.state.value.lines.map { it.isMine })
+        } finally { Dispatchers.resetMain() }
+    }
+    @Test fun leavingCancelsManualPublicRead() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {
             var requests = 0
@@ -39,11 +58,10 @@ class PublicRoomViewModelTest {
                 requests++
                 try { awaitCancellation() } finally { cancelled = true }
             }
-            vm.automatic(false); vm.refresh(); runCurrent()
+            vm.refresh(); runCurrent()
             vm.stopRefresh(); runCurrent(); advanceTimeBy(60_000); runCurrent()
             assertTrue(cancelled)
             assertFalse(vm.state.value.loading)
-            assertFalse(vm.state.value.automatic)
             assertEquals(1, requests)
         } finally { Dispatchers.resetMain() }
     }

@@ -27,11 +27,9 @@ fun PublicRoomScreen(host: String, genreKey: String, roomId: Long, onBack: () ->
     ForegroundPolling(state.automatic, vm, vm::stopRefresh) { vm.monitor() }
     Scaffold(topBar = { QuietTopBar("公開ルーム", onBack) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("閲覧のみ", style = MaterialTheme.typography.labelLarge)
-                Switch(state.automatic, vm::automatic)
-            }
+            // 閲覧中は常に自動で読み直す。閉じられた部屋（非公開への変更など）では止まり、「再読み込み」だけを出す。
+            Text("閲覧のみ（発言・入室はしません）。開いている間、新着を自動で読み込みます", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
             state.error?.let { message ->
                 Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
                     Text(message, color = MaterialTheme.colorScheme.error)
@@ -42,7 +40,7 @@ fun PublicRoomScreen(host: String, genreKey: String, roomId: Long, onBack: () ->
                 style = MaterialTheme.typography.bodySmall)
             if (state.loading && !state.opened) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
-            } else if (state.opened) ChatLog(state.lines, Modifier.weight(1f))
+            } else if (state.opened) ChatLog(state.lines, Modifier.weight(1f), nameOnBothSides = true)
         }
     }
 }

@@ -9,6 +9,7 @@ import io.github.springthief1123.lovelyspace.core.chat.ChatPage
 import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
 import io.github.springthief1123.lovelyspace.core.chat.ChatSession
 import io.github.springthief1123.lovelyspace.core.chat.ChatUpdate
+import io.github.springthief1123.lovelyspace.core.chat.MySpeaker
 import io.github.springthief1123.lovelyspace.core.chat.RoomPageUnavailableException
 import io.github.springthief1123.lovelyspace.ui.describeError
 import kotlinx.coroutines.CancellationException
@@ -42,6 +43,8 @@ data class ChatUiState(
     val roomUnavailable: Boolean = false,
     val title: String = "",
     val myName: String? = null,
+    /** ログの発言が自分のものかの見分け方。 */
+    val me: MySpeaker = MySpeaker(),
     /** 自分が部屋の作成者か。作成者の退室は部屋の閉鎖になる。 */
     val isOwner: Boolean = false,
     /** 2 人そろっているか。作成者は相手が来るまで待機する。 */
@@ -192,6 +195,7 @@ class ChatViewModel(
                 isLoading = false,
                 title = page.title,
                 myName = page.myName,
+                me = page.me(it.me),
                 isOwner = page.isOwner,
                 isFilled = page.state.isFilledRoom,
                 isPublic = page.isPublic,
@@ -199,7 +203,7 @@ class ChatViewModel(
                 canChangePublic = page.canChangePublic,
                 waitingMessage = page.waitingMessage,
                 // ページのログは新しい順なので、古いほうから番号を振る。
-                lines = page.lines.asReversed().map { line -> uiLine(line, page.myName) }.asReversed(),
+                lines = page.lines.asReversed().map { line -> uiLine(line, page.me(it.me)) }.asReversed(),
             )
         }
         startUpdates()
@@ -234,11 +238,15 @@ class ChatViewModel(
         }
     }
 
-    private fun apply(update: ChatUpdate) {
+    private fun apply(update: ChatUpdate, sent: String? = null) {
         _state.update { s ->
-            val added = update.newLines.map { uiLine(it, s.myName) }.asReversed()
+            val me = sent?.let { s.me.learnFromSent(it, update.newLines) } ?: s.me
+            // 自分の名前を新しく覚えたら、表示済みの行も見分け直す。
+            val existing = if (me == s.me) s.lines else s.lines.map { it.copy(isMine = me.isMine(it.line)) }
+            val added = update.newLines.map { uiLine(it, me) }.asReversed()
             s.copy(
-                lines = if (update.clearLog) added else added + s.lines,
+                me = me,
+                lines = if (update.clearLog) added else added + existing,
                 information = update.information,
                 endMessage = update.endMessage ?: s.endMessage,
                 isFilled = update.state.isFilledRoom,
@@ -250,8 +258,10 @@ class ChatViewModel(
         }
     }
 
-    private fun uiLine(line: ChatLine, myName: String?) =
-        UiLine(nextId++, line, isMine = myName != null && line.speaker == myName)
+    private fun uiLine(line: ChatLine, me: MySpeaker) = UiLine(nextId++, line, isMine = me.isMine(line))
+
+    /** 開き直したページの名前と、これまでに覚えたログでの名前。 */
+    private fun ChatPage.me(known: MySpeaker) = known.withFormName(myName)
 
     fun setInput(text: String) = _state.update { it.copy(input = text) }
     fun restoreFailedMessage() = _state.update { it.restoreFailedMessage() }
@@ -265,7 +275,7 @@ class ChatViewModel(
         _state.update { it.copy(input = "", isSending = true, sendError = null) }
         viewModelScope.launch {
             try {
-                apply(session.send(text))
+                apply(session.send(text), sent = text)
                 _state.update { it.copy(isSending = false) }
                 // 受信が止まっている（つなぎ直しを諦めた）なら、発言できた今のうちに受信を再開する。
                 // apply() が表示を「接続中」に戻すので、実際の受信と表示を一致させる。
@@ -314,7 +324,7 @@ class ChatViewModel(
                     // 応答ページはサーバーが確定したクリア後の状態。読み出し位置を取り直しつつ、
                     // 直前の発言・poll の間隔制限を引き継いだ ChatSession で再開する。
                     session = client.chatSession(page, previous = session)
-                    page.lines.asReversed().map { line -> uiLine(line, page.myName) }.asReversed()
+                    page.lines.asReversed().map { line -> uiLine(line, page.me(_state.value.me)) }.asReversed()
                 } else {
                     emptyList()
                 }

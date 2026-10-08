@@ -362,7 +362,7 @@ private fun Banner(text: String, extra: @Composable () -> Unit = {}) {
 }
 
 @Composable
-internal fun ChatLog(lines: List<UiLine>, modifier: Modifier) {
+internal fun ChatLog(lines: List<UiLine>, modifier: Modifier, nameOnBothSides: Boolean = false) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var reading by rememberSaveable(stateSaver = ReadingSaver) { mutableStateOf(ChatReadingState()) }
@@ -387,7 +387,7 @@ internal fun ChatLog(lines: List<UiLine>, modifier: Modifier) {
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             items(lines, key = { it.id }) { ui ->
-                if (ui.line.isNotice) Notice(ui) else Bubble(ui)
+                if (ui.line.isNotice) Notice(ui) else Bubble(ui, nameOnBothSides)
             }
         }
         if (!reading.atLatest && lines.isNotEmpty()) {
@@ -412,17 +412,24 @@ internal fun ChatLog(lines: List<UiLine>, modifier: Modifier) {
 
 @Composable
 private fun Notice(ui: UiLine) {
-    Text(
-        text = ui.line.text,
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        textAlign = TextAlign.Center,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp),
-    )
+    // 入室・発言クリアなどのお知らせは、発言と区別できるよう中央のグレーの角丸に入れる。
+    Box(Modifier.fillMaxWidth().padding(horizontal = 24.dp), contentAlignment = Alignment.Center) {
+        Surface(color = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            shape = RoundedCornerShape(12.dp), modifier = Modifier.testTag("chat-notice")) {
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(ui.line.text, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+                ui.line.time?.let {
+                    Text(it.format(TIME), style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f))
+                }
+            }
+        }
+    }
 }
 
 @Composable
-private fun Bubble(ui: UiLine) {
+/** [ui] の isMine は右側に出すこと。公開ルームでは入室者の発言で、[showName] で右側にも名前を出す。 */
+private fun Bubble(ui: UiLine, showName: Boolean = false) {
     val line = ui.line
     val uriHandler = LocalUriHandler.current
     val colors = MaterialTheme.colorScheme
@@ -432,9 +439,9 @@ private fun Bubble(ui: UiLine) {
         val bubbleWidth = (maxWidth * 0.84f).coerceAtMost(560.dp)
         Column(Modifier.fillMaxWidth(), horizontalAlignment = if (ui.isMine) Alignment.End else Alignment.Start,
             verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (!ui.isMine) {
+            if (!ui.isMine || showName) {
                 Text(line.speaker.orEmpty(), style = MaterialTheme.typography.labelMedium,
-                    color = colors.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp))
+                    color = colors.onSurfaceVariant, modifier = Modifier.padding(horizontal = 4.dp))
             }
             Surface(color = container, contentColor = content,
                 shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp,
