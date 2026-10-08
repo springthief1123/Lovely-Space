@@ -1,5 +1,6 @@
 package io.github.springthief1123.lovelyspace.lock
 
+import android.view.accessibility.AccessibilityManager
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -16,10 +17,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Backspace
 import androidx.compose.material.icons.outlined.Fingerprint
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -32,6 +36,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -109,6 +114,8 @@ internal fun patternDotBetween(from: Int, to: Int, used: Collection<Int>): Int? 
 /** 指でなぞるパターンの入力欄。指を離したら [onComplete] に点の並びを渡す。 */
 @Composable
 internal fun PatternPad(onComplete: (List<Int>) -> Unit, enabled: Boolean = true, error: Boolean = false) {
+    // TalkBack ではなぞる操作ができないので、点を 1 つずつ選ぶ入力欄に切り替える。
+    if (rememberTouchExplorationEnabled()) return AccessiblePatternPad(onComplete, enabled, error)
     val dots = remember { mutableStateListOf<Int>() }
     val complete by rememberUpdatedState(onComplete)
     var finger by remember { mutableStateOf<Offset?>(null) }
@@ -145,6 +152,62 @@ internal fun PatternPad(onComplete: (List<Int>) -> Unit, enabled: Boolean = true
             drawCircle(if (selected) primary else idle, radius = if (selected) 11.dp.toPx() else 7.dp.toPx(), center = center(dot))
         }
     }
+}
+
+/**
+ * スクリーンリーダー向けのパターン入力。9 つの点をそれぞれボタンにし、順に選んで「決定」で確かめる。
+ * なぞったときと同じく、間を飛ばした点は自動で加えるので、どちらで登録しても同じパターンになる。
+ */
+@Composable
+private fun AccessiblePatternPad(onComplete: (List<Int>) -> Unit, enabled: Boolean, error: Boolean) {
+    val dots = remember { mutableStateListOf<Int>() }
+    val scheme = MaterialTheme.colorScheme
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("点を順に選び、「決定」を押します", style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
+        repeat(3) { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                repeat(3) { column ->
+                    val dot = row * 3 + column
+                    val order = dots.indexOf(dot)
+                    val selected = order >= 0
+                    Box(
+                        Modifier.size(KEY_SIZE).clip(CircleShape)
+                            .background(if (selected) (if (error) scheme.errorContainer else scheme.primaryContainer) else scheme.surfaceContainer)
+                            .clickable(enabled = enabled && !selected, role = Role.Button) {
+                                dots.lastOrNull()?.let { last -> patternDotBetween(last, dot, dots)?.let(dots::add) }
+                                dots.add(dot)
+                            }
+                            .semantics { contentDescription = patternDotLabel(dot) + if (selected) "、${order + 1}番目に選択済み" else "" },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (selected) Text("${order + 1}", style = MaterialTheme.typography.titleMedium)
+                    }
+                }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = { dots.clear() }, enabled = enabled && dots.isNotEmpty()) { Text("やり直す") }
+            Button(onClick = { val result = dots.toList(); dots.clear(); onComplete(result) }, enabled = enabled && dots.isNotEmpty()) { Text("決定") }
+        }
+    }
+}
+
+/** 点の位置の読み上げ。例: 「上の段の左の点」。 */
+internal fun patternDotLabel(dot: Int): String =
+    "${listOf("上", "中", "下")[dot / 3]}の段の${listOf("左", "中央", "右")[dot % 3]}の点"
+
+/** TalkBack などの「タッチで探索」が有効か。切り替えにも追従する。 */
+@Composable
+internal fun rememberTouchExplorationEnabled(): Boolean {
+    val context = LocalContext.current
+    val manager = remember(context) { context.getSystemService(AccessibilityManager::class.java) }
+    var enabled by remember(manager) { mutableStateOf(manager?.isTouchExplorationEnabled == true) }
+    DisposableEffect(manager) {
+        val listener = AccessibilityManager.TouchExplorationStateChangeListener { enabled = it }
+        manager?.addTouchExplorationStateChangeListener(listener)
+        onDispose { manager?.removeTouchExplorationStateChangeListener(listener) }
+    }
+    return enabled
 }
 
 private val KEY_SIZE = 68.dp

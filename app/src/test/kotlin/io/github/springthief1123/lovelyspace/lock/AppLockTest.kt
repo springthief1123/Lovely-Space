@@ -124,6 +124,19 @@ class AppLockTest {
         assertFalse(controller.state.value.locked)
     }
 
+    @Test fun verifyingBeforeASettingChangeCountsFailuresWithoutUnlocking() {
+        val controller = AppLockController(MemoryStore(), { 0 }, { 0 })
+        controller.enable(LockMethod.PASSCODE, "2468")
+        controller.onBackground()
+        // 確かめるだけではロックを解かない。
+        assertTrue(controller.verify("2468"))
+        assertTrue(controller.state.value.locked)
+        repeat(AppLockController.MAX_FAILURES) { assertFalse(controller.verify("0000")) }
+        assertTrue(controller.state.value.lockedOutUntil > 0)
+        // 待ち時間の間は正しくても通さない（総当たりでロックを切れない）。
+        assertFalse(controller.verify("2468"))
+    }
+
     @Test fun biometricUnlocksOnlyWhenTurnedOn() {
         val controller = AppLockController(MemoryStore(), { 0 }, { 0 })
         controller.enable(LockMethod.PASSCODE, "2468")
@@ -144,5 +157,9 @@ class AppLockTest {
         assertEquals(4, patternDotBetween(0, 8, emptyList()))
         assertNull(patternDotBetween(0, 8, listOf(4)))
         assertNull(patternDotBetween(0, 5, emptyList()))
+        // 読み上げ用の点の名前は 9 つとも違う。
+        assertEquals("上の段の左の点", patternDotLabel(0))
+        assertEquals("下の段の右の点", patternDotLabel(8))
+        assertEquals(9, (0..8).map(::patternDotLabel).toSet().size)
     }
 }

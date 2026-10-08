@@ -167,12 +167,18 @@ class AppLockController(
     }
 
     /** パスコード・パターンで解く。合っていれば true。 */
-    fun unlock(secret: String): Boolean {
+    fun unlock(secret: String): Boolean = verify(secret).also { ok -> if (ok) _state.update { it.copy(locked = false) } }
+
+    /**
+     * いまのパスコード・パターンと合うか確かめる。ロックを切る・方法を変える前の確認にも使う。
+     * 間違いはロック画面と同じく数え、続けて間違えたら待たせる。
+     */
+    fun verify(secret: String): Boolean {
         val now = clock()
         if (now < _state.value.lockedOutUntil) return false
         val (salt, hash) = store.secret() ?: return false
         if (LockSecret.matches(secret, salt, hash)) {
-            _state.update { it.copy(locked = false, failures = 0, lockedOutUntil = 0) }
+            _state.update { it.copy(failures = 0, lockedOutUntil = 0) }
             store.saveAttempts(0, 0)
             return true
         }
