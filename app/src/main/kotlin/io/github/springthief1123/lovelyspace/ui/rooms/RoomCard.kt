@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalLayoutApi::class)
+
 package io.github.springthief1123.lovelyspace.ui.rooms
 
 import androidx.compose.animation.core.animate
@@ -38,6 +40,8 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -73,6 +77,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -559,7 +564,9 @@ private fun RoomCardSurface(
                         color = if (room.isFull) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
                         maxLines = messageMaxLines, overflow = TextOverflow.Ellipsis)
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                // 文字を大きくして 1 行に収まらないときは、動きの表示を次の行へ送る（切れないように）。
+                FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     MetaChip(statusLabel(room.status), statusColor, filled = true)
                     MetaChip(
                         when {
@@ -571,6 +578,11 @@ private fun RoomCardSurface(
                         filled = false,
                         icon = if (room.isPublic) Icons.Outlined.Visibility else Icons.Outlined.Lock,
                     )
+                    // 押したときの動き（入室へ・覗く）を先に示す。満室で非公開の部屋は詳細が開くだけなので付けない。
+                    cardActionLabel(room.action)?.let { label ->
+                        Text("$label ›", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
+                            textAlign = TextAlign.End, modifier = Modifier.weight(1f).align(Alignment.CenterVertically))
+                    }
                 }
             }
             if (hasMenu) RoomActionMenu(
@@ -670,3 +682,10 @@ private const val SETTLE_STIFFNESS = 380f
 private val SWIPE_EDGE_REMAINING = 64.dp
 private const val MAX_REVEAL_FRACTION = 0.42f
 private const val MIN_COMMIT_FRACTION = 0.72f
+
+/** カードを押したときの動きの短い表示。詳細が開くだけの部屋は null。 */
+internal fun cardActionLabel(action: RoomAction): String? = when (action) {
+    RoomAction.ENTER -> "入室へ"
+    RoomAction.PEEK -> "覗く"
+    RoomAction.NONE -> null
+}

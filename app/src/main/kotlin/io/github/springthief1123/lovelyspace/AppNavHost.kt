@@ -10,6 +10,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
@@ -21,6 +22,9 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.springthief1123.lovelyspace.ui.chat.ResumeChatBar
+import io.github.springthief1123.lovelyspace.ui.chat.ChatActivity
+import io.github.springthief1123.lovelyspace.ui.chat.ChatController
+import kotlinx.coroutines.flow.MutableStateFlow
 import io.github.springthief1123.lovelyspace.core.Genres
 import io.github.springthief1123.lovelyspace.ui.chat.ChatScreen
 import io.github.springthief1123.lovelyspace.ui.create.CreateRoomScreen
@@ -60,9 +64,12 @@ fun AppNavHost() {
     val originArg = navArgument("origin") { type = NavType.StringType; defaultValue = Routes.ROOMS }
 
     val resumable by app.activeRooms.resumable.collectAsStateWithLifecycle()
-    // 「閉じる」はこのプロセスの間だけ隠す（画面の作り直しでは戻らず、再起動後はまた出る）。記録は退室・部屋の終了で消える。
-    val resumeDismissed by app.activeRooms.dismissed.collectAsStateWithLifecycle()
-    val resumeRoom = resumable?.takeIf { it.sessionId != resumeDismissed && currentRoute in mainRoutes }
+    // 一覧を見ている間は「会話に戻る」を常に出す。× は帯を小さくするだけで、会話への入口は残す。記録は退室・部屋の終了で消える。
+    val resumeCollapsed by app.activeRooms.collapsed.collectAsStateWithLifecycle()
+    val resumeRoom = resumable?.takeIf { currentRoute in mainRoutes }
+    // 接続があれば（会話画面を開いてから一覧に来たとき）、新着の数と待機中かを帯に出す。
+    val resumeConnection = resumeRoom?.let { app.activeRooms.existingConnection(it.sessionId) as? ChatController }
+    val resumeActivity by (resumeConnection?.activity ?: remember { MutableStateFlow(ChatActivity()) }).collectAsStateWithLifecycle()
 
     // 通知・お知らせが開かれたら該当の画面へ移る。
     val openedNotification by app.notificationInbox.opened.collectAsStateWithLifecycle()
@@ -77,8 +84,10 @@ fun AppNavHost() {
         showChrome = currentRoute != null && currentRoute in mainRoutes,
         resumeBar = if (resumeRoom == null) null else { {
             ResumeChatBar(resumeRoom.room,
+                activity = resumeActivity.takeIf { resumeConnection != null },
+                collapsed = resumeCollapsed == resumeRoom.sessionId,
                 onResume = { app.activeRooms.resume()?.let { nav.navigateToChat(it, currentRoute ?: Routes.ROOMS) } },
-                onDismiss = { app.activeRooms.dismiss(resumeRoom.sessionId) })
+                onCollapse = { app.activeRooms.collapse(resumeRoom.sessionId) })
         } },
         onDestinationSelected = { destination -> nav.navigateMain(destination.route) },
         onOpenNotificationSettings = { nav.navigate(Routes.SETTINGS_NOTIFICATIONS) { launchSingleTop = true } },
@@ -214,17 +223,22 @@ fun AppNavHost() {
             }
             composable(Routes.CHAT, arguments = listOf(navArgument("session") { type = NavType.StringType }, originArg)) { entry ->
                 val sessionId = entry.arguments!!.getString("session")!!
-                val room = app.activeRooms[sessionId]
+                // 退室で記録を消した後の再描画で、画面を閉じる処理を二度呼ばないよう、開いたときの部屋と接続を覚えておく。
+                val room = remember(sessionId) { app.activeRooms[sessionId] }
+                val origin = Routes.mainOrigin(entry.arguments!!.getString("origin"))
                 val exit = {
                     app.activeRooms.remove(sessionId)
                     roomsRefreshKey++
-                    nav.returnFromChat(Routes.mainOrigin(entry.arguments!!.getString("origin")))
+                    nav.returnFromChat(origin)
                     Unit
                 }
-                if (room == null) {
+                val chat = remember(sessionId) { room?.let { app.activeRooms.connection(sessionId) { ChatController(app.client, it) } } }
+                if (room == null || chat == null) {
                     LaunchedEffect(Unit) { exit() }
                 } else {
-                    ChatScreen(room = room, onExit = exit, onEnded = { app.activeRooms.ended(sessionId) })
+                    // ← は部屋に残ったまま一覧へ。取得は ActiveRooms の接続が続ける。
+                    ChatScreen(room = room, vm = chat, onBrowse = { nav.returnFromChat(origin) }, onExit = exit,
+                        onEnded = { app.activeRooms.ended(sessionId) })
                 }
             }
         }

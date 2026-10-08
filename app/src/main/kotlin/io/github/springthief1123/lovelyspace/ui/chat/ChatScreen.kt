@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 
 package io.github.springthief1123.lovelyspace.ui.chat
 
@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -51,6 +53,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -63,7 +66,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
@@ -73,10 +75,6 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.lifecycle.viewmodel.initializer
-import androidx.lifecycle.viewmodel.viewModelFactory
-import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
 import io.github.springthief1123.lovelyspace.core.messageWidth
 import io.github.springthief1123.lovelyspace.ui.components.QuietMenuItem
@@ -91,11 +89,18 @@ private val ReadingSaver = mapSaver(
     restore = { ChatReadingState(it["latest"] as Long?, it["atLatest"] as Boolean, (it["unread"] as LongArray).toSet()) },
 )
 
+/**
+ * 会話画面。[vm] は [ActiveRooms] が持つので、この画面を離れても取得は続く。
+ * [onBrowse] は部屋に残ったまま一覧へ戻る。[onExit] は退室・部屋を閉じた後に呼ぶ。
+ */
 @Composable
-fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit, onEnded: () -> Unit = {}) {
-    val app = LocalContext.current.applicationContext as LovelySpaceApp
-    val vm: ChatViewModel = viewModel(factory = viewModelFactory { initializer { ChatViewModel(app.client, room) } })
+fun ChatScreen(room: ChatRoomRef, vm: ChatController, onBrowse: () -> Unit, onExit: () -> Unit, onEnded: () -> Unit = {}) {
     val state by vm.state.collectAsStateWithLifecycle()
+    // 見えている間は新着を「会話に戻る」の帯に数えない。
+    DisposableEffect(vm) {
+        vm.setVisible(true)
+        onDispose { vm.setVisible(false) }
+    }
     var confirmLeave by rememberSaveable { mutableStateOf(false) }
     var confirmOwnerAction by rememberSaveable { mutableStateOf<OwnerAction?>(null) }
     var confirmBanRevision by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -124,11 +129,11 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit, onEnded: () -> Unit = {}) 
         }
     }
 
-    // 終了した部屋や開けなかった部屋はそのまま戻る。会話中は確認してから退室する。
+    // 終了した部屋や開けなかった部屋はそのまま戻る。会話中の ← と端末の戻るは、部屋に残ったまま一覧を見る。
+    // 退室・部屋を閉じるのは右上のボタンだけにする。
     val canLeaveSilently = state.endMessage != null || state.loadError != null
-    BackHandler {
-        if (canLeaveSilently) vm.leave() else confirmLeave = true
-    }
+    val back = { if (canLeaveSilently) vm.leave() else onBrowse() }
+    BackHandler(onBack = back)
 
     if (confirmLeave) {
         AlertDialog(
@@ -212,8 +217,8 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit, onEnded: () -> Unit = {}) 
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
                 navigationIcon = {
-                    IconButton(onClick = { if (canLeaveSilently) vm.leave() else confirmLeave = true }) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = if (canLeaveSilently) "一覧に戻る" else if (state.isOwner) "部屋を閉じる" else "退室")
+                    IconButton(onClick = back) {
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = if (canLeaveSilently) "一覧に戻る" else "部屋に残ったまま一覧を見る")
                     }
                 },
                 actions = {
@@ -290,7 +295,7 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit, onEnded: () -> Unit = {}) 
                     }
                 }
                 if (state.isWaitingForPartner) {
-                    Banner("相手の入室を待っています。この画面を開いている間、入室を確認し続けます")
+                    Banner("相手の入室を待っています。アプリを開いている間は、一覧を見ていても入室を確認し続けます")
                 }
                 if (state.information.isNotBlank()) {
                     Banner(state.information)
@@ -313,7 +318,7 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit, onEnded: () -> Unit = {}) 
                         OutlinedButton(onClick = vm::open) { Text("もう一度読み込む") }
                     }
                 }
-                else -> ChatLog(state.lines, Modifier.weight(1f))
+                else -> ChatLog(state.lines, Modifier.weight(1f), emptyText = chatEmptyText(state))
             }
         }
     }
@@ -354,7 +359,7 @@ private fun OwnerActionConfirmDialog(action: OwnerAction, partnerName: String?, 
 private fun WaitingMessageDialog(current: String, onSave: (String) -> Unit, onDismiss: () -> Unit) {
     var message by rememberSaveable { mutableStateOf(current) }
     val width = messageWidth(message.trim())
-    val max = ChatViewModel.WAITING_MESSAGE_MAX_WIDTH
+    val max = ChatController.WAITING_MESSAGE_MAX_WIDTH
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("待機メッセージを変更") },
@@ -390,7 +395,12 @@ private fun Banner(text: String, extra: @Composable () -> Unit = {}) {
 }
 
 @Composable
-internal fun ChatLog(lines: List<UiLine>, modifier: Modifier, nameOnBothSides: Boolean = false) {
+internal fun ChatLog(
+    lines: List<UiLine>,
+    modifier: Modifier,
+    nameOnBothSides: Boolean = false,
+    emptyText: Pair<String, String> = "まだ発言はありません" to "メッセージが届くとここに表示されます",
+) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var reading by rememberSaveable(stateSaver = ReadingSaver) { mutableStateOf(ChatReadingState()) }
@@ -430,8 +440,8 @@ internal fun ChatLog(lines: List<UiLine>, modifier: Modifier, nameOnBothSides: B
         if (lines.isEmpty()) {
             Column(Modifier.align(Alignment.Center).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("メッセージ", style = MaterialTheme.typography.titleMedium)
-                Text("メッセージが届くとここに表示されます", style = MaterialTheme.typography.bodySmall,
+                Text(emptyText.first, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
+                Text(emptyText.second, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -493,7 +503,7 @@ private fun Bubble(ui: UiLine, showName: Boolean = false) {
 }
 
 @Composable
-private fun ChatInput(state: ChatUiState, vm: ChatViewModel, onExit: () -> Unit, onDiscard: () -> Unit) {
+private fun ChatInput(state: ChatUiState, vm: ChatController, onExit: () -> Unit, onDiscard: () -> Unit) {
     Surface(color = MaterialTheme.colorScheme.surface) {
         Column(Modifier.navigationBarsPadding()) {
             HorizontalDivider()
@@ -509,16 +519,18 @@ private fun ChatInput(state: ChatUiState, vm: ChatViewModel, onExit: () -> Unit,
                 return@Column
             }
             state.failedMessage?.let { message ->
-                Column(Modifier.fillMaxWidth().heightIn(max = 190.dp).verticalScroll(rememberScrollState())
+                // 小さな画面でキーボードが出ていても会話が残るよう、高さを抑えてスクロールさせる。
+                Column(Modifier.fillMaxWidth().heightIn(max = 128.dp).verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 8.dp).semantics { liveRegion = LiveRegionMode.Polite },
                     verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(state.sendError.orEmpty(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                    Text("送信結果を確認できませんでした。履歴を確認してから、再送する文章を編集してください。",
-                        style = MaterialTheme.typography.bodySmall)
-                    Text(message, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
-                    // 幅が狭い端末や文字拡大でも操作を切らない。
-                    TextButton(onClick = vm::restoreFailedMessage) { Text("下書きに戻して編集する") }
-                    TextButton(onClick = onDiscard) { Text("この送信文を破棄する") }
+                    Text("送信を確認できませんでした（${state.sendError.orEmpty()}）。履歴を確かめてから編集してください。",
+                        color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    Text(message, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+                    // 幅が狭い端末や文字拡大では折り返して、操作を切らない。
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        TextButton(onClick = vm::restoreFailedMessage) { Text("下書きに戻して編集する") }
+                        TextButton(onClick = onDiscard) { Text("破棄する") }
+                    }
                 }
             }
             if (state.isSending || state.isLeaving) {
@@ -550,4 +562,11 @@ private fun ChatInput(state: ChatUiState, vm: ChatViewModel, onExit: () -> Unit,
             }
         }
     }
+}
+
+/** 会話がまだ無いときの見出しと説明。作成者の待機中と、入室した直後で変える。 */
+internal fun chatEmptyText(state: ChatUiState): Pair<String, String> = when {
+    state.isWaitingForPartner -> "相手を待っています" to "相手が入室すると、ここに会話が表示されます。一覧を見に行っても、部屋はそのまま残ります。"
+    state.isOwner -> "まだ発言はありません" to "メッセージを送って会話を始めましょう"
+    else -> "入室しました" to "最初のメッセージを送ってみましょう"
 }

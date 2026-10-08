@@ -1,5 +1,7 @@
 package io.github.springthief1123.lovelyspace.ui.main
 
+import io.github.springthief1123.lovelyspace.ui.components.QuietNotice
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -80,6 +82,10 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
     val planCount = saved.count { it.id in state.plans }
     val waitlist by app.waitlist.entries.collectAsStateWithLifecycle()
     val requestNotifications = io.github.springthief1123.lovelyspace.notify.rememberNotificationPermissionRequest()
+    // 背景の巡回は一致を通知で知らせる。通知が出せないなら、巡回していても知らせられないことを伝える。
+    val radarNotificationsAllowed = io.github.springthief1123.lovelyspace.notify.rememberNotificationsAllowed(
+        io.github.springthief1123.lovelyspace.notify.NotificationKind.RADAR_MATCH)
+    val context = androidx.compose.ui.platform.LocalContext.current
     QuietPage {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = LovelySpacing.screenHorizontal, end = LovelySpacing.screenHorizontal,
         top = lovelyMainContentTopPadding(), bottom = lovelyMainContentBottomInset() + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -123,6 +129,10 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                     RadarEmpty("「見つける」の絞り込みで条件を保存すると、ここで巡回を有効にできます。", "条件を探す", onFindRooms)
                 }
                 if (saved.isNotEmpty()) item { RadarNote("有効にした条件は、画面を開いている間に新着を優先して全ページを巡回します。「︙」から背景でも巡回するを選ぶと、アプリを閉じていても新着の1ページ目を確認し、新しく一致した部屋を通知します。") }
+                if (state.activeBackgroundPlans.isNotEmpty() && !radarNotificationsAllowed) item {
+                    QuietNotice(backgroundRadarNoticeText(), error = true, actionLabel = "通知の設定を開く",
+                        onAction = { context.startActivity(io.github.springthief1123.lovelyspace.notify.appNotificationSettingsIntent(context)) })
+                }
                 if (state.activeBackgroundPlans.isNotEmpty()) item {
                     RadarDropdown("背景で巡回する間隔", state.backgroundIntervalMinutes.toString(),
                         RadarState.BACKGROUND_INTERVALS.map { it.toString() to if (it < 60) "${it}分ごと" else "${it / 60}時間ごと" },
@@ -391,3 +401,7 @@ private fun RadarEmpty(text: String, actionLabel: String? = null, onAction: () -
         actionLabel?.let { OutlinedButton(onClick = onAction) { Text(it) } }
     }
 }
+
+/** 背景の巡回をオンにしているのに、通知が出せないときの文言。 */
+internal fun backgroundRadarNoticeText(): String =
+    "背景でも巡回していますが、通知がオフのため、一致しても知らせられません。"

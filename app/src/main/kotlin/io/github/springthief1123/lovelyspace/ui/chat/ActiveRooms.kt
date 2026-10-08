@@ -10,6 +10,16 @@ import java.util.concurrent.ConcurrentHashMap
 /** 進行中の部屋の記録。[sessionId] は画面遷移の route に載せる一時 ID。 */
 data class ResumableRoom(val sessionId: String, val room: ChatRoomRef, val savedAt: Long)
 
+/** 入室中の部屋との接続（新着の取得）。[ActiveRooms] が部屋ごとに 1 つだけ持つ。 */
+interface RoomConnection {
+    /** アプリが前面にあるか。背景にいる間は取得を止める。 */
+    fun setForeground(value: Boolean)
+    /** 取得をすべて止める。退室・部屋を閉じた後。 */
+    fun close()
+    /** 別の部屋に入ったとき。この部屋から退室（作成者は閉じる）してから取得を止める。 */
+    fun leaveAndClose()
+}
+
 /** 進行中の部屋を端末内に残す先。pwd を含むので、実装は暗号化して保存する。 */
 interface ActiveRoomPersistence {
     fun load(): ResumableRoom?
@@ -23,6 +33,9 @@ interface ActiveRoomPersistence {
  *
  * 会話中にプロセスが終了しても戻れるよう、最後に入った部屋を 1 つだけ [persistence] に残す。
  * 退室・閉鎖・部屋の終了で消し、古すぎる記録は読み込み時に捨てる。
+ *
+ * 部屋との接続（[RoomConnection]）も画面ではなくここで持つ。会話画面を離れて一覧を見ている間も、
+ * アプリが前面にある間は同じ接続で新着の取得を続ける。接続は部屋ごとに 1 つで、別の部屋に入ったら前の部屋から退室して接続を止める。
  */
 class ActiveRooms(
     private val persistence: ActiveRoomPersistence? = null,
@@ -34,16 +47,38 @@ class ActiveRooms(
     /** 起動時などに「会話に戻る」を出す対象。 */
     val resumable: StateFlow<ResumableRoom?> = _resumable.asStateFlow()
 
-    private val _dismissed = MutableStateFlow<String?>(null)
+    private val connections = ConcurrentHashMap<String, RoomConnection>()
+    @Volatile private var foreground = true
 
-    /** 「会話に戻る」を閉じた部屋の一時 ID。プロセスの間だけ持ち、保存はしない。 */
-    val dismissed: StateFlow<String?> = _dismissed.asStateFlow()
+    private val _collapsed = MutableStateFlow<String?>(null)
 
-    fun dismiss(id: String) {
-        _dismissed.value = id
+    /** 「会話に戻る」の帯を小さくした部屋の一時 ID。帯は消さず、小さな形で入口を残す。プロセスの間だけ持つ。 */
+    val collapsed: StateFlow<String?> = _collapsed.asStateFlow()
+
+    fun collapse(id: String) {
+        _collapsed.value = id
+    }
+
+    /** [id] の部屋の接続。まだ無ければ [create] で作る。同じ部屋には同じ接続を返すので、取得が 2 本にならない。 */
+    @Suppress("UNCHECKED_CAST")
+    fun <T : RoomConnection> connection(id: String, create: (ChatRoomRef) -> T): T? {
+        val room = get(id) ?: return null
+        return connections.computeIfAbsent(id) { create(room).also { it.setForeground(foreground) } } as T
+    }
+
+    /** すでにある接続だけを返す（帯に新着の数を出すときなど、接続を作りたくない場合）。 */
+    fun existingConnection(id: String): RoomConnection? = connections[id]
+
+    /** アプリが前面・背景に移った。すべての接続へ伝える。 */
+    fun setForeground(value: Boolean) {
+        foreground = value
+        connections.values.forEach { it.setForeground(value) }
     }
 
     fun register(room: ChatRoomRef): String {
+        // 入室できる部屋は 1 つ。一覧から別の部屋に入ったら、前の部屋は退室（作成者は閉じる）して接続を止める。
+        connections.keys.toList().forEach { id -> connections.remove(id)?.leaveAndClose() }
+        _collapsed.value = null
         val id = UUID.randomUUID().toString()
         rooms[id] = room
         val saved = ResumableRoom(id, room, now())
@@ -69,7 +104,12 @@ class ActiveRooms(
     /** 退室した。 */
     fun remove(id: String) {
         rooms.remove(id)
+        closeConnection(id)
         forget(id)
+    }
+
+    private fun closeConnection(id: String) {
+        connections.remove(id)?.close()
     }
 
     private fun forget(id: String) {
