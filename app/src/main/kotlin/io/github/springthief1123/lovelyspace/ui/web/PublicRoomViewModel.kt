@@ -13,7 +13,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 data class PublicRoomUiState(
-    val opened: Boolean = false, val loading: Boolean = false, val automatic: Boolean = true,
+    val opened: Boolean = false, val loading: Boolean = false,
+    /** 閲覧中は常に true。部屋が閉じられたら false にして自動の読み直しを止める。 */
+    val automatic: Boolean = true,
     val lines: List<UiLine> = emptyList(), val information: String = "", val error: String? = null,
 )
 
@@ -23,7 +25,6 @@ class PublicRoomViewModel(private val fetch: suspend () -> PublicRoomPage) : Vie
     private val mutex = Mutex()
     private var nextId = 0L
     private var refreshJob: Job? = null
-    fun automatic(value: Boolean) = _state.update { it.copy(automatic = value) }
     fun refresh() { if (!_state.value.loading && refreshJob?.isActive != true) refreshJob = viewModelScope.launch { read() } }
     fun stopRefresh() { refreshJob?.cancel() }
     suspend fun monitor() {
@@ -42,7 +43,8 @@ class PublicRoomViewModel(private val fetch: suspend () -> PublicRoomPage) : Vie
             val lines = page.lines.asReversed().map { line ->
                 existing[line]?.removeFirstOrNull() ?: UiLine(nextId++, line, false)
             }.asReversed()
-            _state.update { it.copy(opened = true, lines = lines, information = page.information, error = null) }
+            // 閉じられた後に「再読み込み」で読めたら、自動の読み直しへ戻す。
+            _state.update { it.copy(opened = true, automatic = true, lines = lines, information = page.information, error = null) }
         } catch (e: CancellationException) { throw e }
         catch (e: PublicRoomUnavailableException) {
             _state.update { it.copy(lines = emptyList(), opened = false, automatic = false, error = e.message) }

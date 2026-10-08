@@ -6,8 +6,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -29,20 +27,9 @@ fun PublicRoomScreen(host: String, genreKey: String, roomId: Long, onBack: () ->
     ForegroundPolling(state.automatic, vm, vm::stopRefresh) { vm.monitor() }
     Scaffold(topBar = { QuietTopBar("公開ルーム", onBack) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
-            Text("閲覧のみ（発言・入室はしません）", style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp))
-            // スイッチは画面を開いている間の自動の読み込み。オフなら「更新」を押したときだけ読み直す。
-            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Column(Modifier.weight(1f)) {
-                    Text("自動で新着を読み込む", style = MaterialTheme.typography.labelLarge)
-                    Text(if (state.automatic) "開いている間、20 秒ごとに読み直します" else "「更新」を押したときだけ読み直します",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                // 初回の読み込み中にオフにした場合も、手動で読めるようにする。
-                if (!state.automatic) TextButton(onClick = vm::refresh, enabled = !state.loading) { Text("更新") }
-                Switch(state.automatic, vm::automatic, modifier = Modifier.semantics { contentDescription = "自動で新着を読み込む" })
-            }
+            // 閲覧中は常に自動で読み直す。閉じられた部屋（非公開への変更など）では止まり、「再読み込み」だけを出す。
+            Text("閲覧のみ（発言・入室はしません）。開いている間、新着を自動で読み込みます", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
             state.error?.let { message ->
                 Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
                     Text(message, color = MaterialTheme.colorScheme.error)

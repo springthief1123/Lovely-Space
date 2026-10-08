@@ -28,9 +28,12 @@ class PublicRoomViewModelTest {
             assertFalse(vm.state.value.automatic)
             assertFalse(vm.state.value.opened)
             assertNotNull(vm.state.value.error)
+            unavailable = false; vm.refresh(); runCurrent()
+            assertTrue(vm.state.value.automatic)
+            assertTrue(vm.state.value.opened)
         } finally { Dispatchers.resetMain() }
     }
-    @Test fun leavingWithAutomaticOffCancelsManualPublicRead() = runTest {
+    @Test fun leavingCancelsManualPublicRead() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {
             var requests = 0
@@ -39,11 +42,10 @@ class PublicRoomViewModelTest {
                 requests++
                 try { awaitCancellation() } finally { cancelled = true }
             }
-            vm.automatic(false); vm.refresh(); runCurrent()
+            vm.refresh(); runCurrent()
             vm.stopRefresh(); runCurrent(); advanceTimeBy(60_000); runCurrent()
             assertTrue(cancelled)
             assertFalse(vm.state.value.loading)
-            assertFalse(vm.state.value.automatic)
             assertEquals(1, requests)
         } finally { Dispatchers.resetMain() }
     }
