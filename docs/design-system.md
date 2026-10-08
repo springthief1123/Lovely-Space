@@ -38,7 +38,7 @@
 | `surface` / `surfaceContainer` / `surfaceContainerLow` | カード、`DropdownMenu`（Container）、検索パネル・`RoomActionMenu`・`ModalBottomSheet`（Low） | `#FFFDFB` | `#242229` | Low がライト `#F7F2FA`（薄紫）、ダーク `#1D1B20` |
 | `surfaceContainerHigh` | `AlertDialog`、強調した面 | `#F4E7EB` | `#302B34` | 指定済み・変更なし |
 | `surfaceContainerHighest` | `Switch` のオフの軌道、塗りの入力欄 | `#EFE3E7` | `#38323C` | `#E6E0E9` / `#36343B` |
-| `surfaceContainerLowest` / `surfaceDim` / `surfaceBright` | 現状直接は未使用。将来の標準部品用 | `#FFFFFF` / `#EDE6E4` / `#FFFDFB` | `#131217` / `#141318` / `#36313A` | 紫系の既定値 |
+| `surfaceContainerLowest` / `surfaceDim` / `surfaceBright` | 現状直接は未使用。将来の標準部品用 | `#FFFEFD` / `#EDE6E4` / `#FFFDFB` | `#131217` / `#141318` / `#36313A` | 紫系の既定値 |
 | `inverseSurface` / `inverseOnSurface` / `inversePrimary` | `Snackbar`（「元に戻す」などの操作文字は `inversePrimary`） | `#3A3439` / `#F5EFF2` / `#EFABC1` | `#F5EFF2` / `#302C31` / `#994B64` | 操作文字がライト `#D0BCFF`（薄紫） |
 | `error` / `onError` / `errorContainer` / `onErrorContainer` | 破壊的操作、エラー表示 | `#B3261E` / 白 / `#F9DEDC` / `#410E0B` | `#F2B8B5` / `#601410` / `#8C1D18` / `#F9DEDC` | **表示は変えず**、ライブラリ更新で変わらないよう固定 |
 | `onSecondary`、`tertiary` 系、`scrim` | 現状直接は未使用 | Quiet Rose の温かい中間色で明示 | 同左 | 紫系の既定値 |

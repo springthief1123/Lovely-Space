@@ -43,7 +43,7 @@ internal val LightColors = lightColorScheme(
     inverseOnSurface = Color(0xFFF5EFF2),
     // 検索パネル・部屋のメニュー・ボトムシートは Low、標準メニューは Container を使う。
     // どちらも通常のカードと同じ不透明な面にそろえる（以前は Low が既定の薄紫 #F7F2FA だった）。
-    surfaceContainerLowest = Color(0xFFFFFFFF),
+    surfaceContainerLowest = Color(0xFFFFFEFD),
     surfaceContainerLow = Color(0xFFFFFDFB),
     surfaceContainer = Color(0xFFFFFDFB),
     surfaceContainerHigh = Color(0xFFF4E7EB),
