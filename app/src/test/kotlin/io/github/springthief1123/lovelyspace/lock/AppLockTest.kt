@@ -12,6 +12,9 @@ class AppLockTest {
     private class MemoryStore : AppLockPersistence {
         var config = AppLockConfig()
         var saltAndHash: Pair<String, String>? = null
+        var attempts = 0 to 0L
+        override fun attempts() = attempts
+        override fun saveAttempts(failures: Int, lockedOutUntil: Long) { attempts = failures to lockedOutUntil }
         override fun load() = config
         override fun secret() = saltAndHash
         override fun save(config: AppLockConfig, salt: String?, hash: String?) {
@@ -42,14 +45,14 @@ class AppLockTest {
     @Test fun controllerLocksAtStartAndAfterBackground() {
         var now = 0L
         val store = MemoryStore()
-        val first = AppLockController(store) { now }
+        val first = AppLockController(store, { now }, { now })
         assertFalse(first.state.value.locked)
         first.enable(LockMethod.PASSCODE, "2468")
         first.setDelay(LockDelay.MINUTES_5)
         assertEquals(4, store.config.passcodeLength)
 
         // 起動し直したらロックから始まる。
-        val controller = AppLockController(store) { now }
+        val controller = AppLockController(store, { now }, { now })
         assertTrue(controller.state.value.locked)
         assertFalse(controller.unlock("1111"))
         assertTrue(controller.unlock("2468"))
@@ -63,7 +66,7 @@ class AppLockTest {
 
     @Test fun immediateDelayLocksAsSoonAsTheAppLeaves() {
         val store = MemoryStore()
-        val controller = AppLockController(store) { 0 }
+        val controller = AppLockController(store, { 0 }, { 0 })
         controller.enable(LockMethod.PATTERN, patternSecret(listOf(0, 1, 2, 5)))
         controller.onBackground()
         assertTrue(controller.state.value.locked)
@@ -72,7 +75,7 @@ class AppLockTest {
 
     @Test fun repeatedFailuresWaitBeforeTheNextTry() {
         var now = 0L
-        val controller = AppLockController(MemoryStore()) { now }
+        val controller = AppLockController(MemoryStore(), { now }, { now })
         controller.enable(LockMethod.PASSCODE, "2468")
         controller.onBackground()
         repeat(AppLockController.MAX_FAILURES) { assertFalse(controller.unlock("0000")) }
@@ -81,9 +84,37 @@ class AppLockTest {
         assertTrue(controller.unlock("2468"))
     }
 
+    @Test fun lockoutSurvivesARestart() {
+        var now = 0L
+        val store = MemoryStore()
+        AppLockController(store, { now }, { now }).apply {
+            enable(LockMethod.PASSCODE, "2468")
+            repeat(AppLockController.MAX_FAILURES) { unlock("0000") }
+        }
+        // アプリを終了させて開き直しても、待ち時間は残る。
+        val restarted = AppLockController(store, { now }, { now })
+        assertFalse(restarted.unlock("2468"))
+        now += AppLockController.LOCKOUT_MILLIS
+        assertTrue(restarted.unlock("2468"))
+    }
+
+    @Test fun backgroundTimeUsesTheMonotonicClock() {
+        var wall = 1_000_000L
+        var elapsed = 0L
+        val controller = AppLockController(MemoryStore(), { wall }, { elapsed })
+        controller.enable(LockMethod.PASSCODE, "2468")
+        controller.setDelay(LockDelay.MINUTES_5)
+        controller.onBackground()
+        // 端末の時計を戻しても、実際に5分たてばロックする。
+        wall -= 60 * 60_000L
+        elapsed += 5 * 60_000L
+        controller.onForeground()
+        assertTrue(controller.state.value.locked)
+    }
+
     @Test fun disablingRemovesTheSecret() {
         val store = MemoryStore()
-        val controller = AppLockController(store) { 0 }
+        val controller = AppLockController(store, { 0 }, { 0 })
         controller.enable(LockMethod.PASSCODE, "2468")
         controller.setBiometric(true)
         controller.disable()
@@ -94,7 +125,7 @@ class AppLockTest {
     }
 
     @Test fun biometricUnlocksOnlyWhenTurnedOn() {
-        val controller = AppLockController(MemoryStore()) { 0 }
+        val controller = AppLockController(MemoryStore(), { 0 }, { 0 })
         controller.enable(LockMethod.PASSCODE, "2468")
         controller.onBackground()
         controller.unlockWithBiometric()

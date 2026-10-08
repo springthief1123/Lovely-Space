@@ -1,6 +1,7 @@
 package io.github.springthief1123.lovelyspace.lock
 
 import android.content.SharedPreferences
+import android.os.SystemClock
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
@@ -10,6 +11,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.updateAndGet
 
 /** ロックを解く方法。生体認証は、これに加えて使うかどうかを選ぶ（使えないときはこちらに戻れる）。 */
 enum class LockMethod(val label: String) {
@@ -74,6 +76,9 @@ interface AppLockPersistence {
     fun load(): AppLockConfig
     fun secret(): Pair<String, String>?
     fun save(config: AppLockConfig, salt: String?, hash: String?)
+    /** 続けて間違えた回数と、次に入力できる時刻。アプリを終了させても待ち時間を飛ばせないよう保存する。 */
+    fun attempts(): Pair<Int, Long>
+    fun saveAttempts(failures: Int, lockedOutUntil: Long)
 }
 
 class AppLockStore(private val prefs: SharedPreferences) : AppLockPersistence {
@@ -102,8 +107,16 @@ class AppLockStore(private val prefs: SharedPreferences) : AppLockPersistence {
         }.commit()
     }
 
+    override fun attempts(): Pair<Int, Long> = prefs.getInt(KEY_FAILURES, 0) to prefs.getLong(KEY_LOCKED_OUT_UNTIL, 0)
+
+    override fun saveAttempts(failures: Int, lockedOutUntil: Long) {
+        prefs.edit().putInt(KEY_FAILURES, failures).putLong(KEY_LOCKED_OUT_UNTIL, lockedOutUntil).commit()
+    }
+
     companion object {
         const val PREFS = "app_lock"
+        private const val KEY_FAILURES = "failures"
+        private const val KEY_LOCKED_OUT_UNTIL = "locked_out_until"
         private const val KEY_METHOD = "method"
         private const val KEY_LENGTH = "passcode_length"
         private const val KEY_BIOMETRIC = "biometric"
@@ -128,13 +141,20 @@ data class AppLockState(
 class AppLockController(
     private val store: AppLockPersistence,
     private val clock: () -> Long = System::currentTimeMillis,
+    // 背景にいた時間は、端末の時計を変えても狂わないよう起動からの経過時間で測る。
+    private val elapsed: () -> Long = SystemClock::elapsedRealtime,
 ) {
-    private val _state = MutableStateFlow(store.load().let { AppLockState(config = it, locked = it.enabled) })
+    private val _state = MutableStateFlow(store.load().let { config ->
+        val (failures, until) = store.attempts()
+        // 端末の時計を戻して待ち時間を延ばしてしまったときも、最長で決めた待ち時間に収める。
+        AppLockState(config = config, locked = config.enabled, failures = failures,
+            lockedOutUntil = until.coerceAtMost(clock() + LOCKOUT_MILLIS))
+    })
     val state: StateFlow<AppLockState> = _state.asStateFlow()
     private var backgroundAt: Long? = null
 
     fun onBackground() {
-        backgroundAt = clock()
+        backgroundAt = elapsed()
         val config = _state.value.config
         // 「すぐ」なら背景に回った時点でロックし、戻ったときに中身が一瞬見えないようにする。
         if (config.enabled && config.delay == LockDelay.IMMEDIATE) _state.update { it.copy(locked = true) }
@@ -142,7 +162,7 @@ class AppLockController(
 
     fun onForeground() {
         val config = _state.value.config
-        if (config.enabled && shouldLock(backgroundAt, clock(), config.delay)) _state.update { it.copy(locked = true) }
+        if (config.enabled && shouldLock(backgroundAt, elapsed(), config.delay)) _state.update { it.copy(locked = true) }
         backgroundAt = null
     }
 
@@ -153,19 +173,23 @@ class AppLockController(
         val (salt, hash) = store.secret() ?: return false
         if (LockSecret.matches(secret, salt, hash)) {
             _state.update { it.copy(locked = false, failures = 0, lockedOutUntil = 0) }
+            store.saveAttempts(0, 0)
             return true
         }
-        _state.update {
+        val next = _state.updateAndGet {
             val failures = it.failures + 1
             if (failures >= MAX_FAILURES) it.copy(failures = 0, lockedOutUntil = now + LOCKOUT_MILLIS)
             else it.copy(failures = failures)
         }
+        store.saveAttempts(next.failures, next.lockedOutUntil)
         return false
     }
 
     /** 生体認証が通ったとき。 */
     fun unlockWithBiometric() {
-        if (_state.value.config.biometric) _state.update { it.copy(locked = false, failures = 0, lockedOutUntil = 0) }
+        if (!_state.value.config.biometric) return
+        _state.update { it.copy(locked = false, failures = 0, lockedOutUntil = 0) }
+        store.saveAttempts(0, 0)
     }
 
     /** ロックを有効にする、または解除の方法を変える。[secret] はパスコードの数字かパターンの文字列。 */
@@ -179,6 +203,7 @@ class AppLockController(
     fun disable() {
         val config = _state.value.config.copy(method = null, passcodeLength = 0, biometric = false)
         store.save(config, null, null)
+        store.saveAttempts(0, 0)
         _state.update { it.copy(config = config, locked = false, failures = 0, lockedOutUntil = 0) }
     }
 
