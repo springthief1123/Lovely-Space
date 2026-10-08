@@ -100,9 +100,9 @@ class ActiveRoomsTest {
     }
 
     private class FakeConnection : RoomConnection {
-        var foreground = true
+        var running = true
         var closed = false
-        override fun setForeground(value: Boolean) { foreground = value }
+        override fun setForeground(value: Boolean) { running = value }
         override fun close() { closed = true }
     }
 
@@ -118,9 +118,9 @@ class ActiveRoomsTest {
         assertSame(first, rooms.existingConnection(id))
         // 背景に回ったら止め、前面に戻ったら再開を伝える。
         rooms.setForeground(false)
-        assertFalse(first.foreground)
+        assertFalse(first.running)
         rooms.setForeground(true)
-        assertTrue(first.foreground)
+        assertTrue(first.running)
         // 退室で接続を止めて外す。
         rooms.remove(id)
         assertTrue(first.closed)
@@ -137,7 +137,7 @@ class ActiveRoomsTest {
         // 背景にいる間に作った接続は、止めた状態から始める。
         rooms.setForeground(false)
         val next = rooms.connection(nextId) { FakeConnection() }!!
-        assertFalse(next.foreground)
+        assertFalse(next.running)
         assertFalse(next.closed)
     }
 
