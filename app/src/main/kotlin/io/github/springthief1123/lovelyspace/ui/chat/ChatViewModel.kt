@@ -260,8 +260,8 @@ class ChatViewModel(
 
     private fun uiLine(line: ChatLine, me: MySpeaker) = UiLine(nextId++, line, isMine = me.isMine(line))
 
-    /** 開き直したページの名前に、これまでに覚えたログでの名前を加える。 */
-    private fun ChatPage.me(known: MySpeaker) = MySpeaker(MySpeaker.of(myName).names + known.names)
+    /** 開き直したページの名前と、これまでに覚えたログでの名前。 */
+    private fun ChatPage.me(known: MySpeaker) = known.withFormName(myName)
 
     fun setInput(text: String) = _state.update { it.copy(input = text) }
     fun restoreFailedMessage() = _state.update { it.restoreFailedMessage() }

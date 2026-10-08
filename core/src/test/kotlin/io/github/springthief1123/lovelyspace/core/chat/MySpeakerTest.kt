@@ -25,6 +25,16 @@ class MySpeakerTest {
         assertFalse(me.isMine(line("ハナコ", "次の発言")))
     }
 
+    @Test fun afterLearningTheFormNameAloneNoLongerCounts() {
+        // 自分はトリップ付き、相手はトリップなしの同じ名前。覚えた後は相手を自分と見なさない。
+        val me = MySpeaker.of("タロウ").learnFromSent("こんばんは", listOf(line("タロウ◆合成", "こんばんは")))
+        assertTrue(me.isMine(line("タロウ◆合成", "次の発言")))
+        assertFalse(me.isMine(line("タロウ", "相手の発言")))
+        // 開き直しても覚えた名前を引き継ぐ。
+        assertFalse(me.withFormName("タロウ").isMine(line("タロウ", "相手の発言")))
+        assertTrue(me.withFormName("タロウ").isMine(line("タロウ◆合成", "次の発言")))
+    }
+
     @Test fun doesNotLearnFromNoticesOrUnrelatedLines() {
         val me = MySpeaker.of(null).learnFromSent("こんばんは",
             listOf(line(null, "こんばんは"), line("ハナコ", "よろしく")))
