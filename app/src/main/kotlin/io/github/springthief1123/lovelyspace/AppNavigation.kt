@@ -18,6 +18,7 @@ internal object Routes {
     const val SETTINGS_ROOMS = "settings/rooms"
     const val SETTINGS_HIDDEN = "settings/hidden"
     const val SETTINGS_NOTIFICATIONS = "settings/notifications"
+    const val SETTINGS_LOCK = "settings/lock"
     const val ENTRY = "entry/{host}/{genre}/{roomId}?origin={origin}"
     /** pwdはrouteに載せず、ActiveRoomsの一時IDだけを渡す。 */
     const val CHAT = "chat/{session}?origin={origin}"

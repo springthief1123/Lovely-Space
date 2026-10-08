@@ -162,6 +162,7 @@ fun AppNavHost() {
                     onOpenRoomList = { nav.navigate(Routes.SETTINGS_ROOMS) { launchSingleTop = true } },
                     onOpenHiddenRooms = { nav.navigate(Routes.SETTINGS_HIDDEN) { launchSingleTop = true } },
                     onOpenNotifications = { nav.navigate(Routes.SETTINGS_NOTIFICATIONS) { launchSingleTop = true } },
+                    onOpenLock = { nav.navigate(Routes.SETTINGS_LOCK) { launchSingleTop = true } },
                     onBack = { nav.popBackStack() },
                 )
             }
@@ -173,6 +174,9 @@ fun AppNavHost() {
             }
             composable(Routes.SETTINGS_HIDDEN) {
                 HiddenRoomsScreen(onBack = { nav.popBackStack() })
+            }
+            composable(Routes.SETTINGS_LOCK) {
+                io.github.springthief1123.lovelyspace.lock.AppLockSettingsScreen(onBack = { nav.popBackStack() })
             }
             composable(Routes.SETTINGS_NOTIFICATIONS) {
                 NotificationSettingsScreen(onBack = { nav.popBackStack() })

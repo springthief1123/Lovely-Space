@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.automirrored.outlined.ViewList
@@ -41,6 +42,7 @@ fun SettingsScreen(
     onOpenRoomList: () -> Unit,
     onOpenHiddenRooms: () -> Unit,
     onOpenNotifications: () -> Unit,
+    onOpenLock: () -> Unit,
     onBack: () -> Unit,
 ) {
     val bottomContentPadding = 18.dp +
@@ -59,7 +61,7 @@ fun SettingsScreen(
         ) {
             item {
                 Text(
-                    "アプリの表示・部屋一覧・通知の設定を、用途ごとに整理しています。",
+                    "アプリの表示・部屋一覧・通知・ロックの設定を、用途ごとに整理しています。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 4.dp, end = 4.dp, bottom = 6.dp),
@@ -95,6 +97,14 @@ fun SettingsScreen(
                     title = "通知",
                     description = "端末通知の許可、ロック画面での表示、テスト通知",
                     onClick = onOpenNotifications,
+                )
+            }
+            item {
+                SettingsCategoryCard(
+                    icon = Icons.Outlined.Lock,
+                    title = "アプリロック",
+                    description = "パスコード・パターン・生体認証、ロックまでの時間",
+                    onClick = onOpenLock,
                 )
             }
         }
