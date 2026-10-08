@@ -158,4 +158,27 @@ class WaitlistRepositoryTest {
         waitlist.register(other)
         assertEquals(1, waitlist.entries.value.first { it.key == roomIdentity(other) }.query.page)
     }
+
+    @Test fun aRoomThatMovedToAnEarlierPageIsFoundByLookingAroundWhereItWasSeen() = runTest {
+        val lists = Lists().apply { lastPage = 18; pages = mapOf(14 to listOf(full)) }
+        val waitlist = WaitlistRepository(Memory(), lists, {}, backgroundScope) { 0L }
+        waitlist.register(full, RoomQuery(zenkoku, page = 14))
+        waitlist.check(1)
+        assertEquals(14, waitlist.entries.value.single().anchorPage)
+        // 前の部屋が閉じて 13 ページ目へずれた。
+        lists.pages = mapOf(13 to listOf(full))
+        waitlist.check(1)
+        waitlist.check(1)
+        assertEquals(listOf(14, 14, 13), lists.calls.map { it.page })
+        assertEquals(13, waitlist.entries.value.single().anchorPage)
+        assertEquals(0, waitlist.entries.value.single().missed)
+    }
+
+    @Test fun searchPagesSpreadOutFromTheAnchorAndCoverEveryPage() {
+        assertEquals(listOf(5, 4, 6, 3, 7, 2, 1, 5), (0..7).map { searchPage(5, it, 7) })
+        assertEquals(listOf(1, 2, 3, 1), (0..3).map { searchPage(1, it, 3) })
+        // ページ数が減って記録したページが範囲外になっても、範囲内から探す。
+        assertEquals(2, searchPage(9, 0, 2))
+        assertEquals(1, searchPage(3, 5, 1))
+    }
 }

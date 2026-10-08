@@ -63,20 +63,22 @@ class RadarSyncWorker(context: Context, params: WorkerParameters) : CoroutineWor
         val app = applicationContext as LovelySpaceApp
         val radar = app.radar
         val state = withTimeoutOrNull(LOAD_TIMEOUT_MS) { radar.state.first { it.loaded || it.error != null } }
-        if (state == null || !state.loaded) return Result.retry()
         return try {
-            // 前面で巡回中なら、同じページを二重に取らないよう今回の巡回は見送る。計画がすべて止まっていれば取得しない。
-            if (state.activeBackgroundPlans.isNotEmpty() && !state.running) {
-                radar.scan(latestFirst = true, force = false, maxPages = MAX_PAGES, backgroundOnly = true)
+            // レーダーを読み込めなかったときも、順番待ちの確認は続ける（順番待ちはレーダーとは別に保存している）。
+            if (state != null && state.loaded) {
+                // 前面で巡回中なら、同じページを二重に取らないよう今回の巡回は見送る。計画がすべて止まっていれば取得しない。
+                if (state.activeBackgroundPlans.isNotEmpty() && !state.running) {
+                    radar.scan(latestFirst = true, force = false, maxPages = MAX_PAGES, backgroundOnly = true)
+                }
+                // 一致は履歴に「未通知」として保存されている。前回の実行が通知の途中で止まった分もここで出す
+                // （同じ ID の通知・お知らせは置き換わるので、二重には並ばない）。
+                val pending = radar.pendingNotices()
+                pending.forEach { event -> event.toMatchNotification()?.let { app.notifier.post(it) } }
+                radar.markNoticed(pending.map { it.id }.toSet())
             }
-            // 一致は履歴に「未通知」として保存されている。前回の実行が通知の途中で止まった分もここで出す
-            // （同じ ID の通知・お知らせは置き換わるので、二重には並ばない）。
-            val pending = radar.pendingNotices()
-            pending.forEach { event -> event.toMatchNotification()?.let { app.notifier.post(it) } }
-            radar.markNoticed(pending.map { it.id }.toSet())
             // 順番待ちは待っている部屋のページだけを取得する。空きの通知は WaitlistRepository が出す。
             app.waitlist.check(WaitlistRepository.MAX_PAGES)
-            Result.success()
+            if (state == null) Result.retry() else Result.success()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

@@ -40,6 +40,8 @@ data class WaitlistEntry(
     val changedAt: Long? = null,
     /** 空きを通知し終えたか。通知の途中で止まっても、次の確認で出し直す。 */
     val noticed: Boolean = false,
+    /** 最後にその部屋が見えたページ。見つからないときはここから前後へ広げて探す。 */
+    val anchorPage: Int = query.page,
 ) {
     val key: String get() = roomIdentity(room)
     fun active(now: Long): Boolean = status == WaitlistStatus.WATCHING && now < expiresAt
@@ -142,18 +144,20 @@ class WaitlistRepository(
                 if (!entry.active(at) || entry.room.genreKey != o.query.genre.key) return@map entry
                 val observed = o.page.rooms.firstOrNull { roomIdentity(it) == entry.key }
                 if (observed == null) {
-                    // 記録したページに無いだけでは閉鎖と判断せず、次は次のページ（最後なら 1 ページ目）を確認する。
+                    // 記録したページに無いだけでは閉鎖と判断しない。一覧の増減で前後へずれることがあるので、
+                    // 最後に見えたページから前後へ交互に広げて探す（全ページを回ったら最初から）。
                     if (o.query != entry.query) return@map entry
                     changed = true
-                    return@map entry.copy(query = entry.query.copy(page = if (o.page.hasNextPage) o.page.page + 1 else 1), missed = entry.missed + 1)
+                    val missed = entry.missed + 1
+                    return@map entry.copy(query = entry.query.copy(page = searchPage(entry.anchorPage, missed, o.page.lastPage)), missed = missed)
                 }
                 changed = true
                 when {
                     roomIdentityEvidence(entry.room, observed) == RoomIdentityEvidence.REUSED ->
-                        entry.copy(status = WaitlistStatus.STOPPED, changedAt = o.confirmedAt, lastSeenAt = o.confirmedAt, query = o.query, missed = 0)
-                    observed.status == RoomStatus.FULL -> entry.copy(lastSeenAt = o.confirmedAt, query = o.query, missed = 0)
+                        entry.copy(status = WaitlistStatus.STOPPED, changedAt = o.confirmedAt, lastSeenAt = o.confirmedAt, query = o.query, missed = 0, anchorPage = o.query.page)
+                    observed.status == RoomStatus.FULL -> entry.copy(lastSeenAt = o.confirmedAt, query = o.query, missed = 0, anchorPage = o.query.page)
                     else -> entry.copy(status = WaitlistStatus.OPENED, openedRoom = observed, changedAt = o.confirmedAt,
-                        lastSeenAt = o.confirmedAt, query = o.query, missed = 0).also { opened += it }
+                        lastSeenAt = o.confirmedAt, query = o.query, missed = 0, anchorPage = o.query.page).also { opened += it }
                 }
             }
             if (changed) save(next)
@@ -187,6 +191,23 @@ class WaitlistRepository(
     }
 }
 
+/**
+ * 見つからなかった [missed] 回目に確認するページ。[anchor] から 1 つ前・1 つ後・2 つ前…と交互に広げ、
+ * 1〜[lastPage] の外は飛ばす。全ページを回ったら [anchor] からやり直す。
+ */
+internal fun searchPage(anchor: Int, missed: Int, lastPage: Int): Int {
+    val last = maxOf(lastPage, 1)
+    val start = anchor.coerceIn(1, last)
+    val order = buildList {
+        add(start)
+        for (d in 1 until last) {
+            if (start - d >= 1) add(start - d)
+            if (start + d <= last) add(start + d)
+        }
+    }
+    return order[missed.mod(order.size)]
+}
+
 /** 順番待ちを SharedPreferences に JSON で残す。読めない記録は捨てる。 */
 class WaitlistStore(private val prefs: android.content.SharedPreferences) : WaitlistPersistence {
     override fun load(): List<WaitlistEntry> {
@@ -208,14 +229,15 @@ class WaitlistStore(private val prefs: android.content.SharedPreferences) : Wait
         .put("room", waitlistRoomJson(e.room)).put("query", radarQueryJson(e.query))
         .put("registeredAt", e.registeredAt).put("expiresAt", e.expiresAt).put("status", e.status.name)
         .put("lastSeenAt", e.lastSeenAt).put("missed", e.missed).put("changedAt", e.changedAt)
-        .put("openedRoom", e.openedRoom?.let(::waitlistRoomJson)).put("noticed", e.noticed)
+        .put("openedRoom", e.openedRoom?.let(::waitlistRoomJson)).put("noticed", e.noticed).put("anchorPage", e.anchorPage)
 
     private fun decode(o: JSONObject): WaitlistEntry {
         val room = readWaitlistRoom(o.getJSONObject("room"))
         fun long(key: String) = if (o.isNull(key)) null else o.getLong(key)
+        val query = readRadarQuery(o.optJSONObject("query")) ?: RoomQuery(requireNotNull(Genres[room.genreKey]))
         return WaitlistEntry(
             room = room,
-            query = readRadarQuery(o.optJSONObject("query")) ?: RoomQuery(requireNotNull(Genres[room.genreKey])),
+            query = query,
             registeredAt = o.getLong("registeredAt"),
             expiresAt = o.getLong("expiresAt"),
             status = WaitlistStatus.valueOf(o.getString("status")),
@@ -224,6 +246,7 @@ class WaitlistStore(private val prefs: android.content.SharedPreferences) : Wait
             openedRoom = o.optJSONObject("openedRoom")?.let(::readWaitlistRoom),
             changedAt = long("changedAt"),
             noticed = o.optBoolean("noticed"),
+            anchorPage = o.optInt("anchorPage", query.page),
         )
     }
 

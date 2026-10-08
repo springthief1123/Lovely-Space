@@ -38,10 +38,12 @@ class LovelySpaceApp : Application() {
         // どちらも無くなれば解除する。順番待ちがあるときは最短の 15 分ごとに確認する。
         appScope.launch {
             combine(radar.state, waitlist.entries) { state, _ ->
-                if (!state.loaded) return@combine null
+                // レーダーの読み込み中は判断を待つ。読み込めなかったときは、レーダーの計画は無いものとして順番待ちだけで決める。
+                if (!state.loaded && state.error == null) return@combine null
+                val plans = state.loaded && state.activeBackgroundPlans.isNotEmpty()
                 val waiting = waitlist.hasPendingWork()
-                (state.activeBackgroundPlans.isNotEmpty() || waiting) to
-                    if (waiting) BackgroundSync.INTERVAL_MINUTES else state.backgroundIntervalMinutes.toLong()
+                (plans || waiting) to
+                    if (waiting || !state.loaded) BackgroundSync.INTERVAL_MINUTES else state.backgroundIntervalMinutes.toLong()
             }.filterNotNull()
                 .distinctUntilChanged()
                 .collect { (enabled, minutes) -> BackgroundSync.update(this@LovelySpaceApp, enabled, minutes) }
