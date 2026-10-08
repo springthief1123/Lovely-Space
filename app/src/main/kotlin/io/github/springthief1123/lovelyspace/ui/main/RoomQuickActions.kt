@@ -1,13 +1,12 @@
 package io.github.springthief1123.lovelyspace.ui.main
 
+import io.github.springthief1123.lovelyspace.ui.components.QuietDialog
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.NotificationAdd
 import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.material.icons.outlined.TrackChanges
 import androidx.compose.runtime.Composable
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,18 +54,18 @@ internal fun rememberRoomQuickActions(
     }
 
     confirmUntrack?.let { room ->
-        AlertDialog(
+        QuietDialog(
+            title = "追跡を解除しますか？",
             onDismissRequest = { confirmUntrack = null },
-            title = { Text("追跡を解除しますか？") },
-            text = { Text("追跡と自分用メモを削除します。変化の履歴は残ります。") },
-            confirmButton = {
-                TextButton(enabled = radar.loaded, onClick = {
-                    confirmUntrack = null
-                    save("追跡設定を保存できませんでした。") { app.radar.removeTarget(room); "追跡を解除しました" }
-                }) { Text("追跡を解除") }
+            confirmLabel = "追跡を解除",
+            confirmEnabled = radar.loaded,
+            destructive = true,
+            dismissLabel = "戻る",
+            onConfirm = {
+                confirmUntrack = null
+                save("追跡設定を保存できませんでした。") { app.radar.removeTarget(room); "追跡を解除しました" }
             },
-            dismissButton = { TextButton(onClick = { confirmUntrack = null }) { Text("戻る") } },
-        )
+        ) { Text("追跡と自分用メモを削除します。変化の履歴は残ります。") }
     }
 
     return { room, sourceQuery ->

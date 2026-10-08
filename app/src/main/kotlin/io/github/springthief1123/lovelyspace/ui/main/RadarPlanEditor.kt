@@ -1,5 +1,7 @@
 package io.github.springthief1123.lovelyspace.ui.main
 
+import io.github.springthief1123.lovelyspace.ui.components.QuietSheetHeader
+import io.github.springthief1123.lovelyspace.ui.components.QuietSheet
 import io.github.springthief1123.lovelyspace.ui.components.QuietCheckboxRow
 import io.github.springthief1123.lovelyspace.ui.components.QuietFilterChip
 import androidx.compose.foundation.layout.*
@@ -33,11 +35,10 @@ internal fun RadarPlanEditor(value: SearchPreset, working: Boolean, error: Strin
         (maxAge.isBlank() || (maxAge.toIntOrNull() ?: 0) in 18..99) &&
         (minAge.isBlank() || maxAge.isBlank() || minAge.toInt() <= maxAge.toInt())
     fun criteria(next: RoomSearchCriteria) { draft = preset.copy(criteria = next) }
-    ModalBottomSheet(onDismissRequest = { if (!working) onDismiss() }) {
-        Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(LovelySpacing.screenHorizontal),
+    QuietSheet(onDismissRequest = { if (!working) onDismiss() }) {
+        Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = LovelySpacing.screenHorizontal).padding(top = 8.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("巡回計画を編集", style = MaterialTheme.typography.titleLarge)
-            Text("保存した検索条件も更新します。条件を変更すると、次の巡回は1ページ目から比較の基準を作ります。", style = MaterialTheme.typography.bodySmall)
+            QuietSheetHeader("巡回計画を編集", "保存した検索条件も更新します。条件を変更すると、次の巡回は1ページ目から比較の基準を作ります。")
             OutlinedTextField(preset.label, { draft = preset.copy(label = it) }, enabled = !working,
                 label = { Text("計画名") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             RadarDropdown("ジャンル", preset.genreKey, Genres.all.map { it.key to it.label }, !working) { draft = preset.copy(genreKey = it) }

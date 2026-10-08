@@ -1,5 +1,7 @@
 package io.github.springthief1123.lovelyspace.lock
 
+import io.github.springthief1123.lovelyspace.ui.components.QuietConfirmDialog
+import io.github.springthief1123.lovelyspace.ui.components.QuietDialog
 import android.app.ActivityManager
 import android.content.Context
 import android.content.ContextWrapper
@@ -23,7 +25,6 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Fingerprint
 import androidx.compose.material.icons.outlined.Lock
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -40,7 +41,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
@@ -118,12 +118,14 @@ fun LockScreen(controller: AppLockController, state: AppLockState) {
 
     // データを全部消すのは取り消せないので、説明と最終確認の 2 段階にする。
     when (forgotStep) {
-        1 -> AlertDialog(
-            onDismissRequest = { forgotStep = 0 },
-            title = { Text("ロックを解除できないとき") },
-            text = { Text("パスコード・パターンは端末内にハッシュで保存しているため、取り出せません。アプリのデータをすべて消すと、ロックも消えて最初の状態から使えます。保存した部屋・条件・プリセット・レーダーの設定もすべて消えます。") },
-            confirmButton = { TextButton(onClick = { forgotStep = 2 }) { Text("データの消去へ進む", color = MaterialTheme.colorScheme.error) } },
-            dismissButton = { TextButton(onClick = { forgotStep = 0 }) { Text("戻る") } },
+        1 -> QuietConfirmDialog(
+            title = "ロックを解除できないとき",
+            text = "パスコード・パターンは端末内にハッシュで保存しているため、取り出せません。アプリのデータをすべて消すと、ロックも消えて最初の状態から使えます。保存した部屋・条件・プリセット・レーダーの設定もすべて消えます。",
+            confirmLabel = "データの消去へ進む",
+            onConfirm = { forgotStep = 2 },
+            onDismiss = { forgotStep = 0 },
+            destructive = true,
+            dismissLabel = "戻る",
         )
         2 -> ClearDataDialog(
             onConfirm = {
@@ -139,22 +141,18 @@ fun LockScreen(controller: AppLockController, state: AppLockState) {
 @Composable
 private fun ClearDataDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
     var typed by remember { mutableStateOf("") }
-    AlertDialog(
+    QuietDialog(
+        title = "すべてのデータを消しますか？",
         onDismissRequest = onDismiss,
-        title = { Text("すべてのデータを消しますか？") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("消したデータは元に戻せません。続けるには「$CLEAR_DATA_WORD」と入力してください。")
-                OutlinedTextField(typed, { typed = it }, singleLine = true, label = { Text("確認の言葉") })
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onConfirm, enabled = typed.trim() == CLEAR_DATA_WORD) {
-                Text("データを消す", color = if (typed.trim() == CLEAR_DATA_WORD) MaterialTheme.colorScheme.error else Color.Unspecified)
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("やめる") } },
-    )
+        confirmLabel = "データを消す",
+        onConfirm = onConfirm,
+        confirmEnabled = typed.trim() == CLEAR_DATA_WORD,
+        destructive = true,
+        dismissLabel = "やめる",
+    ) {
+        Text("消したデータは元に戻せません。続けるには「$CLEAR_DATA_WORD」と入力してください。")
+        OutlinedTextField(typed, { typed = it }, singleLine = true, label = { Text("確認の言葉") })
+    }
 }
 
 /**

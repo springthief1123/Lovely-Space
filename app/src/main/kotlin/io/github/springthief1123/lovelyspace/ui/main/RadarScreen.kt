@@ -286,39 +286,33 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
             onSave = { note -> action { app.radar.updateTarget(target.identity, note = note); editingTargetKey = null } })
     }
     state.targets.firstOrNull { roomIdentity(it.identity) == removingTargetKey }?.let { target ->
-        AlertDialog(onDismissRequest = { if (!working) removingTargetKey = null }, title = { Text("追跡を解除しますか？") },
-            text = { Column { Text("${target.identity.name}の追跡と自分用メモを削除します。変化の履歴は残ります。")
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error) } } },
-            confirmButton = { TextButton(enabled = !working, onClick = { action { app.radar.removeTarget(target.room); removingTargetKey = null } }) { Text("追跡を解除") } },
-            dismissButton = { TextButton(enabled = !working, onClick = { removingTargetKey = null }) { Text("戻る") } })
+        QuietConfirmDialog(title = "追跡を解除しますか？", text = "${target.identity.name}の追跡と自分用メモを削除します。変化の履歴は残ります。",
+            confirmLabel = "追跡を解除", onConfirm = { action { app.radar.removeTarget(target.room); removingTargetKey = null } },
+            onDismiss = { removingTargetKey = null }, destructive = true, enabled = !working, dismissLabel = "戻る", error = error)
     }
     editing?.let { value ->
         RadarPlanEditor(value, savedState.working, savedState.editError,
             onDismiss = { editing = null }, onSave = { savedVm.save(it) { editing = null } })
     }
-    if (pauseConfirm) AlertDialog(onDismissRequest = { if (!working) pauseConfirm = false }, title = { Text("計画・候補監視をすべて停止しますか？") },
-        text = { Column {
-            Text("計画・候補条件と確認済みの結果は残します。実行中の通信は完了させ、以降の計画・候補ページは取得しません。背景の巡回も止めます。部屋の追跡設定は保持します。")
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        } },
-        confirmButton = { TextButton(enabled = !working, onClick = { action { app.radar.pauseAllPlans(); pauseConfirm = false } }) { Text("すべて停止") } },
-        dismissButton = { TextButton(enabled = !working, onClick = { pauseConfirm = false }) { Text("キャンセル") } })
+    if (pauseConfirm) QuietConfirmDialog(title = "計画・候補監視をすべて停止しますか？",
+        text = "計画・候補条件と確認済みの結果は残します。実行中の通信は完了させ、以降の計画・候補ページは取得しません。背景の巡回も止めます。部屋の追跡設定は保持します。",
+        confirmLabel = "すべて停止", onConfirm = { action { app.radar.pauseAllPlans(); pauseConfirm = false } },
+        onDismiss = { pauseConfirm = false }, enabled = !working, dismissLabel = "キャンセル", error = error)
     candidateDraft?.let { value ->
         CandidateRuleEditor(value, working, error, onDismiss = { candidateDraft = null },
             onSave = { action { app.radar.saveCandidate(it); candidateDraft = null } })
     }
     deletingCandidate?.let { rule ->
-        AlertDialog(onDismissRequest = { if (!working) deletingCandidate = null }, title = { Text("候補条件を削除しますか？") },
-            text = { Column { Text(rule.label); error?.let { Text(it, color = MaterialTheme.colorScheme.error) } } },
-            confirmButton = { TextButton(enabled = !working, onClick = { action { app.radar.removeCandidate(rule.id); deletingCandidate = null } }) { Text("削除") } },
-            dismissButton = { TextButton(enabled = !working, onClick = { deletingCandidate = null }) { Text("キャンセル") } })
+        QuietConfirmDialog(title = "候補条件を削除しますか？", text = rule.label,
+            confirmLabel = "削除", onConfirm = { action { app.radar.removeCandidate(rule.id); deletingCandidate = null } },
+            onDismiss = { deletingCandidate = null }, destructive = true, enabled = !working, dismissLabel = "キャンセル", error = error)
     }
     result?.let { found ->
-        ModalBottomSheet(onDismissRequest = { result = null }) {
-            LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        QuietSheet(onDismissRequest = { result = null }) {
+            LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(start = LovelySpacing.screenHorizontal, end = LovelySpacing.screenHorizontal, top = 8.dp, bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item {
-                    Text(found.title, style = MaterialTheme.typography.titleLarge)
-                    Text("${formatObservationTime(found.at)} · ${found.page}/${found.lastPage}ページの一覧情報", style = MaterialTheme.typography.bodySmall)
+                    QuietSheetHeader(found.title, "${formatObservationTime(found.at)} · ${found.page}/${found.lastPage}ページの一覧情報")
                 }
                 items(found.rooms, key = { roomIdentity(it) }) { room ->
                     QuietPanel {
