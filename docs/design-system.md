@@ -29,7 +29,47 @@
 | 状態色 | `MaterialTheme.colorScheme` と `LocalLovelyColors` | 通常・選択・押下・無効・エラー・破壊的操作を意味で使い分ける |
 | ガラス | `ui/components/Glass.kt` | Haze が使えないときの代替表示も含め、既存の使用箇所の意図を保持 |
 
-**現在の要確認点**: `Theme.kt` は `MaterialTheme` に `shapes` を渡しておらず、`surfaceContainerLow` など利用箇所のある一部の色ロールが配色定義で明示されていない。修正時は使用中の Material 3 バージョンにおける既定値と実際の表示を確認し、Quiet Rose のロールへそろえる。単純な一括置換や、全コンポーネント同一角丸の強制はしない。
+### 2.1 Material 3 の色ロール（2026-10-08 #72 で整備）
+
+使用中の Material 3 は Compose BOM `2024.12.01`（material3 1.3 系）。`lightColorScheme` / `darkColorScheme` は未指定のロールに標準の紫系の既定値（baseline）を入れるため、`Theme.kt` では **標準部品が暗黙に使うロールも含めて全て明示**する。主な使い分け:
+
+| ロール | 使う部品 | ライト | ダーク | 以前の表示（既定値） |
+| --- | --- | --- | --- | --- |
+| `surface` / `surfaceContainer` / `surfaceContainerLow` | カード、`DropdownMenu`（Container）、検索パネル・`RoomActionMenu`・`ModalBottomSheet`（Low） | `#FFFDFB` | `#242229` | Low がライト `#F7F2FA`（薄紫）、ダーク `#1D1B20` |
+| `surfaceContainerHigh` | `AlertDialog`、強調した面 | `#F4E7EB` | `#302B34` | 指定済み・変更なし |
+| `surfaceContainerHighest` | `Switch` のオフの軌道、塗りの入力欄 | `#EFE3E7` | `#38323C` | `#E6E0E9` / `#36343B` |
+| `surfaceContainerLowest` / `surfaceDim` / `surfaceBright` | 現状直接は未使用。将来の標準部品用 | `#FFFFFF` / `#EDE6E4` / `#FFFDFB` | `#131217` / `#141318` / `#36313A` | 紫系の既定値 |
+| `inverseSurface` / `inverseOnSurface` / `inversePrimary` | `Snackbar`（「元に戻す」などの操作文字は `inversePrimary`） | `#3A3439` / `#F5EFF2` / `#EFABC1` | `#F5EFF2` / `#302C31` / `#994B64` | 操作文字がライト `#D0BCFF`（薄紫） |
+| `error` / `onError` / `errorContainer` / `onErrorContainer` | 破壊的操作、エラー表示 | `#B3261E` / 白 / `#F9DEDC` / `#410E0B` | `#F2B8B5` / `#601410` / `#8C1D18` / `#F9DEDC` | **表示は変えず**、ライブラリ更新で変わらないよう固定 |
+| `onSecondary`、`tertiary` 系、`scrim` | 現状直接は未使用 | Quiet Rose の温かい中間色で明示 | 同左 | 紫系の既定値 |
+
+運用:
+
+- 浮かぶ面（検索パネル、メニュー、ボトムシート）は **通常のカードと同じ不透明な面**（`surface` = `surfaceContainerLow` = `surfaceContainer`）にし、境界線と影で背景と分ける。面の色で階層を作らない。
+- 新しく色ロールを使うときは、そのロールが `Theme.kt` で明示されているか確認する。`QuietRoseThemeTest` が既定値への逆戻りと主な文字のコントラスト（4.5:1 以上）を検査する。
+- `LocalLovelyColors`（性別・状態・Glass・区切り線）は Material のロールと別に持つ。性別や部屋の状態の色を Material のロールで代用しない。
+
+### 2.2 形状（Shapes）
+
+`DesignTokens.kt` の `LovelyShapes` が役割、`LovelyMaterialShapes` がそれを `MaterialTheme(shapes = …)` へ渡したもの。
+
+| `LovelyShapes` | 半径 | 対応する Material の Shapes | 標準部品の例 | 既存の独自 UI |
+| --- | --- | --- | --- | --- |
+| `control` | 12dp | `extraSmall`（既定 4dp）、`small`（既定 8dp） | `OutlinedTextField`、`DropdownMenu`、`Snackbar`、`FilterChip` / `AssistChip` | 設定のアイコン枠、チャットの通知 |
+| `panel` | 16dp | `medium`（既定 12dp） | `Card` | 部屋カード、Quiet の一覧パネル |
+| `menu` | 20dp | `large`（既定 16dp） | FAB・ドロワー（現状未使用） | `RoomActionMenu` |
+| `sheet` | 24dp | `extraLarge`（既定 28dp） | `AlertDialog`、`ModalBottomSheet` の上端 | 検索パネル・検索ポップオーバー |
+| `bottomGlass` | 上 22dp | なし | なし | Glass の下部ナビ |
+
+- ボタン、`Switch`、`SegmentedButton`、バッジは Material 3 では Shapes ではなく全丸なので、この設定では変わらない。全丸は Quiet Rose でも維持する。
+- `RoomActionMenu`（20dp）、`SearchPanel`（24dp）、`QuietPanel`（18dp）、`SettingsScreen` のカード（18dp）、Glass ナビの各形状は #72 では変えていない。18dp の 2 か所は後続フェーズで `panel` か `sheet` へ寄せるか判断する。
+- 新しいコードで角丸が必要なら `LovelyShapes.*` か `MaterialTheme.shapes.*` を使い、`RoundedCornerShape(…dp)` を画面に書き足さない。
+
+### 2.3 後続フェーズで使う API
+
+- メニュー（Phase B）: 面は `MaterialTheme.colorScheme.surfaceContainerLow`、形は `LovelyShapes.menu`、境界は `LocalLovelyColors.current.glassBorder`（ポップアップ）または `outlineVariant`。`RoomActionMenu` の `RoomActionPanel` と同じ組み合わせ。
+- チップ・入力（Phase C）: 形は `LovelyShapes.control`（既定でも適用される）。選択色は `secondaryContainer` / `onSecondaryContainer`、境界は `outlineVariant`、フォーカスは `primary`。
+- ダイアログ・シート（Phase D）: 形は `LovelyShapes.sheet`（既定でも適用される）。ダイアログの面は `surfaceContainerHigh`、シートの面は `surfaceContainerLow`。破壊的な確定ボタンの文字は `error`。
 
 形状と余白の値を確定・変更する際は、既存の部屋カード、`RoomActionMenu`、検索パネル、設定カード、Glass ナビとの関係を比較する。**「見た目を新しくする」より「同じ役割は同じ見た目」を優先する**。
 
@@ -68,7 +108,7 @@
 
 次の順序は、**修正の優先順位であり実装済みの宣言ではない**。着手前に最新コードと進行中 PR を再確認し、タスクは段階ごとの issue / PR に分ける。
 
-1. **土台**: `ui/theme/Theme.kt`、`DesignTokens.kt`。未設定の Material 3 色ロール・Shapes を確認し、共有ロールを定義。既存画面の意図的な半径やコントラストを壊さない。
+1. **土台**（#72 で実施）: `ui/theme/Theme.kt`、`DesignTokens.kt`。未設定の Material 3 色ロール・Shapes を明示し、共有ロールを定義（2.1〜2.3）。既存画面の意図的な半径やコントラストは変えていない。
 2. **メニュー**: `QuietComponents.kt` の `QuietOverflowMenu`、`ui/shell/LovelyAppShell.kt` の通知メニュー、`ui/settings/RoomListSettingsScreen.kt` と `ui/main/SearchPanel.kt` のドロップダウン。`RoomActionMenu.kt` の視覚言語を参考に、一般メニュー用の共通外観・動作を整備。
 3. **チップ／検索入力**: `QuietTabs`、`SearchPanel.kt` の `FilterChip`、`OutlinedTextField`、`ExposedDropdownMenu`、`ui/main/RadarScreen.kt` / `RadarPlanEditor.kt` のチップ等。共通 styled control を導入し既存の検索条件ロジックは維持。
 4. **ダイアログ・シート・トグル**: `ui/main/ProfileScreen.kt`、`RoomDetailsSheet.kt`、`RadarScreen.kt`、`RadarPlanEditor.kt`、`ui/rooms/GenrePicker.kt`、`ui/main/SavedSearchControls.kt` など。`AlertDialog`、`ModalBottomSheet`、`Switch`、`Checkbox` 等の外観を用途別に統一。
