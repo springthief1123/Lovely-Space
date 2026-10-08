@@ -28,4 +28,13 @@ class SearchHeaderTest {
         assertEquals("41件・3/5ページ・10/07 12:04 確認", searchStatusText(3, 5, 41, loading = false, oldestCheck = "10/07 12:04"))
         assertEquals("0件・1/1ページ", searchStatusText(1, 1, 0, loading = true, oldestCheck = null))
     }
+
+    @Test fun activeFilterCountIncludesSearchTextAndQuickChips() {
+        assertEquals(0, activeFilterCount(RoomSearchCriteria()))
+        val quick = RoomSearchCriteria(gender = Gender.FEMALE, waitingOnly = true, publicOnly = true, text = "映画")
+        assertEquals(4, activeFilterCount(quick))
+        assertEquals(5, activeFilterCount(quick.copy(sort = RoomSort.AGE)))
+        // 「満室」「非公開」はチップではなく詳しい条件として 1 件ずつ数える。
+        assertEquals(2, activeFilterCount(RoomSearchCriteria(waitingOnly = false, publicOnly = false)))
+    }
 }

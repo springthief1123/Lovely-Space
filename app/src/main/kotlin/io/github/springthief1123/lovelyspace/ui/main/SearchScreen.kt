@@ -36,6 +36,10 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.core.*
 import io.github.springthief1123.lovelyspace.ui.rooms.GenreBar
+import io.github.springthief1123.lovelyspace.ui.shell.LocalLovelyShellState
+import io.github.springthief1123.lovelyspace.ui.shell.ShellSearchButton
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.unit.IntRect
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomCard
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomPreferenceViewModel
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
@@ -59,8 +63,9 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
     val scope = rememberCoroutineScope()
     val c = state.criteria
     val validAges = state.validAges
-    var showFilters by remember { mutableStateOf(false) }
-    var showSearch by remember { mutableStateOf(false) }
+    var panelExpanded by rememberSaveable { mutableStateOf(false) }
+    var searchOpen by remember { mutableStateOf(false) }
+    var searchAnchor by remember { mutableStateOf<IntRect?>(null) }
     var selectedRoom by remember { mutableStateOf<Room?>(null) }
     LaunchedEffect(state.initialized, refreshKey) { if (state.initialized) vm.onRefreshKey(refreshKey) }
     LaunchedEffect(state.genre) { onGenreChanged(state.genre) }
@@ -101,15 +106,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
         // ジャンル名が画面の見出しを兼ねる。
         if (state.initialized) item { GenreBar(state.genre, emptyList(), emptyMap(), { vm.genre(it); vm.refresh() }) }
-        item { SearchField(c.text) { vm.criteria(c.copy(text = it)) } }
-        item {
-            QuickFilterRow(
-                criteria = c,
-                advancedCount = advancedFilterCount(c),
-                onChange = vm::criteria,
-                onOpenFilters = { showFilters = true },
-            )
-        }
+        item { SearchPanel(state, vm, panelExpanded, onExpandedChange = { panelExpanded = it }) }
         item {
             SearchStatusRow(
                 text = searchStatusText(state.page, state.lastPage, if (validAges) visibleResults.size else 0, state.loading || !state.initialized,
@@ -154,194 +151,37 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         }
     }
     }
-    // 検索欄が上に流れて見えなくなったら、上部のバーの下に小さなバーを出して検索・絞り込み・更新にすぐ届くようにする。
-    val searchFieldIndex = if (state.initialized) 1 else 0
-    val controlsHidden by remember(searchFieldIndex) { derivedStateOf { listState.firstVisibleItemIndex > searchFieldIndex } }
-    androidx.compose.animation.AnimatedVisibility(
-        controlsHidden,
-        enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically { -it / 2 },
-        exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically { -it / 2 },
-        modifier = Modifier.align(Alignment.TopCenter)
-            .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + LovelySpacing.topBarHeight + 8.dp)
-            .padding(horizontal = 12.dp),
-    ) {
-        CompactSearchBar(
-            query = c.text,
-            advancedCount = advancedFilterCount(c),
-            loading = state.loading,
-            refreshEnabled = state.initialized && !state.loading,
-            onSearch = { showSearch = true },
-            onFilters = { showFilters = true },
-            onRefresh = { vm.refresh() },
-            onTop = { scope.launch { listState.animateScrollToItem(0) } },
-        )
+    // 検索パネルが上に隠れたらトップバーに検索ボタンを、少しでも下へ進んだら「トップへ戻る」を出す。
+    // どちらも外枠に置くので、トップバー・ボトムナビと同じく後ろの一覧がぼける。
+    val panelIndex = if (state.initialized) 1 else 0
+    val panelHidden by remember(panelIndex) { derivedStateOf { listState.firstVisibleItemIndex > panelIndex } }
+    val scrolled by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0 } }
+    val shell = LocalLovelyShellState.current
+    val owner = remember { Any() }
+    val openSearch = remember { { anchor: IntRect -> searchAnchor = anchor; searchOpen = true } }
+    val scrollToTop = remember(scope, listState) { { scope.launch { listState.animateScrollToItem(0) }; Unit } }
+    val activeCount = activeFilterCount(c)
+    SideEffect {
+        shell.publish(owner,
+            searchButton = if (panelHidden) ShellSearchButton(activeCount, openSearch) else null,
+            scrollToTop = if (scrolled) scrollToTop else null)
     }
+    DisposableEffect(shell, owner) { onDispose { shell.release(owner) } }
+    // パネルが見えるところまで戻ったら、上から開いたポップオーバーは閉じる。
+    LaunchedEffect(panelHidden) { if (!panelHidden) searchOpen = false }
     SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = lovelyMainContentBottomInset()))
     }
     selectedRoom?.let { room -> RoomDetailsSheet(room, preferences.isFavorite(room), preferences.canEdit(room),
         onDismiss = { selectedRoom = null }, onFavorite = { preferencesVm.toggleFavorite(room) },
         onHide = { preferencesVm.hide(room); selectedRoom = null }, onEnter = onEnterRoom, onPeek = onPeekRoom) }
-    // 一覧の途中から開く検索。閉じても一覧の位置はそのまま。
-    if (showSearch) ModalBottomSheet(onDismissRequest = { showSearch = false }) {
-        Column(Modifier.fillMaxWidth().imePadding().padding(LovelySpacing.screenHorizontal), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("検索", style = MaterialTheme.typography.titleLarge)
-            SearchField(c.text) { vm.criteria(c.copy(text = it)) }
-            QuickFilterRow(
-                criteria = c,
-                advancedCount = advancedFilterCount(c),
-                onChange = vm::criteria,
-                onOpenFilters = { showSearch = false; showFilters = true },
-            )
-            Text(searchStatusText(state.page, state.lastPage, if (validAges) visibleResults.size else 0, state.loading || !state.initialized, null),
-                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(16.dp))
-        }
-    }
-    if (showFilters) ModalBottomSheet(onDismissRequest = { showFilters = false }) {
-        Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(LovelySpacing.screenHorizontal), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("検索条件", style = MaterialTheme.typography.titleLarge)
-            SavedSearchControls(state, vm::applyPreset)
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(c.name, { vm.criteria(c.copy(name = it)) }, label = { Text("名前のキーワード") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(c.message, { vm.criteria(c.copy(message = it)) }, label = { Text("待機メッセージのキーワード") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                ChoiceRow("語句の一致", c.keywordMode, listOf(KeywordMode.ALL to "すべて", KeywordMode.ANY to "いずれか")) { vm.criteria(c.copy(keywordMode = it)) }
-                Text("複数の語句はスペースで区切ります。名前とメッセージの条件は両方を満たす部屋を表示します。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                OutlinedTextField(c.excluded, { vm.criteria(c.copy(excluded = it)) }, label = { Text("除外する語句") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                ChoiceRow("性別", c.gender, listOf(null to "すべて", Gender.FEMALE to "女性", Gender.MALE to "男性")) { vm.criteria(c.copy(gender = it)) }
-                QuietFieldPair(first = { fieldModifier ->
-                    OutlinedTextField(state.minAgeInput, vm::minAge,
-                        label = { Text("最低年齢") }, singleLine = true, isError = !validAges,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = fieldModifier)
-                }, second = { fieldModifier ->
-                    OutlinedTextField(state.maxAgeInput, vm::maxAge,
-                        label = { Text("最高年齢") }, singleLine = true, isError = !validAges,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = fieldModifier)
-                })
-                if (!validAges) Text("年齢は18〜99で、最高年齢が最低年齢以上になる範囲を指定してください。", color = MaterialTheme.colorScheme.error)
-                Row { Checkbox(c.includeUnknownAge, { vm.criteria(c.copy(includeUnknownAge = it)) }); Text("年齢が秘密の部屋も含める", Modifier.weight(1f).padding(top = 12.dp)) }
-                // 検索の未指定は「すべて」。プロフィール側の秘密とは別の意味。
-                AreaFilter(c.area) { vm.criteria(c.copy(area = it)) }
-                ChoiceRow("利用状況", c.waitingOnly, listOf(null to "すべて", true to "待機中", false to "満室")) { vm.criteria(c.copy(waitingOnly = it)) }
-                ChoiceRow("公開設定", c.publicOnly, listOf(null to "すべて", true to "公開", false to "非公開")) { vm.criteria(c.copy(publicOnly = it)) }
-                ChoiceRow("並び順", c.sort, listOf(RoomSort.SITE to "一覧順", RoomSort.NAME to "名前", RoomSort.AGE to "年齢", RoomSort.ELAPSED to "経過")) { vm.criteria(c.copy(sort = it)) }
-                Button(onClick = vm::refresh, enabled = !state.loading && validAges, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (state.page == 0) "このジャンルを検索" else "一覧を更新")
-                }
-            }
-
-            Button(onClick = { showFilters = false }, modifier = Modifier.fillMaxWidth()) { Text("結果を見る") }
-            TextButton(onClick = { vm.criteria(RoomSearchCriteria()); vm.minAge(""); vm.maxAge("") }) { Text("条件をリセット") }
-            Spacer(Modifier.height(24.dp))
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun <T> ChoiceRow(title: String, selected: T, options: List<Pair<T, String>>, onSelect: (T) -> Unit) {
-    Column {
-        Text(title, style = MaterialTheme.typography.labelMedium)
-        // FlowRowでフォント拡大時にも選択肢を折り返す。
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            options.forEach { (value, label) -> FilterChip(selected = value == selected, onClick = { onSelect(value) }, label = { Text(label) }) }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun AreaFilter(selected: String?, onSelect: (String?) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    ExposedDropdownMenuBox(expanded, { expanded = it }) {
-        OutlinedTextField(selected ?: "すべて", {}, label = { Text("地域") }, readOnly = true,
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-            modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable))
-        ExposedDropdownMenu(expanded, { expanded = false }) {
-            DropdownMenuItem(text = { Text("すべて") }, onClick = { onSelect(null); expanded = false })
-            Prefectures.names.forEach { area -> DropdownMenuItem(text = { Text(area) }, onClick = { onSelect(area); expanded = false }) }
-        }
-    }
-}
-
-/** 性別・待機中・公開は一覧の上で1タップで切り替える。それ以外の条件はシートに置き、件数だけ示す。 */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun QuickFilterRow(
-    criteria: RoomSearchCriteria,
-    advancedCount: Int,
-    onChange: (RoomSearchCriteria) -> Unit,
-    onOpenFilters: () -> Unit,
-) {
-    LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        item {
-            FilterChip(criteria.gender == Gender.FEMALE,
-                { onChange(criteria.copy(gender = if (criteria.gender == Gender.FEMALE) null else Gender.FEMALE)) },
-                label = { Text("女性") })
-        }
-        item {
-            FilterChip(criteria.gender == Gender.MALE,
-                { onChange(criteria.copy(gender = if (criteria.gender == Gender.MALE) null else Gender.MALE)) },
-                label = { Text("男性") })
-        }
-        item {
-            FilterChip(criteria.waitingOnly == true,
-                { onChange(criteria.copy(waitingOnly = if (criteria.waitingOnly == true) null else true)) },
-                label = { Text("待機中") })
-        }
-        item {
-            FilterChip(criteria.publicOnly == true,
-                { onChange(criteria.copy(publicOnly = if (criteria.publicOnly == true) null else true)) },
-                label = { Text("公開") })
-        }
-        item {
-            FilterChip(advancedCount > 0, onOpenFilters,
-                label = { Text(if (advancedCount > 0) "絞り込み $advancedCount" else "絞り込み") },
-                leadingIcon = { Icon(Icons.Outlined.Tune, null, Modifier.size(16.dp)) })
-        }
-    }
-}
-
-@Composable
-private fun SearchField(text: String, onChange: (String) -> Unit) {
-    OutlinedTextField(text, onChange, placeholder = { Text("名前・待機メッセージを検索") },
-        leadingIcon = { Icon(Icons.Outlined.Search, null) },
-        trailingIcon = if (text.isNotEmpty()) ({ IconButton(onClick = { onChange("") }) { Icon(Icons.Outlined.Close, "検索語を消す") } }) else null,
-        singleLine = true, shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth())
-}
-
-/** 一覧をスクロールしたときに上部に出す、検索・絞り込み・更新・先頭へのボタン。 */
-@Composable
-private fun CompactSearchBar(
-    query: String,
-    advancedCount: Int,
-    loading: Boolean,
-    refreshEnabled: Boolean,
-    onSearch: () -> Unit,
-    onFilters: () -> Unit,
-    onRefresh: () -> Unit,
-    onTop: () -> Unit,
-) {
-    io.github.springthief1123.lovelyspace.ui.components.LovelyGlassSurface(shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp)) {
-        Row(Modifier.padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            // 狭い画面でも右の操作ボタンの幅を先に確保し、検索語の部分だけを縮める。
-            TextButton(onClick = onSearch, modifier = Modifier.weight(1f, fill = false).widthIn(max = 180.dp)) {
-                Icon(Icons.Outlined.Search, null, Modifier.size(18.dp))
-                Text(query.ifEmpty { "検索" }, maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(start = 6.dp))
-            }
-            IconButton(onClick = onFilters) {
-                BadgedBox(badge = { if (advancedCount > 0) Badge { Text("$advancedCount") } }) {
-                    Icon(Icons.Outlined.Tune, if (advancedCount > 0) "絞り込み（${advancedCount}件）" else "絞り込み")
-                }
-            }
-            if (loading) {
-                Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) }
-            } else {
-                IconButton(onClick = onRefresh, enabled = refreshEnabled) { Icon(Icons.Outlined.Refresh, "今すぐ更新") }
-            }
-            IconButton(onClick = onTop) { Icon(Icons.Outlined.ArrowUpward, "一覧の先頭へ") }
-        }
-    }
+    SearchPopover(
+        visible = searchOpen,
+        anchor = searchAnchor,
+        state = state,
+        vm = vm,
+        statusText = searchStatusText(state.page, state.lastPage, if (validAges) visibleResults.size else 0, state.loading || !state.initialized, null),
+        onDismiss = { searchOpen = false },
+    )
 }
 
 @Composable
@@ -376,7 +216,7 @@ internal fun searchStatusText(page: Int, lastPage: Int, shown: Int, loading: Boo
     else -> listOfNotNull("${shown}件", "${page}/${lastPage}ページ", oldestCheck?.let { "$it 確認" }).joinToString("・")
 }
 
-/** シートで指定した、一覧上部のチップ以外の条件の数。 */
+/** 「詳しい条件」で指定した、チップ以外の条件の数。 */
 internal fun advancedFilterCount(c: RoomSearchCriteria): Int = listOf(
     c.name.isNotBlank(),
     c.message.isNotBlank(),
@@ -387,4 +227,12 @@ internal fun advancedFilterCount(c: RoomSearchCriteria): Int = listOf(
     c.waitingOnly == false,
     c.publicOnly == false,
     c.sort != RoomSort.SITE,
+).count { it }
+
+/** 指定中の条件の数。検索語・チップ・詳しい条件をすべて数え、トップバーの検索ボタンのバッジに出す。 */
+internal fun activeFilterCount(c: RoomSearchCriteria): Int = advancedFilterCount(c) + listOf(
+    c.text.isNotBlank(),
+    c.gender != null,
+    c.waitingOnly == true,
+    c.publicOnly == true,
 ).count { it }
