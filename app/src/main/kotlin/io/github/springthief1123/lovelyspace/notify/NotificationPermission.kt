@@ -8,6 +8,14 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.app.NotificationManagerCompat
 
@@ -33,6 +41,30 @@ fun rememberNotificationPermissionRequest(onResult: (Boolean) -> Unit = {}): () 
             else -> onResult(true)
         }
     }
+}
+
+/**
+ * [kind] の通知を端末に出せるか（権限・アプリの通知・その種類のチャンネル）。
+ * 許可のダイアログや端末の設定から戻ったとき（画面の再開）に確かめ直すので、結果を待ってから文言を決められる。
+ */
+@Composable
+fun rememberNotificationsAllowed(kind: NotificationKind): Boolean {
+    val context = LocalContext.current
+    val owner = LocalLifecycleOwner.current
+    fun check() = notificationsAllowed(context, kind)
+    var allowed by remember { mutableStateOf(check()) }
+    DisposableEffect(owner, kind) {
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) allowed = check() }
+        owner.lifecycle.addObserver(observer)
+        onDispose { owner.lifecycle.removeObserver(observer) }
+    }
+    return allowed
+}
+
+internal fun notificationsAllowed(context: Context, kind: NotificationKind): Boolean {
+    val manager = NotificationManagerCompat.from(context)
+    if (!AppNotifier.hasPermission(context) || !manager.areNotificationsEnabled()) return false
+    return manager.getNotificationChannelCompat(kind.channelId)?.importance != NotificationManagerCompat.IMPORTANCE_NONE
 }
 
 /** このアプリの通知設定（端末の設定画面）。 */

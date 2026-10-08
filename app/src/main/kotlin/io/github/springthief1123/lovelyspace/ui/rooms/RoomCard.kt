@@ -559,7 +559,7 @@ private fun RoomCardSurface(
                         color = if (room.isFull) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
                         maxLines = messageMaxLines, overflow = TextOverflow.Ellipsis)
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     MetaChip(statusLabel(room.status), statusColor, filled = true)
                     MetaChip(
                         when {
@@ -571,6 +571,11 @@ private fun RoomCardSurface(
                         filled = false,
                         icon = if (room.isPublic) Icons.Outlined.Visibility else Icons.Outlined.Lock,
                     )
+                    // 押したときの動き（入室へ・覗く）を先に示す。満室で非公開の部屋は詳細が開くだけなので付けない。
+                    cardActionLabel(room.action)?.let { label ->
+                        Spacer(Modifier.weight(1f))
+                        Text("$label ›", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, maxLines = 1)
+                    }
                 }
             }
             if (hasMenu) RoomActionMenu(
@@ -670,3 +675,10 @@ private const val SETTLE_STIFFNESS = 380f
 private val SWIPE_EDGE_REMAINING = 64.dp
 private const val MAX_REVEAL_FRACTION = 0.42f
 private const val MIN_COMMIT_FRACTION = 0.72f
+
+/** カードを押したときの動きの短い表示。詳細が開くだけの部屋は null。 */
+internal fun cardActionLabel(action: RoomAction): String? = when (action) {
+    RoomAction.ENTER -> "入室へ"
+    RoomAction.PEEK -> "覗く"
+    RoomAction.NONE -> null
+}
