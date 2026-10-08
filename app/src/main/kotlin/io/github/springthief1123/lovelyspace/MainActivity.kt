@@ -2,8 +2,9 @@ package io.github.springthief1123.lovelyspace
 
 import android.content.Intent
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity
+import android.view.WindowManager
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -12,6 +13,17 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import io.github.springthief1123.lovelyspace.lock.LockScreen
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import io.github.springthief1123.lovelyspace.notify.AppNotifier
 import io.github.springthief1123.lovelyspace.settings.RoomMessageLines
 import io.github.springthief1123.lovelyspace.settings.TextScale
@@ -19,7 +31,8 @@ import io.github.springthief1123.lovelyspace.ui.rooms.LocalRoomMessageMaxLines
 import io.github.springthief1123.lovelyspace.settings.ThemeMode
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpaceTheme
 
-class MainActivity : ComponentActivity() {
+// 生体認証（BiometricPrompt）を出すため FragmentActivity にする。
+class MainActivity : FragmentActivity() {
     private var handledNotificationId: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -30,6 +43,12 @@ class MainActivity : ComponentActivity() {
         handledNotificationId = savedInstanceState?.getString(STATE_HANDLED_NOTIFICATION_ID)
         if (savedInstanceState == null || AppNotifier.notificationId(intent) != handledNotificationId) {
             openNotification(intent)
+        }
+        // アプリロックを使うときは、最近のアプリ一覧に画面の中身を出さない。
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.CREATED) {
+                app.appLock.state.map { it.config.enabled }.distinctUntilChanged().collect(::hideFromRecents)
+            }
         }
         setContent {
             val themeMode by app.settings.themeMode.collectAsStateWithLifecycle(initialValue = ThemeMode.SYSTEM)
@@ -50,9 +69,39 @@ class MainActivity : ComponentActivity() {
             }
             LovelySpaceTheme(themeMode = themeMode, textScale = textScale) {
                 CompositionLocalProvider(LocalRoomMessageMaxLines provides messageLines.maxLines) {
-                    AppNavHost()
+                    val lock by app.appLock.state.collectAsStateWithLifecycle()
+                    Box {
+                        // ロック中は後ろの画面を読み上げの対象からも外す。
+                        Box(if (lock.locked) Modifier.clearAndSetSemantics {} else Modifier) { AppNavHost() }
+                        if (lock.locked) LockScreen(app.appLock, lock)
+                    }
                 }
             }
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        (application as LovelySpaceApp).appLock.onForeground()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // 画面の回転などの作り直しは、背景に回ったことにしない。
+        if (!isChangingConfigurations) (application as LovelySpaceApp).appLock.onBackground()
+    }
+
+    /**
+     * Android 13 以降は最近のアプリ一覧のスクリーンショットだけを止める（利用者のスクリーンショットは撮れる）。
+     * それより前の端末には同じ仕組みが無いので、画面全体を保護する（スクリーンショットも撮れなくなる）。
+     */
+    private fun hideFromRecents(enabled: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            setRecentsScreenshotEnabled(!enabled)
+        } else if (enabled) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
     }
 

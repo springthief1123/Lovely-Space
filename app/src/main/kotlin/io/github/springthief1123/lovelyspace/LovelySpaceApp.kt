@@ -57,6 +57,11 @@ class LovelySpaceApp : Application() {
     }
     val roomLists: RoomListRepository by lazy { RoomListRepository(client) }
     val settings: SettingsRepository by lazy { SettingsRepository(this) }
+    /** アプリロック。起動直後に画面を隠せるよう、設定は同期で読む。 */
+    val appLock: io.github.springthief1123.lovelyspace.lock.AppLockController by lazy {
+        io.github.springthief1123.lovelyspace.lock.AppLockController(
+            io.github.springthief1123.lovelyspace.lock.AppLockStore(getSharedPreferences(io.github.springthief1123.lovelyspace.lock.AppLockStore.PREFS, MODE_PRIVATE)))
+    }
     private val database: PresetDatabase by lazy {
         Room.databaseBuilder(this, PresetDatabase::class.java, "lovely-space.db")
             .addMigrations(PresetDatabase.MIGRATION_1_2, PresetDatabase.MIGRATION_2_3, PresetDatabase.MIGRATION_3_4)
