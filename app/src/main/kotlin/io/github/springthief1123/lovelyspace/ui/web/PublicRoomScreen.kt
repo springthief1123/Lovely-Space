@@ -15,6 +15,8 @@ import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.ui.chat.ChatLog
 import io.github.springthief1123.lovelyspace.ui.components.ForegroundPolling
 import io.github.springthief1123.lovelyspace.ui.components.QuietTopBar
+import io.github.springthief1123.lovelyspace.ui.main.RoomMenuButton
+import kotlinx.coroutines.launch
 
 /** 公開ログをアプリのチャット表示で読む。閲覧用なので発言欄・入退室操作は持たない。 */
 @Composable
@@ -25,7 +27,17 @@ fun PublicRoomScreen(host: String, genreKey: String, roomId: Long, onBack: () ->
     })
     val state by vm.state.collectAsStateWithLifecycle()
     ForegroundPolling(state.automatic, vm, vm::stopRefresh) { vm.monitor() }
-    Scaffold(topBar = { QuietTopBar("公開ルーム", onBack) }) { padding ->
+    val snackbar = remember { SnackbarHostState() }
+    val menuScope = rememberCoroutineScope()
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
+        topBar = {
+            QuietTopBar("公開ルーム", onBack) {
+                RoomMenuButton(genreKey, roomId, fallbackTitle = "公開ルーム",
+                    onNotice = { message -> menuScope.launch { snackbar.showSnackbar(message, withDismissAction = true) } })
+            }
+        },
+    ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
             // 閲覧中は常に自動で読み直す。閉じられた部屋（非公開への変更など）では止まり、「再読み込み」だけを出す。
             Text("閲覧のみ（発言・入室はしません）。開いている間、新着を自動で読み込みます", style = MaterialTheme.typography.bodySmall,

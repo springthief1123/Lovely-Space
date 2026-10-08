@@ -42,6 +42,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import io.github.springthief1123.lovelyspace.ui.main.RoomMenuButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -51,6 +54,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
@@ -176,8 +180,11 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit, onEnded: () -> Unit = {}) 
         )
     }
 
+    val snackbar = remember { SnackbarHostState() }
+    val menuScope = rememberCoroutineScope()
     Scaffold(
         modifier = Modifier.imePadding(),
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 title = {
@@ -195,6 +202,11 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit, onEnded: () -> Unit = {}) 
                     }
                 },
                 actions = {
+                    // 入室した部屋は、長押しメニューと同じ操作（保存・追跡など）をここから選べる。自分で作った部屋には出さない。
+                    if (!state.isOwner && !state.isLoading) {
+                        RoomMenuButton(room.genreKey, room.roomId, fallbackTitle = state.partnerName ?: state.title.ifEmpty { "この部屋" },
+                            onNotice = { message -> menuScope.launch { snackbar.showSnackbar(message, withDismissAction = true) } })
+                    }
                     if (state.showsOwnerActions) {
                         val idle = state.canRunOwnerAction
                         QuietOverflowMenu(

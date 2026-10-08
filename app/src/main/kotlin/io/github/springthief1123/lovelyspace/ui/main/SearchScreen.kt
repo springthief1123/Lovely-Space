@@ -74,7 +74,6 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
     }
     val quickActions = rememberRoomQuickActions(
         onNotice = { message -> scope.launch { snackbar.showSnackbar(message, withDismissAction = true) } },
-        onOpenDetails = { selectedRoom = it },
     )
     // 引っ張って更新したときだけインジケーターを出す。自動取得のたびには出さない。
     var userRefreshing by remember { mutableStateOf(false) }

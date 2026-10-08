@@ -5,7 +5,13 @@ import androidx.compose.material.icons.outlined.NotificationAdd
 import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.material.icons.outlined.TrackChanges
 import androidx.compose.runtime.Composable
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -23,12 +29,11 @@ import kotlinx.coroutines.launch
 
 /**
  * 長押しメニューから追跡・順番待ちを直接行うための項目を作る。詳細シートと同じ処理を呼び、
- * 結果は [onNotice] で知らせる。追跡の解除はメモも消えるため、確認のある詳細シートを [onOpenDetails] で開く。
+ * 結果は [onNotice] で知らせる。追跡の解除はメモも消えるため、確認してから行う。
  */
 @Composable
 internal fun rememberRoomQuickActions(
     onNotice: (String) -> Unit,
-    onOpenDetails: (Room) -> Unit,
 ): (Room, RoomQuery?) -> List<RoomMenuItem> {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val scope = rememberCoroutineScope()
@@ -37,6 +42,7 @@ internal fun rememberRoomQuickActions(
     val requestNotifications = rememberNotificationPermissionRequest()
     val tracked = radar.targets.mapTo(HashSet()) { roomIdentity(it.room) }
     val waiting = waitlist.filter { it.status == WaitlistStatus.WATCHING }.mapTo(HashSet()) { it.key }
+    var confirmUntrack by remember { mutableStateOf<Room?>(null) }
 
     fun save(failure: String, block: suspend () -> String) {
         scope.launch {
@@ -48,11 +54,26 @@ internal fun rememberRoomQuickActions(
         }
     }
 
+    confirmUntrack?.let { room ->
+        AlertDialog(
+            onDismissRequest = { confirmUntrack = null },
+            title = { Text("追跡を解除しますか？") },
+            text = { Text("追跡と自分用メモを削除します。変化の履歴は残ります。") },
+            confirmButton = {
+                TextButton(enabled = radar.loaded, onClick = {
+                    confirmUntrack = null
+                    save("追跡設定を保存できませんでした。") { app.radar.removeTarget(room); "追跡を解除しました" }
+                }) { Text("追跡を解除") }
+            },
+            dismissButton = { TextButton(onClick = { confirmUntrack = null }) { Text("戻る") } },
+        )
+    }
+
     return { room, sourceQuery ->
         val key = roomIdentity(room)
         buildList {
             if (key in tracked) {
-                add(RoomMenuItem("追跡を解除…", Icons.Outlined.TrackChanges, enabled = radar.loaded) { onOpenDetails(room) })
+                add(RoomMenuItem("追跡を解除…", Icons.Outlined.TrackChanges, enabled = radar.loaded) { confirmUntrack = room })
             } else {
                 add(RoomMenuItem("この部屋を追跡", Icons.Outlined.TrackChanges, enabled = radar.loaded && room.name != null) {
                     save("追跡設定を保存できませんでした。") { app.radar.track(room, sourceQuery); "レーダーに追加しました" }
