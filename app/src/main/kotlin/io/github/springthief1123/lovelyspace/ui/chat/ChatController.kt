@@ -1,7 +1,5 @@
 package io.github.springthief1123.lovelyspace.ui.chat
 
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import io.github.springthief1123.lovelyspace.core.ShaloveClient
 import io.github.springthief1123.lovelyspace.core.messageWidth
 import io.github.springthief1123.lovelyspace.core.chat.ChatLine
@@ -13,7 +11,11 @@ import io.github.springthief1123.lovelyspace.core.chat.MySpeaker
 import io.github.springthief1123.lovelyspace.core.chat.RoomPageUnavailableException
 import io.github.springthief1123.lovelyspace.ui.describeError
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -159,24 +161,78 @@ internal fun canBanGuestAfter(current: Boolean, update: ChatUpdate): Boolean = w
     else -> current
 }
 
-class ChatViewModel(
+/** 会話画面の外（一覧・帯）に出す、進行中の部屋の様子。 */
+data class ChatActivity(
+    /** 会話画面を離れている間に届いた、相手の発言とお知らせの数。 */
+    val unseen: Int = 0,
+    val waitingForPartner: Boolean = false,
+    /** 部屋が終わった（閉鎖・無言での終了など）。会話を開くと理由を見られる。 */
+    val ended: Boolean = false,
+)
+
+/** 新着の数え方。会話画面が見えていない間に届いた、自分以外の行を数える。 */
+internal fun unseenAfter(current: Int, visible: Boolean, added: List<UiLine>): Int =
+    if (visible) 0 else current + added.count { !it.isMine }
+
+/**
+ * 入室中の部屋 1 つ分の会話。画面ではなく [ActiveRooms] が持つので、会話画面を離れて一覧を見ている間も
+ * 新着の取得（[ChatSession] の 1 本だけ）を続ける。アプリが背景に回ったら [setForeground] で止め、前面に戻ったら再開する。
+ * 退室・部屋を閉じた・別の部屋に入ったときに [close] で取得をすべて止める。
+ */
+class ChatController(
     private val client: ShaloveClient,
     private val room: ChatRoomRef,
-) : ViewModel() {
+) : RoomConnection {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val _state = MutableStateFlow(ChatUiState())
     val state: StateFlow<ChatUiState> = _state.asStateFlow()
+
+    private val _activity = MutableStateFlow(ChatActivity())
+    val activity: StateFlow<ChatActivity> = _activity.asStateFlow()
 
     private var session: ChatSession? = null
     private var updatesJob: Job? = null
     private var nextId = 0L
+    private var foreground = true
+    private var visible = false
+    /** 背景にいる間に止めた取得を、前面に戻ったときに再開するか。 */
+    private var resumeOnForeground = false
 
     init {
         open()
+        scope.launch {
+            _state.collect { s -> _activity.update { it.copy(waitingForPartner = s.isWaitingForPartner, ended = s.endMessage != null) } }
+        }
+    }
+
+    /** 会話画面が見えているか。見えている間は新着を数えない。 */
+    fun setVisible(value: Boolean) {
+        visible = value
+        if (value) _activity.update { it.copy(unseen = 0) }
+    }
+
+    override fun setForeground(value: Boolean) {
+        if (foreground == value) return
+        foreground = value
+        if (!value) {
+            if (updatesJob?.isActive == true) {
+                resumeOnForeground = true
+                updatesJob?.cancel()
+            }
+        } else if (resumeOnForeground) {
+            resumeOnForeground = false
+            val s = _state.value
+            if (s.endMessage == null && !s.left && !s.isLeaving) startUpdates()
+        }
+    }
+
+    override fun close() {
+        scope.cancel()
     }
 
     fun open() {
         _state.update { it.copy(isLoading = true, loadError = null, roomUnavailable = false) }
-        viewModelScope.launch {
+        scope.launch {
             try {
                 val page = client.openChat(room)
                 onOpened(page)
@@ -212,9 +268,17 @@ class ChatViewModel(
     /** 新着の取得を（再）開始する。通信が続けて失敗したら少しずつ間を空けて取り直し、上限を超えたら止める。 */
     fun startUpdates() {
         val session = session ?: return
-        updatesJob?.cancel()
+        // 背景にいる間は取りに行かない。前面に戻ったときに始める。
+        if (!foreground) {
+            resumeOnForeground = true
+            return
+        }
+        val previous = updatesJob
+        previous?.cancel()
         _state.update { it.copy(connection = Connection.CONNECTED) }
-        updatesJob = viewModelScope.launch {
+        updatesJob = scope.launch {
+            // 前の取得が止まりきってから集め始める（ChatSession の取得を 2 本にしない）。
+            previous?.join()
             var failures = 0
             while (true) {
                 try {
@@ -256,6 +320,9 @@ class ChatViewModel(
                 connection = Connection.CONNECTED,
             )
         }
+        // 届いた行は新しい順の先頭に並ぶ。
+        val added = _state.value.lines.take(update.newLines.size)
+        _activity.update { it.copy(unseen = unseenAfter(it.unseen, visible, added)) }
     }
 
     private fun uiLine(line: ChatLine, me: MySpeaker) = UiLine(nextId++, line, isMine = me.isMine(line))
@@ -273,7 +340,7 @@ class ChatViewModel(
         if (!s.canSend) return
         val text = s.input.trim()
         _state.update { it.copy(input = "", isSending = true, sendError = null) }
-        viewModelScope.launch {
+        scope.launch {
             try {
                 apply(session.send(text), sent = text)
                 _state.update { it.copy(isSending = false) }
@@ -310,7 +377,7 @@ class ChatViewModel(
         val s = _state.value
         if (!s.canRunOwnerAction) return
         _state.update { it.copy(ownerAction = action, ownerNotice = null) }
-        viewModelScope.launch {
+        scope.launch {
             var shouldRestartUpdates = false
             try {
                 if (pauseUpdates) {
@@ -347,7 +414,7 @@ class ChatViewModel(
         if (_state.value.isLeaving) return
         updatesJob?.cancel()
         _state.update { it.copy(isLeaving = true, leaveError = null) }
-        viewModelScope.launch {
+        scope.launch {
             val s = _state.value
             if (s.endMessage == null && session != null) {
                 try {

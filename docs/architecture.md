@@ -48,7 +48,7 @@ AppNavHost / LovelyAppShell
   └─ マイルーム ui/main (ProfileScreen)        プリセット管理・部屋作成・設定
   ├─ ui/entry   入室（プロフィール入力。ロボット確認が必要なら WebView）
   ├─ ui/create  部屋作成（入力 → 本家の作成画面を WebView で開いて入力済みにする）
-  ├─ ui/chat    会話（ChatViewModel が ChatSession を使う）
+  ├─ ui/chat    会話（ActiveRooms が持つ ChatController が ChatSession を使う）
   ├─ ui/web     WebView（SiteWebView）、公開ルームの閲覧
   ├─ ui/settings 表示・部屋一覧・非表示の管理
   └─ lock        アプリロック（MainActivity が全画面の上にロック画面をかぶせる）
@@ -76,7 +76,7 @@ AppNavHost / LovelyAppShell
 
 ### 会話
 
-`ChatViewModel` が `ShaloveClient.openChat` で初回表示を読み、`ChatSession.updates()` で新着を受け取り続けます。発言は `ChatSession.send`。退室は `shotact=bye`、作成者の閉鎖は `shotact=close`（失敗したら画面に留まってやり直せる）。作成者は右上のメニューから、相手を退室させる・発言クリア・待機メッセージの変更・公開設定の切り替えができる（`ShaloveClient.banGuest` / `clearLog` / `changeWaitingMessage` / `setPublic`）。
+`ChatController`（部屋ごとに 1 つ、`ActiveRooms` が持つ）が `ShaloveClient.openChat` で初回表示を読み、`ChatSession.updates()` で新着を受け取り続けます。会話画面の ← は部屋に残ったまま一覧へ戻り、アプリが前面にある間は一覧を見ていても取得を続けます（背景に回ったら止め、前面に戻ったら再開）。退室・部屋を閉じる・別の部屋への入室で接続を止めます。発言は `ChatSession.send`。退室は `shotact=bye`、作成者の閉鎖は `shotact=close`（失敗したら画面に留まってやり直せる）。作成者は右上のメニューから、相手を退室させる・発言クリア・待機メッセージの変更・公開設定の切り替えができる（`ShaloveClient.banGuest` / `clearLog` / `changeWaitingMessage` / `setPublic`）。
 
 ### 部屋作成
 

@@ -2,6 +2,9 @@ package io.github.springthief1123.lovelyspace.ui.chat
 
 import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -81,16 +84,61 @@ class ActiveRoomsTest {
         assertNull(ActiveRooms(disk).resumable.value)
     }
 
-    @Test fun dismissalLastsForTheProcessOnly() {
+    @Test fun collapsingLastsForTheProcessOnlyAndANewRoomShowsTheFullBar() {
         val disk = MemoryPersistence()
         val rooms = ActiveRooms(disk)
         val id = rooms.register(room)
-        rooms.dismiss(id)
-        assertEquals(id, rooms.dismissed.value)
-        // 再起動後（新しいインスタンス）は記録が残っていても閉じた状態は戻らない。
+        rooms.collapse(id)
+        assertEquals(id, rooms.collapsed.value)
+        // 再起動後（新しいインスタンス）は記録が残っていても小さくした状態は戻らない。
         val restarted = ActiveRooms(disk)
         assertEquals(id, restarted.resumable.value?.sessionId)
-        assertNull(restarted.dismissed.value)
+        assertNull(restarted.collapsed.value)
+        // 別の部屋に入ったら、帯は元の大きさで出す。
+        rooms.register(room.copy(roomId = 900000002L))
+        assertNull(rooms.collapsed.value)
+    }
+
+    private class FakeConnection : RoomConnection {
+        var foreground = true
+        var closed = false
+        override fun setForeground(value: Boolean) { foreground = value }
+        override fun close() { closed = true }
+    }
+
+    @Test fun oneConnectionPerRoomSurvivesLeavingTheChatScreen() {
+        val rooms = ActiveRooms(MemoryPersistence())
+        val id = rooms.register(room)
+        var created = 0
+        val first = rooms.connection(id) { created++; FakeConnection() }!!
+        // 一覧から会話に戻っても、同じ接続を使う（取得が 2 本にならない）。
+        val again = rooms.connection(id) { created++; FakeConnection() }!!
+        assertSame(first, again)
+        assertEquals(1, created)
+        assertSame(first, rooms.existingConnection(id))
+        // 背景に回ったら止め、前面に戻ったら再開を伝える。
+        rooms.setForeground(false)
+        assertFalse(first.foreground)
+        rooms.setForeground(true)
+        assertTrue(first.foreground)
+        // 退室で接続を止めて外す。
+        rooms.remove(id)
+        assertTrue(first.closed)
+        assertNull(rooms.existingConnection(id))
+        assertNull(rooms.connection(id) { created++; FakeConnection() })
+        assertEquals(1, created)
+    }
+
+    @Test fun enteringAnotherRoomStopsThePreviousConnection() {
+        val rooms = ActiveRooms(MemoryPersistence())
+        val first = rooms.connection(rooms.register(room)) { FakeConnection() }!!
+        val nextId = rooms.register(room.copy(roomId = 900000002L))
+        assertTrue(first.closed)
+        // 背景にいる間に作った接続は、止めた状態から始める。
+        rooms.setForeground(false)
+        val next = rooms.connection(nextId) { FakeConnection() }!!
+        assertFalse(next.foreground)
+        assertFalse(next.closed)
     }
 
     @Test fun storageFailureDoesNotBreakTheChat() {

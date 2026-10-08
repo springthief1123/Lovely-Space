@@ -101,12 +101,17 @@ class MainActivity : FragmentActivity() {
     override fun onStart() {
         super.onStart()
         (application as LovelySpaceApp).appLock.onForeground()
+        // 入室中の部屋は、アプリが前面にある間だけ新着を取りに行く（一覧を見ている間も続ける）。
+        (application as LovelySpaceApp).activeRooms.setForeground(true)
     }
 
     override fun onStop() {
         super.onStop()
         // 画面の回転などの作り直しは、背景に回ったことにしない。
-        if (!isChangingConfigurations) (application as LovelySpaceApp).appLock.onBackground()
+        if (!isChangingConfigurations) {
+            (application as LovelySpaceApp).appLock.onBackground()
+            (application as LovelySpaceApp).activeRooms.setForeground(false)
+        }
     }
 
     /**
