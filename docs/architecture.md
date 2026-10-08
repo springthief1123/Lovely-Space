@@ -50,12 +50,14 @@ AppNavHost / LovelyAppShell
   ├─ ui/create  部屋作成（入力 → 本家の作成画面を WebView で開いて入力済みにする）
   ├─ ui/chat    会話（ChatViewModel が ChatSession を使う）
   ├─ ui/web     WebView（SiteWebView）、公開ルームの閲覧
-  └─ ui/settings 表示・部屋一覧・非表示の管理
+  ├─ ui/settings 表示・部屋一覧・非表示の管理
+  └─ lock        アプリロック（MainActivity が全画面の上にロック画面をかぶせる）
 ```
 
 | パッケージ | 内容 |
 | --- | --- |
 | `data` | Room DB（`PresetDatabase`、現在 version 4）。プロフィール / 待機メッセージのプリセット、検索条件、部屋のお気に入り・非表示、レーダーの状態（`LocalState` に JSON で保存）。`RoomListRepository` は発見・巡回・追跡が同じ一覧の取得結果を共有するための層 |
+| `lock` | アプリロック。設定とパスコード・パターンのハッシュ（塩つき PBKDF2）は起動直後に同期で読めるよう SharedPreferences（`app_lock`）に置く。`MainActivity` の `onStop` / `onStart` で背景にいた時間を測り、選んだ時間を過ぎていればロックする |
 | `settings` | DataStore の設定（テーマ・文字サイズ・起動カテゴリなど）、WebView の Cookie 保管 |
 | `ui/components`, `ui/theme` | デザインの部品とトークン（Quiet Rose。[quiet-rose-redesign.md](quiet-rose-redesign.md)） |
 
