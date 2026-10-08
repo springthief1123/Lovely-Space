@@ -60,6 +60,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
     val c = state.criteria
     val validAges = state.validAges
     var showFilters by remember { mutableStateOf(false) }
+    var showSearch by remember { mutableStateOf(false) }
     var selectedRoom by remember { mutableStateOf<Room?>(null) }
     LaunchedEffect(state.initialized, refreshKey) { if (state.initialized) vm.onRefreshKey(refreshKey) }
     LaunchedEffect(state.genre) { onGenreChanged(state.genre) }
@@ -100,12 +101,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
         // ジャンル名が画面の見出しを兼ねる。
         if (state.initialized) item { GenreBar(state.genre, emptyList(), emptyMap(), { vm.genre(it); vm.refresh() }) }
-        item {
-            OutlinedTextField(c.text, { vm.criteria(c.copy(text = it)) }, placeholder = { Text("名前・待機メッセージを検索") },
-                leadingIcon = { Icon(Icons.Outlined.Search, null) },
-                trailingIcon = if (c.text.isNotEmpty()) ({ IconButton(onClick = { vm.criteria(c.copy(text = "")) }) { Icon(Icons.Outlined.Close, "検索語を消す") } }) else null,
-                singleLine = true, shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth())
-        }
+        item { SearchField(c.text) { vm.criteria(c.copy(text = it)) } }
         item {
             QuickFilterRow(
                 criteria = c,
@@ -158,11 +154,48 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         }
     }
     }
+    // 検索欄・絞り込み・更新が上に流れて見えなくなったら、上部のバーの下に小さなバーを出してすぐ届くようにする。
+    val statusRowIndex = if (state.initialized) 3 else 2
+    val controlsHidden by remember(statusRowIndex) { derivedStateOf { listState.firstVisibleItemIndex > statusRowIndex } }
+    androidx.compose.animation.AnimatedVisibility(
+        controlsHidden,
+        enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically { -it / 2 },
+        exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically { -it / 2 },
+        modifier = Modifier.align(Alignment.TopCenter)
+            .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + LovelySpacing.topBarHeight + 8.dp),
+    ) {
+        CompactSearchBar(
+            query = c.text,
+            advancedCount = advancedFilterCount(c),
+            loading = state.loading,
+            refreshEnabled = state.initialized && !state.loading,
+            onSearch = { showSearch = true },
+            onFilters = { showFilters = true },
+            onRefresh = { vm.refresh() },
+            onTop = { scope.launch { listState.animateScrollToItem(0) } },
+        )
+    }
     SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = lovelyMainContentBottomInset()))
     }
     selectedRoom?.let { room -> RoomDetailsSheet(room, preferences.isFavorite(room), preferences.canEdit(room),
         onDismiss = { selectedRoom = null }, onFavorite = { preferencesVm.toggleFavorite(room) },
         onHide = { preferencesVm.hide(room); selectedRoom = null }, onEnter = onEnterRoom, onPeek = onPeekRoom) }
+    // 一覧の途中から開く検索。閉じても一覧の位置はそのまま。
+    if (showSearch) ModalBottomSheet(onDismissRequest = { showSearch = false }) {
+        Column(Modifier.fillMaxWidth().imePadding().padding(LovelySpacing.screenHorizontal), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("検索", style = MaterialTheme.typography.titleLarge)
+            SearchField(c.text) { vm.criteria(c.copy(text = it)) }
+            QuickFilterRow(
+                criteria = c,
+                advancedCount = advancedFilterCount(c),
+                onChange = vm::criteria,
+                onOpenFilters = { showSearch = false; showFilters = true },
+            )
+            Text(searchStatusText(state.page, state.lastPage, if (validAges) visibleResults.size else 0, state.loading || !state.initialized, null),
+                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(16.dp))
+        }
+    }
     if (showFilters) ModalBottomSheet(onDismissRequest = { showFilters = false }) {
         Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(LovelySpacing.screenHorizontal), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("検索条件", style = MaterialTheme.typography.titleLarge)
@@ -263,6 +296,48 @@ private fun QuickFilterRow(
             FilterChip(advancedCount > 0, onOpenFilters,
                 label = { Text(if (advancedCount > 0) "絞り込み $advancedCount" else "絞り込み") },
                 leadingIcon = { Icon(Icons.Outlined.Tune, null, Modifier.size(16.dp)) })
+        }
+    }
+}
+
+@Composable
+private fun SearchField(text: String, onChange: (String) -> Unit) {
+    OutlinedTextField(text, onChange, placeholder = { Text("名前・待機メッセージを検索") },
+        leadingIcon = { Icon(Icons.Outlined.Search, null) },
+        trailingIcon = if (text.isNotEmpty()) ({ IconButton(onClick = { onChange("") }) { Icon(Icons.Outlined.Close, "検索語を消す") } }) else null,
+        singleLine = true, shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth())
+}
+
+/** 一覧をスクロールしたときに上部に出す、検索・絞り込み・更新・先頭へのボタン。 */
+@Composable
+private fun CompactSearchBar(
+    query: String,
+    advancedCount: Int,
+    loading: Boolean,
+    refreshEnabled: Boolean,
+    onSearch: () -> Unit,
+    onFilters: () -> Unit,
+    onRefresh: () -> Unit,
+    onTop: () -> Unit,
+) {
+    io.github.springthief1123.lovelyspace.ui.components.LovelyGlassSurface(shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp)) {
+        Row(Modifier.padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onSearch, modifier = Modifier.widthIn(max = 180.dp)) {
+                Icon(Icons.Outlined.Search, null, Modifier.size(18.dp))
+                Text(query.ifEmpty { "検索" }, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 6.dp))
+            }
+            IconButton(onClick = onFilters) {
+                BadgedBox(badge = { if (advancedCount > 0) Badge { Text("$advancedCount") } }) {
+                    Icon(Icons.Outlined.Tune, if (advancedCount > 0) "絞り込み（${advancedCount}件）" else "絞り込み")
+                }
+            }
+            if (loading) {
+                Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) }
+            } else {
+                IconButton(onClick = onRefresh, enabled = refreshEnabled) { Icon(Icons.Outlined.Refresh, "今すぐ更新") }
+            }
+            IconButton(onClick = onTop) { Icon(Icons.Outlined.ArrowUpward, "一覧の先頭へ") }
         }
     }
 }
