@@ -18,8 +18,9 @@ class SearchHeaderTest {
             minAge = 20, maxAge = 30, includeUnknownAge = false, area = "東京",
             waitingOnly = false, sort = RoomSort.ELAPSED,
         )
-        assertEquals(8, advancedFilterCount(criteria))
-        assertEquals(1, advancedFilterCount(RoomSearchCriteria(publicOnly = false)))
+        assertEquals(7, advancedFilterCount(criteria))
+        // 「満室」「非公開」もチップで指定するので、詳しい条件には数えない。
+        assertEquals(0, advancedFilterCount(RoomSearchCriteria(publicOnly = false)))
     }
 
     @Test fun statusTextSummarizesListInOneLine() {
@@ -34,7 +35,13 @@ class SearchHeaderTest {
         val quick = RoomSearchCriteria(gender = Gender.FEMALE, waitingOnly = true, publicOnly = true, text = "映画")
         assertEquals(4, activeFilterCount(quick))
         assertEquals(5, activeFilterCount(quick.copy(sort = RoomSort.AGE)))
-        // 「満室」「非公開」はチップではなく詳しい条件として 1 件ずつ数える。
+        // 「満室」「非公開」もチップの条件として 1 件ずつ数える。
         assertEquals(2, activeFilterCount(RoomSearchCriteria(waitingOnly = false, publicOnly = false)))
+    }
+
+    @Test fun statusChipsCycleThroughAllThreeStates() {
+        assertEquals(listOf(true, false, null), listOf(nextTriState(null), nextTriState(true), nextTriState(false)))
+        assertEquals("利用状況", triStateLabel(null, "利用状況", "待機中", "満室"))
+        assertEquals("満室", triStateLabel(false, "利用状況", "待機中", "満室"))
     }
 }

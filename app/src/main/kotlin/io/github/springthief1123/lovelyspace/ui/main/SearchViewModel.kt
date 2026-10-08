@@ -43,7 +43,9 @@ data class SearchUiState(
 ) {
     val validAges: Boolean get() = (minAgeInput.isEmpty() || minAgeInput.toIntOrNull()?.let { it in 18..99 } == true) &&
         (maxAgeInput.isEmpty() || maxAgeInput.toIntOrNull()?.let { it in 18..99 } == true) && criteria.isValid
-    val results: List<Room> get() = if (validAges) searchRooms(rooms, criteria) else emptyList()
+    /** 一覧に使う条件。年齢の入力が正しくない間は年齢の条件だけを外し、一覧は消さない。 */
+    val effectiveCriteria: RoomSearchCriteria get() = if (validAges) criteria else criteria.copy(minAge = null, maxAge = null)
+    val results: List<Room> get() = searchRooms(rooms, effectiveCriteria)
     val canLoadMore: Boolean get() = page in 1 until lastPage && !loading
 }
 
@@ -120,6 +122,7 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
     fun more() { if (_state.value.canLoadMore) load(_state.value.page + 1, false) }
     fun automatic(enabled: Boolean) = _state.update { it.copy(automatic = enabled) }
     fun clearNewRooms() = _state.update { it.copy(newRoomIds = emptySet()) }
+    fun clearPreferenceError() = _state.update { it.copy(preferenceError = null) }
     fun stopRefresh() { job?.cancel(); _state.update { it.copy(loading = false) } }
 
     /** 画面が前面にある間だけ実行。取消はHTTP取得にも伝わる。 */

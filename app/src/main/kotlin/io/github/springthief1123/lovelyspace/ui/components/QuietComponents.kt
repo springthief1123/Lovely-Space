@@ -7,6 +7,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -113,5 +116,48 @@ fun QuietListPanel(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null,
                 .padding(start = 14.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp), content = content,
         )
+    }
+}
+
+/**
+ * 一覧の上に出す短いお知らせ。エラーは色で目立たせ、閉じる・やり直すの操作を 1 つずつ置ける。
+ * 文字だけの赤い行と違い、何が起きて次に何をすればよいかを 1 か所で伝える。
+ */
+@Composable
+fun QuietNotice(
+    text: String,
+    error: Boolean = false,
+    onDismiss: (() -> Unit)? = null,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+    actionEnabled: Boolean = true,
+) {
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        Modifier.fillMaxWidth(),
+        color = if (error) colors.errorContainer else colors.surfaceVariant,
+        contentColor = if (error) colors.onErrorContainer else colors.onSurfaceVariant,
+        shape = RoundedCornerShape(14.dp),
+    ) {
+        Column(Modifier.padding(start = 14.dp, end = 4.dp, top = 8.dp, bottom = 8.dp)) {
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Icon(
+                    if (error) Icons.Outlined.ErrorOutline else Icons.Outlined.Info,
+                    contentDescription = if (error) "エラー" else "お知らせ",
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(text, Modifier.weight(1f).padding(vertical = 6.dp), style = MaterialTheme.typography.bodyMedium)
+                if (onDismiss != null) {
+                    IconButton(onClick = onDismiss) { Icon(Icons.Outlined.Close, contentDescription = "閉じる") }
+                }
+            }
+            if (actionLabel != null && onAction != null) {
+                androidx.compose.material3.TextButton(
+                    onClick = onAction, enabled = actionEnabled,
+                    modifier = Modifier.align(androidx.compose.ui.Alignment.End),
+                ) { Text(actionLabel) }
+            }
+        }
     }
 }

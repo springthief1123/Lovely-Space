@@ -28,6 +28,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.TransformOrigin
@@ -194,15 +196,19 @@ private fun QuickFilterRow(
                 { onChange(criteria.copy(gender = if (criteria.gender == Gender.MALE) null else Gender.MALE)) },
                 label = { Text("男性") })
         }
+        // 利用状況と公開設定は、押すたびに「すべて → 片方 → もう片方 → すべて」と切り替える。
+        // 詳しい条件に同じ項目を二重に置かず、指定中の状態がチップだけで分かるようにする。
         item {
-            FilterChip(criteria.waitingOnly == true,
-                { onChange(criteria.copy(waitingOnly = if (criteria.waitingOnly == true) null else true)) },
-                label = { Text("待機中") })
+            FilterChip(criteria.waitingOnly != null,
+                { onChange(criteria.copy(waitingOnly = nextTriState(criteria.waitingOnly))) },
+                label = { Text(triStateLabel(criteria.waitingOnly, "利用状況", "待機中", "満室")) },
+                modifier = Modifier.semantics { stateDescription = triStateLabel(criteria.waitingOnly, "すべて", "待機中", "満室") })
         }
         item {
-            FilterChip(criteria.publicOnly == true,
-                { onChange(criteria.copy(publicOnly = if (criteria.publicOnly == true) null else true)) },
-                label = { Text("公開") })
+            FilterChip(criteria.publicOnly != null,
+                { onChange(criteria.copy(publicOnly = nextTriState(criteria.publicOnly))) },
+                label = { Text(triStateLabel(criteria.publicOnly, "公開設定", "公開", "非公開")) },
+                modifier = Modifier.semantics { stateDescription = triStateLabel(criteria.publicOnly, "すべて", "公開", "非公開") })
         }
         if (onToggleDetails != null) item {
             FilterChip(advancedCount > 0 || expanded, onToggleDetails,
@@ -239,8 +245,6 @@ private fun SearchDetails(state: SearchUiState, vm: SearchViewModel) {
         Row { Checkbox(c.includeUnknownAge, { vm.criteria(c.copy(includeUnknownAge = it)) }); Text("年齢が秘密の部屋も含める", Modifier.weight(1f).padding(top = 12.dp)) }
         // 検索の未指定は「すべて」。プロフィール側の秘密とは別の意味。
         AreaFilter(c.area) { vm.criteria(c.copy(area = it)) }
-        ChoiceRow("利用状況", c.waitingOnly, listOf(null to "すべて", true to "待機中", false to "満室")) { vm.criteria(c.copy(waitingOnly = it)) }
-        ChoiceRow("公開設定", c.publicOnly, listOf(null to "すべて", true to "公開", false to "非公開")) { vm.criteria(c.copy(publicOnly = it)) }
         ChoiceRow("並び順", c.sort, listOf(RoomSort.SITE to "一覧順", RoomSort.NAME to "名前", RoomSort.AGE to "年齢", RoomSort.ELAPSED to "経過")) { vm.criteria(c.copy(sort = it)) }
     }
 }
@@ -273,3 +277,8 @@ private fun AreaFilter(selected: String?, onSelect: (String?) -> Unit) {
 }
 
 private val POPOVER_MARGIN = 12.dp
+
+/** 3 段階のチップの次の値。未指定 → true → false → 未指定。 */
+internal fun nextTriState(value: Boolean?): Boolean? = when (value) { null -> true; true -> false; false -> null }
+
+internal fun triStateLabel(value: Boolean?, none: String, yes: String, no: String) = when (value) { null -> none; true -> yes; false -> no }

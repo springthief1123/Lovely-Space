@@ -57,6 +57,27 @@ class SearchViewModelTest {
         } finally { Dispatchers.resetMain() }
     }
 
+    @Test fun invalidAgeInputOnlyDropsTheAgeConditionAndKeepsTheList() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val vm = SearchViewModel(RoomListSource { query, _ ->
+                page(query.genre.key, 1, listOf(room(1).copy(age = 20), room(2).copy(age = 40, gender = Gender.FEMALE)))
+            })
+            vm.refresh(); runCurrent()
+            vm.criteria(RoomSearchCriteria(minAge = 30, gender = Gender.FEMALE))
+            vm.minAge("30")
+            assertEquals(listOf(2L), vm.state.value.results.map { it.id })
+            // 入力途中の「3」は範囲外。年齢の条件だけを外し、性別の条件と一覧は残す。
+            vm.minAge("3")
+            assertFalse(vm.state.value.validAges)
+            assertNull(vm.state.value.effectiveCriteria.minAge)
+            assertEquals(Gender.FEMALE, vm.state.value.effectiveCriteria.gender)
+            assertEquals(listOf(2L), vm.state.value.results.map { it.id })
+            vm.criteria(vm.state.value.criteria.copy(gender = null))
+            assertEquals(listOf(1L, 2L), vm.state.value.results.map { it.id })
+        } finally { Dispatchers.resetMain() }
+    }
+
     private fun room(id: Long, genre: String = "zenkoku") = Room(id, genre, RoomStatus.WAITING, RoomAction.ENTER,
         null, "合成$id", Gender.UNKNOWN, null, null, "テスト")
     private fun page(genre: String, number: Int, rooms: List<Room>) = RoomListPage(genre, rooms, null, null, number, 2, emptyMap(), null)
