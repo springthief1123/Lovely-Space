@@ -185,8 +185,6 @@ class WaitlistRepository(
         const val MAX_ACTIVE = 5
         /** 登録から期限までの時間。 */
         const val DEFAULT_HOURS = 3
-        /** 背景の 1 回の実行で順番待ちのために取得するページ数の上限。 */
-        const val MAX_PAGES = 3
         private const val HOUR_MS = 60 * 60 * 1000L
     }
 }

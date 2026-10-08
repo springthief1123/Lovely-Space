@@ -11,7 +11,6 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
-import io.github.springthief1123.lovelyspace.data.WaitlistRepository
 import io.github.springthief1123.lovelyspace.notify.toMatchNotification
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
@@ -64,11 +63,15 @@ class RadarSyncWorker(context: Context, params: WorkerParameters) : CoroutineWor
         val radar = app.radar
         val state = withTimeoutOrNull(LOAD_TIMEOUT_MS) { radar.state.first { it.loaded || it.error != null } }
         return try {
+            // 1 回の実行で取得するのは、背景の巡回と順番待ちを合わせて MAX_PAGES まで。
+            // 順番待ちがあれば 1 ページは順番待ちに残し、巡回が使わなかった分も順番待ちに回す。
+            val attemptsBefore = app.roomLists.fetchAttempts
+            val radarPages = if (app.waitlist.hasActive()) MAX_PAGES - 1 else MAX_PAGES
             // レーダーを読み込めなかったときも、順番待ちの確認は続ける（順番待ちはレーダーとは別に保存している）。
             if (state != null && state.loaded) {
                 // 前面で巡回中なら、同じページを二重に取らないよう今回の巡回は見送る。計画がすべて止まっていれば取得しない。
                 if (state.activeBackgroundPlans.isNotEmpty() && !state.running) {
-                    radar.scan(latestFirst = true, force = false, maxPages = MAX_PAGES, backgroundOnly = true)
+                    radar.scan(latestFirst = true, force = false, maxPages = radarPages, backgroundOnly = true)
                 }
                 // 一致は履歴に「未通知」として保存されている。前回の実行が通知の途中で止まった分もここで出す
                 // （同じ ID の通知・お知らせは置き換わるので、二重には並ばない）。
@@ -77,7 +80,8 @@ class RadarSyncWorker(context: Context, params: WorkerParameters) : CoroutineWor
                 radar.markNoticed(pending.map { it.id }.toSet())
             }
             // 順番待ちは待っている部屋のページだけを取得する。空きの通知は WaitlistRepository が出す。
-            app.waitlist.check(WaitlistRepository.MAX_PAGES)
+            val used = (app.roomLists.fetchAttempts - attemptsBefore).toInt()
+            app.waitlist.check((MAX_PAGES - used).coerceAtLeast(0))
             if (state == null) Result.retry() else Result.success()
         } catch (e: CancellationException) {
             throw e
