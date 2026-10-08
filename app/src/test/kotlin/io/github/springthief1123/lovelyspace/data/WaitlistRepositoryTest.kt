@@ -119,25 +119,35 @@ class WaitlistRepositoryTest {
         var clock = 0L
         val memory = Memory()
         val waitlist = WaitlistRepository(memory, Lists(), {}, backgroundScope) { clock }
-        (1L..3L).forEach { waitlist.register(full.copy(id = it)) }
+        (1L..3L).forEach { clock = it; waitlist.register(full.copy(id = it)) }
         val before = waitlist.entries.value
-        val removed = before[1]
-        waitlist.remove(removed.key)
+        // 続けて 2 件取り消し、取り消した順に戻しても元の並びに戻る。
+        val (newest, middle) = before[0] to before[1]
+        waitlist.remove(middle.key)
+        waitlist.remove(newest.key)
         clock = 1000
-        waitlist.restore(removed, 1)
+        waitlist.restore(middle)
+        waitlist.restore(newest)
         // 元の位置・元の期限で戻り、保存先にも書かれる。
         assertEquals(before, waitlist.entries.value)
         assertEquals(before, memory.saved)
         // 同じ部屋がすでに登録し直されていれば、新しい登録を残す。
-        waitlist.remove(removed.key)
-        waitlist.register(removed.room)
+        waitlist.remove(middle.key)
+        waitlist.register(middle.room)
         val renewed = waitlist.entries.value
-        waitlist.restore(removed, 1)
+        waitlist.restore(middle)
         assertEquals(renewed, waitlist.entries.value)
         // 上限に達していれば、待っている登録は戻さない。
-        waitlist.remove(removed.key)
+        waitlist.remove(middle.key)
         (10L..12L).forEach { waitlist.register(full.copy(id = it)) }
-        assertThrows(IllegalArgumentException::class.java) { kotlinx.coroutines.runBlocking { waitlist.restore(removed, 0) } }
+        assertThrows(IllegalArgumentException::class.java) { kotlinx.coroutines.runBlocking { waitlist.restore(middle) } }
+        // 戻すまでに期限を過ぎていれば、期限切れとして戻す。
+        waitlist.remove(newest.key)
+        clock = newest.expiresAt
+        waitlist.restore(newest)
+        val expired = waitlist.entries.value.single { it.key == newest.key }
+        assertEquals(WaitlistStatus.EXPIRED, expired.status)
+        assertEquals(clock, expired.changedAt)
     }
 
     @Test fun storeRoundTripsEntries() {

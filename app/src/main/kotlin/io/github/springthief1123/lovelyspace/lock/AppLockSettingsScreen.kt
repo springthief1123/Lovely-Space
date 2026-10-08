@@ -59,7 +59,7 @@ fun AppLockSettingsScreen(onBack: () -> Unit) {
             title = if (change.method == null) "ロックをオフにする" else "${change.method.label}に変更",
             state = state,
             check = controller::verify,
-            biometric = config.biometric,
+            verifyBiometric = if (config.biometric) controller::verifyWithBiometric else null,
             onVerified = {
                 verifying = null
                 if (change.method == null) controller.disable() else setup = change.method
@@ -141,7 +141,7 @@ private fun LockVerify(
     title: String,
     state: AppLockState,
     check: (String) -> Boolean,
-    biometric: Boolean,
+    verifyBiometric: (() -> Boolean)?,
     onVerified: () -> Unit,
     onCancel: () -> Unit,
 ) {
@@ -155,7 +155,8 @@ private fun LockVerify(
         ) {
             Text("続けるには、いまの解除方法で確認してください。", style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
             Spacer(Modifier.height(20.dp))
-            LockChallenge(state, check = check, onSuccess = onVerified, onBiometricSuccess = if (biometric) onVerified else null)
+            LockChallenge(state, check = check, onSuccess = onVerified,
+                onBiometricSuccess = verifyBiometric?.let { verify -> { if (verify()) onVerified() } })
             Spacer(Modifier.height(16.dp))
             TextButton(onClick = onCancel) { Text("やめる") }
         }

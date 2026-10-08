@@ -193,9 +193,15 @@ class AppLockController(
 
     /** 生体認証が通ったとき。 */
     fun unlockWithBiometric() {
-        if (!_state.value.config.biometric) return
-        _state.update { it.copy(locked = false, failures = 0, lockedOutUntil = 0) }
+        if (verifyWithBiometric()) _state.update { it.copy(locked = false) }
+    }
+
+    /** 設定を変える前の確認で生体認証が通ったとき。パスコードと同じく、それまでの間違いを消す。 */
+    fun verifyWithBiometric(): Boolean {
+        if (!_state.value.config.biometric) return false
+        _state.update { it.copy(failures = 0, lockedOutUntil = 0) }
         store.saveAttempts(0, 0)
+        return true
     }
 
     /** ロックを有効にする、または解除の方法を変える。[secret] はパスコードの数字かパターンの文字列。 */

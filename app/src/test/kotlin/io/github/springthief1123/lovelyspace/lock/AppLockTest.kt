@@ -148,6 +148,20 @@ class AppLockTest {
         assertFalse(controller.state.value.locked)
     }
 
+    @Test fun biometricVerificationClearsEarlierMistakesWithoutUnlocking() {
+        val controller = AppLockController(MemoryStore(), { 0 }, { 0 })
+        controller.enable(LockMethod.PASSCODE, "2468")
+        controller.onBackground()
+        assertFalse(controller.verifyWithBiometric())
+        controller.setBiometric(true)
+        controller.onBackground()
+        repeat(AppLockController.MAX_FAILURES - 1) { assertFalse(controller.verify("0000")) }
+        assertTrue(controller.verifyWithBiometric())
+        assertTrue(controller.state.value.locked)
+        assertEquals(0, controller.state.value.failures)
+        assertEquals(0L, controller.state.value.lockedOutUntil)
+    }
+
     @Test fun patternFindsDotsAndTheDotsInBetween() {
         assertEquals(0, patternDotAt(Offset(50f, 50f), 300f))
         assertEquals(8, patternDotAt(Offset(250f, 250f), 300f))
