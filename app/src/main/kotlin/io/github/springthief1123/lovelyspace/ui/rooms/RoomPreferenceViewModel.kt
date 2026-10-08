@@ -45,6 +45,9 @@ class RoomPreferenceViewModel(private val store: RoomPreferenceStore) : ViewMode
     val state = _state.asStateFlow()
     private val hiddenEvents = Channel<Room>(Channel.BUFFERED)
     val hiddenRooms = hiddenEvents.receiveAsFlow()
+    private val unfavoritedEvents = Channel<RoomPreference>(Channel.BUFFERED)
+    /** 保存を解除できた記録。画面は「元に戻す」を出し、押されたら [restoreFavorite] に渡す。 */
+    val unfavorited = unfavoritedEvents.receiveAsFlow()
     private var collection: Job? = null
 
     init { reload() }
@@ -87,9 +90,12 @@ class RoomPreferenceViewModel(private val store: RoomPreferenceStore) : ViewMode
     fun unhide(room: Room) = action(roomKey(room)) { store.setHidden(room, false) }
 
     fun clearFavorite(value: RoomPreference) =
-        action(RoomPreferenceUiState.key(value.host, value.roomId)) {
+        action(RoomPreferenceUiState.key(value.host, value.roomId), onSuccess = { unfavoritedEvents.trySend(value) }) {
             store.clearFavorite(value.host, value.roomId)
         }
+
+    fun restoreFavorite(value: RoomPreference) =
+        action(RoomPreferenceUiState.key(value.host, value.roomId)) { store.restoreFavorite(value) }
 
     fun clearHidden(value: RoomPreference) =
         action(RoomPreferenceUiState.key(value.host, value.roomId)) {

@@ -115,6 +115,31 @@ class WaitlistRepositoryTest {
         assertEquals(WaitlistRepository.MAX_ACTIVE - 1, waitlist.entries.value.size)
     }
 
+    @Test fun aRemovedEntryCanBeRestoredInPlaceWithItsDeadline() = runTest {
+        var clock = 0L
+        val memory = Memory()
+        val waitlist = WaitlistRepository(memory, Lists(), {}, backgroundScope) { clock }
+        (1L..3L).forEach { waitlist.register(full.copy(id = it)) }
+        val before = waitlist.entries.value
+        val removed = before[1]
+        waitlist.remove(removed.key)
+        clock = 1000
+        waitlist.restore(removed, 1)
+        // 元の位置・元の期限で戻り、保存先にも書かれる。
+        assertEquals(before, waitlist.entries.value)
+        assertEquals(before, memory.saved)
+        // 同じ部屋がすでに登録し直されていれば、新しい登録を残す。
+        waitlist.remove(removed.key)
+        waitlist.register(removed.room)
+        val renewed = waitlist.entries.value
+        waitlist.restore(removed, 1)
+        assertEquals(renewed, waitlist.entries.value)
+        // 上限に達していれば、待っている登録は戻さない。
+        waitlist.remove(removed.key)
+        (10L..12L).forEach { waitlist.register(full.copy(id = it)) }
+        assertThrows(IllegalArgumentException::class.java) { kotlinx.coroutines.runBlocking { waitlist.restore(removed, 0) } }
+    }
+
     @Test fun storeRoundTripsEntries() {
         val prefs = ApplicationProvider.getApplicationContext<Context>().getSharedPreferences("waitlist-test", Context.MODE_PRIVATE)
         val entry = WaitlistEntry(full, RoomQuery(zenkoku, page = 3), 1L, 2L, WaitlistStatus.OPENED, lastSeenAt = 5L, missed = 1,

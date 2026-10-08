@@ -34,6 +34,29 @@ class SearchViewModelTest {
         } finally { Dispatchers.resetMain() }
     }
 
+    @Test fun resettingCriteriaCanBeUndoneWithoutNetwork() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val calls = mutableListOf<Int>()
+            val vm = SearchViewModel(RoomListSource { query, _ -> calls += query.page; page(query.genre.key, 1, listOf(room(1))) })
+            vm.refresh(); runCurrent()
+            assertNull(vm.resetCriteria())
+            vm.criteria(RoomSearchCriteria(text = "合成", gender = Gender.FEMALE))
+            vm.minAge("1")
+            val before = vm.state.value
+            val draft = vm.resetCriteria()
+            assertNotNull(draft)
+            assertEquals(RoomSearchCriteria(), vm.state.value.criteria)
+            assertEquals("", vm.state.value.minAgeInput)
+            // 入力途中の年齢も含めて戻す。
+            vm.restoreCriteria(draft!!)
+            assertEquals(before.criteria, vm.state.value.criteria)
+            assertEquals("1", vm.state.value.minAgeInput)
+            runCurrent()
+            assertEquals(listOf(1), calls)
+        } finally { Dispatchers.resetMain() }
+    }
+
     private fun room(id: Long, genre: String = "zenkoku") = Room(id, genre, RoomStatus.WAITING, RoomAction.ENTER,
         null, "合成$id", Gender.UNKNOWN, null, null, "テスト")
     private fun page(genre: String, number: Int, rooms: List<Room>) = RoomListPage(genre, rooms, null, null, number, 2, emptyMap(), null)

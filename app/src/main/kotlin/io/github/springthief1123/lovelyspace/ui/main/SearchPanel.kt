@@ -58,6 +58,7 @@ internal fun SearchPanel(
     vm: SearchViewModel,
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
+    onReset: () -> Unit,
 ) {
     val shape = RoundedCornerShape(24.dp)
     val scheme = MaterialTheme.colorScheme
@@ -82,7 +83,7 @@ internal fun SearchPanel(
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 SearchDetails(state, vm)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = { resetSearch(vm) }) { Text("条件をリセット") }
+                    TextButton(onClick = onReset) { Text("条件をリセット") }
                     TextButton(onClick = { onExpandedChange(false) }) { Text("閉じる") }
                 }
             }
@@ -102,6 +103,7 @@ internal fun SearchPopover(
     vm: SearchViewModel,
     statusText: String,
     onDismiss: () -> Unit,
+    onReset: () -> Unit,
 ) {
     val transition = remember { MutableTransitionState(false) }
     LaunchedEffect(visible) { transition.targetState = visible }
@@ -149,7 +151,7 @@ internal fun SearchPopover(
                     SearchField(state.criteria.text) { vm.criteria(state.criteria.copy(text = it)) }
                     QuickFilterRow(state.criteria, advancedFilterCount(state.criteria), expanded = true, onChange = vm::criteria, onToggleDetails = null)
                     SearchDetails(state, vm)
-                    TextButton(onClick = { resetSearch(vm) }) { Text("条件をリセット") }
+                    TextButton(onClick = onReset) { Text("条件をリセット") }
                 }
                 HorizontalDivider(color = scheme.outlineVariant)
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -268,10 +270,6 @@ private fun AreaFilter(selected: String?, onSelect: (String?) -> Unit) {
             Prefectures.names.forEach { area -> DropdownMenuItem(text = { Text(area) }, onClick = { onSelect(area); expanded = false }) }
         }
     }
-}
-
-private fun resetSearch(vm: SearchViewModel) {
-    vm.criteria(RoomSearchCriteria()); vm.minAge(""); vm.maxAge("")
 }
 
 private val POPOVER_MARGIN = 12.dp

@@ -21,6 +21,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+/** 「条件をリセット」の前の入力。「元に戻す」で戻す。年齢は入力途中の文字もそのまま持つ。 */
+data class SearchDraft(val criteria: RoomSearchCriteria, val minAgeInput: String, val maxAgeInput: String)
+
 data class SearchUiState(
     val genre: Genre = Genres.default,
     val criteria: RoomSearchCriteria = RoomSearchCriteria(),
@@ -74,6 +77,18 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
         if (key != handledRefreshKey && _state.value.initialized) { handledRefreshKey = key; refresh() }
     }
     fun criteria(value: RoomSearchCriteria) = _state.update { it.copy(criteria = value) }
+
+    /** 条件をすべて既定に戻し、戻す前の入力を返す。もともと既定なら何もせず null。 */
+    fun resetCriteria(): SearchDraft? {
+        val s = _state.value
+        val draft = SearchDraft(s.criteria, s.minAgeInput, s.maxAgeInput)
+        if (draft == SearchDraft(RoomSearchCriteria(), "", "")) return null
+        _state.update { it.copy(criteria = RoomSearchCriteria(), minAgeInput = "", maxAgeInput = "") }
+        return draft
+    }
+
+    fun restoreCriteria(draft: SearchDraft) =
+        _state.update { it.copy(criteria = draft.criteria, minAgeInput = draft.minAgeInput, maxAgeInput = draft.maxAgeInput) }
     fun minAge(value: String) {
         val input = value.filter(Char::isDigit).take(2)
         _state.update { it.copy(minAgeInput = input, criteria = it.criteria.copy(minAge = input.toIntOrNull())) }

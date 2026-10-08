@@ -78,6 +78,17 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
             if (snackbar.showSnackbar("部屋を非表示にしました", actionLabel = "元に戻す", withDismissAction = true) == SnackbarResult.ActionPerformed) preferencesVm.unhide(room)
         }
     }
+    // 条件のリセットは詳しい条件まで一度に消えるので、「元に戻す」を出す。
+    val resetSearch = remember(vm, snackbar, scope) { {
+        vm.resetCriteria()?.let { draft ->
+            scope.launch {
+                if (snackbar.showSnackbar("条件をリセットしました", actionLabel = "元に戻す", withDismissAction = true) == SnackbarResult.ActionPerformed) {
+                    vm.restoreCriteria(draft)
+                }
+            }
+        }
+        Unit
+    } }
     val quickActions = rememberRoomQuickActions(
         onNotice = { message -> scope.launch { snackbar.showSnackbar(message, withDismissAction = true) } },
     )
@@ -106,7 +117,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
         // ジャンル名が画面の見出しを兼ねる。
         if (state.initialized) item { GenreBar(state.genre, emptyList(), emptyMap(), { vm.genre(it); vm.refresh() }) }
-        item { SearchPanel(state, vm, panelExpanded, onExpandedChange = { panelExpanded = it }) }
+        item { SearchPanel(state, vm, panelExpanded, onExpandedChange = { panelExpanded = it }, onReset = resetSearch) }
         item {
             SearchStatusRow(
                 text = searchStatusText(state.page, state.lastPage, if (validAges) visibleResults.size else 0, state.loading || !state.initialized,
@@ -181,6 +192,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         vm = vm,
         statusText = searchStatusText(state.page, state.lastPage, if (validAges) visibleResults.size else 0, state.loading || !state.initialized, null),
         onDismiss = { searchOpen = false },
+        onReset = resetSearch,
     )
 }
 

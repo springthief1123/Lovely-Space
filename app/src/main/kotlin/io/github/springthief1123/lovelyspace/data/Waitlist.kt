@@ -111,6 +111,17 @@ class WaitlistRepository(
         save(_entries.value.filterNot { it.key == key })
     }
 
+    /**
+     * 取り消した登録 [entry] を「元に戻す」。元の位置 [index] に戻し、期限や確認の状態はそのまま引き継ぐ。
+     * その間に同じ部屋を登録し直していれば、新しい登録を残す。
+     */
+    suspend fun restore(entry: WaitlistEntry, index: Int) = mutex.withLock {
+        val current = _entries.value
+        if (current.any { it.key == entry.key }) return@withLock
+        require(!entry.active(now()) || current.count { it.active(now()) } < MAX_ACTIVE) { "順番待ちは同時に${MAX_ACTIVE}件までです。" }
+        save(current.toMutableList().apply { add(index.coerceIn(0, size), entry) })
+    }
+
     /** 期限を過ぎた登録を期限切れにする。 */
     suspend fun expire() = mutex.withLock {
         val at = now()

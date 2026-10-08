@@ -100,6 +100,7 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit, onEnded: () -> Unit = {}) 
     var confirmOwnerAction by rememberSaveable { mutableStateOf<OwnerAction?>(null) }
     var confirmBanRevision by rememberSaveable { mutableStateOf<Long?>(null) }
     var editingMessage by rememberSaveable { mutableStateOf(false) }
+    var confirmDiscard by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(state.left) {
         if (state.left) onExit()
@@ -170,6 +171,20 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit, onEnded: () -> Unit = {}) 
                 confirmOwnerAction = null
                 confirmBanRevision = null
             },
+        )
+    }
+    // 送れたか分からない文章は自動で再送しないので、捨てる前に一度確かめる。
+    if (confirmDiscard && state.failedMessage != null) {
+        AlertDialog(
+            onDismissRequest = { confirmDiscard = false },
+            title = { Text("この送信文を破棄しますか？") },
+            text = { Text("破棄した文章は元に戻せません。履歴に届いていなければ、もう一度書き直す必要があります。") },
+            confirmButton = {
+                TextButton(onClick = { confirmDiscard = false; vm.discardFailedMessage() }) {
+                    Text("破棄する", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmDiscard = false }) { Text("やめる") } },
         )
     }
     if (editingMessage) {
@@ -246,7 +261,7 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit, onEnded: () -> Unit = {}) 
         },
         bottomBar = {
             if (state.loadError == null && !state.isLoading) {
-                ChatInput(state, vm, onExit = vm::leave)
+                ChatInput(state, vm, onExit = vm::leave, onDiscard = { confirmDiscard = true })
             }
         },
     ) { padding ->
@@ -478,7 +493,7 @@ private fun Bubble(ui: UiLine, showName: Boolean = false) {
 }
 
 @Composable
-private fun ChatInput(state: ChatUiState, vm: ChatViewModel, onExit: () -> Unit) {
+private fun ChatInput(state: ChatUiState, vm: ChatViewModel, onExit: () -> Unit, onDiscard: () -> Unit) {
     Surface(color = MaterialTheme.colorScheme.surface) {
         Column(Modifier.navigationBarsPadding()) {
             HorizontalDivider()
@@ -503,7 +518,7 @@ private fun ChatInput(state: ChatUiState, vm: ChatViewModel, onExit: () -> Unit)
                     Text(message, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
                     // 幅が狭い端末や文字拡大でも操作を切らない。
                     TextButton(onClick = vm::restoreFailedMessage) { Text("下書きに戻して編集する") }
-                    TextButton(onClick = vm::discardFailedMessage) { Text("この送信文を破棄する") }
+                    TextButton(onClick = onDiscard) { Text("この送信文を破棄する") }
                 }
             }
             if (state.isSending || state.isLeaving) {
