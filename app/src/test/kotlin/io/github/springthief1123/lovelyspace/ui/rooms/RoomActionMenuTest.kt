@@ -26,8 +26,10 @@ class RoomActionMenuTest {
     }
 
     @Test fun buttonMenuAlignsItsRightEdgeAndOpensBelow() {
-        val button = IntRect(960, 60, 1060, 160)
-        assertEquals(IntOffset(1060 - 600, 160), roomMenuBelowEnd(button, menu, window, margin = 30))
+        val button = IntRect(940, 60, 1040, 160)
+        assertEquals(IntOffset(1040 - 600, 160), roomMenuBelowEnd(button, menu, window, margin = 30))
+        // 右端に寄ったボタンでも、画面の余白より外へは出さない。
+        assertEquals(1080 - 30 - 600, roomMenuBelowEnd(IntRect(980, 60, 1080, 160), menu, window, margin = 30).x)
         // 左端のボタンでは画面からはみ出さない。
         assertEquals(30, roomMenuBelowEnd(IntRect(0, 60, 100, 160), menu, window, margin = 30).x)
     }
