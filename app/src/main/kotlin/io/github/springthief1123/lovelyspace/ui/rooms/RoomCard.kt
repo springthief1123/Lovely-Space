@@ -4,6 +4,10 @@ import androidx.compose.animation.core.animate
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.outlined.Female
@@ -46,13 +50,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Bookmark
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.Icon
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -166,6 +169,8 @@ fun RoomCard(
     onHideClick: (() -> Unit)? = null,
     actionsEnabled: Boolean = true,
     onDetailsClick: (() -> Unit)? = null,
+    /** 長押しメニューで保存の次に並べる操作（追跡・順番待ちなど）。 */
+    menuItems: List<RoomMenuItem> = emptyList(),
 ) {
     val density = LocalDensity.current
     val haptics = LocalHapticFeedback.current
@@ -373,6 +378,7 @@ fun RoomCard(
                     actionsEnabled = actionsEnabled,
                     favoriteAction = onFavoriteClick?.let { { invokeMenuAction(SwipeSide.FAVORITE) } },
                     detailsAction = onDetailsClick,
+                    extraMenuItems = menuItems,
                     hiddenAction = onHideClick?.let { { invokeMenuAction(SwipeSide.HIDDEN) } },
                     isFavorite = isFavorite,
                     isHidden = isHidden,
@@ -471,11 +477,26 @@ private fun RoomCardSurface(
     favoriteAction: (() -> Unit)?,
     hiddenAction: (() -> Unit)?,
     detailsAction: (() -> Unit)?,
+    extraMenuItems: List<RoomMenuItem>,
     isFavorite: Boolean,
     isHidden: Boolean,
 ) {
     var menuOpen by remember(room.id, room.genreKey) { mutableStateOf(false) }
-    val hasMenu = favoriteAction != null || hiddenAction != null || detailsAction != null
+    // 長押しした指の位置。メニューをそこへ出す。
+    var pressAt by remember(room.id, room.genreKey) { mutableStateOf(Offset.Zero) }
+    val menuItems = buildList {
+        detailsAction?.let { add(RoomMenuItem("部屋の詳細", Icons.Outlined.Info, onClick = it)) }
+        favoriteAction?.let {
+            add(RoomMenuItem(if (isFavorite) "保存を解除" else "部屋を保存",
+                if (isFavorite) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder, enabled = actionsEnabled, onClick = it))
+        }
+        addAll(extraMenuItems)
+        hiddenAction?.let {
+            add(RoomMenuItem(if (isHidden) "非表示を解除" else "非表示にする",
+                if (isHidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff, enabled = actionsEnabled, separated = true, onClick = it))
+        }
+    }
+    val hasMenu = menuItems.isNotEmpty()
     val lovely = LocalLovelyColors.current
     val messageMaxLines = LocalRoomMessageMaxLines.current
     val statusColor = when (room.status) { RoomStatus.WAITING -> lovely.waiting; RoomStatus.PUBLIC_WAITING -> lovely.publicWaiting; RoomStatus.FULL -> lovely.full }
@@ -485,20 +506,17 @@ private fun RoomCardSurface(
         Gender.UNKNOWN -> MaterialTheme.colorScheme.onSurfaceVariant to MaterialTheme.colorScheme.surfaceContainerHigh
     }
     val name = room.name?.trim()?.takeIf { it.isNotEmpty() }
-    // 保存・非表示・詳細は長押しメニューとスワイプに集約し、TalkBack ではカスタムアクションとして出す。
-    val a11yActions = buildList {
-        detailsAction?.let { action -> add(CustomAccessibilityAction("部屋の詳細") { action(); true }) }
-        if (actionsEnabled) {
-            favoriteAction?.let { action -> add(CustomAccessibilityAction(if (isFavorite) "保存を解除" else "部屋を保存") { action(); true }) }
-            hiddenAction?.let { action -> add(CustomAccessibilityAction(if (isHidden) "非表示を解除" else "非表示にする") { action(); true }) }
-        }
-    }
+    // 部屋の操作は長押しメニューとスワイプに集約し、TalkBack ではカスタムアクションとして出す。
+    val a11yActions = menuItems.filter { it.enabled }.map { item -> CustomAccessibilityAction(item.label) { item.onClick(); true } }
     Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.fillMaxWidth()) {
         Box {
             Column(
                 Modifier
                     .fillMaxWidth()
+                    .pointerInput(Unit) {
+                        awaitEachGesture { pressAt = awaitFirstDown(requireUnconsumed = false).position }
+                    }
                     .combinedClickable(
                         enabled = enabled || hasMenu,
                         onClick = onClick,
@@ -555,13 +573,19 @@ private fun RoomCardSurface(
                     )
                 }
             }
-            if (hasMenu) Box(Modifier.align(Alignment.TopEnd)) {
-                DropdownMenu(menuOpen, { menuOpen = false }) {
-                    detailsAction?.let { action -> DropdownMenuItem(text = { Text("部屋の詳細") }, onClick = { menuOpen = false; action() }) }
-                    favoriteAction?.let { action -> DropdownMenuItem(text = { Text(if (isFavorite) "保存を解除" else "部屋を保存") }, enabled = actionsEnabled, onClick = { menuOpen = false; action() }) }
-                    hiddenAction?.let { action -> DropdownMenuItem(text = { Text(if (isHidden) "非表示を解除" else "非表示にする") }, enabled = actionsEnabled, onClick = { menuOpen = false; action() }) }
-                }
-            }
+            if (hasMenu) RoomActionMenu(
+                visible = menuOpen,
+                touch = pressAt,
+                title = name ?: "会話中の部屋",
+                subtitle = listOfNotNull(
+                    statusLabel(room.status),
+                    when (room.gender) { Gender.FEMALE -> "女性"; Gender.MALE -> "男性"; Gender.UNKNOWN -> null },
+                    room.age?.let { "${it}歳" },
+                    room.area,
+                ).joinToString(" · "),
+                items = menuItems,
+                onDismiss = { menuOpen = false },
+            )
         }
     }
 }

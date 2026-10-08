@@ -8,6 +8,10 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.TrackChanges
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
@@ -60,6 +64,22 @@ class RoomCardLayoutTest {
         compose.onNodeWithText("テスト").performTouchInput { longClick() }
         compose.onNodeWithText("部屋を保存").assertIsDisplayed()
         compose.onNodeWithText("非表示にする").assertIsDisplayed()
+    }
+
+    @Test fun longPressMenuRunsExtraActionAndCloses() {
+        var tracked = 0
+        compose.setContent {
+            LovelySpaceTheme {
+                RoomCard(room = room, onClick = {}, onFavoriteClick = {},
+                    menuItems = listOf(RoomMenuItem("この部屋を追跡", Icons.Outlined.TrackChanges) { tracked++ }))
+            }
+        }
+        compose.onNodeWithText("テスト").performTouchInput { longClick() }
+        compose.onNodeWithText("待機中 · 女性 · 24歳 · 東京").assertIsDisplayed()
+        compose.onNodeWithText("この部屋を追跡").performClick()
+        compose.waitForIdle()
+        assertEquals(1, tracked)
+        compose.onAllNodesWithText("この部屋を追跡").assertCountEquals(0)
     }
 
     @Test fun cardShowsGenderAndElapsedLabel() {

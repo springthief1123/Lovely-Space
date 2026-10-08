@@ -72,6 +72,9 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
             if (snackbar.showSnackbar("部屋を非表示にしました", actionLabel = "元に戻す", withDismissAction = true) == SnackbarResult.ActionPerformed) preferencesVm.unhide(room)
         }
     }
+    val quickActions = rememberRoomQuickActions(
+        onNotice = { message -> scope.launch { snackbar.showSnackbar(message, withDismissAction = true) } },
+    )
     // 引っ張って更新したときだけインジケーターを出す。自動取得のたびには出さない。
     var userRefreshing by remember { mutableStateOf(false) }
     LaunchedEffect(state.loading) { if (!state.loading) userRefreshing = false }
@@ -146,6 +149,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
                     actionsEnabled = preferences.canEdit(room),
                     onFavoriteClick = { preferencesVm.toggleFavorite(room) },
                     onHideClick = { preferencesVm.hide(room) },
+                    menuItems = quickActions(room, null),
                 )
             }
             if (state.page > 0 && visibleResults.isEmpty() && !state.loading) item {
