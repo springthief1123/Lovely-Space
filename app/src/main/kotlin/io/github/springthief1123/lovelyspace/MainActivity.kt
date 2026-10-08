@@ -16,6 +16,12 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -32,6 +38,7 @@ import io.github.springthief1123.lovelyspace.settings.ThemeMode
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpaceTheme
 
 // 生体認証（BiometricPrompt）を出すため FragmentActivity にする。
+@OptIn(ExperimentalComposeUiApi::class)
 class MainActivity : FragmentActivity() {
     private var handledNotificationId: String? = null
 
@@ -70,9 +77,20 @@ class MainActivity : FragmentActivity() {
             LovelySpaceTheme(themeMode = themeMode, textScale = textScale) {
                 CompositionLocalProvider(LocalRoomMessageMaxLines provides messageLines.maxLines) {
                     val lock by app.appLock.state.collectAsStateWithLifecycle()
+                    val focusManager = LocalFocusManager.current
+                    val keyboard = LocalSoftwareKeyboardController.current
+                    // ロックしたら、後ろの入力欄のフォーカスとキーボードを外し、キー入力が届かないようにする。
+                    LaunchedEffect(lock.locked) {
+                        if (lock.locked) { focusManager.clearFocus(force = true); keyboard?.hide() }
+                    }
                     Box {
-                        // ロック中は後ろの画面を読み上げの対象からも外す。
-                        Box(if (lock.locked) Modifier.clearAndSetSemantics {} else Modifier) { AppNavHost() }
+                        // ロック中は後ろの画面を読み上げの対象から外し、フォーカスも移せないようにする。
+                        Box(
+                            Modifier
+                                .then(if (lock.locked) Modifier.clearAndSetSemantics {} else Modifier)
+                                .focusProperties { enter = { if (lock.locked) FocusRequester.Cancel else FocusRequester.Default } }
+                                .focusGroup(),
+                        ) { AppNavHost() }
                         if (lock.locked) LockScreen(app.appLock, lock)
                     }
                 }

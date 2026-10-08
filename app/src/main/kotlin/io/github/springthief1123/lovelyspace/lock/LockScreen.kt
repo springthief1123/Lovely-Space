@@ -9,6 +9,9 @@ import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK
 import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -100,6 +103,9 @@ fun LockScreen(controller: AppLockController, state: AppLockState) {
     // ロック画面が出たら、まず生体認証を出す。
     LaunchedEffect(Unit) { biometric?.invoke() }
     BackHandler { activity?.moveTaskToBack(true) }
+    // キー入力はロック画面で受け、後ろの画面へ届かないようにする。
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
 
     fun attempt(secret: String) {
         if (checking) return
@@ -118,6 +124,8 @@ fun LockScreen(controller: AppLockController, state: AppLockState) {
             .background(MaterialTheme.colorScheme.background)
             // 後ろの画面に触れさせない。
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}
+            .focusRequester(focus)
+            .focusable()
             .safeDrawingPadding()
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
