@@ -54,26 +54,35 @@ object BackgroundSync {
 
 /**
  * 前面の巡回と同じ `RadarRepository.scan`（＝ ListSync）で、背景で巡回する計画の新着の先頭ページだけを確認し、
- * 新しく一致した部屋を通知する。取得できなかったページは次の周期で同じページを確認する（すぐには再試行しない）。
+ * 新しく一致した部屋を通知する。続けて順番待ちの部屋のページを確認する。
+ * 取得できなかったページは次の周期で同じページを確認する（すぐには再試行しない）。
  */
 class RadarSyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val app = applicationContext as LovelySpaceApp
         val radar = app.radar
         val state = withTimeoutOrNull(LOAD_TIMEOUT_MS) { radar.state.first { it.loaded || it.error != null } }
-        if (state == null || !state.loaded) return Result.retry()
-        // 計画がすべて止まっていれば何も取得しない（登録の解除は LovelySpaceApp が行う）。
-        if (state.activeBackgroundPlans.isEmpty()) return Result.success()
-        // 前面で巡回中なら、同じページを二重に取らないよう今回は見送る。
-        if (state.running) return Result.success()
         return try {
-            radar.scan(latestFirst = true, force = false, maxPages = MAX_PAGES, backgroundOnly = true)
-            // 一致は履歴に「未通知」として保存されている。前回の実行が通知の途中で止まった分もここで出す
-            // （同じ ID の通知・お知らせは置き換わるので、二重には並ばない）。
-            val pending = radar.pendingNotices()
-            pending.forEach { event -> event.toMatchNotification()?.let { app.notifier.post(it) } }
-            radar.markNoticed(pending.map { it.id }.toSet())
-            Result.success()
+            // 1 回の実行で取得するのは、背景の巡回と順番待ちを合わせて MAX_PAGES まで。
+            // 順番待ちがあれば 1 ページは順番待ちに残し、巡回が使わなかった分も順番待ちに回す。
+            val attemptsBefore = app.roomLists.fetchAttempts
+            val radarPages = if (app.waitlist.hasActive()) MAX_PAGES - 1 else MAX_PAGES
+            // レーダーを読み込めなかったときも、順番待ちの確認は続ける（順番待ちはレーダーとは別に保存している）。
+            if (state != null && state.loaded) {
+                // 前面で巡回中なら、同じページを二重に取らないよう今回の巡回は見送る。計画がすべて止まっていれば取得しない。
+                if (state.activeBackgroundPlans.isNotEmpty() && !state.running) {
+                    radar.scan(latestFirst = true, force = false, maxPages = radarPages, backgroundOnly = true)
+                }
+                // 一致は履歴に「未通知」として保存されている。前回の実行が通知の途中で止まった分もここで出す
+                // （同じ ID の通知・お知らせは置き換わるので、二重には並ばない）。
+                val pending = radar.pendingNotices()
+                pending.forEach { event -> event.toMatchNotification()?.let { app.notifier.post(it) } }
+                radar.markNoticed(pending.map { it.id }.toSet())
+            }
+            // 順番待ちは待っている部屋のページだけを取得する。空きの通知は WaitlistRepository が出す。
+            val used = (app.roomLists.fetchAttempts - attemptsBefore).toInt()
+            app.waitlist.check((MAX_PAGES - used).coerceAtLeast(0))
+            if (state == null) Result.retry() else Result.success()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
