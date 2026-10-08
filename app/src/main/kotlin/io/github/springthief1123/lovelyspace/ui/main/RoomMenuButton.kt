@@ -13,10 +13,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.IntSize
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -44,10 +41,10 @@ internal fun observedRoom(observations: Collection<ObservedRoomPage>, genreKey: 
 
 /**
  * 部屋の中（トーク画面・公開ルーム）の右上に置くメニュー。長押しメニューと同じパネルで、
- * 保存・追跡・順番待ちを選べる。部屋の情報は取得済みの一覧から探すので、一覧で見ていない部屋では選べない。
+ * 部屋主の名前・待機メッセージと、保存・追跡・順番待ちを出す。部屋の情報は取得済みの一覧から探すので、一覧で見ていない部屋では選べない。
  */
 @Composable
-internal fun RoomMenuButton(genreKey: String, roomId: Long, fallbackTitle: String, onNotice: (String) -> Unit) {
+internal fun RoomMenuButton(genreKey: String, roomId: Long, fallbackTitle: String, onNotice: (String) -> Unit, waitingMessage: String? = null) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val observations by app.roomLists.observations.collectAsStateWithLifecycle()
     val room = observedRoom(observations.values, genreKey, roomId)
@@ -58,7 +55,6 @@ internal fun RoomMenuButton(genreKey: String, roomId: Long, fallbackTitle: Strin
     val preferences by preferencesVm.state.collectAsStateWithLifecycle()
     val quickActions = rememberRoomQuickActions(onNotice)
     var open by remember { mutableStateOf(false) }
-    var size by remember { mutableStateOf(IntSize.Zero) }
 
     val items = if (room == null) {
         listOf(
@@ -74,13 +70,15 @@ internal fun RoomMenuButton(genreKey: String, roomId: Long, fallbackTitle: Strin
             },
         ) + quickActions(room, null)
     }
-    Box(Modifier.onSizeChanged { size = it }) {
+    Box {
         IconButton(onClick = { open = true }) { Icon(Icons.Outlined.MoreHoriz, contentDescription = "部屋のメニュー") }
         RoomActionMenu(
             visible = open,
-            // ボタンの真下に出す。
-            touch = Offset(size.width / 2f, size.height.toFloat()),
-            title = room?.name ?: fallbackTitle,
+            // 「…」の下から左下へ広げる。
+            touch = null,
+            title = room?.name?.let { "部屋主: $it" } ?: fallbackTitle,
+            // 部屋の画面に出ている待機メッセージがあればそれを、無ければ一覧で見たものを出す。
+            message = waitingMessage?.takeIf { it.isNotBlank() } ?: room?.message,
             subtitle = if (room == null) "一覧で見かけた部屋だけ保存・追跡できます"
                 // 状態は一覧で見たときのものなので出さない。
                 else listOfNotNull(when (room.gender) { Gender.FEMALE -> "女性"; Gender.MALE -> "男性"; Gender.UNKNOWN -> null },

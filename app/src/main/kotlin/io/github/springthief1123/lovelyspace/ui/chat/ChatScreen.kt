@@ -205,7 +205,8 @@ fun ChatScreen(room: ChatRoomRef, onExit: () -> Unit, onEnded: () -> Unit = {}) 
                     // 入室した部屋は、長押しメニューと同じ操作（保存・追跡など）をここから選べる。自分で作った部屋には出さない。
                     if (!state.isOwner && !state.isLoading) {
                         RoomMenuButton(room.genreKey, room.roomId, fallbackTitle = state.partnerName ?: state.title.ifEmpty { "この部屋" },
-                            onNotice = { message -> menuScope.launch { snackbar.showSnackbar(message, withDismissAction = true) } })
+                            onNotice = { message -> menuScope.launch { snackbar.showSnackbar(message, withDismissAction = true) } },
+                            waitingMessage = state.waitingMessage)
                     }
                     if (state.showsOwnerActions) {
                         val idle = state.canRunOwnerAction

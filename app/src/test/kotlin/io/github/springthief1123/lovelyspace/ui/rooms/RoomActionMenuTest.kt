@@ -1,6 +1,7 @@
 package io.github.springthief1123.lovelyspace.ui.rooms
 
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -22,6 +23,13 @@ class RoomActionMenuTest {
     @Test fun staysInsideTheScreenAtTheEdges() {
         assertEquals(30, at(10, 500).x)
         assertEquals(1080 - 30 - 600, at(1070, 500).x)
+    }
+
+    @Test fun buttonMenuAlignsItsRightEdgeAndOpensBelow() {
+        val button = IntRect(960, 60, 1060, 160)
+        assertEquals(IntOffset(1060 - 600, 160), roomMenuBelowEnd(button, menu, window, margin = 30))
+        // 左端のボタンでは画面からはみ出さない。
+        assertEquals(30, roomMenuBelowEnd(IntRect(0, 60, 100, 160), menu, window, margin = 30).x)
     }
 
     @Test fun pinsToTheBottomWhenNeitherSideFits() {

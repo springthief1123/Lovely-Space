@@ -77,18 +77,30 @@ internal fun roomMenuPosition(touch: IntOffset, menu: IntSize, window: IntSize, 
 }
 
 /**
+ * ボタン [anchor] の右端にそろえ、ボタンの下から左下へ広がるように置く。
+ * 画面の左端・下端では [margin] より端へ寄せない。
+ */
+internal fun roomMenuBelowEnd(anchor: IntRect, menu: IntSize, window: IntSize, margin: Int): IntOffset {
+    val x = (anchor.right - menu.width).coerceIn(margin, max(margin, window.width - margin - menu.width))
+    val y = anchor.bottom.coerceIn(margin, max(margin, window.height - margin - menu.height))
+    return IntOffset(x, y)
+}
+
+/**
  * 長押しした指の位置に出す部屋の操作メニュー。Material のドロップダウンではなく、
  * 部屋の名前と状態を見出しにした角丸のパネルで、保存・追跡などを直接選べる。
- * [touch] は [visible] を持つ親（カード）の左上からの位置。
+ * [touch] は [visible] を持つ親（カード）の左上からの位置。null なら親（「…」のボタン）の下から左下へ広げる。
+ * [message] があれば見出しの下に待機メッセージを出す。
  */
 @Composable
 internal fun RoomActionMenu(
     visible: Boolean,
-    touch: Offset,
+    touch: Offset?,
     title: String,
     subtitle: String,
     items: List<RoomMenuItem>,
     onDismiss: () -> Unit,
+    message: String? = null,
 ) {
     val transition = remember { MutableTransitionState(false) }
     LaunchedEffect(visible) { transition.targetState = visible }
@@ -100,24 +112,28 @@ internal fun RoomActionMenu(
     val provider = remember(touch, margin, gap) {
         object : PopupPositionProvider {
             override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
+                if (touch == null) return roomMenuBelowEnd(anchorBounds, popupContentSize, windowSize, margin)
                 val finger = IntOffset(anchorBounds.left + touch.x.roundToInt(), anchorBounds.top + touch.y.roundToInt())
                 return roomMenuPosition(finger, popupContentSize, windowSize, margin, gap)
             }
         }
     }
+    // ボタンから出すときは右上を起点に左下へ広げる。
+    val origin = if (touch == null) TransformOrigin(1f, 0f) else TransformOrigin.Center
+    val initialScale = if (touch == null) 0.6f else 0.92f
     Popup(popupPositionProvider = provider, onDismissRequest = onDismiss, properties = PopupProperties(focusable = true)) {
         AnimatedVisibility(
             visibleState = transition,
-            enter = fadeIn(tween(120)) + scaleIn(tween(160), initialScale = 0.92f, transformOrigin = TransformOrigin.Center),
-            exit = fadeOut(tween(100)) + scaleOut(tween(100), targetScale = 0.96f, transformOrigin = TransformOrigin.Center),
+            enter = fadeIn(tween(140)) + scaleIn(tween(200), initialScale = initialScale, transformOrigin = origin),
+            exit = fadeOut(tween(100)) + scaleOut(tween(120), targetScale = 0.96f, transformOrigin = origin),
         ) {
-            RoomActionPanel(title, subtitle, items, onDismiss)
+            RoomActionPanel(title, subtitle, message, items, onDismiss)
         }
     }
 }
 
 @Composable
-private fun RoomActionPanel(title: String, subtitle: String, items: List<RoomMenuItem>, onDismiss: () -> Unit) {
+private fun RoomActionPanel(title: String, subtitle: String, message: String?, items: List<RoomMenuItem>, onDismiss: () -> Unit) {
     val shape = RoundedCornerShape(20.dp)
     val scheme = MaterialTheme.colorScheme
     // ポップアップは別のウィンドウなので背景のぼかしは使えない。ガラスに近い明るい面と縁取りで見せる。
@@ -136,6 +152,11 @@ private fun RoomActionPanel(title: String, subtitle: String, items: List<RoomMen
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (subtitle.isNotEmpty()) Text(subtitle, style = MaterialTheme.typography.labelMedium,
                 color = scheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (!message.isNullOrBlank()) {
+                Text(message, style = MaterialTheme.typography.bodyMedium, maxLines = 6, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 8.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                        .background(scheme.surfaceContainerHigh).padding(horizontal = 12.dp, vertical = 10.dp))
+            }
         }
         val (main, separated) = items.partition { !it.separated }
         Column(Modifier.padding(horizontal = 6.dp)) {
