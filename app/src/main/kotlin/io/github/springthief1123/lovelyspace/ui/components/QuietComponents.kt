@@ -94,7 +94,7 @@ fun <T> QuietTabs(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> 
     androidx.compose.foundation.lazy.LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         options.forEach { (value, label) ->
             item {
-                androidx.compose.material3.FilterChip(selected = value == selected, onClick = { onSelect(value) }, label = { Text(label) })
+                QuietFilterChip(selected = value == selected, onClick = { onSelect(value) }, label = label)
             }
         }
     }

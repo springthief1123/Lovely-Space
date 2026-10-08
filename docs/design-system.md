@@ -72,7 +72,21 @@
   - `QuietMenuRow`: 行。左右 6dp 空けた 14dp の角丸を押せる範囲にし、文字は 18dp の位置（見出しとそろう）、本文は `bodyLarge`・2 行まで。アイコンは `primary`、`destructive` は文字とアイコンを `error`、無効は 38%。`supporting` で 2 行目の補足、`selected` で右端に印を付け、読み上げでも選択中と伝える（選択の意味がない行には付けない）。
   - 標準の `DropdownMenu` を使い続ける理由: 引数（`shape` / `containerColor` / `border` / `shadowElevation`）で外観は合わせられ、アンカー位置・画面端での反転・Back・外側タップ・キーボード操作・スクロールを自前で作り直さずに済むため。`Popup` で作るのは `RoomActionMenu` のように指の位置から開く・見出しを持つ場合に限る。
   - `RoomActionMenu` も `QuietMenuDefaults` と `LovelyShapes` を使う（値は変えていない）。お知らせ一覧（`NotificationPanel`）の行も同じ押せる範囲にする。
-- チップ・入力（Phase C）: 形は `LovelyShapes.control`（既定でも適用される）。選択色は `secondaryContainer` / `onSecondaryContainer`、境界は `outlineVariant`、フォーカスは `primary`。
+- チップ・入力・トグル（Phase C、#75 で実装）: `ui/components/QuietControls.kt`。形は `LovelyShapes.control`。
+
+  | 部品 | 標準の既定 | Quiet Rose | 共通部品 |
+  | --- | --- | --- | --- |
+  | `FilterChip` | 非選択の境界 `outline`、選択中は境界なしで `secondaryContainer` の面だけ | 非選択の境界 `outlineVariant`・文字 `onSurfaceVariant`。選択中は `secondaryContainer` の面・`onSecondaryContainer` の文字・**`primary` の縁取り** | `QuietFilterChip` |
+  | `AssistChip` | 境界 `outline` | 境界 `outlineVariant`、アイコン `primary`、文字は 1 行で省略 | `QuietAssistChip` |
+  | `SegmentedButton` | 境界 `outline`、選択中は `secondaryContainer` と ✓ | 選択中の境界を `primary`、非選択の面は透明。境界は入力欄と同じ `outline` | `quietSegmentedButtonColors()` |
+  | `Checkbox` | チェックだけが押せ、横の文字は読み上げで結び付かない | 行全体を押せる 1 つの項目（`Role.Checkbox`）にする。色は標準のまま | `QuietCheckboxRow` |
+  | `OutlinedTextField` | 境界 `outline`、フォーカス `primary`、エラー `error` | 変えない（下記） | なし |
+  | `Switch` | 軌道 `primary` / `surfaceContainerHighest`、オフの縁と丸 `outline` | 変えない（下記） | なし |
+
+  - 選択中のチップ・セグメントは `secondaryContainer` の面だけだと背景との差が 1.2:1 程度しかなく見分けにくい。そのため `primary` で縁取る（背景との差はライト 5.8:1・ダーク 8.4:1）。
+  - 入力欄とセグメントの境界は `outlineVariant`（背景との差 1.3:1）に下げない。入力欄の境界は WCAG 1.4.11 の 3:1 が必要なので、`outline`（ライト 3.0:1・ダーク 6.4:1）のままにする。チップは文字で役割が分かる補助的な部品なので `outlineVariant` でよい。
+  - `OutlinedTextField` と `Switch` は、使う色ロールが #72 で全て Quiet Rose の値になっていて、角丸も `LovelyShapes.control` / 全丸で合っているので、ラッパーを作らない（名前だけの薄いラッパーを増やさない）。
+  - 検索欄（`SearchField`）だけ 18dp だった角丸を `LovelyShapes.control` にそろえた。同じパネルの下に並ぶ入力欄・チップと同じ部品に見せるため。
 - ダイアログ・シート（Phase D）: 形は `LovelyShapes.sheet`（既定でも適用される）。ダイアログの面は `surfaceContainerHigh`、シートの面は `surfaceContainerLow`。破壊的な確定ボタンの文字は `error`。
 
 形状と余白の値を確定・変更する際は、既存の部屋カード、`RoomActionMenu`、検索パネル、設定カード、Glass ナビとの関係を比較する。**「見た目を新しくする」より「同じ役割は同じ見た目」を優先する**。
@@ -86,7 +100,8 @@
 3. Material 3 で必要な見た目や動作を実現できない場合のみ、Compose `Popup` / `Surface` などで独自実装する。Dismiss、Back、フォーカス、IME、スクロール、意味情報、画面外はみ出しを検証する。
 
 参考実装:
-- `ui/components/QuietComponents.kt`: `QuietPanel`、`QuietListPanel`、`QuietTabs`、`QuietOverflowMenu`。**現状の全実装が適合済みとは限らない**（例: `QuietTabs` は標準 `FilterChip`）。
+- `ui/components/QuietComponents.kt`: `QuietPanel`、`QuietListPanel`、`QuietTabs`、`QuietOverflowMenu`。`QuietTabs` は `QuietFilterChip` を使う。
+- `ui/components/QuietControls.kt`: `QuietFilterChip` / `QuietAssistChip` / `quietSegmentedButtonColors()` / `QuietCheckboxRow`（2.3）。標準の `FilterChip` / `AssistChip` / `Checkbox` を画面に直接書かない。
 - `ui/components/QuietMenu.kt`: 汎用メニューの `QuietDropdownMenu` / `QuietExposedMenu` / `QuietMenuRow`（2.3）。新しいメニューはこれを使い、標準の `DropdownMenu` / `DropdownMenuItem` を画面に直接書かない。
 - `ui/rooms/RoomActionMenu.kt`: 部屋名・状態・アイコン付き操作を備えた独自メニュー。**部屋固有のヘッダーや配置を一般用途へ無理に転用せず**、必要ならパネルの外観と操作行だけを共通化する。
 - `ui/components/Glass.kt` と `ui/shell/LovelyAppShell.kt`: メインシェルの Glass UI。
@@ -115,7 +130,7 @@
 
 1. **土台**（#72 で実施）: `ui/theme/Theme.kt`、`DesignTokens.kt`。未設定の Material 3 色ロール・Shapes を明示し、共有ロールを定義（2.1〜2.3）。既存画面の意図的な半径やコントラストは変えていない。
 2. **メニュー**（#74 で実施）: `QuietComponents.kt` の `QuietOverflowMenu`、`ui/shell/LovelyAppShell.kt` の通知メニュー、`ui/settings/RoomListSettingsScreen.kt` と `ui/main/SearchPanel.kt` のドロップダウンに加え、同じ地域・選択メニューの `ui/create/CreateRoomScreen.kt` と `ui/main/RadarPlanEditor.kt` も `QuietMenu.kt` に置き換えた。メニューを開く入力欄そのものの外観は 3 で扱う。
-3. **チップ／検索入力**: `QuietTabs`、`SearchPanel.kt` の `FilterChip`、`OutlinedTextField`、`ExposedDropdownMenu`、`ui/main/RadarScreen.kt` / `RadarPlanEditor.kt` のチップ等。共通 styled control を導入し既存の検索条件ロジックは維持。
+3. **チップ／検索入力**（#75 で実施）: `QuietTabs`、`SearchPanel.kt`、`ProfileScreen.kt`、`RadarScreen.kt`、`RadarPlanEditor.kt`、`SavedSearchControls.kt`、`SearchScreen.kt` のチップとチェック、入室・部屋作成のセグメントを `QuietControls.kt` に置き換えた。検索条件の保存・選択・リセットと、入力中は通信しない仕様は変えていない。
 4. **ダイアログ・シート・トグル**: `ui/main/ProfileScreen.kt`、`RoomDetailsSheet.kt`、`RadarScreen.kt`、`RadarPlanEditor.kt`、`ui/rooms/GenrePicker.kt`、`ui/main/SavedSearchControls.kt` など。`AlertDialog`、`ModalBottomSheet`、`Switch`、`Checkbox` 等の外観を用途別に統一。
 5. **ヘッダーと全画面レビュー**: `QuietTopBar` を使用するチャット・入室・部屋作成・公開ルーム、`SettingsPageHeader` と `LovelyTopBar` の階層的統一。画面役割の違いは残す。進行中のアプリロック PR 等が取り込まれたら新画面も対象に加える。
 

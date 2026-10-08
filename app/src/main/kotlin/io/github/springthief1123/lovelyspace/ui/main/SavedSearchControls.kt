@@ -1,11 +1,12 @@
 package io.github.springthief1123.lovelyspace.ui.main
 
+import io.github.springthief1123.lovelyspace.ui.theme.LovelyShapes
+import io.github.springthief1123.lovelyspace.ui.components.QuietAssistChip
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
@@ -49,14 +50,14 @@ internal fun SavedSearchControls(search: SearchUiState, onApply: (SearchPreset) 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text("保存した条件", style = MaterialTheme.typography.labelMedium)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            AssistChip(
+            QuietAssistChip(
                 onClick = {
                     vm.clearEditError()
                     draft = SearchPreset(label = "", genreKey = search.genre.key, criteria = search.criteria)
                 },
                 enabled = search.validAges && !state.working,
-                label = { Text("今の条件を保存") },
-                leadingIcon = { Icon(Icons.Outlined.Add, null, Modifier.size(16.dp)) },
+                label = "今の条件を保存",
+                icon = Icons.Outlined.Add,
             )
             state.presets.forEach { value ->
                 SavedSearchChip(
@@ -121,7 +122,8 @@ private fun SavedSearchChip(
     onDelete: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(8.dp)
+    // 隣の「今の条件を保存」（QuietAssistChip）と同じ角丸・境界にそろえる。
+    val shape = LovelyShapes.control
     val scheme = MaterialTheme.colorScheme
     Box {
         Text(

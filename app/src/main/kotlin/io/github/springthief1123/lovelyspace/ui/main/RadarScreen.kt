@@ -241,7 +241,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                             action { app.radar.markEventsRead(ids) }
                         }) { Text("すべて既読にする") }
                     }
-                    FilterChip(historyUnread, { historyUnread = !historyUnread }, label = { Text("未読のみ") })
+                    QuietFilterChip(historyUnread, { historyUnread = !historyUnread }, label = "未読のみ")
                     QuietFieldPair(
                         { m -> Box(m) { RadarDropdown("種類", historyKind, listOf("" to "すべて") + RadarEventKind.entries.map { it.name to it.historyLabel() }, true) { historyKind = it } } },
                         { m -> Box(m) { RadarDropdown("条件・追跡先", historyOrigin, listOf("" to "すべて") + historyOriginOptions(state.events), true) { historyOrigin = it } } },
@@ -268,10 +268,10 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                     Text(event.text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(end = 10.dp))
                     if (event.rooms.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         event.rooms.forEach { room ->
-                            AssistChip(enabled = !working && (event.read || state.loaded), onClick = {
+                            QuietAssistChip(enabled = !working && (event.read || state.loaded), onClick = {
                                 val snapshot = RadarRoomSnapshot(room, event.at, event.page ?: 1, event.blocked, event.sourceQuery)
                                 if (event.read) selected = snapshot else action { app.radar.markEventsRead(setOf(event.id)); selected = snapshot }
-                            }, label = { Text(room.name ?: "記録の部屋", maxLines = 1, overflow = TextOverflow.Ellipsis) })
+                            }, label = room.name ?: "記録の部屋")
                         }
                     }
                     if (event.rooms.size == 20) Text("履歴には最大20件を保存しています。", style = MaterialTheme.typography.bodySmall)

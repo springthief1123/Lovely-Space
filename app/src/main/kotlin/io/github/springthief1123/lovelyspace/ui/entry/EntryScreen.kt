@@ -2,6 +2,7 @@
 
 package io.github.springthief1123.lovelyspace.ui.entry
 
+import io.github.springthief1123.lovelyspace.ui.components.quietSegmentedButtonColors
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -157,6 +158,7 @@ private fun EntryFormContent(state: EntryUiState, vm: EntryViewModel, onOpenBrow
                             enabled = !state.isEntering,
                             onClick = { vm.setSex(value) },
                             shape = SegmentedButtonDefaults.itemShape(i, 2),
+                            colors = quietSegmentedButtonColors(),
                         ) { Text(label) }
                     }
                 }
