@@ -362,7 +362,7 @@ private fun Banner(text: String, extra: @Composable () -> Unit = {}) {
 }
 
 @Composable
-internal fun ChatLog(lines: List<UiLine>, modifier: Modifier) {
+internal fun ChatLog(lines: List<UiLine>, modifier: Modifier, nameOnBothSides: Boolean = false) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var reading by rememberSaveable(stateSaver = ReadingSaver) { mutableStateOf(ChatReadingState()) }
@@ -387,7 +387,7 @@ internal fun ChatLog(lines: List<UiLine>, modifier: Modifier) {
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             items(lines, key = { it.id }) { ui ->
-                if (ui.line.isNotice) Notice(ui) else Bubble(ui)
+                if (ui.line.isNotice) Notice(ui) else Bubble(ui, nameOnBothSides)
             }
         }
         if (!reading.atLatest && lines.isNotEmpty()) {
@@ -428,7 +428,8 @@ private fun Notice(ui: UiLine) {
 }
 
 @Composable
-private fun Bubble(ui: UiLine) {
+/** [ui] の isMine は右側に出すこと。公開ルームでは入室者の発言で、[showName] で右側にも名前を出す。 */
+private fun Bubble(ui: UiLine, showName: Boolean = false) {
     val line = ui.line
     val uriHandler = LocalUriHandler.current
     val colors = MaterialTheme.colorScheme
@@ -438,9 +439,9 @@ private fun Bubble(ui: UiLine) {
         val bubbleWidth = (maxWidth * 0.84f).coerceAtMost(560.dp)
         Column(Modifier.fillMaxWidth(), horizontalAlignment = if (ui.isMine) Alignment.End else Alignment.Start,
             verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (!ui.isMine) {
+            if (!ui.isMine || showName) {
                 Text(line.speaker.orEmpty(), style = MaterialTheme.typography.labelMedium,
-                    color = colors.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp))
+                    color = colors.onSurfaceVariant, modifier = Modifier.padding(horizontal = 4.dp))
             }
             Surface(color = container, contentColor = content,
                 shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp,

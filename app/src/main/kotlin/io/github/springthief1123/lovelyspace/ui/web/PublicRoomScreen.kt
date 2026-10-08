@@ -40,7 +40,7 @@ fun PublicRoomScreen(host: String, genreKey: String, roomId: Long, onBack: () ->
                 style = MaterialTheme.typography.bodySmall)
             if (state.loading && !state.opened) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
-            } else if (state.opened) ChatLog(state.lines, Modifier.weight(1f))
+            } else if (state.opened) ChatLog(state.lines, Modifier.weight(1f), nameOnBothSides = true)
         }
     }
 }
