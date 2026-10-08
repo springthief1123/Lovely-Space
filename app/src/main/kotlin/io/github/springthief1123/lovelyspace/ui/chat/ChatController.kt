@@ -166,7 +166,7 @@ data class ChatActivity(
     /** 会話画面を離れている間に届いた、相手の発言とお知らせの数。 */
     val unseen: Int = 0,
     val waitingForPartner: Boolean = false,
-    /** 部屋が終わった（閉鎖・無言での終了など）。会話を開くと理由を見られる。 */
+    /** 部屋が終わった（閉鎖・無言での終了・部屋の画面を開けなかった）。会話を開くと理由を見られる。 */
     val ended: Boolean = false,
 )
 
@@ -201,7 +201,7 @@ class ChatController(
     init {
         open()
         scope.launch {
-            _state.collect { s -> _activity.update { it.copy(waitingForPartner = s.isWaitingForPartner, ended = s.endMessage != null) } }
+            _state.collect { s -> _activity.update { it.copy(waitingForPartner = s.isWaitingForPartner, ended = s.endMessage != null || s.roomUnavailable) } }
         }
     }
 
@@ -228,6 +228,23 @@ class ChatController(
 
     override fun close() {
         scope.cancel()
+    }
+
+    /**
+     * 別の部屋に入ったので、この部屋から出る。入室者は退室、作成者は部屋を閉じる（本家に残さない）。
+     * 画面はもう無いので、失敗しても待たずに取得を止める（無言の時間切れで本家が閉じる）。
+     */
+    override fun leaveAndClose() {
+        val s = _state.value
+        updatesJob?.cancel()
+        if (s.left || s.endMessage != null || session == null) { close(); return }
+        scope.launch {
+            try { if (s.isOwner) client.close(room) else client.leave(room) }
+            catch (e: CancellationException) { throw e }
+            // 退室を伝えられなくても、部屋は無言の時間切れで本家が閉じる。
+            catch (e: Exception) { }
+            finally { scope.cancel() }
+        }
     }
 
     fun open() {

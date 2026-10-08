@@ -14,8 +14,10 @@ data class ResumableRoom(val sessionId: String, val room: ChatRoomRef, val saved
 interface RoomConnection {
     /** アプリが前面にあるか。背景にいる間は取得を止める。 */
     fun setForeground(value: Boolean)
-    /** 取得をすべて止める。退室・部屋を閉じた・別の部屋へ移ったとき。 */
+    /** 取得をすべて止める。退室・部屋を閉じた後。 */
     fun close()
+    /** 別の部屋に入ったとき。この部屋から退室（作成者は閉じる）してから取得を止める。 */
+    fun leaveAndClose()
 }
 
 /** 進行中の部屋を端末内に残す先。pwd を含むので、実装は暗号化して保存する。 */
@@ -33,7 +35,7 @@ interface ActiveRoomPersistence {
  * 退室・閉鎖・部屋の終了で消し、古すぎる記録は読み込み時に捨てる。
  *
  * 部屋との接続（[RoomConnection]）も画面ではなくここで持つ。会話画面を離れて一覧を見ている間も、
- * アプリが前面にある間は同じ接続で新着の取得を続ける。接続は部屋ごとに 1 つで、別の部屋に入ったら前の接続は止める。
+ * アプリが前面にある間は同じ接続で新着の取得を続ける。接続は部屋ごとに 1 つで、別の部屋に入ったら前の部屋から退室して接続を止める。
  */
 class ActiveRooms(
     private val persistence: ActiveRoomPersistence? = null,
@@ -74,8 +76,8 @@ class ActiveRooms(
     }
 
     fun register(room: ChatRoomRef): String {
-        // 入室できる部屋は 1 つ。前の部屋の接続は止める（本家の退室は送らない。これまで画面を閉じたときと同じ）。
-        connections.keys.toList().forEach { closeConnection(it) }
+        // 入室できる部屋は 1 つ。一覧から別の部屋に入ったら、前の部屋は退室（作成者は閉じる）して接続を止める。
+        connections.keys.toList().forEach { id -> connections.remove(id)?.leaveAndClose() }
         _collapsed.value = null
         val id = UUID.randomUUID().toString()
         rooms[id] = room

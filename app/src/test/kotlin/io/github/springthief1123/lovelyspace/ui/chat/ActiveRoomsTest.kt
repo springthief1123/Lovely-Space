@@ -102,8 +102,10 @@ class ActiveRoomsTest {
     private class FakeConnection : RoomConnection {
         var running = true
         var closed = false
+        var left = false
         override fun setForeground(value: Boolean) { running = value }
         override fun close() { closed = true }
+        override fun leaveAndClose() { left = true; closed = true }
     }
 
     @Test fun oneConnectionPerRoomSurvivesLeavingTheChatScreen() {
@@ -124,15 +126,18 @@ class ActiveRoomsTest {
         // 退室で接続を止めて外す。
         rooms.remove(id)
         assertTrue(first.closed)
+        assertFalse(first.left)
         assertNull(rooms.existingConnection(id))
         assertNull(rooms.connection(id) { created++; FakeConnection() })
         assertEquals(1, created)
     }
 
-    @Test fun enteringAnotherRoomStopsThePreviousConnection() {
+    @Test fun enteringAnotherRoomLeavesThePreviousRoom() {
         val rooms = ActiveRooms(MemoryPersistence())
         val first = rooms.connection(rooms.register(room)) { FakeConnection() }!!
         val nextId = rooms.register(room.copy(roomId = 900000002L))
+        // 前の部屋は本家でも退室（作成者は閉じる）してから止める。
+        assertTrue(first.left)
         assertTrue(first.closed)
         // 背景にいる間に作った接続は、止めた状態から始める。
         rooms.setForeground(false)
