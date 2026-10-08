@@ -19,8 +19,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -44,6 +42,8 @@ import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.core.Genres
 import io.github.springthief1123.lovelyspace.settings.RoomListPreferences
 import io.github.springthief1123.lovelyspace.settings.RoomListStartMode
+import io.github.springthief1123.lovelyspace.ui.components.QuietDropdownMenu
+import io.github.springthief1123.lovelyspace.ui.components.QuietMenuRow
 import io.github.springthief1123.lovelyspace.ui.describeError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -200,27 +200,15 @@ private fun DefaultGenrePicker(
                     modifier = Modifier.padding(start = 6.dp),
                 )
             }
-            DropdownMenu(
+            QuietDropdownMenu(
                 expanded = expanded,
                 onDismissRequest = { expanded = false },
             ) {
                 Genres.all.forEach { genre ->
-                    DropdownMenuItem(
-                        text = {
-                            Column {
-                                Text(genre.label)
-                                Text(
-                                    genre.group.label,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        },
-                        trailingIcon = {
-                            if (genre.key == selected.key) {
-                                Icon(Icons.Outlined.Check, contentDescription = null)
-                            }
-                        },
+                    QuietMenuRow(
+                        genre.label,
+                        supporting = genre.group.label,
+                        selected = genre.key == selected.key,
                         onClick = {
                             expanded = false
                             onSelect(genre.key)

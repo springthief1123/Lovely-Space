@@ -2,6 +2,8 @@ package io.github.springthief1123.lovelyspace.ui.main
 
 import androidx.compose.foundation.layout.*
 import io.github.springthief1123.lovelyspace.ui.components.QuietFieldPair
+import io.github.springthief1123.lovelyspace.ui.components.QuietExposedMenu
+import io.github.springthief1123.lovelyspace.ui.components.QuietMenuRow
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -90,8 +92,8 @@ internal fun RadarDropdown(title: String, selected: String, values: List<Pair<St
         OutlinedTextField(values.firstOrNull { it.first == selected }?.second ?: selected, {}, readOnly = true, enabled = enabled,
             label = { Text(title) }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded && enabled) },
             modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = enabled))
-        ExposedDropdownMenu(expanded && enabled, { expanded = false }) {
-            values.forEach { (value, label) -> DropdownMenuItem(text = { Text(label) }, onClick = { onSelect(value); expanded = false }) }
+        QuietExposedMenu(expanded && enabled, { expanded = false }) {
+            values.forEach { (value, label) -> QuietMenuRow(label, selected = value == selected, onClick = { onSelect(value); expanded = false }) }
         }
     }
 }

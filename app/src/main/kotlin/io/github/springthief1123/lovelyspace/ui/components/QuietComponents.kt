@@ -66,15 +66,10 @@ fun QuietOverflowMenu(items: List<QuietMenuItem>, contentDescription: String = "
         IconButton(onClick = { open = true }) {
             Icon(Icons.Outlined.MoreVert, contentDescription = contentDescription)
         }
-        androidx.compose.material3.DropdownMenu(open, { open = false }) {
+        QuietDropdownMenu(open, { open = false }) {
             items.forEach { item ->
-                androidx.compose.material3.DropdownMenuItem(
-                    text = {
-                        Text(item.label, color = if (item.destructive) MaterialTheme.colorScheme.error else androidx.compose.ui.graphics.Color.Unspecified)
-                    },
-                    enabled = item.enabled,
-                    onClick = { open = false; item.onClick() },
-                )
+                QuietMenuRow(item.label, onClick = { open = false; item.onClick() },
+                    enabled = item.enabled, destructive = item.destructive)
             }
         }
     }

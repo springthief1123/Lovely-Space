@@ -47,6 +47,8 @@ import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import io.github.springthief1123.lovelyspace.core.*
 import io.github.springthief1123.lovelyspace.ui.components.QuietFieldPair
+import io.github.springthief1123.lovelyspace.ui.components.QuietExposedMenu
+import io.github.springthief1123.lovelyspace.ui.components.QuietMenuRow
 import io.github.springthief1123.lovelyspace.ui.rooms.roomMenuBelowEnd
 import io.github.springthief1123.lovelyspace.ui.theme.LocalLovelyColors
 
@@ -269,9 +271,9 @@ private fun AreaFilter(selected: String?, onSelect: (String?) -> Unit) {
         OutlinedTextField(selected ?: "すべて", {}, label = { Text("地域") }, readOnly = true,
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
             modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable))
-        ExposedDropdownMenu(expanded, { expanded = false }) {
-            DropdownMenuItem(text = { Text("すべて") }, onClick = { onSelect(null); expanded = false })
-            Prefectures.names.forEach { area -> DropdownMenuItem(text = { Text(area) }, onClick = { onSelect(area); expanded = false }) }
+        QuietExposedMenu(expanded, { expanded = false }) {
+            QuietMenuRow("すべて", selected = selected == null, onClick = { onSelect(null); expanded = false })
+            Prefectures.names.forEach { area -> QuietMenuRow(area, selected = area == selected, onClick = { onSelect(area); expanded = false }) }
         }
     }
 }

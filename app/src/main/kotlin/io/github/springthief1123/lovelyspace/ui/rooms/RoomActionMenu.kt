@@ -7,7 +7,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,7 +20,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
@@ -50,7 +48,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
-import io.github.springthief1123.lovelyspace.ui.theme.LocalLovelyColors
+import io.github.springthief1123.lovelyspace.ui.components.QuietMenuDefaults
+import io.github.springthief1123.lovelyspace.ui.theme.LovelyShapes
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -137,7 +136,7 @@ internal fun RoomActionMenu(
 
 @Composable
 private fun RoomActionPanel(title: String, subtitle: String, message: String?, items: List<RoomMenuItem>, onDismiss: () -> Unit) {
-    val shape = RoundedCornerShape(20.dp)
+    val shape = LovelyShapes.menu
     val scheme = MaterialTheme.colorScheme
     // 横向き・分割画面・大きな文字でも全項目に届くよう、画面の高さに収めて中をスクロールさせる。
     val maxHeight = LocalConfiguration.current.screenHeightDp.dp - MENU_SCREEN_MARGIN * 2 - 16.dp
@@ -147,10 +146,10 @@ private fun RoomActionPanel(title: String, subtitle: String, message: String?, i
             .padding(8.dp)
             .width(MENU_WIDTH)
             .heightIn(max = maxHeight.coerceAtLeast(120.dp))
-            .shadow(16.dp, shape, clip = false)
+            .shadow(QuietMenuDefaults.shadowElevation, shape, clip = false)
             .clip(shape)
-            .background(scheme.surfaceContainerLow)
-            .border(BorderStroke(1.dp, LocalLovelyColors.current.glassBorder), shape)
+            .background(QuietMenuDefaults.containerColor())
+            .border(QuietMenuDefaults.border(), shape)
             .verticalScroll(rememberScrollState())
             .padding(vertical = 6.dp),
     ) {
@@ -161,17 +160,17 @@ private fun RoomActionPanel(title: String, subtitle: String, message: String?, i
                 color = scheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (!message.isNullOrBlank()) {
                 Text(message, style = MaterialTheme.typography.bodyMedium, maxLines = 6, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 8.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                    modifier = Modifier.padding(top = 8.dp).fillMaxWidth().clip(LovelyShapes.control)
                         .background(scheme.surfaceContainerHigh).padding(horizontal = 12.dp, vertical = 10.dp))
             }
         }
         val (main, separated) = items.partition { !it.separated }
-        Column(Modifier.padding(horizontal = 6.dp)) {
+        Column(Modifier.padding(horizontal = QuietMenuDefaults.itemOuterPadding)) {
             main.forEach { RoomActionRow(it, onDismiss) }
         }
         if (separated.isNotEmpty()) {
             Spacer(Modifier.padding(horizontal = 18.dp, vertical = 4.dp).fillMaxWidth().height(1.dp).background(scheme.outlineVariant))
-            Column(Modifier.padding(horizontal = 6.dp)) {
+            Column(Modifier.padding(horizontal = QuietMenuDefaults.itemOuterPadding)) {
                 separated.forEach { RoomActionRow(it, onDismiss) }
             }
         }
@@ -186,9 +185,9 @@ private fun RoomActionRow(item: RoomMenuItem, onDismiss: () -> Unit) {
         Modifier
             .fillMaxWidth()
             .heightIn(min = 46.dp)
-            .clip(RoundedCornerShape(14.dp))
+            .clip(QuietMenuDefaults.itemShape)
             .clickable(enabled = item.enabled, role = Role.Button) { onDismiss(); item.onClick() }
-            .padding(horizontal = 12.dp),
+            .padding(horizontal = QuietMenuDefaults.itemInnerPadding),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
