@@ -21,6 +21,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+/** 「条件をリセット」の前の入力。「元に戻す」で戻す。年齢は入力途中の文字もそのまま持つ。 */
+data class SearchDraft(val criteria: RoomSearchCriteria, val minAgeInput: String, val maxAgeInput: String)
+
 data class SearchUiState(
     val genre: Genre = Genres.default,
     val criteria: RoomSearchCriteria = RoomSearchCriteria(),
@@ -40,7 +43,9 @@ data class SearchUiState(
 ) {
     val validAges: Boolean get() = (minAgeInput.isEmpty() || minAgeInput.toIntOrNull()?.let { it in 18..99 } == true) &&
         (maxAgeInput.isEmpty() || maxAgeInput.toIntOrNull()?.let { it in 18..99 } == true) && criteria.isValid
-    val results: List<Room> get() = if (validAges) searchRooms(rooms, criteria) else emptyList()
+    /** 一覧に使う条件。年齢の入力が正しくない間は年齢の条件だけを外し、一覧は消さない。 */
+    val effectiveCriteria: RoomSearchCriteria get() = if (validAges) criteria else criteria.copy(minAge = null, maxAge = null)
+    val results: List<Room> get() = searchRooms(rooms, effectiveCriteria)
     val canLoadMore: Boolean get() = page in 1 until lastPage && !loading
 }
 
@@ -74,6 +79,18 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
         if (key != handledRefreshKey && _state.value.initialized) { handledRefreshKey = key; refresh() }
     }
     fun criteria(value: RoomSearchCriteria) = _state.update { it.copy(criteria = value) }
+
+    /** 条件をすべて既定に戻し、戻す前の入力を返す。もともと既定なら何もせず null。 */
+    fun resetCriteria(): SearchDraft? {
+        val s = _state.value
+        val draft = SearchDraft(s.criteria, s.minAgeInput, s.maxAgeInput)
+        if (draft == SearchDraft(RoomSearchCriteria(), "", "")) return null
+        _state.update { it.copy(criteria = RoomSearchCriteria(), minAgeInput = "", maxAgeInput = "") }
+        return draft
+    }
+
+    fun restoreCriteria(draft: SearchDraft) =
+        _state.update { it.copy(criteria = draft.criteria, minAgeInput = draft.minAgeInput, maxAgeInput = draft.maxAgeInput) }
     fun minAge(value: String) {
         val input = value.filter(Char::isDigit).take(2)
         _state.update { it.copy(minAgeInput = input, criteria = it.criteria.copy(minAge = input.toIntOrNull())) }
@@ -105,6 +122,7 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
     fun more() { if (_state.value.canLoadMore) load(_state.value.page + 1, false) }
     fun automatic(enabled: Boolean) = _state.update { it.copy(automatic = enabled) }
     fun clearNewRooms() = _state.update { it.copy(newRoomIds = emptySet()) }
+    fun clearPreferenceError() = _state.update { it.copy(preferenceError = null) }
     fun stopRefresh() { job?.cancel(); _state.update { it.copy(loading = false) } }
 
     /** 画面が前面にある間だけ実行。取消はHTTP取得にも伝わる。 */

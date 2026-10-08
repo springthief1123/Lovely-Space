@@ -206,7 +206,19 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                 if (waitlist.isEmpty()) item { RadarEmpty("順番待ちはまだありません。", "部屋を見つける", onFindRooms) }
                 items(waitlist, key = { "waitlist/${it.key}" }) { entry ->
                     WaitlistRow(entry, onEnter = { entry.openedRoom?.let(onEnterRoom) },
-                        onRemove = { scope.launch { runCatching { app.waitlist.remove(entry.key) } } })
+                        onRemove = {
+                            scope.launch {
+                                try { app.waitlist.remove(entry.key) }
+                                catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                                catch (e: Exception) { error = "順番待ちを取り消せませんでした。もう一度お試しください。"; return@launch }
+                                val label = if (entry.active(System.currentTimeMillis())) "順番待ちを取り消しました" else "記録を削除しました"
+                                if (snackbar.showSnackbar(label, actionLabel = "元に戻す", withDismissAction = true) == SnackbarResult.ActionPerformed) {
+                                    try { app.waitlist.restore(entry) }
+                                    catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                                    catch (e: Exception) { error = e.message ?: "順番待ちを元に戻せませんでした。" }
+                                }
+                            }
+                        })
                 }
             }
             2 -> {

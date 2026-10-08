@@ -21,6 +21,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import io.github.springthief1123.lovelyspace.ui.components.*
 import io.github.springthief1123.lovelyspace.data.SearchPreset
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -55,6 +59,15 @@ fun FavoritesScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onA
     val values = state.favorites
     val presets by app.searchPresets.presets.collectAsStateWithLifecycle(initialValue = emptyList())
     var section by rememberSaveable { mutableIntStateOf(0) }
+    val snackbar = remember { SnackbarHostState() }
+    // 保存の解除はスワイプ1回で起きるので、見つけるの非表示と同じく「元に戻す」を出す。
+    LaunchedEffect(vm) {
+        vm.unfavorited.collect { value ->
+            if (snackbar.showSnackbar("保存を解除しました", actionLabel = "元に戻す", withDismissAction = true) == SnackbarResult.ActionPerformed) {
+                vm.restoreFavorite(value)
+            }
+        }
+    }
 
     QuietPage {
     LazyColumn(
@@ -118,6 +131,8 @@ fun FavoritesScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onA
         }
         item { Spacer(Modifier.height(8.dp)) }
     }
+    SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
+        .padding(start = 16.dp, end = 16.dp, bottom = lovelyMainContentBottomInset()))
     }
 }
 

@@ -51,7 +51,23 @@ fun AppLockSettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val biometricReady = remember(context) { biometricAvailable(context) }
     var setup by remember { mutableStateOf<LockMethod?>(null) }
+    // ロックを切る・方法を変える前に、いまの解除方法で本人か確かめる。null は「ロックを切る」。
+    var verifying by remember { mutableStateOf<LockChange?>(null) }
 
+    verifying?.let { change ->
+        LockVerify(
+            title = if (change.method == null) "ロックをオフにする" else "${change.method.label}に変更",
+            state = state,
+            check = controller::verify,
+            verifyBiometric = if (config.biometric) controller::verifyWithBiometric else null,
+            onVerified = {
+                verifying = null
+                if (change.method == null) controller.disable() else setup = change.method
+            },
+            onCancel = { verifying = null },
+        )
+        return
+    }
     setup?.let { method ->
         LockSetup(method, onDone = { secret -> controller.enable(method, secret); setup = null }, onCancel = { setup = null })
         return
@@ -68,7 +84,7 @@ fun AppLockSettingsScreen(onBack: () -> Unit) {
                         Text("背景の巡回・順番待ちの通知はロック中も届きます。通知から開いたときもロックを先に解きます。",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Switch(config.enabled, onCheckedChange = { on -> if (on) setup = LockMethod.PASSCODE else controller.disable() })
+                    Switch(config.enabled, onCheckedChange = { on -> if (on) setup = LockMethod.PASSCODE else verifying = LockChange(null) })
                 }
             }
             if (config.enabled) {
@@ -82,7 +98,7 @@ fun AppLockSettingsScreen(onBack: () -> Unit) {
                             LockMethod.PATTERN -> if (config.method == method) "押すと変更します" else "4つ以上の点をなぞる"
                         },
                         selected = config.method == method,
-                        onClick = { setup = method },
+                        onClick = { verifying = LockChange(method) },
                     )
                 }
                 item {
@@ -112,6 +128,37 @@ fun AppLockSettingsScreen(onBack: () -> Unit) {
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp))
                 }
             }
+        }
+    }
+}
+
+/** 確かめたあとに行う変更。[method] が null ならロックを切り、そうでなければその方法を登録し直す。 */
+private data class LockChange(val method: LockMethod?)
+
+/** 設定を変える前の確認。ロック画面と同じ入力欄で、いまの解除方法を入力してもらう。 */
+@Composable
+private fun LockVerify(
+    title: String,
+    state: AppLockState,
+    check: (String) -> Boolean,
+    verifyBiometric: (() -> Boolean)?,
+    onVerified: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    BackHandler(onBack = onCancel)
+    Column(Modifier.fillMaxSize().statusBarsPadding()) {
+        SettingsPageHeader(title = title, onBack = onCancel)
+        Column(
+            Modifier.fillMaxSize().padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text("続けるには、いまの解除方法で確認してください。", style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(20.dp))
+            LockChallenge(state, check = check, onSuccess = onVerified,
+                onBiometricSuccess = verifyBiometric?.let { verify -> { if (verify()) onVerified() } })
+            Spacer(Modifier.height(16.dp))
+            TextButton(onClick = onCancel) { Text("やめる") }
         }
     }
 }

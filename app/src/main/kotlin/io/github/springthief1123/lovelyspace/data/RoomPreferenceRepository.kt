@@ -72,6 +72,8 @@ interface RoomPreferenceStore {
     suspend fun setHidden(room: Room, enabled: Boolean)
     suspend fun clearFavorite(host: String, roomId: Long)
     suspend fun clearHidden(host: String, roomId: Long)
+    /** 解除した保存を「元に戻す」。解除前の記録 [value] をそのまま戻し、その間に非表示にしていればそれも残す。 */
+    suspend fun restoreFavorite(value: RoomPreference)
     suspend fun observe(rooms: List<Room>)
 }
 
@@ -108,6 +110,13 @@ class RoomPreferenceRepository(private val db: PresetDatabase) : RoomPreferenceS
         db.withTransaction {
             dao.clearHidden(host, roomId)
             dao.deleteUnused(host, roomId)
+        }
+    }
+
+    override suspend fun restoreFavorite(value: RoomPreference) {
+        db.withTransaction {
+            val existing = dao.preference(value.host, value.roomId)
+            dao.put(value.copy(favorite = true, hidden = value.hidden || existing?.hidden == true))
         }
     }
 

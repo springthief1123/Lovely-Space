@@ -16,6 +16,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import io.github.springthief1123.lovelyspace.ui.components.QuietPage
+import io.github.springthief1123.lovelyspace.ui.components.QuietNotice
 import io.github.springthief1123.lovelyspace.ui.components.QuietFieldPair
 import io.github.springthief1123.lovelyspace.data.SearchPreset
 import androidx.compose.foundation.lazy.LazyColumn
@@ -78,6 +79,17 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
             if (snackbar.showSnackbar("部屋を非表示にしました", actionLabel = "元に戻す", withDismissAction = true) == SnackbarResult.ActionPerformed) preferencesVm.unhide(room)
         }
     }
+    // 条件のリセットは詳しい条件まで一度に消えるので、「元に戻す」を出す。
+    val resetSearch = remember(vm, snackbar, scope) { {
+        vm.resetCriteria()?.let { draft ->
+            scope.launch {
+                if (snackbar.showSnackbar("条件をリセットしました", actionLabel = "元に戻す", withDismissAction = true) == SnackbarResult.ActionPerformed) {
+                    vm.restoreCriteria(draft)
+                }
+            }
+        }
+        Unit
+    } }
     val quickActions = rememberRoomQuickActions(
         onNotice = { message -> scope.launch { snackbar.showSnackbar(message, withDismissAction = true) } },
     )
@@ -106,10 +118,10 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
         // ジャンル名が画面の見出しを兼ねる。
         if (state.initialized) item { GenreBar(state.genre, emptyList(), emptyMap(), { vm.genre(it); vm.refresh() }) }
-        item { SearchPanel(state, vm, panelExpanded, onExpandedChange = { panelExpanded = it }) }
+        item { SearchPanel(state, vm, panelExpanded, onExpandedChange = { panelExpanded = it }, onReset = resetSearch) }
         item {
             SearchStatusRow(
-                text = searchStatusText(state.page, state.lastPage, if (validAges) visibleResults.size else 0, state.loading || !state.initialized,
+                text = searchStatusText(state.page, state.lastPage, visibleResults.size, state.loading || !state.initialized,
                     state.pageTimes.values.minOrNull()?.let { io.github.springthief1123.lovelyspace.data.formatObservationTime(it) }),
                 automatic = state.automatic,
                 loading = state.loading,
@@ -123,30 +135,46 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
                 label = { Text("新着 ${newCount}件・先頭へ") },
                 leadingIcon = { Icon(Icons.Outlined.ArrowUpward, null, Modifier.size(16.dp)) })
         }
-        state.preferenceError?.let { error -> item { Text("設定を保存できませんでした：$error", color = MaterialTheme.colorScheme.error) } }
+        if (!validAges) item {
+            QuietNotice("年齢の条件が正しくないため、年齢では絞り込んでいません。")
+        }
+        state.preferenceError?.let { error -> item {
+            QuietNotice("設定を保存できませんでした：$error", error = true, onDismiss = vm::clearPreferenceError)
+        } }
         preferences.error?.let { error -> item {
-            Text(error, color = MaterialTheme.colorScheme.error)
-            TextButton(onClick = preferencesVm::clearError) { Text("閉じる") }
+            QuietNotice(error, error = true, onDismiss = preferencesVm::clearError)
         } }
         state.error?.let { error -> item {
-            Text(error, color = MaterialTheme.colorScheme.error)
-            TextButton(onClick = { if (state.errorOnMore) vm.more() else vm.refresh() }, enabled = state.initialized && !state.loading) { Text("もう一度読み込む") }
+            QuietNotice(error, error = true, actionLabel = "もう一度読み込む",
+                onAction = { if (state.errorOnMore) vm.more() else vm.refresh() }, actionEnabled = state.initialized && !state.loading)
         } }
-        if (validAges) {
-            items(visibleResults, key = ::roomIdentity) { room ->
-                RoomCard(
-                    room = room,
-                    onClick = { when (room.action) { RoomAction.ENTER -> onEnterRoom(room); RoomAction.PEEK -> onPeekRoom(room); RoomAction.NONE -> selectedRoom = room } },
-                    onDetailsClick = { selectedRoom = room },
-                    isFavorite = preferences.isFavorite(room),
-                    actionsEnabled = preferences.canEdit(room),
-                    onFavoriteClick = { preferencesVm.toggleFavorite(room) },
-                    onHideClick = { preferencesVm.hide(room) },
-                    menuItems = quickActions(room, null),
-                )
-            }
-            if (state.page > 0 && visibleResults.isEmpty() && !state.loading) item {
-                Text(if (state.results.isEmpty()) "取得済みの一覧に、条件に合う部屋はありません。" else "条件に合う部屋はすべて非表示です。")
+        items(visibleResults, key = ::roomIdentity) { room ->
+            RoomCard(
+                room = room,
+                onClick = { when (room.action) { RoomAction.ENTER -> onEnterRoom(room); RoomAction.PEEK -> onPeekRoom(room); RoomAction.NONE -> selectedRoom = room } },
+                onDetailsClick = { selectedRoom = room },
+                isFavorite = preferences.isFavorite(room),
+                actionsEnabled = preferences.canEdit(room),
+                onFavoriteClick = { preferencesVm.toggleFavorite(room) },
+                onHideClick = { preferencesVm.hide(room) },
+                menuItems = quickActions(room, null),
+            )
+        }
+        val canReadNext = state.page in 1 until state.lastPage && state.error == null
+        if (state.page > 0 && visibleResults.isEmpty() && !state.loading) item {
+            SearchEmpty(
+                text = when {
+                    state.results.isNotEmpty() -> "条件に合う部屋はすべて非表示です。"
+                    canReadNext -> "読み込んだ${state.page}ページには、条件に合う部屋はありません。"
+                    else -> "条件に合う部屋はありません。"
+                },
+                onReset = if (activeFilterCount(c) > 0) resetSearch else null,
+            )
+        }
+        // 次のページは利用者が押したときだけ 1 ページ読む。自動更新の巡回の間隔は変えない。
+        if (canReadNext) item(key = "next-page") {
+            OutlinedButton(onClick = vm::more, enabled = state.canLoadMore, modifier = Modifier.fillMaxWidth()) {
+                Text(if (state.loading) "読み込んでいます…" else "次のページを読み込む（${state.page + 1}/${state.lastPage}）")
             }
         }
     }
@@ -179,8 +207,9 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         anchor = searchAnchor,
         state = state,
         vm = vm,
-        statusText = searchStatusText(state.page, state.lastPage, if (validAges) visibleResults.size else 0, state.loading || !state.initialized, null),
+        statusText = searchStatusText(state.page, state.lastPage, visibleResults.size, state.loading || !state.initialized, null),
         onDismiss = { searchOpen = false },
+        onReset = resetSearch,
     )
 }
 
@@ -209,6 +238,15 @@ private fun SearchStatusRow(
     }
 }
 
+/** 一覧に合う部屋が無いとき。条件を指定していれば、その場でリセットできるようにする。 */
+@Composable
+private fun SearchEmpty(text: String, onReset: (() -> Unit)?) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (onReset != null) TextButton(onClick = onReset) { Text("条件をリセット") }
+    }
+}
+
 /** 一覧の状態を1行にまとめる。例: 「41件・3/5ページ・12:04 確認」。 */
 internal fun searchStatusText(page: Int, lastPage: Int, shown: Int, loading: Boolean, oldestCheck: String?): String = when {
     page == 0 && loading -> "一覧を読み込んでいます"
@@ -224,8 +262,6 @@ internal fun advancedFilterCount(c: RoomSearchCriteria): Int = listOf(
     c.minAge != null || c.maxAge != null,
     !c.includeUnknownAge,
     c.area != null,
-    c.waitingOnly == false,
-    c.publicOnly == false,
     c.sort != RoomSort.SITE,
 ).count { it }
 
@@ -233,6 +269,6 @@ internal fun advancedFilterCount(c: RoomSearchCriteria): Int = listOf(
 internal fun activeFilterCount(c: RoomSearchCriteria): Int = advancedFilterCount(c) + listOf(
     c.text.isNotBlank(),
     c.gender != null,
-    c.waitingOnly == true,
-    c.publicOnly == true,
+    c.waitingOnly != null,
+    c.publicOnly != null,
 ).count { it }

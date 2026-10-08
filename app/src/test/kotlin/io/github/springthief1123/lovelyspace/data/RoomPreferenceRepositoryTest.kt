@@ -109,6 +109,40 @@ class RoomPreferenceRepositoryTest {
         }
     }
 
+    @Test fun undoingAnUnfavoriteRestoresTheSameRecordAndKeepsALaterHide() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        val name = "room-preferences-${UUID.randomUUID()}.db"
+        val db = Room.databaseBuilder(context, PresetDatabase::class.java, name).build()
+        try {
+            val repo = RoomPreferenceRepository(db)
+            val chatRoom = room(7, "zenkoku", "ミナ")
+            repo.setFavorite(chatRoom, true)
+            repo.observe(listOf(chatRoom.copy(name = "別の人")))
+            val before = repo.preferences.first().single()
+            assertTrue(before.stale)
+
+            repo.clearFavorite(before.host, before.roomId)
+            assertTrue(repo.preferences.first().isEmpty())
+            // ID 再利用の印やプロフィールも含め、解除前の記録をそのまま戻す。
+            repo.restoreFavorite(before)
+            assertEquals(before, repo.preferences.first().single())
+
+            repo.clearFavorite(before.host, before.roomId)
+            val other = room(8, "zenkoku", "ユウ")
+            repo.setFavorite(other, true)
+            val second = repo.preferences.first().single { it.roomId == 8L }
+            repo.clearFavorite(second.host, second.roomId)
+            repo.setHidden(other, true)
+            repo.restoreFavorite(second)
+            val restored = repo.preferences.first().single { it.roomId == 8L }
+            assertTrue(restored.favorite)
+            assertTrue(restored.hidden)
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
     @Test fun migratesExportedV2WithoutChangingExistingData() = runTest {
         val context = ApplicationProvider.getApplicationContext<Application>()
         val name = "room-migration-${UUID.randomUUID()}.db"

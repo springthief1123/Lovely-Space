@@ -28,6 +28,7 @@ class RoomPreferenceUndoTest {
                 }
                 override suspend fun clearFavorite(host: String, roomId: Long) = Unit
                 override suspend fun clearHidden(host: String, roomId: Long) = Unit
+                override suspend fun restoreFavorite(value: RoomPreference) = Unit
                 override suspend fun observe(rooms: List<Room>) = Unit
             }
             val vm = RoomPreferenceViewModel(store)
