@@ -566,7 +566,7 @@ private fun RoomCardSurface(
                 }
                 // 文字を大きくして 1 行に収まらないときは、動きの表示を次の行へ送る（切れないように）。
                 FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+                    verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     MetaChip(statusLabel(room.status), statusColor, filled = true)
                     MetaChip(
                         when {
@@ -581,7 +581,7 @@ private fun RoomCardSurface(
                     // 押したときの動き（入室へ・覗く）を先に示す。満室で非公開の部屋は詳細が開くだけなので付けない。
                     cardActionLabel(room.action)?.let { label ->
                         Text("$label ›", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
-                            textAlign = TextAlign.End, modifier = Modifier.weight(1f))
+                            textAlign = TextAlign.End, modifier = Modifier.weight(1f).align(Alignment.CenterVertically))
                     }
                 }
             }
