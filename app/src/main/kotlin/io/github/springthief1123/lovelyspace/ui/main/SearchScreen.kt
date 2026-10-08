@@ -154,9 +154,9 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         }
     }
     }
-    // 検索欄・絞り込み・更新が上に流れて見えなくなったら、上部のバーの下に小さなバーを出してすぐ届くようにする。
-    val statusRowIndex = if (state.initialized) 3 else 2
-    val controlsHidden by remember(statusRowIndex) { derivedStateOf { listState.firstVisibleItemIndex > statusRowIndex } }
+    // 検索欄が上に流れて見えなくなったら、上部のバーの下に小さなバーを出して検索・絞り込み・更新にすぐ届くようにする。
+    val searchFieldIndex = if (state.initialized) 1 else 0
+    val controlsHidden by remember(searchFieldIndex) { derivedStateOf { listState.firstVisibleItemIndex > searchFieldIndex } }
     androidx.compose.animation.AnimatedVisibility(
         controlsHidden,
         enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically { -it / 2 },
