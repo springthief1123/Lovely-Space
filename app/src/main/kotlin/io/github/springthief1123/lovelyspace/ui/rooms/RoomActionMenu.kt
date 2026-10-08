@@ -22,6 +22,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -35,6 +37,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -136,15 +139,19 @@ internal fun RoomActionMenu(
 private fun RoomActionPanel(title: String, subtitle: String, message: String?, items: List<RoomMenuItem>, onDismiss: () -> Unit) {
     val shape = RoundedCornerShape(20.dp)
     val scheme = MaterialTheme.colorScheme
+    // 横向き・分割画面・大きな文字でも全項目に届くよう、画面の高さに収めて中をスクロールさせる。
+    val maxHeight = LocalConfiguration.current.screenHeightDp.dp - MENU_SCREEN_MARGIN * 2 - 16.dp
     // ポップアップは別のウィンドウなので背景のぼかしは使えない。ガラスに近い明るい面と縁取りで見せる。
     Column(
         Modifier
             .padding(8.dp)
             .width(MENU_WIDTH)
+            .heightIn(max = maxHeight.coerceAtLeast(120.dp))
             .shadow(16.dp, shape, clip = false)
             .clip(shape)
             .background(scheme.surfaceContainerLow)
             .border(BorderStroke(1.dp, LocalLovelyColors.current.glassBorder), shape)
+            .verticalScroll(rememberScrollState())
             .padding(vertical = 6.dp),
     ) {
         Column(Modifier.fillMaxWidth().padding(start = 18.dp, end = 18.dp, top = 8.dp, bottom = 6.dp)) {

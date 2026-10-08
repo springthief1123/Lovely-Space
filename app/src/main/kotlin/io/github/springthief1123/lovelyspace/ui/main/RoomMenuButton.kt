@@ -22,7 +22,9 @@ import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.core.Genres
 import io.github.springthief1123.lovelyspace.core.Room
 import io.github.springthief1123.lovelyspace.core.Gender
+import io.github.springthief1123.lovelyspace.core.RoomIdentityEvidence
 import io.github.springthief1123.lovelyspace.core.roomIdentity
+import io.github.springthief1123.lovelyspace.core.roomIdentityEvidence
 import io.github.springthief1123.lovelyspace.data.ObservedRoomPage
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomActionMenu
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomMenuItem
@@ -30,13 +32,27 @@ import io.github.springthief1123.lovelyspace.ui.rooms.RoomPreferenceViewModel
 
 /**
  * 取得済みの一覧から、その部屋が見えた最新の姿を探す。通信はしない。
- * 満室になると名前が隠れるので、名前の見えている観測を優先する（入室前の待機中の姿など）。
+ * 状態（満室など）は最新の姿のものを使う。満室になると名前などが隠れるので、それ以前に見えた名前・性別・年齢を補う。
+ * ただし、途中で別の人の部屋に変わった（ID の再利用）と分かる観測より前からは補わない。
  */
 internal fun observedRoom(observations: Collection<ObservedRoomPage>, genreKey: String, roomId: Long): Room? {
     val key = "${Genres[genreKey]?.host ?: genreKey}/$roomId"
     val seen = observations.sortedByDescending { it.revision }
         .flatMap { observed -> observed.page.rooms.filter { roomIdentity(it) == key } }
-    return seen.firstOrNull { it.name != null } ?: seen.firstOrNull()
+    val newest = seen.firstOrNull() ?: return null
+    if (newest.name != null) return newest
+    for (older in seen.drop(1)) {
+        if (roomIdentityEvidence(newest, older) == RoomIdentityEvidence.REUSED) break
+        if (older.name != null) {
+            return newest.copy(
+                name = older.name,
+                gender = if (newest.gender == Gender.UNKNOWN) older.gender else newest.gender,
+                age = newest.age ?: older.age,
+                area = newest.area ?: older.area,
+            )
+        }
+    }
+    return newest
 }
 
 /**
