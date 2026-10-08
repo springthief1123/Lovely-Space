@@ -32,10 +32,10 @@ fun PublicRoomScreen(host: String, genreKey: String, roomId: Long, onBack: () ->
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            QuietTopBar("公開ルーム", onBack) {
+            QuietTopBar("公開ルーム", onBack = onBack, actions = {
                 RoomMenuButton(genreKey, roomId, fallbackTitle = "公開ルーム",
                     onNotice = { message -> menuScope.launch { snackbar.showSnackbar(message, withDismissAction = true) } })
-            }
+            })
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {

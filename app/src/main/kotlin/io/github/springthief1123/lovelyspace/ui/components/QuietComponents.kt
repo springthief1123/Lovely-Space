@@ -27,7 +27,8 @@ import androidx.compose.ui.text.style.TextOverflow
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun QuietTopBar(title: String, onBack: () -> Unit, actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {}) {
+// onBack を最後に置き、既存の呼び出し（QuietTopBar(title) { 戻る }）をそのまま使えるようにする。
+fun QuietTopBar(title: String, actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {}, onBack: () -> Unit) {
     TopAppBar(
         title = { Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         navigationIcon = {
