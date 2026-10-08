@@ -1,13 +1,26 @@
 package io.github.springthief1123.lovelyspace.ui.main
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Save
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -17,61 +30,57 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.core.*
 import io.github.springthief1123.lovelyspace.data.SearchPreset
+import io.github.springthief1123.lovelyspace.ui.rooms.RoomActionMenu
+import io.github.springthief1123.lovelyspace.ui.rooms.RoomMenuItem
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+/**
+ * 検索パネルの中に出す保存した条件。チップを押すと適用し、長押しで名前の変更・上書き・削除を選ぶ。
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun SavedSearchControls(search: SearchUiState, onApply: (SearchPreset) -> Unit) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val vm: SavedSearchViewModel = viewModel(factory = viewModelFactory { initializer { SavedSearchViewModel(app.searchPresets) } })
     val state by vm.state.collectAsStateWithLifecycle()
-    var showSaved by rememberSaveable { mutableStateOf(false) }
     var draft by rememberSaveable(stateSaver = SearchPresetSaver) { mutableStateOf<SearchPreset?>(null) }
     var replacing by rememberSaveable(stateSaver = SearchPresetSaver) { mutableStateOf<SearchPreset?>(null) }
     var deleting by rememberSaveable(stateSaver = SearchPresetSaver) { mutableStateOf<SearchPreset?>(null) }
 
-    Column {
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = {
-                vm.clearEditError()
-                draft = SearchPreset(label = "", genreKey = search.genre.key, criteria = search.criteria)
-            }, enabled = search.validAges && !state.working) { Text("条件を保存") }
-            TextButton(onClick = { showSaved = true }) { Text("保存した条件") }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("保存した条件", style = MaterialTheme.typography.labelMedium)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            AssistChip(
+                onClick = {
+                    vm.clearEditError()
+                    draft = SearchPreset(label = "", genreKey = search.genre.key, criteria = search.criteria)
+                },
+                enabled = search.validAges && !state.working,
+                label = { Text("今の条件を保存") },
+                leadingIcon = { Icon(Icons.Outlined.Add, null, Modifier.size(16.dp)) },
+            )
+            state.presets.forEach { value ->
+                SavedSearchChip(
+                    value = value,
+                    enabled = !state.working,
+                    canApply = Genres[value.genreKey] != null,
+                    canReplace = search.validAges,
+                    onApply = { onApply(value) },
+                    onRename = { vm.clearEditError(); draft = value },
+                    onReplace = { vm.clearEditError(); replacing = value.copy(genreKey = search.genre.key, criteria = search.criteria) },
+                    onDelete = { vm.clearEditError(); deleting = value },
+                )
+            }
         }
-        Text("ジャンルと条件を端末に保存します。呼び出しても自動では通信しません。",
+        when {
+            state.loading -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+            state.loadError != null -> Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(state.loadError.orEmpty(), color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f))
+                TextButton(onClick = vm::reload) { Text("もう一度読み込む") }
+            }
+        }
+        Text(if (state.presets.isEmpty()) "ジャンルと条件を端末に保存できます。呼び出しても自動では通信しません。"
+            else "押すと適用、長押しで名前の変更・上書き・削除。呼び出しても自動では通信しません。",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-
-    if (showSaved) ModalBottomSheet(onDismissRequest = { showSaved = false }) {
-        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 520.dp), contentPadding = PaddingValues(24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item { Text("保存した条件", style = MaterialTheme.typography.titleLarge) }
-            if (state.loading) item { CircularProgressIndicator(Modifier.size(28.dp)) }
-            state.loadError?.let { error -> item {
-                Text(error, color = MaterialTheme.colorScheme.error)
-                TextButton(onClick = vm::reload, enabled = !state.loading) { Text("もう一度読み込む") }
-            } }
-            if (!state.loading && state.loadError == null && state.presets.isEmpty()) item {
-                Text("よく使う条件を「条件を保存」から追加できます。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            items(state.presets, key = { it.id }) { value ->
-                Column {
-                    Text(value.label, style = MaterialTheme.typography.titleMedium)
-                    Text(Genres[value.genreKey]?.label ?: value.genreKey, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        TextButton(enabled = !state.working && Genres[value.genreKey] != null, onClick = {
-                            onApply(value); showSaved = false
-                        }) { Text("適用") }
-                        TextButton(enabled = !state.working, onClick = { vm.clearEditError(); draft = value }) { Text("名前変更") }
-                        TextButton(enabled = !state.working && search.validAges, onClick = {
-                            vm.clearEditError()
-                            replacing = value.copy(genreKey = search.genre.key, criteria = search.criteria)
-                        }) { Text("現在の条件で更新") }
-                        TextButton(enabled = !state.working, onClick = { vm.clearEditError(); deleting = value }) { Text("削除") }
-                    }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                }
-            }
-        }
     }
 
     draft?.let { value ->
@@ -96,6 +105,59 @@ internal fun SavedSearchControls(search: SearchUiState, onApply: (SearchPreset) 
             } },
             confirmButton = { TextButton(enabled = !state.working, onClick = { vm.delete(value.id) { deleting = null } }) { Text("削除") } },
             dismissButton = { TextButton(enabled = !state.working, onClick = { deleting = null }) { Text("キャンセル") } })
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SavedSearchChip(
+    value: SearchPreset,
+    enabled: Boolean,
+    canApply: Boolean,
+    canReplace: Boolean,
+    onApply: () -> Unit,
+    onRename: () -> Unit,
+    onReplace: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    var menu by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(8.dp)
+    val scheme = MaterialTheme.colorScheme
+    Box {
+        Text(
+            value.label,
+            style = MaterialTheme.typography.labelLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            color = if (enabled) scheme.onSurface else scheme.onSurface.copy(alpha = 0.38f),
+            modifier = Modifier
+                .widthIn(max = 220.dp)
+                .heightIn(min = 32.dp)
+                .clip(shape)
+                .border(BorderStroke(1.dp, scheme.outlineVariant), shape)
+                .combinedClickable(
+                    enabled = enabled,
+                    role = Role.Button,
+                    onClickLabel = "適用",
+                    onLongClickLabel = "保存した条件のメニュー",
+                    onLongClick = { menu = true },
+                    onClick = { if (canApply) onApply() else menu = true },
+                )
+                .padding(horizontal = 12.dp, vertical = 7.dp),
+        )
+        RoomActionMenu(
+            visible = menu,
+            touch = null,
+            title = value.label,
+            subtitle = Genres[value.genreKey]?.label ?: value.genreKey,
+            items = listOf(
+                RoomMenuItem("適用", Icons.Outlined.Search, enabled = canApply, onClick = onApply),
+                RoomMenuItem("名前を変更", Icons.Outlined.Edit, onClick = onRename),
+                RoomMenuItem("今の条件で上書き", Icons.Outlined.Save, enabled = canReplace, onClick = onReplace),
+                RoomMenuItem("削除", Icons.Outlined.Delete, separated = true, onClick = onDelete),
+            ),
+            onDismiss = { menu = false },
+        )
     }
 }
 

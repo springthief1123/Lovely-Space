@@ -16,7 +16,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.NotificationsNone
@@ -26,7 +28,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.roundToIntRect
 import io.github.springthief1123.lovelyspace.ui.theme.LocalLovelyBottomContentInset
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
@@ -76,18 +82,27 @@ fun LovelyAppShell(
     val density = LocalDensity.current
     var navigationHeight by remember { mutableStateOf(100.dp) }
     val bottomInset = lovelyBottomContentInset(navigationHeight, showCreateFab, showChrome && resumeBar != null)
+    val shellState = remember { LovelyShellState() }
     ProvideLovelyHazeState(hazeState) {
         Box(Modifier.fillMaxSize()) {
             Surface(Modifier.fillMaxSize().hazeSource(state = hazeState),
                 color = MaterialTheme.colorScheme.background, contentColor = MaterialTheme.colorScheme.onBackground) {
-                CompositionLocalProvider(LocalLovelyBottomContentInset provides bottomInset) { content() }
+                CompositionLocalProvider(LocalLovelyBottomContentInset provides bottomInset, LocalLovelyShellState provides shellState) { content() }
             }
             if (showChrome) {
-                LovelyTopBar(onOpenNotificationSettings, Modifier.align(Alignment.TopCenter))
+                LovelyTopBar(onOpenNotificationSettings, shellState.searchButton, Modifier.align(Alignment.TopCenter))
                 LovelyBottomNavigation(if (currentRoute == Routes.SEARCH) Routes.ROOMS else currentRoute,
                     onDestinationSelected, Modifier.align(Alignment.BottomCenter), onHeight = { navigationHeight = with(density) { it.toDp() } })
                 if (resumeBar != null) Box(Modifier.align(Alignment.BottomStart).navigationBarsPadding()
                     .padding(start = 16.dp, end = if (showCreateFab) 92.dp else 16.dp, bottom = navigationHeight + 12.dp)) { resumeBar() }
+                // 「トップへ戻る」はボトムナビの上の中央に浮かせる。外枠に置くので後ろの一覧がぼける。
+                val scrollToTop = shellState.scrollToTop
+                AnimatedVisibility(scrollToTop != null, enter = fadeIn() + scaleIn(initialScale = 0.9f),
+                    exit = fadeOut() + scaleOut(targetScale = 0.9f),
+                    modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
+                        .padding(bottom = navigationHeight + 12.dp + if (resumeBar != null) 72.dp else 0.dp)) {
+                    LovelyGlassPillButton("トップへ戻る", Icons.Outlined.ArrowUpward, onClick = { scrollToTop?.invoke() })
+                }
                 AnimatedVisibility(showCreateFab, enter = fadeIn() + scaleIn(initialScale = 0.9f),
                     exit = fadeOut() + scaleOut(targetScale = 0.9f),
                     modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 20.dp, bottom = navigationHeight + 12.dp)) {
@@ -99,7 +114,7 @@ fun LovelyAppShell(
 }
 
 @Composable
-private fun LovelyTopBar(onOpenNotificationSettings: () -> Unit, modifier: Modifier = Modifier) {
+private fun LovelyTopBar(onOpenNotificationSettings: () -> Unit, searchButton: ShellSearchButton?, modifier: Modifier = Modifier) {
     var notificationsOpen by remember { mutableStateOf(false) }
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val notifications by app.notificationInbox.entries.collectAsStateWithLifecycle()
@@ -116,6 +131,17 @@ private fun LovelyTopBar(onOpenNotificationSettings: () -> Unit, modifier: Modif
             Text("Lovely Space", modifier = Modifier.weight(1f).padding(start = 10.dp),
                 style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.Serif),
                 color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            // 検索パネルが一覧の上に隠れているときだけ、ベルの左隣に検索ボタンを出す。
+            var searchBounds by remember { mutableStateOf(IntRect.Zero) }
+            AnimatedVisibility(searchButton != null, enter = fadeIn() + scaleIn(initialScale = 0.8f), exit = fadeOut() + scaleOut(targetScale = 0.8f)) {
+                val active = searchButton?.activeCount ?: 0
+                IconButton(onClick = { searchButton?.onClick?.invoke(searchBounds) },
+                    modifier = Modifier.onGloballyPositioned { searchBounds = it.boundsInWindow().roundToIntRect() }) {
+                    BadgedBox(badge = { if (active > 0) Badge { Text("$active") } }) {
+                        Icon(Icons.Outlined.Search, contentDescription = if (active > 0) "検索（条件${active}件）" else "検索")
+                    }
+                }
+            }
             Box {
                 IconButton(onClick = { notificationsOpen = true }) {
                     BadgedBox(badge = { if (unread > 0) Badge { Text(if (unread > 99) "99+" else "$unread") } }) {
