@@ -77,6 +77,23 @@ class ShaloveClientTest {
     }
 
     @Test
+    fun aPageTheUserOpenedGoesBeforeQueuedListFetchesWithTheSameSpacing() = runBlocking {
+        repeat(4) { server.enqueue(MockResponse().setBody("ok")) }
+        val gated = ShaloveClient(minInterval = 3.seconds, clock = { now }, sleep = { ms -> sleeps += ms; now += ms; kotlinx.coroutines.delay(100) })
+        gated.get(server.url("/a").toString())
+        // b が間隔を待っている間に、一覧の取得 d と利用者の操作 c が順番待ちに並ぶ（d が先）。
+        val b = async { gated.get(server.url("/b").toString()) }
+        kotlinx.coroutines.delay(20)
+        val d = async { gated.get(server.url("/d").toString()) }
+        kotlinx.coroutines.delay(20)
+        val c = async { gated.get(server.url("/c").toString(), operation = true) }
+        awaitAll(b, c, d)
+        assertEquals(listOf("/a", "/b", "/c", "/d"), (1..4).map { server.takeRequest().path })
+        // 順番を入れ替えても、間隔は毎回空けている。
+        assertEquals(listOf(3_000L, 3_000L, 3_000L), sleeps)
+    }
+
+    @Test
     fun noWaitWhenEnoughTimeHasPassed() = runTest {
         repeat(2) { server.enqueue(MockResponse().setBody("ok")) }
         client.get(server.url("/a").toString())

@@ -51,6 +51,8 @@ class ShaloveClient(
     private val sleep: suspend (Long) -> Unit = { delay(it) },
 ) {
     private val gate = Mutex()
+    /** 順番を待っている、利用者の操作による通信の数。一覧の取得はこれが 0 になるまで譲る。 */
+    private val waitingOperations = java.util.concurrent.atomic.AtomicInteger()
     private val listGate = Mutex()
     private var lastRequestAt: Long? = null
     private class CachedList(val page: RoomListPage, val fetchedAt: Long, val generation: Long)
@@ -79,8 +81,11 @@ class ShaloveClient(
         }
     }
 
-    /** レート制限付きの GET。レスポンス本文をサイトの文字コードで文字列にして返す。 */
-    suspend fun get(url: String): String = gated {
+    /**
+     * レート制限付きの GET。レスポンス本文をサイトの文字コードで文字列にして返す。
+     * [operation] は利用者が開いた画面の読み込み（部屋・公開ルームなど）で、順番待ちの一覧の取得より先に通す。
+     */
+    suspend fun get(url: String, operation: Boolean = false): String = gated(operation) {
         http.newCall(Request.Builder().url(url).header("User-Agent", USER_AGENT).build()).awaitBody()
     }
 
@@ -104,14 +109,38 @@ class ShaloveClient(
         })
     }
 
-    /** ページの読み込みやフォーム送信など、人の操作 1 回に当たる通信。前の通信から [minInterval] 以上空ける。 */
-    private suspend fun <T> gated(block: suspend () -> T): T = gate.withLock {
-        lastRequestAt?.let { last ->
-            val wait = last + minInterval.inWholeMilliseconds - clock()
-            if (wait > 0) sleep(wait)
+    /**
+     * ページの読み込みやフォーム送信など、人の操作 1 回に当たる通信。前の通信から [minInterval] 以上空ける。
+     * [operation]（利用者の操作による通信）は、一覧の取得（巡回・自動更新など）が順番を待っていても先に通す。
+     * 間隔はどちらも同じように空けるので、本家へのアクセスの頻度は変わらない。
+     */
+    private suspend fun <T> gated(operation: Boolean = false, block: suspend () -> T): T {
+        acquire(operation)
+        try {
+            lastRequestAt?.let { last ->
+                val wait = last + minInterval.inWholeMilliseconds - clock()
+                if (wait > 0) sleep(wait)
+            }
+            lastRequestAt = clock()
+            return withContext(Dispatchers.IO) { block() }
+        } finally {
+            gate.unlock()
         }
-        lastRequestAt = clock()
-        withContext(Dispatchers.IO) { block() }
+    }
+
+    private suspend fun acquire(operation: Boolean) {
+        if (operation) {
+            waitingOperations.incrementAndGet()
+            try { gate.lock() } finally { waitingOperations.decrementAndGet() }
+            return
+        }
+        while (true) {
+            gate.lock()
+            if (waitingOperations.get() == 0) return
+            // 利用者の操作が待っていれば譲り、少し後に並び直す。
+            gate.unlock()
+            delay(YIELD_MS)
+        }
     }
 
     // ---- 入室・チャット ----
@@ -119,7 +148,7 @@ class ShaloveClient(
     /** 入室前画面を開く。部屋が埋まった・閉じられた場合など、フォームが無ければ null。 */
     suspend fun openEntry(host: String, roomId: Long, genreKey: String): EntryForm? {
         val url = "https://$host/PreEnterRoom?room_id=$roomId&genre_key=$genreKey"
-        return gated {
+        return gated(operation = true) {
             http.newCall(Request.Builder().url(url).header("User-Agent", USER_AGENT).build()).execute().use { res ->
                 if (!res.isSuccessful) throw HttpStatusException(res.code, url)
                 val bytes = res.body?.bytes() ?: ByteArray(0)
@@ -153,7 +182,7 @@ class ShaloveClient(
             }
             .build()
         val url = "https://${form.host}/PreEnterRoom"
-        return gated {
+        return gated(operation = true) {
             val request = Request.Builder().url(url).post(body)
                 .header("User-Agent", USER_AGENT)
                 .header("Referer", "$url?room_id=${form.roomId}&genre_key=${form.genreKey}")
@@ -176,12 +205,12 @@ class ShaloveClient(
     }
 
     /** 待機画面・チャット画面を開き、初期状態（直近のログ・読み出し位置など）を得る。 */
-    suspend fun openChat(room: ChatRoomRef): ChatPage = ChatPageParser.parse(get(room.pageUrl), room)
+    suspend fun openChat(room: ChatRoomRef): ChatPage = ChatPageParser.parse(get(room.pageUrl, operation = true), room)
 
     /** 公開閲覧は入室・発言・退室を送信しない。ページ通信と同じ制限を共有する。 */
     suspend fun openPublicRoom(host: String, genreKey: String, roomId: Long): io.github.springthief1123.lovelyspace.core.chat.PublicRoomPage {
         val url = SitePages.publicRoom(host, genreKey, roomId)
-        return io.github.springthief1123.lovelyspace.core.chat.PublicRoomParser.parse(get(url), url)
+        return io.github.springthief1123.lovelyspace.core.chat.PublicRoomParser.parse(get(url, operation = true), url)
     }
 
     /**
@@ -240,7 +269,7 @@ class ShaloveClient(
             .add("genre_key", room.genreKey)
             .apply { fields.forEach { (name, value) -> add(name, value) } }
             .build()
-        return gated {
+        return gated(operation = true) {
             val request = Request.Builder().url(url).post(body)
                 .header("User-Agent", USER_AGENT)
                 .header("Referer", room.pageUrl)
@@ -263,6 +292,9 @@ class ShaloveClient(
     }
 
     companion object {
+        /** 一覧の取得が利用者の操作に順番を譲った後、並び直すまでの間（ミリ秒）。 */
+        private const val YIELD_MS = 50L
+
         /** live 取得の応答待ちの上限。超えたら取り直す。 */
         const val LONG_POLL_TIMEOUT_SECONDS = 120L
 
