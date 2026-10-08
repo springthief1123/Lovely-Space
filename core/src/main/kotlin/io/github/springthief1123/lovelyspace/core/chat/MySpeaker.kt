@@ -1,12 +1,10 @@
-package io.github.springthief1123.lovelyspace.ui.chat
-
-import io.github.springthief1123.lovelyspace.core.chat.ChatLine
+package io.github.springthief1123.lovelyspace.core.chat
 
 /**
  * ログの発言が自分のものかを見分ける。
  *
  * 基本は発言欄の前に出る自分の名前（[ChatPage.myName]）とログの名前欄の一致で判断する。
- * 名前欄は表記（空白・トリップなど）が発言欄の名前と食い違うことがあるので、
+ * 名前欄は表記（前後の空白・トリップなど）が発言欄の名前と食い違うことがあるので、
  * 自分の発言の応答に含まれた同じ本文の行から、ログでの自分の名前を覚えて併用する。
  */
 data class MySpeaker(val names: Set<String> = emptySet()) {
@@ -25,8 +23,11 @@ data class MySpeaker(val names: Set<String> = emptySet()) {
     companion object {
         fun of(myName: String?): MySpeaker = MySpeaker(setOfNotNull(myName?.let(::key)?.takeIf { it.isNotEmpty() }))
 
-        /** 名前の比較では空白（ノーブレークスペースを含む）を無視する。 */
-        private fun key(name: String) = name.filterNot { it.isWhitespace() || it == ' ' }
+        /**
+         * 名前の比較では前後の空白（ノーブレークスペースを含む）だけを無視する。
+         * 名前の途中の空白は本人が入れたものなので区別する（「山田」と「山 田」は別人）。
+         */
+        private fun key(name: String) = name.trim { it.isWhitespace() || it == '\u00A0' }
         private fun normalizeText(text: String) = text.lines().joinToString("\n") { it.trim() }.trim()
     }
 }

@@ -1,17 +1,19 @@
-package io.github.springthief1123.lovelyspace.ui.chat
+package io.github.springthief1123.lovelyspace.core.chat
 
-import io.github.springthief1123.lovelyspace.core.chat.ChatLine
 import org.junit.Assert.*
 import org.junit.Test
 
 class MySpeakerTest {
     private fun line(speaker: String?, text: String) = ChatLine(speaker, false, text, null)
 
-    @Test fun matchesTheFormNameIgnoringSpaces() {
+    @Test fun matchesTheFormNameIgnoringSurroundingSpaces() {
         val me = MySpeaker.of("タロウ")
         assertTrue(me.isMine(line("タロウ", "合成の発言")))
-        assertTrue(me.isMine(line("タロウ ", "合成の発言")))
+        assertTrue(me.isMine(line("タロウ\u00A0", "合成の発言")))
         assertFalse(me.isMine(line("ハナコ", "合成の発言")))
+        // 名前の途中の空白は区別する。
+        assertFalse(MySpeaker.of("ヤマ ダ").isMine(line("ヤマダ", "合成の発言")))
+        assertFalse(MySpeaker.of("ヤマダ").isMine(line("ヤマ ダ", "合成の発言")))
         assertFalse(me.isMine(line(null, "タロウさんが入室しました")))
     }
 

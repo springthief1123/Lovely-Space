@@ -39,7 +39,8 @@ fun PublicRoomScreen(host: String, genreKey: String, roomId: Long, onBack: () ->
                     Text(if (state.automatic) "開いている間、20 秒ごとに読み直します" else "「更新」を押したときだけ読み直します",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                if (!state.automatic && state.opened) TextButton(onClick = vm::refresh, enabled = !state.loading) { Text("更新") }
+                // 初回の読み込み中にオフにした場合も、手動で読めるようにする。
+                if (!state.automatic) TextButton(onClick = vm::refresh, enabled = !state.loading) { Text("更新") }
                 Switch(state.automatic, vm::automatic, modifier = Modifier.semantics { contentDescription = "自動で新着を読み込む" })
             }
             state.error?.let { message ->

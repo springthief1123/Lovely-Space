@@ -9,6 +9,7 @@ import io.github.springthief1123.lovelyspace.core.chat.ChatPage
 import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
 import io.github.springthief1123.lovelyspace.core.chat.ChatSession
 import io.github.springthief1123.lovelyspace.core.chat.ChatUpdate
+import io.github.springthief1123.lovelyspace.core.chat.MySpeaker
 import io.github.springthief1123.lovelyspace.core.chat.RoomPageUnavailableException
 import io.github.springthief1123.lovelyspace.ui.describeError
 import kotlinx.coroutines.CancellationException
