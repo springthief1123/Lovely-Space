@@ -172,6 +172,8 @@ class RadarRepository(
         candidateKnown.keys.removeAll { it.startsWith("$id/") }
         candidateNext.keys.removeAll { it.startsWith("$id/") }
         evaluatedCandidates.keys.removeAll { it.startsWith("$id/") }
+        lapStartedAt.remove("candidate/$id")
+        cursors.keys.removeAll { it.startsWith("candidate/$id/") }
     }
     private fun resetPlan(id: String) {
         baselines.keys.removeAll { it.startsWith("$id/") }
@@ -179,6 +181,8 @@ class RadarRepository(
         knownMatches.keys.removeAll { it.startsWith("$id/") }
         nextPages.keys.removeAll { it.startsWith("$id/") }
         evaluatedPlans.keys.removeAll { it.startsWith("$id/") }
+        lapStartedAt.remove("plan/$id")
+        cursors.keys.removeAll { it.startsWith("plan/$id/") }
     }
     private fun reconcilePlans(saved: List<SearchPreset>) {
         val keys = saved.associate { it.id to planKey(it) }
@@ -247,6 +251,8 @@ class RadarRepository(
         val oldCandidateBaselines = candidateBaselines.toMap()
         val oldCandidateKnown = candidateKnown.mapValues { it.value.toMutableSet() }
         val oldCandidateNext = candidateNext.toMap()
+        val oldLapStartedAt = lapStartedAt.toMap()
+        val oldCursors = cursors.toMap()
         val oldEvaluatedPlans = evaluatedPlans.toMap()
         val oldEvaluatedCandidates = evaluatedCandidates.toMap()
         try {
@@ -262,6 +268,8 @@ class RadarRepository(
             candidateBaselines.clear(); candidateBaselines.putAll(oldCandidateBaselines)
             candidateKnown.clear(); candidateKnown.putAll(oldCandidateKnown)
             candidateNext.clear(); candidateNext.putAll(oldCandidateNext)
+            lapStartedAt.clear(); lapStartedAt.putAll(oldLapStartedAt)
+            cursors.clear(); cursors.putAll(oldCursors)
             evaluatedPlans.clear(); evaluatedPlans.putAll(oldEvaluatedPlans)
             evaluatedCandidates.clear(); evaluatedCandidates.putAll(oldEvaluatedCandidates)
             throw e
