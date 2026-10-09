@@ -65,14 +65,25 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
     val historyFilter = RadarHistoryFilter(historyUnread, RadarEventKind.entries.firstOrNull { it.name == historyKind }, historyOrigin.ifBlank { null })
     val visibleEvents = state.events.filter { it.matches(historyFilter) }
     var deletingCandidate by rememberSaveable(stateSaver = CandidateRuleSaver) { mutableStateOf<CandidateRule?>(null) }
+    // 操作の失敗（error）を「再試行」したときに、失敗した操作そのものをやり直す。やり直せない失敗では null。
+    var retry by remember { mutableStateOf<(() -> Unit)?>(null) }
+    fun fail(message: String, again: (() -> Unit)? = null) { error = message; retry = again }
     fun action(block: suspend () -> Unit) {
         if (working) return
         working = true
         scope.launch {
-            try { block(); error = null }
+            try { block(); error = null; retry = null }
             catch (e: kotlinx.coroutines.CancellationException) { throw e }
-            catch (e: Exception) { error = "設定を保存できませんでした。もう一度お試しください。" }
+            catch (e: Exception) { fail("設定を保存できませんでした。もう一度お試しください。", again = { action(block) }) }
             finally { working = false }
+        }
+    }
+    fun scan() {
+        scanJob?.cancel()
+        scanJob = scope.launch {
+            try { app.radar.scan(latestFirst = true) }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) { fail("レーダーの状態を確認できませんでした。もう一度お試しください。", again = { scan() }) }
         }
     }
     val snackbar = remember { SnackbarHostState() }
@@ -99,19 +110,18 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
             RadarSection.HISTORY to if (state.unreadEvents == 0) "履歴" else "履歴 ${state.unreadEvents}",
         ), section) { section = it } }
         if (!state.loaded && state.error == null) item { CircularProgressIndicator() }
-        // エラーには読み込み済みでも常に再試行を出す。操作の失敗（error）は閉じることもできる。
+        // 読み込みの失敗は読み込み直し、操作の失敗は失敗した操作をやり直す「再試行」を、読み込み済みでも出す。
+        // 操作の失敗は閉じることもできる。
         (error ?: state.error)?.let { message -> item {
-            QuietNotice(message, error = true, onDismiss = if (error != null) ({ error = null }) else null,
-                actionLabel = "再試行", actionEnabled = !state.running, onAction = { error = null; app.radar.reload() })
+            val again = if (error != null) retry else ({ app.radar.reload() })
+            QuietNotice(message, error = true, onDismiss = if (error != null) ({ error = null; retry = null }) else null,
+                actionLabel = again?.let { "再試行" }, actionEnabled = !state.running && !working,
+                onAction = again?.let { run -> { error = null; retry = null; run() } })
         } }
         when (section) {
             RadarSection.MATCHES -> {
                 item { RadarDashboard(state, planCount, working,
-                    onScan = { scanJob?.cancel(); scanJob = scope.launch {
-                        try { app.radar.scan(latestFirst = true) }
-                        catch (e: kotlinx.coroutines.CancellationException) { throw e }
-                        catch (e: Exception) { error = "レーダーの状態を確認できませんでした。再読み込みしてお試しください。" }
-                    } }, onPause = { pauseConfirm = true }, onAutomatic = app.radar::automatic) }
+                    onScan = ::scan, onPause = { pauseConfirm = true }, onAutomatic = app.radar::automatic) }
                 if (liveRooms.isEmpty()) item { RadarEmpty(
                     if (planCount == 0 && state.candidateRules.none { it.enabled }) "巡回か候補条件を有効にすると、条件に合う部屋がここに並びます。"
                     else "いま条件に合う部屋はありません。新着を確認すると、ここに並びます。",
@@ -226,12 +236,12 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                             scope.launch {
                                 try { app.waitlist.remove(entry.key) }
                                 catch (e: kotlinx.coroutines.CancellationException) { throw e }
-                                catch (e: Exception) { error = "順番待ちを取り消せませんでした。もう一度お試しください。"; return@launch }
+                                catch (e: Exception) { fail("順番待ちを取り消せませんでした。もう一度お試しください。"); return@launch }
                                 val label = if (entry.active(System.currentTimeMillis())) "順番待ちを取り消しました" else "記録を削除しました"
                                 if (snackbar.showSnackbar(label, actionLabel = "元に戻す", withDismissAction = true) == SnackbarResult.ActionPerformed) {
                                     try { app.waitlist.restore(entry) }
                                     catch (e: kotlinx.coroutines.CancellationException) { throw e }
-                                    catch (e: Exception) { error = e.message ?: "順番待ちを元に戻せませんでした。" }
+                                    catch (e: Exception) { fail(e.message ?: "順番待ちを元に戻せませんでした。") }
                                 }
                             }
                         })
