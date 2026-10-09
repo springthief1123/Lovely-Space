@@ -276,7 +276,7 @@ class RadarRepository(
                 scan(latestFirst = head, force = false)
                 if (head) headAt = System.nanoTime() / 1_000_000
             }
-            delay(if (_state.value.error != null) RoomPageSchedule.HEAD_INTERVAL_MS else RoomPageSchedule.STEP_INTERVAL_MS)
+            delay(if (_state.value.error != null) RoomPageSchedule.ERROR_INTERVAL_MS else RoomPageSchedule.STEP_INTERVAL_MS)
         }
     }
 

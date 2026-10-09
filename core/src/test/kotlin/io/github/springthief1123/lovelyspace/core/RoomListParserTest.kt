@@ -78,6 +78,27 @@ class RoomListParserTest {
     }
 
     @Test
+    fun pagerLinksKeepFiltersInThePathAndSkipNonListLinks() {
+        // 本家の構造だけを再現した合成のページャ（絞り込み中は条件がパスに入る）。
+        val html = """
+            <a href="https://chat.shalove.net/ReportBadRoomInfo/genre_key/hokkaido/pageID/1/">通報</a>
+            <p align="center"><nobr><span>1-60</span></nobr>
+            <nobr><a href="https://chat.shalove.net/g/hokkaido/vsex/1/pageID/2/" title="ページ 61-120">61-120</a></nobr>
+            <nobr><a href="/g/hokkaido/vsex/1/pageID/3/" title="ページ 121-123">121-123</a></nobr>
+            <nobr><a href="https://chat.shalove.net/g/hokkaido/vsex/1/pageID/2/" title="次のページ"><b>次→</b></a></nobr></p>
+        """.trimIndent()
+        val parsed = RoomListParser.parse(html, "hokkaido", baseUri = "https://chat.shalove.net/g/hokkaido/?vsex=1")
+        assertEquals(3, parsed.lastPage)
+        assertEquals(
+            mapOf(
+                2 to "https://chat.shalove.net/g/hokkaido/vsex/1/pageID/2/",
+                3 to "https://chat.shalove.net/g/hokkaido/vsex/1/pageID/3/",
+            ),
+            parsed.pageUrls,
+        )
+    }
+
+    @Test
     fun emptyPageHasNoRooms() {
         val empty = RoomListParser.parse("<html><body>部屋がありません</body></html>", "kanto")
         assertTrue(empty.rooms.isEmpty())

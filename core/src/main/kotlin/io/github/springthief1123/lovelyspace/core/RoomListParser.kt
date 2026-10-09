@@ -27,6 +27,7 @@ object RoomListParser {
             lastPage = maxOf(page, lastPage(doc)),
             genreCounts = genreCounts(doc),
             totalRooms = TOTAL_ROOMS.find(doc.text())?.groupValues?.get(1)?.toIntOrNull(),
+            pageUrls = pageUrls(doc),
         )
     }
 
@@ -114,9 +115,22 @@ object RoomListParser {
             nobr.ownText().trim().toIntOrNull()
         }
 
-    private fun lastPage(doc: Document): Int =
-        doc.select("a[href*=/pageID/]").mapNotNull { PAGE_ID.find(it.attr("href"))?.groupValues?.get(1)?.toIntOrNull() }
-            .maxOrNull() ?: 1
+    private fun lastPage(doc: Document): Int = pageUrls(doc).keys.maxOrNull() ?: 1
+
+    /**
+     * ページャのリンク（ページ番号 → URL）。絞り込み中は条件がパスに入る（`/g/hokkaido/vsex/1/pageID/2/`）。
+     * 不正通報ページ（`/ReportBadRoomInfo/…/pageID/1/`）など一覧以外のリンクは除く。
+     */
+    private fun pageUrls(doc: Document): Map<Int, String> {
+        val urls = sortedMapOf<Int, String>()
+        for (a in doc.select("a[href*=/pageID/]")) {
+            val href = a.absUrl("href").ifEmpty { a.attr("href") }
+            if (!LIST_PATH.containsMatchIn(href)) continue
+            val n = PAGE_ID.find(href)?.groupValues?.get(1)?.toIntOrNull() ?: continue
+            urls.putIfAbsent(n, href)
+        }
+        return urls
+    }
 
     private fun genreCounts(doc: Document): Map<String, Int> {
         val counts = linkedMapOf<String, Int>()
@@ -131,6 +145,7 @@ object RoomListParser {
 
     private val TOTAL_ROOMS = Regex("""総部屋数\s*(\d+)""")
     private val PAGE_ID = Regex("""/pageID/(\d+)/""")
+    private val LIST_PATH = Regex("""^(?:https?://[^/]+)?/g/[a-z]+/""")
     private val GENRE_KEY = Regex("""/g/([a-z]+)/?$""")
     private val COUNT = Regex("""\((\d+)\)""")
 }

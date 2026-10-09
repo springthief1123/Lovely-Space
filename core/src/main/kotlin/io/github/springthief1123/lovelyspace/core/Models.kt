@@ -67,6 +67,8 @@ data class RoomListPage(
     /** 画面のジャンル一覧に出ている各ジャンルの部屋数（genreKey → 件数）。 */
     val genreCounts: Map<String, Int>,
     val totalRooms: Int?,
+    /** 一覧に載っていたページャのリンク（ページ番号 → URL）。絞り込み中の 2 ページ目以降はこの URL で取る。 */
+    val pageUrls: Map<Int, String> = emptyMap(),
 ) {
     val hasNextPage: Boolean get() = page < lastPage
 }

@@ -68,30 +68,55 @@ data class RoomQuery(
     val message: String? = null,
     val page: Int = 1,
 ) {
-    fun toUrl(): String {
-        val path = buildString {
-            append("https://").append(genre.host).append("/g/").append(genre.key).append('/')
-            if (page > 1) append("pageID/").append(page).append('/')
+    /** 本家の一覧に渡す絞り込み（パラメータ名と値）。空の条件は含めない。 */
+    val siteParams: List<Pair<String, String>> get() = buildList {
+        when (sex) {
+            Gender.MALE -> add("vsex" to "1")
+            Gender.FEMALE -> add("vsex" to "2")
+            else -> Unit
         }
-        val params = buildList {
-            when (sex) {
-                Gender.MALE -> add("vsex" to "1")
-                Gender.FEMALE -> add("vsex" to "2")
-                else -> Unit
-            }
-            prefecture?.let { add("vpref" to it.toString()) }
-            ageBand?.let { add("vyears" to it) }
-            publicOnly?.let { add("vnonpub" to if (it) "2" else "1") }
-            waitingOnly?.let { add("vwait" to if (it) "1" else "2") }
-            name?.takeIf { it.isNotBlank() }?.let { add("srchname" to it) }
-            message?.takeIf { it.isNotBlank() }?.let { add("srchmsg" to it) }
-        }
-        if (params.isEmpty()) return path
-        // サイトは Shift_JIS のため、検索語も Shift_JIS でエンコードする。
-        return path + "?" + params.joinToString("&") { (k, v) ->
-            k + "=" + java.net.URLEncoder.encode(v, SITE_CHARSET)
-        }
+        prefecture?.let { add("vpref" to it.toString()) }
+        ageBand?.let { add("vyears" to it) }
+        publicOnly?.let { add("vnonpub" to if (it) "2" else "1") }
+        waitingOnly?.let { add("vwait" to if (it) "1" else "2") }
+        name?.takeIf { it.isNotBlank() }?.let { add("srchname" to it) }
+        message?.takeIf { it.isNotBlank() }?.let { add("srchmsg" to it) }
     }
+
+    fun toUrl(): String {
+        val params = siteParams
+        // サイトは Shift_JIS のため、検索語も Shift_JIS でエンコードする。Charset を受け取る版は Android 13（API 33）からなので、名前で渡す。
+        fun encode(v: String) = java.net.URLEncoder.encode(v, SITE_CHARSET.name())
+        val root = "https://${genre.host}/g/${genre.key}/"
+        // 1 ページ目は本家の絞り込みフォームと同じクエリの形。2 ページ目以降は本家のページャと同じく
+        // 条件をパスに入れる（`/g/hokkaido/vsex/1/pageID/2/`）。実際の取得では、一覧に載っていた
+        // ページャのリンクがあればそちらを使う（[ShaloveClient.fetchRoomList]）。
+        if (page > 1) return root + params.joinToString("") { (k, v) -> "$k/${encode(v)}/" } + "pageID/$page/"
+        if (params.isEmpty()) return root
+        return root + "?" + params.joinToString("&") { (k, v) -> k + "=" + encode(v) }
+    }
+
+    /**
+     * 本家のページャのリンク（`/g/<genre>/vsex/1/pageID/2/`）が、この一覧のこのページを指しているか。
+     * パスの条件の並び順は問わず、条件の組み合わせとページ番号が一致するものだけを認める。
+     */
+    fun matchesPagerUrl(url: String): Boolean {
+        val path = runCatching { java.net.URI(url).rawPath }.getOrNull() ?: return false
+        val prefix = "/g/${genre.key}/"
+        if (!path.startsWith(prefix)) return false
+        val segments = path.removePrefix(prefix).trimEnd('/').split('/')
+        if (segments.size < 2 || segments.size % 2 != 0) return false
+        val pairs = segments.chunked(2).map { (k, v) ->
+            k to (runCatching { java.net.URLDecoder.decode(v, SITE_CHARSET.name()) }.getOrNull() ?: return false)
+        }
+        val (pageKey, pageValue) = pairs.last()
+        if (pageKey != "pageID" || pageValue != page.toString()) return false
+        val filters = pairs.dropLast(1)
+        return filters.size == filters.toMap().size && filters.toSet() == siteParams.toSet()
+    }
+
+    /** 本家側の絞り込み（ページ以外）が同じ一覧。ページャのリンクを共有する単位。 */
+    val firstPage: RoomQuery get() = if (page == 1) this else copy(page = 1)
 }
 
 internal val SITE_CHARSET: java.nio.charset.Charset = java.nio.charset.Charset.forName("windows-31j")

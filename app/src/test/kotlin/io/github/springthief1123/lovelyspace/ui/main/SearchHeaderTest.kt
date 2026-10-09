@@ -28,6 +28,9 @@ class SearchHeaderTest {
         assertEquals("下に引いて一覧を取得", searchStatusText(0, 0, 0, loading = false, oldestCheck = null))
         assertEquals("41件・3/5ページ・10/07 12:04 確認", searchStatusText(3, 5, 41, loading = false, oldestCheck = "10/07 12:04"))
         assertEquals("0件・1/1ページ", searchStatusText(1, 1, 0, loading = true, oldestCheck = null))
+        // 条件を変えた直後は、前の条件の件数を結果のように見せない。
+        assertEquals("変えた条件で読み込んでいます", searchStatusText(3, 5, 41, loading = true, oldestCheck = "10/07 12:04", awaitingNewConditions = true))
+        assertEquals("前の条件の一覧（41件）", searchStatusText(3, 5, 41, loading = false, oldestCheck = null, awaitingNewConditions = true))
     }
 
     @Test fun activeFilterCountIncludesSearchTextAndQuickChips() {

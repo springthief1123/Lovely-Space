@@ -1,6 +1,8 @@
 package io.github.springthief1123.lovelyspace.core
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RoomQueryTest {
@@ -11,6 +13,17 @@ class RoomQueryTest {
     fun plainGenreUrlUsesGenreHost() {
         assertEquals("https://chat.shalove.net/g/kanto/", RoomQuery(kanto).toUrl())
         assertEquals("https://2shot.chat.shalove.net/g/chah/", RoomQuery(chah).toUrl())
+    }
+
+    @Test
+    fun firstPageFiltersUseTheSiteFormQuery() {
+        val url = RoomQuery(genre = kanto, sex = Gender.FEMALE, waitingOnly = true).toUrl()
+        assertEquals("https://chat.shalove.net/g/kanto/?vsex=2&vwait=1", url)
+    }
+
+    @Test
+    fun plainLaterPageKeepsThePagerPath() {
+        assertEquals("https://chat.shalove.net/g/kanto/pageID/3/", RoomQuery(kanto, page = 3).toUrl())
     }
 
     @Test
@@ -25,9 +38,24 @@ class RoomQueryTest {
             page = 3,
         ).toUrl()
         assertEquals(
-            "https://chat.shalove.net/g/kanto/pageID/3/?vsex=2&vpref=13&vyears=20-29&vnonpub=2&vwait=1",
+            "https://chat.shalove.net/g/kanto/vsex/2/vpref/13/vyears/20-29/vnonpub/2/vwait/1/pageID/3/",
             url,
         )
+    }
+
+    @Test
+    fun pagerUrlMustCarryTheSameFiltersAndPage() {
+        val query = RoomQuery(kanto, sex = Gender.FEMALE, waitingOnly = true, page = 2)
+        assertTrue(query.matchesPagerUrl("https://chat.shalove.net/g/kanto/vsex/2/vwait/1/pageID/2/"))
+        // 条件の並び順は問わない。
+        assertTrue(query.matchesPagerUrl("https://chat.shalove.net/g/kanto/vwait/1/vsex/2/pageID/2/"))
+        assertFalse(query.matchesPagerUrl("https://chat.shalove.net/g/kanto/vsex/1/vwait/1/pageID/2/"))
+        assertFalse(query.matchesPagerUrl("https://chat.shalove.net/g/kanto/vsex/2/pageID/2/"))
+        assertFalse(query.matchesPagerUrl("https://chat.shalove.net/g/kanto/vsex/2/vwait/1/vnonpub/2/pageID/2/"))
+        assertFalse(query.matchesPagerUrl("https://chat.shalove.net/g/kanto/vsex/2/vwait/1/pageID/3/"))
+        assertFalse(query.matchesPagerUrl("https://chat.shalove.net/g/talk/vsex/2/vwait/1/pageID/2/"))
+        assertFalse(query.matchesPagerUrl("https://chat.shalove.net/g/kanto/vsex/2/vsex/2/vwait/1/pageID/2/"))
+        assertTrue(RoomQuery(kanto, page = 3).matchesPagerUrl("https://chat.shalove.net/g/kanto/pageID/3/"))
     }
 
     @Test

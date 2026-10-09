@@ -123,7 +123,8 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         item {
             SearchStatusRow(
                 text = searchStatusText(state.page, state.lastPage, visibleResults.size, state.loading || !state.initialized,
-                    state.pageTimes.values.minOrNull()?.let { io.github.springthief1123.lovelyspace.data.formatObservationTime(it) }),
+                    state.pageTimes.values.minOrNull()?.let { io.github.springthief1123.lovelyspace.data.formatObservationTime(it) },
+                    state.awaitingNewConditions),
                 automatic = state.automatic,
                 loading = state.loading,
                 onAutomaticChange = vm::automatic,
@@ -134,6 +135,12 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         if (newCount > 0) item {
             QuietAssistChip(onClick = { scope.launch { listState.scrollToItem(0); vm.clearNewRooms() } },
                 label = "新着 ${newCount}件・先頭へ", icon = Icons.Outlined.ArrowUpward)
+        }
+        if (state.awaitingNewConditions) item {
+            QuietNotice(
+                if (state.error != null) "変えた条件で読み込めませんでした。表示中の一覧は前の条件で取った部屋だけで、条件に合う部屋がほかにもある可能性があります。"
+                else "変えた条件で読み込み直しています。表示中の一覧は前の条件で取った部屋だけです。",
+            )
         }
         if (!validAges) item {
             QuietNotice("年齢の条件が正しくないため、年齢では絞り込んでいません。")
@@ -165,14 +172,16 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
             SearchEmpty(
                 text = when {
                     state.results.isNotEmpty() -> "条件に合う部屋はすべて非表示です。"
+                    state.awaitingNewConditions -> "変えた条件の一覧はまだ読み込めていません。"
+                    canReadNext && state.automatic -> "条件に合う部屋はまだ見つかっていません。"
                     canReadNext -> "読み込んだ${state.page}ページには、条件に合う部屋はありません。"
                     else -> "条件に合う部屋はありません。"
                 },
                 onReset = if (activeFilterCount(c) > 0) resetSearch else null,
             )
         }
-        // 次のページは利用者が押したときだけ 1 ページ読む。自動更新の巡回の間隔は変えない。
-        if (canReadNext) item(key = "next-page") {
+        // 自動更新中は残りのページを自動で読み切る。自動更新を止めているときは、利用者が押したときだけ 1 ページ読む。
+        if (canReadNext && !state.automatic) item(key = "next-page") {
             OutlinedButton(onClick = vm::more, enabled = state.canLoadMore, modifier = Modifier.fillMaxWidth()) {
                 Text(if (state.loading) "読み込んでいます…" else "次のページを読み込む（${state.page + 1}/${state.lastPage}）")
             }
@@ -207,7 +216,8 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         anchor = searchAnchor,
         state = state,
         vm = vm,
-        statusText = searchStatusText(state.page, state.lastPage, visibleResults.size, state.loading || !state.initialized, null),
+        statusText = searchStatusText(state.page, state.lastPage, visibleResults.size, state.loading || !state.initialized, null,
+            state.awaitingNewConditions),
         onDismiss = { searchOpen = false },
         onReset = resetSearch,
     )
@@ -248,8 +258,12 @@ private fun SearchEmpty(text: String, onReset: (() -> Unit)?) {
 }
 
 /** 一覧の状態を1行にまとめる。例: 「41件・3/5ページ・12:04 確認」。 */
-internal fun searchStatusText(page: Int, lastPage: Int, shown: Int, loading: Boolean, oldestCheck: String?): String = when {
+internal fun searchStatusText(page: Int, lastPage: Int, shown: Int, loading: Boolean, oldestCheck: String?,
+    awaitingNewConditions: Boolean = false): String = when {
     page == 0 && loading -> "一覧を読み込んでいます"
+    // 前の条件の一覧の件数・ページ数を、変えた条件の結果のように見せない。
+    awaitingNewConditions && loading -> "変えた条件で読み込んでいます"
+    awaitingNewConditions -> "前の条件の一覧（${shown}件）"
     page == 0 -> "下に引いて一覧を取得"
     else -> listOfNotNull("${shown}件", "${page}/${lastPage}ページ", oldestCheck?.let { "$it 確認" }).joinToString("・")
 }

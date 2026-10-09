@@ -59,4 +59,26 @@ class RoomPageWindowTest {
         assertEquals(3, schedule.next(10))
         assertEquals(3, schedule.next(10)) // 失敗したページは完了を通知せず同じ位置で再試行。
     }
+    @Test fun scheduleReadsEveryUnreadPageFirstAndKeepsTheHeadAtTheSlowerSweepInterval() {
+        var now = 0L
+        val schedule = RoomPageSchedule { now }
+        assertEquals(1, schedule.next(4, emptySet())); schedule.completed(1, 4)
+        now = 3_000
+        assertEquals(2, schedule.next(4, setOf(1)))
+        now = 6_000
+        assertEquals(2, schedule.next(4, setOf(1))) // 失敗したページは読めるまで同じ位置。
+        now = 9_000
+        assertEquals(2, schedule.next(4, setOf(1))); schedule.completed(2, 4)
+        now = 12_000
+        assertEquals(3, schedule.next(4, setOf(1, 2))); schedule.completed(3, 4)
+        now = 21_000
+        assertEquals(1, schedule.next(4, setOf(1, 2, 3))); schedule.completed(1, 4)
+        now = 24_000
+        assertEquals(4, schedule.next(4, setOf(1, 2, 3))); schedule.completed(4, 4)
+        // 全ページを読んだら、1 ページ目を 4 秒ごとに優先する通常の巡回に戻る。
+        now = 24_500
+        assertEquals(2, schedule.next(4, setOf(1, 2, 3, 4)))
+        now = 25_000
+        assertEquals(1, schedule.next(4, setOf(1, 2, 3, 4)))
+    }
 }

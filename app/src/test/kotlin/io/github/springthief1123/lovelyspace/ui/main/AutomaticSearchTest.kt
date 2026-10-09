@@ -18,13 +18,15 @@ class AutomaticSearchTest {
         try {
             val calls = mutableListOf<Int>()
             val vm = SearchViewModel(repository = RoomListSource { query, force ->
-                if (calls.size < 3) assertFalse(force)
+                if (calls.size < 4) assertFalse(force)
                 calls += query.page
                 page(query.page, listOf(room(query.page.toLong())))
             }, clock = { testScheduler.currentTime })
             val job = backgroundScope.launch { vm.monitor() }
-            runCurrent(); advanceTimeBy(6_001); runCurrent()
-            assertEquals(listOf(1, 2, 3), calls)
+            // まだ読んでいないページを先に 3 秒ごとに読み切り、その後に 1 ページ目を取り直す。
+            // 0 秒: 1、3 秒: 2、6 秒: 3、9 秒: 1。
+            runCurrent(); advanceTimeBy(9_001); runCurrent()
+            assertEquals(listOf(1, 2, 3, 1), calls)
             assertEquals(setOf(1L, 2L, 3L), vm.state.value.rooms.map { it.id }.toSet())
             vm.refresh(); runCurrent()
             assertEquals(3, vm.state.value.rooms.size)
