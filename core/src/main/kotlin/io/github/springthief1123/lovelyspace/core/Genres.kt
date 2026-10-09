@@ -85,8 +85,8 @@ data class RoomQuery(
 
     fun toUrl(): String {
         val params = siteParams
-        // サイトは Shift_JIS のため、検索語も Shift_JIS でエンコードする。
-        fun encode(v: String) = java.net.URLEncoder.encode(v, SITE_CHARSET)
+        // サイトは Shift_JIS のため、検索語も Shift_JIS でエンコードする。Charset を受け取る版は Android 13（API 33）からなので、名前で渡す。
+        fun encode(v: String) = java.net.URLEncoder.encode(v, SITE_CHARSET.name())
         val root = "https://${genre.host}/g/${genre.key}/"
         // 1 ページ目は本家の絞り込みフォームと同じクエリの形。2 ページ目以降は本家のページャと同じく
         // 条件をパスに入れる（`/g/hokkaido/vsex/1/pageID/2/`）。実際の取得では、一覧に載っていた
@@ -107,7 +107,7 @@ data class RoomQuery(
         val segments = path.removePrefix(prefix).trimEnd('/').split('/')
         if (segments.size < 2 || segments.size % 2 != 0) return false
         val pairs = segments.chunked(2).map { (k, v) ->
-            k to (runCatching { java.net.URLDecoder.decode(v, SITE_CHARSET) }.getOrNull() ?: return false)
+            k to (runCatching { java.net.URLDecoder.decode(v, SITE_CHARSET.name()) }.getOrNull() ?: return false)
         }
         val (pageKey, pageValue) = pairs.last()
         if (pageKey != "pageID" || pageValue != page.toString()) return false
