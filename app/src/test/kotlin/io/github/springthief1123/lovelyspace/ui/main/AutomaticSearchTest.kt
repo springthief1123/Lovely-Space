@@ -7,6 +7,7 @@ import kotlinx.coroutines.test.*
 import org.junit.Assert.*
 import org.junit.Test
 import java.io.IOException
+import kotlin.time.Duration.Companion.minutes
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AutomaticSearchTest {
@@ -34,6 +35,23 @@ class AutomaticSearchTest {
             val stopped = calls.size
             advanceTimeBy(30_000); runCurrent()
             assertEquals(stopped, calls.size)
+        } finally { Dispatchers.resetMain() }
+    }
+    @Test fun afterTheFirstLapRecentPagesAreReadEveryLapAndOlderPagesInTurn() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val calls = mutableListOf<Int>()
+            val vm = SearchViewModel(repository = RoomListSource { query, _ ->
+                calls += query.page
+                // 1 ページ目は直近 1 時間に立った部屋、2・3 ページ目は古い部屋。
+                page(query.page, listOf(room(query.page.toLong()).copy(elapsed = if (query.page == 1) 5.minutes else 90.minutes)))
+            }, clock = { testScheduler.currentTime })
+            val job = backgroundScope.launch { vm.monitor() }
+            // 最初の周は全ページ。その後は 1 ページ目を毎周読み、間に後ろのページを 1 つずつ読む。
+            // 0 秒: 1、3 秒: 2、6 秒: 3、9 秒: 1、12 秒: 2、15 秒: 1、18 秒: 3。
+            runCurrent(); advanceTimeBy(18_001); runCurrent()
+            assertEquals(listOf(1, 2, 3, 1, 2, 1, 3), calls)
+            job.cancelAndJoin()
         } finally { Dispatchers.resetMain() }
     }
     @Test fun discoveryUsesRepositoryObservationOrderInsteadOfCacheReadOrder() = runTest {

@@ -82,6 +82,8 @@ class RadarRepository(
     private val candidateNext = mutableMapOf<String, Int>()
     /** 自動巡回で、計画・候補条件ごとに 1 ページ目を読み始めた時刻（周の始まり）。 */
     private val lapStartedAt = mutableMapOf<String, Long>()
+    /** 計画・候補条件ごとの、後ろのページを回る位置。 */
+    private val cursors = mutableMapOf<String, PageCursor>()
     private val evaluatedCandidates = mutableMapOf<String, Long>()
     private var observationJob: Job? = null
     init { reload() }
@@ -94,7 +96,7 @@ class RadarRepository(
                 mutex.withLock {
                     val saved = dao.state(KEY)
                     saved?.let(::restore)
-                    seen.clear(); baselines.clear(); baselineAt.clear(); knownMatches.clear(); nextPages.clear(); planKeys.clear(); candidateBaselines.clear(); candidateKnown.clear(); candidateNext.clear(); evaluatedPlans.clear(); evaluatedCandidates.clear(); lapStartedAt.clear()
+                    seen.clear(); baselines.clear(); baselineAt.clear(); knownMatches.clear(); nextPages.clear(); planKeys.clear(); candidateBaselines.clear(); candidateKnown.clear(); candidateNext.clear(); evaluatedPlans.clear(); evaluatedCandidates.clear(); lapStartedAt.clear(); cursors.clear()
                     backgroundTriedAt.clear()
                     saved?.let(::restoreBaselines)
                     _state.update { it.copy(loaded = true, scopes = emptyMap(), results = emptyMap(), nextPages = emptyMap(), candidateResults = emptyMap(), nextCandidatePages = emptyMap(), lastScan = null, lastConfirmedAt = null, livePages = emptyMap()) }
@@ -268,8 +270,8 @@ class RadarRepository(
     fun automatic(enabled: Boolean) = _state.update { it.copy(automatic = enabled) }
 
     /**
-     * 計画・候補条件ごとに、一覧を 1 ページ目から最後のページまで順に読み直し、読み終えたらまた 1 ページ目から読む。
-     * 1 ページ目だけでなく全ページを 1 周ごとに読むので、既存の部屋の募集文や公開/非公開の変化、後ろのページの部屋も拾える。
+     * 計画・候補条件ごとに、一覧を新着順の前のページから読み直す（[PageCursor]）。最初の周は全ページを順に読み、
+     * その後は直近 1 時間の部屋が載るページを周ごとに読み直し、古い部屋の並ぶ後ろのページは周ごとに 1 つずつ回る。
      * ページ同士は通信の最小間隔。1 ページ目に戻った計画・候補条件は、その前の周の始まりから設定の間隔
      * （[RefreshPacing.radarHeadMs]）が経つまで、次の周を始めない（[scan] の lapIntervalMs）。画面のLifecycleが実行を管理する。
      */
@@ -404,10 +406,10 @@ class RadarRepository(
                 process(observation, scheduledPlans, scheduledCandidates, notice)
                 seen[query] = maxOf(seen[query] ?: 0, observation.revision)
                 if (!latestFirst) scheduledPlans.forEach { preset ->
-                    nextPages[planKey(preset)] = if (observation.page.hasNextPage) observation.page.page + 1 else 1
+                    nextPages[planKey(preset)] = advance("plan/${planKey(preset)}", observation)
                 }
                 if (!latestFirst) scheduledCandidates.forEach { rule ->
-                    candidateNext[rule.key] = if (observation.page.hasNextPage) observation.page.page + 1 else 1
+                    candidateNext[rule.key] = advance("candidate/${rule.key}", observation)
                 }
                 val hidden = preferences.preferences.first().filter { it.hidden }
                 val trackedMatches = _state.value.targets.filter { target ->
@@ -509,6 +511,11 @@ class RadarRepository(
         val livePages = if (freshTracking && o.query == RoomQuery(o.query.genre, page = o.query.page))
             current.livePages + (o.query.genre.key to (current.livePages[o.query.genre.key] ?: RoomPageWindow()).observe(o.page, o.revision)) else current.livePages
         _state.update { current.copy(automatic = it.automatic, livePages = livePages, targets = targets, events = (events + current.events).take(100), scopes = scopes, results = results, candidateResults = candidateResults) }
+    }
+    /** 読んだページの次に読むページ。前のページを優先する位置（[PageCursor]）は [cursors] に覚える。 */
+    private fun advance(key: String, o: ObservedRoomPage): Int {
+        val window = _state.value.livePages[o.query.genre.key]?.takeIf { it.pages[o.page.page] != null } ?: RoomPageWindow().observe(o.page)
+        return (cursors[key] ?: PageCursor()).after(o.page.page, window).also { cursors[key] = it }.next
     }
     private fun planKey(preset: SearchPreset): String = "${preset.id}/${preset.genreKey}/${preset.criteria}"
     private suspend fun persist() {
