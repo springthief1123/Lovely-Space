@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -15,7 +16,8 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material3.HorizontalDivider
@@ -31,6 +33,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -78,13 +81,16 @@ fun DisplaySettingsScreen(onBack: () -> Unit) {
                 ),
             ) {
             item { SettingsSectionTitle("テーマ") }
-            items(ThemeMode.entries.size) { index ->
-                val mode = ThemeMode.entries[index]
-                SettingsChoiceRow(
-                    title = mode.label,
-                    selected = mode == themeMode,
-                    onClick = { saveSetting { app.settings.setThemeMode(mode) } },
-                )
+            item {
+                SettingsChoiceGroup {
+                    ThemeMode.entries.forEach { mode ->
+                        SettingsChoiceRow(
+                            title = mode.label,
+                            selected = mode == themeMode,
+                            onClick = { saveSetting { app.settings.setThemeMode(mode) } },
+                        )
+                    }
+                }
             }
             item {
                 HorizontalDivider(
@@ -93,18 +99,21 @@ fun DisplaySettingsScreen(onBack: () -> Unit) {
                 )
             }
             item { SettingsSectionTitle("テキストサイズ") }
-            items(TextScale.entries.size) { index ->
-                val scale = TextScale.entries[index]
-                SettingsChoiceRow(
-                    title = scale.label,
-                    description = when (scale) {
-                        TextScale.COMPACT -> "一覧を少しコンパクトに表示"
-                        TextScale.STANDARD -> "標準の読みやすさ"
-                        TextScale.LARGE -> "文字を少し大きく表示"
-                    },
-                    selected = scale == textScale,
-                    onClick = { saveSetting { app.settings.setTextScale(scale) } },
-                )
+            item {
+                SettingsChoiceGroup {
+                    TextScale.entries.forEach { scale ->
+                        SettingsChoiceRow(
+                            title = scale.label,
+                            description = when (scale) {
+                                TextScale.COMPACT -> "一覧を少しコンパクトに表示"
+                                TextScale.STANDARD -> "標準の読みやすさ"
+                                TextScale.LARGE -> "文字を少し大きく表示"
+                            },
+                            selected = scale == textScale,
+                            onClick = { saveSetting { app.settings.setTextScale(scale) } },
+                        )
+                    }
+                }
             }
             item {
                 HorizontalDivider(
@@ -113,19 +122,22 @@ fun DisplaySettingsScreen(onBack: () -> Unit) {
                 )
             }
             item { SettingsSectionTitle("部屋カードの待機メッセージ") }
-            items(RoomMessageLines.entries.size) { index ->
-                val lines = RoomMessageLines.entries[index]
-                SettingsChoiceRow(
-                    title = lines.label,
-                    description = when (lines) {
-                        RoomMessageLines.TWO -> "一覧に多くの部屋を並べる"
-                        RoomMessageLines.THREE -> null
-                        RoomMessageLines.FOUR -> "標準"
-                        RoomMessageLines.ALL -> "省略せずに全文を表示"
-                    },
-                    selected = lines == messageLines,
-                    onClick = { saveSetting { app.settings.setRoomMessageLines(lines) } },
-                )
+            item {
+                SettingsChoiceGroup {
+                    RoomMessageLines.entries.forEach { lines ->
+                        SettingsChoiceRow(
+                            title = lines.label,
+                            description = when (lines) {
+                                RoomMessageLines.TWO -> "一覧に多くの部屋を並べる"
+                                RoomMessageLines.THREE -> null
+                                RoomMessageLines.FOUR -> "標準"
+                                RoomMessageLines.ALL -> "省略せずに全文を表示"
+                            },
+                            selected = lines == messageLines,
+                            onClick = { saveSetting { app.settings.setRoomMessageLines(lines) } },
+                        )
+                    }
+                }
             }
         }
         }
@@ -150,17 +162,31 @@ internal fun SettingsSectionTitle(text: String) {
     )
 }
 
+/** 1 つだけ選ぶ設定の行をまとめる。読み上げでは「n 個中 m 個目」と伝わる。 */
+@Composable
+internal fun SettingsChoiceGroup(content: @Composable ColumnScope.() -> Unit) {
+    Column(Modifier.fillMaxWidth().selectableGroup(), content = content)
+}
+
+/**
+ * 設定の選択肢の 1 行。[SettingsChoiceGroup] の中に並べ、読み上げではラジオボタンとして選択状態を伝える。
+ * [radio] が false の行は選択肢ではなく、押すと何かを開くボタンとして読む（✓ は状態の目印だけ）。
+ */
 @Composable
 internal fun SettingsChoiceRow(
     title: String,
     selected: Boolean,
     onClick: () -> Unit,
     description: String? = null,
+    radio: Boolean = true,
 ) {
     Row(
         Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .then(
+                if (radio) Modifier.selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+                else Modifier.clickable(role = Role.Button, onClick = onClick),
+            )
             .padding(horizontal = 20.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

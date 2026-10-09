@@ -12,6 +12,8 @@ import androidx.compose.foundation.background
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -143,6 +145,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                     val background = preset.id in state.activeBackgroundPlans
                     RadarRuleRow(
                         title = preset.label,
+                        switchLabel = "「${preset.label}」を巡回する",
                         subtitle = listOfNotNull(Genres[preset.genreKey]?.label ?: preset.genreKey, if (background) "背景でも巡回" else null).joinToString("・"),
                         enabled = preset.id in state.plans,
                         switchEnabled = state.loaded && !working && !state.running,
@@ -196,6 +199,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                     val found = state.resultFor(rule)
                     RadarRuleRow(
                         title = rule.label,
+                        switchLabel = "「${rule.label}」で候補を探す",
                         subtitle = "${Genres[rule.genreKey]?.label ?: rule.genreKey}・${if (rule.mode == CandidateMode.EXACT_NAME) "名前が「${rule.term}」" else "表示名に「${rule.term}」"}",
                         enabled = rule.enabled,
                         switchEnabled = state.loaded && !working,
@@ -332,10 +336,13 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
     }
 }
 
-/** 巡回計画・候補条件の1行。スイッチと一致件数を右に寄せ、編集・削除は「︙」にまとめる。 */
+/**
+ * 巡回計画・候補条件の1行。スイッチと一致件数を右に寄せ、編集・削除は「︙」にまとめる。
+ * [switchLabel] はスイッチの読み上げ名で、どの条件のオン・オフかを伝える。
+ */
 @Composable
 private fun RadarRuleRow(
-    title: String, subtitle: String, enabled: Boolean, switchEnabled: Boolean, onEnabled: (Boolean) -> Unit,
+    title: String, switchLabel: String, subtitle: String, enabled: Boolean, switchEnabled: Boolean, onEnabled: (Boolean) -> Unit,
     status: String, matches: Int?, onMatches: () -> Unit, menuLabel: String, menu: List<QuietMenuItem>,
 ) {
     QuietListPanel {
@@ -345,7 +352,8 @@ private fun RadarRuleRow(
                 Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Switch(enabled, onEnabled, enabled = switchEnabled, modifier = Modifier.padding(start = 8.dp))
+            Switch(enabled, onEnabled, enabled = switchEnabled,
+                modifier = Modifier.padding(start = 8.dp).semantics { contentDescription = switchLabel })
             QuietOverflowMenu(menu, contentDescription = menuLabel)
         }
         Row(verticalAlignment = Alignment.CenterVertically) {

@@ -1,10 +1,12 @@
 package io.github.springthief1123.lovelyspace.ui.main
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import io.github.springthief1123.lovelyspace.core.*
 import io.github.springthief1123.lovelyspace.data.*
@@ -24,13 +26,15 @@ internal fun RadarDashboard(state: RadarState, plans: Int, working: Boolean, onS
     val targets = state.targets.count { it.evidence != RoomIdentityEvidence.REUSED }
     val report = state.lastScan
     QuietPanel {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        // 行全体でオン・オフを切り替え、読み上げでは状態の文とスイッチを 1 つの項目にする。
+        Row(Modifier.fillMaxWidth().toggleable(value = state.automatic, role = Role.Switch, onValueChange = onAutomatic),
+            verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(if (state.automatic) "自動巡回中" else "自動巡回を停止中", style = MaterialTheme.typography.titleSmall)
                 Text("巡回 ${plans}・候補 ${candidates}・追跡 ${targets}", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Switch(state.automatic, onAutomatic)
+            Switch(state.automatic, onCheckedChange = null)
         }
         Text(state.lastConfirmedAt?.let { "最後の一覧取得 ${formatObservationTime(it)}" } ?: "この起動中の取得記録はまだありません",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

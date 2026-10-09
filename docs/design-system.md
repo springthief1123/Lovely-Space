@@ -83,10 +83,11 @@
   | `SegmentedButton` | 境界 `outline`、選択中は `secondaryContainer` と ✓ | 選択中の境界を `primary`、非選択の面は透明。境界は入力欄と同じ `outline` | `quietSegmentedButtonColors()` |
   | `Checkbox` | チェックだけが押せ、横の文字は読み上げで結び付かない | 行全体を押せる 1 つの項目（`Role.Checkbox`）にする。色は標準のまま | `QuietCheckboxRow` |
   | `OutlinedTextField` | 境界 `outline`、フォーカス `primary`、エラー `error` | 変えない（下記） | なし |
-  | `Switch` | 軌道 `primary` / `surfaceContainerHighest`、オフの縁と丸 `outline` | 変えない（下記） | なし |
+  | `Switch` | 軌道 `primary` / `surfaceContainerHighest`、オフの縁と丸 `outline` | 色は変えない（下記）。見出し・説明と並べるときは行全体を押せる 1 つの項目（`Role.Switch`）にする | `QuietSwitchRow` |
 
   - 選択中のチップ・セグメントは `secondaryContainer` の面だけだと背景との差が 1.2:1 程度しかなく見分けにくい。そのため `primary` で縁取る（背景との差はライト 5.8:1・ダーク 8.4:1）。
   - 入力欄とセグメントの境界は `outlineVariant`（背景との差 1.3:1）に下げない。入力欄の境界は WCAG 1.4.11 の 3:1 が必要なので、`outline`（ライト 3.0:1・ダーク 6.4:1）のままにする。チップは文字で役割が分かる補助的な部品なので `outlineVariant` でよい。
+  - 読み上げ（#83）: `QuietTabs` は見た目がチップでも `Role.Tab` と選択状態を持つ。設定の「1 つだけ選ぶ」行は `SettingsChoiceGroup`（`selectableGroup`）に `SettingsChoiceRow`（`Role.RadioButton`）を並べ、選択肢ではない行は `radio = false` でボタンとして読ませる。行の中にメニューなど別の操作があってスイッチを行全体にできないときは、スイッチに何のオン・オフかが分かる読み上げ名を付ける（レーダーの条件の行）。
   - `OutlinedTextField` と `Switch` は、使う色ロールが #72 で全て Quiet Rose の値になっていて、角丸も `LovelyShapes.control` / 全丸で合っているので、ラッパーを作らない（名前だけの薄いラッパーを増やさない）。
   - 検索欄（`SearchField`）だけ 18dp だった角丸を `LovelyShapes.control` にそろえた。同じパネルの下に並ぶ入力欄・チップと同じ部品に見せるため。
 - ダイアログ・シート・ヘッダー（Phase D、#76 で実装）: `ui/components/QuietDialogs.kt` と `QuietComponents.kt` の `QuietTopBar`。
@@ -106,7 +107,7 @@
 
 参考実装:
 - `ui/components/QuietComponents.kt`: `QuietPanel`、`QuietListPanel`、`QuietTabs`、`QuietOverflowMenu`。`QuietTabs` は `QuietFilterChip` を使う。
-- `ui/components/QuietControls.kt`: `QuietFilterChip` / `QuietAssistChip` / `quietSegmentedButtonColors()` / `QuietCheckboxRow`（2.3）。標準の `FilterChip` / `AssistChip` / `Checkbox` を画面に直接書かない。
+- `ui/components/QuietControls.kt`: `QuietFilterChip` / `QuietAssistChip` / `quietSegmentedButtonColors()` / `QuietCheckboxRow` / `QuietSwitchRow`（2.3）。標準の `FilterChip` / `AssistChip` / `Checkbox` を画面に直接書かない。
 - `ui/components/QuietMenu.kt`: 汎用メニューの `QuietDropdownMenu` / `QuietExposedMenu` / `QuietMenuRow`（2.3）。新しいメニューはこれを使い、標準の `DropdownMenu` / `DropdownMenuItem` を画面に直接書かない。
 - `ui/rooms/RoomActionMenu.kt`: 部屋名・状態・アイコン付き操作を備えた独自メニュー。**部屋固有のヘッダーや配置を一般用途へ無理に転用せず**、必要ならパネルの外観と操作行だけを共通化する。
 - `ui/components/Glass.kt` と `ui/shell/LovelyAppShell.kt`: メインシェルの Glass UI。

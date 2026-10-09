@@ -100,29 +100,34 @@ fun NotificationSettingsScreen(onBack: () -> Unit) {
                         title = if (canPost) "オン" else "オフ",
                         description = if (canPost) "端末の設定から変更できます" else "タップして通知を許可する",
                         selected = canPost,
+                        radio = false,
                         // 許可済みなら、アプリの通知をまとめてオフにできるよう端末の設定を開く。
                         onClick = { if (canPost) context.startActivity(appNotificationSettingsIntent(context)) else requestPermission() },
                     )
                 }
                 item { SettingsDivider() }
                 item { SettingsSectionTitle("通知に出す内容") }
-                items(NotificationPreview.entries) { option ->
-                    SettingsChoiceRow(
-                        title = option.label,
-                        description = option.description,
-                        selected = option == preview,
-                        onClick = {
-                            scope.launch {
-                                try {
-                                    app.settings.setNotificationPreview(option)
-                                } catch (e: CancellationException) {
-                                    throw e
-                                } catch (e: Exception) {
-                                    show("設定の保存に失敗しました：${describeError(e)}")
-                                }
-                            }
-                        },
-                    )
+                item {
+                    SettingsChoiceGroup {
+                        NotificationPreview.entries.forEach { option ->
+                            SettingsChoiceRow(
+                                title = option.label,
+                                description = option.description,
+                                selected = option == preview,
+                                onClick = {
+                                    scope.launch {
+                                        try {
+                                            app.settings.setNotificationPreview(option)
+                                        } catch (e: CancellationException) {
+                                            throw e
+                                        } catch (e: Exception) {
+                                            show("設定の保存に失敗しました：${describeError(e)}")
+                                        }
+                                    }
+                                },
+                            )
+                        }
+                    }
                 }
                 item { SettingsDivider() }
                 item { SettingsSectionTitle("通知の種類") }

@@ -134,7 +134,8 @@ private fun SavedSearchChip(
                 .combinedClickable(
                     enabled = enabled,
                     role = Role.Button,
-                    onClickLabel = "適用",
+                    // 適用できない条件（ジャンルが無くなったなど）は、押すとメニューが開くので読み上げ名もそれに合わせる。
+                    onClickLabel = if (canApply) "この条件を適用" else "保存した条件のメニュー",
                     onLongClickLabel = "保存した条件のメニュー",
                     onLongClick = { menu = true },
                     onClick = { if (canApply) onApply() else menu = true },

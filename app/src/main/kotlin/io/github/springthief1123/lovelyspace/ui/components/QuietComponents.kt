@@ -27,7 +27,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import io.github.springthief1123.lovelyspace.ui.theme.LovelyShapes
 
@@ -117,14 +121,30 @@ fun QuietSectionHeader(title: String, supporting: String? = null, action: (@Comp
     }
 }
 
-/** 画面内の切り替え。横に収まらないときは横スクロールする。 */
+/**
+ * 画面内の切り替え。横に収まらないときは横スクロールする。
+ * 見た目はチップだが、読み上げではタブ（「タブ・選択済み・n 個中 m 個目」）として伝える。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun <T> QuietTabs(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit) {
-    androidx.compose.foundation.lazy.LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    androidx.compose.foundation.lazy.LazyRow(
+        Modifier.fillMaxWidth().selectableGroup(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
         options.forEach { (value, label) ->
             item {
-                QuietFilterChip(selected = value == selected, onClick = { onSelect(value) }, label = label)
+                val active = value == selected
+                QuietFilterChip(
+                    selected = active,
+                    onClick = { onSelect(value) },
+                    label = label,
+                    // FilterChip の役割（チェックボックス）を、選択状態つきのタブに置き換える。
+                    modifier = Modifier.semantics {
+                        role = Role.Tab
+                        this.selected = active
+                    },
+                )
             }
         }
     }
