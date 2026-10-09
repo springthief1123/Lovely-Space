@@ -1,6 +1,7 @@
 package io.github.springthief1123.lovelyspace.settings
 
 import android.content.Context
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
@@ -113,19 +114,23 @@ class SettingsRepository(private val context: Context) : RoomListPreferenceStore
     }
 
     /** 本家への自動の取り直しの間隔。未設定の項目は既定値、下限を割る値は下限にする。 */
-    val refreshPacing: Flow<RefreshPacing> = context.dataStore.data.map { prefs ->
-        RefreshPacing(
-            minIntervalMs = prefs[minIntervalKey] ?: RefreshPacing.DEFAULT_MIN_INTERVAL_MS,
-            searchHeadMs = prefs[searchHeadKey] ?: RefreshPacing.DEFAULT_SEARCH_HEAD_MS,
-            radarHeadMs = prefs[radarHeadKey] ?: RefreshPacing.DEFAULT_RADAR_HEAD_MS,
-            waitlistMs = prefs[waitlistKey] ?: RefreshPacing.DEFAULT_WAITLIST_MS,
-            publicRoomMs = prefs[publicRoomKey] ?: RefreshPacing.DEFAULT_PUBLIC_ROOM_MS,
-        ).sanitized()
-    }
+    val refreshPacing: Flow<RefreshPacing> = context.dataStore.data.map { prefs -> refreshPacingOf(prefs) }
 
-    suspend fun setRefreshPacing(pacing: RefreshPacing) {
-        val value = pacing.sanitized()
+    private fun refreshPacingOf(prefs: Preferences) = RefreshPacing(
+        minIntervalMs = prefs[minIntervalKey] ?: RefreshPacing.DEFAULT_MIN_INTERVAL_MS,
+        searchHeadMs = prefs[searchHeadKey] ?: RefreshPacing.DEFAULT_SEARCH_HEAD_MS,
+        radarHeadMs = prefs[radarHeadKey] ?: RefreshPacing.DEFAULT_RADAR_HEAD_MS,
+        waitlistMs = prefs[waitlistKey] ?: RefreshPacing.DEFAULT_WAITLIST_MS,
+        publicRoomMs = prefs[publicRoomKey] ?: RefreshPacing.DEFAULT_PUBLIC_ROOM_MS,
+    ).sanitized()
+
+    /**
+     * 保存済みの間隔に [change] を掛けて保存する。保存済みの値から変えるので、画面がまだ読み込み前・古い値を
+     * 表示していても、選んだ項目以外を上書きしない。
+     */
+    suspend fun updateRefreshPacing(change: (RefreshPacing) -> RefreshPacing) {
         context.dataStore.edit {
+            val value = change(refreshPacingOf(it)).sanitized()
             it[minIntervalKey] = value.minIntervalMs
             it[searchHeadKey] = value.searchHeadMs
             it[radarHeadKey] = value.radarHeadMs

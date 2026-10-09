@@ -53,10 +53,11 @@ fun RefreshSettingsScreen(onBack: () -> Unit) {
     val bottomContentPadding = 14.dp +
         WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
-    fun save(next: RefreshPacing) {
+    /** 保存済みの値に対して、選んだ項目だけを変える。 */
+    fun save(change: (RefreshPacing) -> RefreshPacing) {
         scope.launch {
             try {
-                app.settings.setRefreshPacing(next)
+                app.settings.updateRefreshPacing(change)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -85,7 +86,7 @@ fun RefreshSettingsScreen(onBack: () -> Unit) {
                         value = pacing.searchHeadMs,
                         choices = RefreshPacing.LIST_CHOICES,
                         defaultValue = RefreshPacing.DEFAULT_SEARCH_HEAD_MS,
-                        onSelect = { save(pacing.copy(searchHeadMs = it)) },
+                        onSelect = { value -> save { it.copy(searchHeadMs = value) } },
                     )
                 }
                 item {
@@ -95,7 +96,7 @@ fun RefreshSettingsScreen(onBack: () -> Unit) {
                         value = pacing.radarHeadMs,
                         choices = RefreshPacing.LIST_CHOICES,
                         defaultValue = RefreshPacing.DEFAULT_RADAR_HEAD_MS,
-                        onSelect = { save(pacing.copy(radarHeadMs = it)) },
+                        onSelect = { value -> save { it.copy(radarHeadMs = value) } },
                     )
                 }
                 item {
@@ -105,7 +106,7 @@ fun RefreshSettingsScreen(onBack: () -> Unit) {
                         value = pacing.waitlistMs,
                         choices = RefreshPacing.WAITLIST_CHOICES,
                         defaultValue = RefreshPacing.DEFAULT_WAITLIST_MS,
-                        onSelect = { save(pacing.copy(waitlistMs = it)) },
+                        onSelect = { value -> save { it.copy(waitlistMs = value) } },
                     )
                 }
                 item {
@@ -115,7 +116,7 @@ fun RefreshSettingsScreen(onBack: () -> Unit) {
                         value = pacing.publicRoomMs,
                         choices = RefreshPacing.PUBLIC_ROOM_CHOICES,
                         defaultValue = RefreshPacing.DEFAULT_PUBLIC_ROOM_MS,
-                        onSelect = { save(pacing.copy(publicRoomMs = it)) },
+                        onSelect = { value -> save { it.copy(publicRoomMs = value) } },
                     )
                 }
                 item {
@@ -131,7 +132,7 @@ fun RefreshSettingsScreen(onBack: () -> Unit) {
                         value = pacing.minIntervalMs,
                         choices = RefreshPacing.MIN_INTERVAL_CHOICES,
                         defaultValue = RefreshPacing.DEFAULT_MIN_INTERVAL_MS,
-                        onSelect = { save(pacing.copy(minIntervalMs = it)) },
+                        onSelect = { value -> save { it.copy(minIntervalMs = value) } },
                     )
                 }
             }
