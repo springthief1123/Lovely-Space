@@ -1,6 +1,6 @@
 package io.github.springthief1123.lovelyspace.ui.settings
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,9 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.NotificationsNone
@@ -35,6 +33,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import io.github.springthief1123.lovelyspace.ui.components.QuietTopBar
+import io.github.springthief1123.lovelyspace.ui.theme.LovelyShapes
 
 @Composable
 fun SettingsScreen(
@@ -111,29 +111,10 @@ fun SettingsScreen(
     }
 }
 
+/** 設定の各ページの見出し。シェルの外の画面と同じ [QuietTopBar] を使い、ステータスバーの余白は親が取る。 */
 @Composable
 internal fun SettingsPageHeader(title: String, onBack: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 8.dp).padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier.size(48.dp).clickable(onClick = onBack),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                Icons.AutoMirrored.Outlined.ArrowBack,
-                contentDescription = "戻る",
-                tint = MaterialTheme.colorScheme.onBackground,
-            )
-        }
-        Text(
-            title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
-    }
+    QuietTopBar(title, windowInsets = WindowInsets(0, 0, 0, 0), onBack = onBack)
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 }
 
@@ -144,20 +125,20 @@ private fun SettingsCategoryCard(
     description: String,
     onClick: () -> Unit,
 ) {
+    // 一覧の行（QuietListPanel）と同じ不透明な面・角丸・境界。以前は 18dp と tonalElevation の色の重ねで、ほかのカードと違っていた。
     Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        tonalElevation = 1.dp,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
+        shape = LovelyShapes.panel,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
             Modifier.padding(horizontal = 16.dp, vertical = 15.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Surface(
-                shape = RoundedCornerShape(12.dp),
+                shape = LovelyShapes.control,
                 color = MaterialTheme.colorScheme.primaryContainer,
             ) {
                 Box(Modifier.size(42.dp), contentAlignment = Alignment.Center) {

@@ -2,6 +2,8 @@
 
 package io.github.springthief1123.lovelyspace.ui.rooms
 
+import io.github.springthief1123.lovelyspace.ui.components.QuietSheetHeader
+import io.github.springthief1123.lovelyspace.ui.components.QuietSheet
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -21,7 +23,6 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -118,15 +119,15 @@ private fun GenreSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    QuietSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
             Modifier
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 18.dp)
-                .padding(bottom = 18.dp)
+                .padding(horizontal = LovelySpacing.screenHorizontal)
+                .padding(top = 8.dp, bottom = 24.dp)
                 .navigationBarsPadding(),
         ) {
-            Text("ジャンルを選ぶ", style = MaterialTheme.typography.titleMedium)
+            QuietSheetHeader("ジャンルを選ぶ")
             GenreGroup.entries.forEach { group ->
                 Text(
                     group.label,

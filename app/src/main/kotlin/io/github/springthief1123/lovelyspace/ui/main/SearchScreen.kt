@@ -1,5 +1,6 @@
 package io.github.springthief1123.lovelyspace.ui.main
 
+import io.github.springthief1123.lovelyspace.ui.components.QuietAssistChip
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -131,9 +132,8 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
             )
         }
         if (newCount > 0) item {
-            AssistChip(onClick = { scope.launch { listState.scrollToItem(0); vm.clearNewRooms() } },
-                label = { Text("新着 ${newCount}件・先頭へ") },
-                leadingIcon = { Icon(Icons.Outlined.ArrowUpward, null, Modifier.size(16.dp)) })
+            QuietAssistChip(onClick = { scope.launch { listState.scrollToItem(0); vm.clearNewRooms() } },
+                label = "新着 ${newCount}件・先頭へ", icon = Icons.Outlined.ArrowUpward)
         }
         if (!validAges) item {
             QuietNotice("年齢の条件が正しくないため、年齢では絞り込んでいません。")

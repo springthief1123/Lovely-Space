@@ -1,5 +1,9 @@
 package io.github.springthief1123.lovelyspace.ui.main
 
+import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
+import io.github.springthief1123.lovelyspace.ui.components.QuietSheetHeader
+import io.github.springthief1123.lovelyspace.ui.components.QuietSheet
+import io.github.springthief1123.lovelyspace.ui.components.QuietDialog
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -41,9 +45,9 @@ internal fun RoomDetailsSheet(room: Room, favorite: Boolean, actionsEnabled: Boo
     val requestNotifications = rememberNotificationPermissionRequest()
     val context = LocalContext.current
     val trackReason = trackUnavailableReason(room, allowEntry, tracking)
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text(room.name ?: "会話中の部屋", style = MaterialTheme.typography.titleLarge)
+    QuietSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = LovelySpacing.screenHorizontal).padding(top = 8.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            QuietSheetHeader(room.name ?: "会話中の部屋")
             Text(roomDetailsSubtitle(room), color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(room.message.ifBlank { "一覧に待機メッセージは表示されていません。" }, style = MaterialTheme.typography.bodyLarge)
             Text("取得時の一覧情報です。入室時には空き状況が変わっている場合があります。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -100,10 +104,9 @@ internal fun RoomDetailsSheet(room: Room, favorite: Boolean, actionsEnabled: Boo
             Spacer(Modifier.height(24.dp))
         }
     }
-    if (confirmUntrack) AlertDialog(onDismissRequest = { if (!working) confirmUntrack = false }, title = { Text("追跡を解除しますか？") },
-        text = { Column { Text("追跡と自分用メモを削除します。変化の履歴は残ります。")
-            error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) } } },
-        confirmButton = { TextButton(enabled = !working && radar.loaded, onClick = {
+    if (confirmUntrack) QuietDialog(title = "追跡を解除しますか？", onDismissRequest = { if (!working) confirmUntrack = false },
+        confirmLabel = "追跡を解除", confirmEnabled = !working && radar.loaded, destructive = true,
+        dismissLabel = "戻る", dismissEnabled = !working, error = error, onConfirm = {
             working = true
             scope.launch {
                 try { app.radar.removeTarget(room); confirmUntrack = false; error = null }
@@ -111,8 +114,7 @@ internal fun RoomDetailsSheet(room: Room, favorite: Boolean, actionsEnabled: Boo
                 catch (e: Exception) { error = "追跡設定を保存できませんでした。もう一度お試しください。" }
                 finally { working = false }
             }
-        }) { Text("追跡を解除") } },
-        dismissButton = { TextButton(enabled = !working, onClick = { confirmUntrack = false }) { Text("戻る") } })
+        }) { Text("追跡と自分用メモを削除します。変化の履歴は残ります。") }
 }
 
 /** 押した後の状態を見た目で示すボタン。済んだ状態ではチェックを付けて塗る。 */

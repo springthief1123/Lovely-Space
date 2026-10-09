@@ -27,18 +27,48 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import io.github.springthief1123.lovelyspace.ui.theme.LovelyShapes
 
+/**
+ * シェルの外の画面（チャット・入室・部屋作成・公開ルーム・設定）の見出し。背景は画面と同じ色で、
+ * 文字は titleMedium、戻るは 48dp の IconButton、高さは 64dp。メインの Glass ヘッダー（LovelyTopBar）とは役割が違うので別。
+ * [subtitle] はチャットの部屋名など 2 行目の補足。[windowInsets] は、親がステータスバーの余白を取っている画面（設定）で空にする。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 // onBack を最後に置き、既存の呼び出し（QuietTopBar(title) { 戻る }）をそのまま使えるようにする。
-fun QuietTopBar(title: String, actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {}, onBack: () -> Unit) {
+fun QuietTopBar(
+    title: String,
+    subtitle: String? = null,
+    backDescription: String = "戻る",
+    windowInsets: WindowInsets = TopAppBarDefaults.windowInsets,
+    actions: @Composable RowScope.() -> Unit = {},
+    onBack: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
     TopAppBar(
-        title = { Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        title = {
+            Column(Modifier.semantics(mergeDescendants = true) { heading() }) {
+                Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                subtitle?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        },
         navigationIcon = {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "戻る") }
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = backDescription) }
         },
         actions = actions,
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+        windowInsets = windowInsets,
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = scheme.background,
+            scrolledContainerColor = scheme.background,
+            navigationIconContentColor = scheme.onBackground,
+            titleContentColor = scheme.onBackground,
+            actionIconContentColor = scheme.onSurfaceVariant,
+        ),
     )
 }
 
@@ -50,7 +80,7 @@ fun QuietHeading(title: String) {
 @Composable
 fun QuietPanel(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     Surface(modifier = modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+        shape = LovelyShapes.panel, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
     }
 }
@@ -66,15 +96,10 @@ fun QuietOverflowMenu(items: List<QuietMenuItem>, contentDescription: String = "
         IconButton(onClick = { open = true }) {
             Icon(Icons.Outlined.MoreVert, contentDescription = contentDescription)
         }
-        androidx.compose.material3.DropdownMenu(open, { open = false }) {
+        QuietDropdownMenu(open, { open = false }) {
             items.forEach { item ->
-                androidx.compose.material3.DropdownMenuItem(
-                    text = {
-                        Text(item.label, color = if (item.destructive) MaterialTheme.colorScheme.error else androidx.compose.ui.graphics.Color.Unspecified)
-                    },
-                    enabled = item.enabled,
-                    onClick = { open = false; item.onClick() },
-                )
+                QuietMenuRow(item.label, onClick = { open = false; item.onClick() },
+                    enabled = item.enabled, destructive = item.destructive)
             }
         }
     }
@@ -99,7 +124,7 @@ fun <T> QuietTabs(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> 
     androidx.compose.foundation.lazy.LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         options.forEach { (value, label) ->
             item {
-                androidx.compose.material3.FilterChip(selected = value == selected, onClick = { onSelect(value) }, label = { Text(label) })
+                QuietFilterChip(selected = value == selected, onClick = { onSelect(value) }, label = label)
             }
         }
     }
@@ -108,7 +133,7 @@ fun <T> QuietTabs(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> 
 /** 一覧の行として使う小さなパネル。内側の余白を QuietPanel より詰める。 */
 @Composable
 fun QuietListPanel(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
-    val shape = RoundedCornerShape(16.dp)
+    val shape = LovelyShapes.panel
     Surface(modifier = modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface,
         shape = shape, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
         Column(

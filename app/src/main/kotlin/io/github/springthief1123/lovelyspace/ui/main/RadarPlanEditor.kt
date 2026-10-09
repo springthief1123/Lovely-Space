@@ -1,7 +1,13 @@
 package io.github.springthief1123.lovelyspace.ui.main
 
+import io.github.springthief1123.lovelyspace.ui.components.QuietSheetHeader
+import io.github.springthief1123.lovelyspace.ui.components.QuietSheet
+import io.github.springthief1123.lovelyspace.ui.components.QuietCheckboxRow
+import io.github.springthief1123.lovelyspace.ui.components.QuietFilterChip
 import androidx.compose.foundation.layout.*
 import io.github.springthief1123.lovelyspace.ui.components.QuietFieldPair
+import io.github.springthief1123.lovelyspace.ui.components.QuietExposedMenu
+import io.github.springthief1123.lovelyspace.ui.components.QuietMenuRow
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -29,11 +35,10 @@ internal fun RadarPlanEditor(value: SearchPreset, working: Boolean, error: Strin
         (maxAge.isBlank() || (maxAge.toIntOrNull() ?: 0) in 18..99) &&
         (minAge.isBlank() || maxAge.isBlank() || minAge.toInt() <= maxAge.toInt())
     fun criteria(next: RoomSearchCriteria) { draft = preset.copy(criteria = next) }
-    ModalBottomSheet(onDismissRequest = { if (!working) onDismiss() }) {
-        Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(LovelySpacing.screenHorizontal),
+    QuietSheet(onDismissRequest = { if (!working) onDismiss() }) {
+        Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = LovelySpacing.screenHorizontal).padding(top = 8.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("巡回計画を編集", style = MaterialTheme.typography.titleLarge)
-            Text("保存した検索条件も更新します。条件を変更すると、次の巡回は1ページ目から比較の基準を作ります。", style = MaterialTheme.typography.bodySmall)
+            QuietSheetHeader("巡回計画を編集", "保存した検索条件も更新します。条件を変更すると、次の巡回は1ページ目から比較の基準を作ります。")
             OutlinedTextField(preset.label, { draft = preset.copy(label = it) }, enabled = !working,
                 label = { Text("計画名") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             RadarDropdown("ジャンル", preset.genreKey, Genres.all.map { it.key to it.label }, !working) { draft = preset.copy(genreKey = it) }
@@ -54,10 +59,7 @@ internal fun RadarPlanEditor(value: SearchPreset, working: Boolean, error: Strin
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = fieldModifier)
             })
             if (!validAges) Text("年齢は18〜99で、最低年齢が最高年齢以下になるよう指定してください。", color = MaterialTheme.colorScheme.error)
-            Row {
-                Checkbox(c.includeUnknownAge, { criteria(c.copy(includeUnknownAge = it)) }, enabled = !working)
-                Text("年齢が秘密の部屋も含める", Modifier.weight(1f).padding(top = 12.dp))
-            }
+            QuietCheckboxRow(c.includeUnknownAge, { criteria(c.copy(includeUnknownAge = it)) }, "年齢が秘密の部屋も含める", enabled = !working)
             RadarDropdown("地域", c.area.orEmpty(), listOf("" to "すべて") + Prefectures.names.map { it to it }, !working) { criteria(c.copy(area = it.ifBlank { null })) }
             RadarChoice("利用状況", c.waitingOnly, listOf(null to "すべて", true to "待機中", false to "満室"), !working) { criteria(c.copy(waitingOnly = it)) }
             RadarChoice("公開設定", c.publicOnly, listOf(null to "すべて", true to "公開", false to "非公開"), !working) { criteria(c.copy(publicOnly = it)) }
@@ -77,7 +79,7 @@ internal fun <T> RadarChoice(title: String, selected: T, values: List<Pair<T, St
     Column {
         Text(title, style = MaterialTheme.typography.labelMedium)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            values.forEach { (value, label) -> FilterChip(selected == value, { onSelect(value) }, enabled = enabled, label = { Text(label) }) }
+            values.forEach { (value, label) -> QuietFilterChip(selected == value, { onSelect(value) }, label = label, enabled = enabled) }
         }
     }
 }
@@ -90,8 +92,8 @@ internal fun RadarDropdown(title: String, selected: String, values: List<Pair<St
         OutlinedTextField(values.firstOrNull { it.first == selected }?.second ?: selected, {}, readOnly = true, enabled = enabled,
             label = { Text(title) }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded && enabled) },
             modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = enabled))
-        ExposedDropdownMenu(expanded && enabled, { expanded = false }) {
-            values.forEach { (value, label) -> DropdownMenuItem(text = { Text(label) }, onClick = { onSelect(value); expanded = false }) }
+        QuietExposedMenu(expanded && enabled, { expanded = false }) {
+            values.forEach { (value, label) -> QuietMenuRow(label, selected = value == selected, onClick = { onSelect(value); expanded = false }) }
         }
     }
 }

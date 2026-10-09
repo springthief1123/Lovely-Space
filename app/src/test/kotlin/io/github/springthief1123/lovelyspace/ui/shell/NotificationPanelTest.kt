@@ -1,7 +1,6 @@
 package io.github.springthief1123.lovelyspace.ui.shell
 
 import android.app.Application
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -10,6 +9,7 @@ import androidx.compose.ui.test.performClick
 import io.github.springthief1123.lovelyspace.notify.AppNotification
 import io.github.springthief1123.lovelyspace.notify.NotificationKind
 import io.github.springthief1123.lovelyspace.notify.NotificationTarget
+import io.github.springthief1123.lovelyspace.ui.components.QuietDropdownMenu
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpaceTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -25,7 +25,7 @@ import org.robolectric.annotation.LooperMode
 class NotificationPanelTest {
     @get:Rule val compose = createComposeRule()
 
-    /** ベルの DropdownMenu は中身を固有サイズで測る。お知らせがあっても開けること。 */
+    /** ベルのメニュー（QuietDropdownMenu = DropdownMenu）は中身を固有サイズで測る。お知らせがあっても開けること。 */
     @Test fun opensInsideTheBellMenuWithEntries() {
         val entries = (1..30).map { i ->
             AppNotification("n$i", NotificationKind.entries.first(), "合成の通知 $i", "合成の本文",
@@ -34,7 +34,7 @@ class NotificationPanelTest {
         var opened: String? = null
         compose.setContent {
             LovelySpaceTheme {
-                DropdownMenu(expanded = true, onDismissRequest = {}) {
+                QuietDropdownMenu(expanded = true, onDismissRequest = {}) {
                     NotificationPanel(entries, onOpen = { opened = it.id }, onMarkAllRead = {}, onOpenSettings = {})
                 }
             }

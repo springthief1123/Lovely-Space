@@ -1,5 +1,8 @@
 package io.github.springthief1123.lovelyspace.ui.main
 
+import io.github.springthief1123.lovelyspace.ui.theme.LovelyShapes
+import io.github.springthief1123.lovelyspace.ui.components.QuietCheckboxRow
+import io.github.springthief1123.lovelyspace.ui.components.QuietFilterChip
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.tween
@@ -15,7 +18,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -47,6 +49,8 @@ import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import io.github.springthief1123.lovelyspace.core.*
 import io.github.springthief1123.lovelyspace.ui.components.QuietFieldPair
+import io.github.springthief1123.lovelyspace.ui.components.QuietExposedMenu
+import io.github.springthief1123.lovelyspace.ui.components.QuietMenuRow
 import io.github.springthief1123.lovelyspace.ui.rooms.roomMenuBelowEnd
 import io.github.springthief1123.lovelyspace.ui.theme.LocalLovelyColors
 
@@ -62,7 +66,7 @@ internal fun SearchPanel(
     onExpandedChange: (Boolean) -> Unit,
     onReset: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(24.dp)
+    val shape = LovelyShapes.sheet
     val scheme = MaterialTheme.colorScheme
     Column(
         Modifier
@@ -124,7 +128,7 @@ internal fun SearchPopover(
     val anchorBottom = with(density) { anchor.bottom.toDp() }
     val maxHeight = (configuration.screenHeightDp.dp - anchorBottom - POPOVER_MARGIN * 2).coerceAtLeast(240.dp)
     val origin = TransformOrigin(1f, 0f)
-    val shape = RoundedCornerShape(24.dp)
+    val shape = LovelyShapes.sheet
     val scheme = MaterialTheme.colorScheme
     Popup(popupPositionProvider = provider, onDismissRequest = onDismiss, properties = PopupProperties(focusable = true)) {
         AnimatedVisibility(
@@ -172,7 +176,8 @@ internal fun SearchField(text: String, onChange: (String) -> Unit) {
     OutlinedTextField(text, onChange, placeholder = { Text("名前・待機メッセージを検索") },
         leadingIcon = { Icon(Icons.Outlined.Search, null) },
         trailingIcon = if (text.isNotEmpty()) ({ IconButton(onClick = { onChange("") }) { Icon(Icons.Outlined.Close, "検索語を消す") } }) else null,
-        singleLine = true, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth())
+        // 下に並ぶ入力欄・チップと同じ角丸（以前は検索欄だけ 18dp）。
+        singleLine = true, shape = LovelyShapes.control, modifier = Modifier.fillMaxWidth())
 }
 
 /** 性別・待機中・公開は1タップで切り替える。それ以外の条件は「詳しい条件」に置き、件数だけ示す。 */
@@ -187,33 +192,33 @@ private fun QuickFilterRow(
 ) {
     LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         item {
-            FilterChip(criteria.gender == Gender.FEMALE,
+            QuietFilterChip(criteria.gender == Gender.FEMALE,
                 { onChange(criteria.copy(gender = if (criteria.gender == Gender.FEMALE) null else Gender.FEMALE)) },
-                label = { Text("女性") })
+                label = "女性")
         }
         item {
-            FilterChip(criteria.gender == Gender.MALE,
+            QuietFilterChip(criteria.gender == Gender.MALE,
                 { onChange(criteria.copy(gender = if (criteria.gender == Gender.MALE) null else Gender.MALE)) },
-                label = { Text("男性") })
+                label = "男性")
         }
         // 利用状況と公開設定は、押すたびに「すべて → 片方 → もう片方 → すべて」と切り替える。
         // 詳しい条件に同じ項目を二重に置かず、指定中の状態がチップだけで分かるようにする。
         item {
-            FilterChip(criteria.waitingOnly != null,
+            QuietFilterChip(criteria.waitingOnly != null,
                 { onChange(criteria.copy(waitingOnly = nextTriState(criteria.waitingOnly))) },
-                label = { Text(triStateLabel(criteria.waitingOnly, "利用状況", "待機中", "満室")) },
+                label = triStateLabel(criteria.waitingOnly, "利用状況", "待機中", "満室"),
                 modifier = Modifier.semantics { stateDescription = triStateLabel(criteria.waitingOnly, "すべて", "待機中", "満室") })
         }
         item {
-            FilterChip(criteria.publicOnly != null,
+            QuietFilterChip(criteria.publicOnly != null,
                 { onChange(criteria.copy(publicOnly = nextTriState(criteria.publicOnly))) },
-                label = { Text(triStateLabel(criteria.publicOnly, "公開設定", "公開", "非公開")) },
+                label = triStateLabel(criteria.publicOnly, "公開設定", "公開", "非公開"),
                 modifier = Modifier.semantics { stateDescription = triStateLabel(criteria.publicOnly, "すべて", "公開", "非公開") })
         }
         if (onToggleDetails != null) item {
-            FilterChip(advancedCount > 0 || expanded, onToggleDetails,
-                label = { Text(if (advancedCount > 0) "詳しい条件 $advancedCount" else "詳しい条件") },
-                leadingIcon = { Icon(Icons.Outlined.Tune, null, Modifier.size(16.dp)) },
+            QuietFilterChip(advancedCount > 0 || expanded, onToggleDetails,
+                label = if (advancedCount > 0) "詳しい条件 $advancedCount" else "詳しい条件",
+                leadingIcon = Icons.Outlined.Tune,
                 trailingIcon = { Icon(if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
                     if (expanded) "詳しい条件を閉じる" else "詳しい条件を開く", Modifier.size(16.dp)) })
         }
@@ -242,7 +247,7 @@ private fun SearchDetails(state: SearchUiState, vm: SearchViewModel) {
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = fieldModifier)
         })
         if (!validAges) Text("年齢は18〜99で、最高年齢が最低年齢以上になる範囲を指定してください。", color = MaterialTheme.colorScheme.error)
-        Row { Checkbox(c.includeUnknownAge, { vm.criteria(c.copy(includeUnknownAge = it)) }); Text("年齢が秘密の部屋も含める", Modifier.weight(1f).padding(top = 12.dp)) }
+        QuietCheckboxRow(c.includeUnknownAge, { vm.criteria(c.copy(includeUnknownAge = it)) }, "年齢が秘密の部屋も含める")
         // 検索の未指定は「すべて」。プロフィール側の秘密とは別の意味。
         AreaFilter(c.area) { vm.criteria(c.copy(area = it)) }
         ChoiceRow("並び順", c.sort, listOf(RoomSort.SITE to "一覧順", RoomSort.NAME to "名前", RoomSort.AGE to "年齢", RoomSort.ELAPSED to "経過")) { vm.criteria(c.copy(sort = it)) }
@@ -256,7 +261,7 @@ private fun <T> ChoiceRow(title: String, selected: T, options: List<Pair<T, Stri
         Text(title, style = MaterialTheme.typography.labelMedium)
         // FlowRowでフォント拡大時にも選択肢を折り返す。
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            options.forEach { (value, label) -> FilterChip(selected = value == selected, onClick = { onSelect(value) }, label = { Text(label) }) }
+            options.forEach { (value, label) -> QuietFilterChip(selected = value == selected, onClick = { onSelect(value) }, label = label) }
         }
     }
 }
@@ -269,9 +274,9 @@ private fun AreaFilter(selected: String?, onSelect: (String?) -> Unit) {
         OutlinedTextField(selected ?: "すべて", {}, label = { Text("地域") }, readOnly = true,
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
             modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable))
-        ExposedDropdownMenu(expanded, { expanded = false }) {
-            DropdownMenuItem(text = { Text("すべて") }, onClick = { onSelect(null); expanded = false })
-            Prefectures.names.forEach { area -> DropdownMenuItem(text = { Text(area) }, onClick = { onSelect(area); expanded = false }) }
+        QuietExposedMenu(expanded, { expanded = false }) {
+            QuietMenuRow("すべて", selected = selected == null, onClick = { onSelect(null); expanded = false })
+            Prefectures.names.forEach { area -> QuietMenuRow(area, selected = area == selected, onClick = { onSelect(area); expanded = false }) }
         }
     }
 }

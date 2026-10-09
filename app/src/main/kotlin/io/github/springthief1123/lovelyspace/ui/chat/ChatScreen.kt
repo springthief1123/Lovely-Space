@@ -30,7 +30,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Send
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -50,8 +49,6 @@ import io.github.springthief1123.lovelyspace.ui.main.RoomMenuButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -77,7 +74,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
 import io.github.springthief1123.lovelyspace.core.messageWidth
+import io.github.springthief1123.lovelyspace.ui.components.QuietConfirmDialog
+import io.github.springthief1123.lovelyspace.ui.components.QuietDialog
 import io.github.springthief1123.lovelyspace.ui.components.QuietMenuItem
+import io.github.springthief1123.lovelyspace.ui.components.QuietTopBar
 import io.github.springthief1123.lovelyspace.ui.components.QuietOverflowMenu
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -136,20 +136,14 @@ fun ChatScreen(room: ChatRoomRef, vm: ChatController, onBrowse: () -> Unit, onEx
     BackHandler(onBack = back)
 
     if (confirmLeave) {
-        AlertDialog(
-            onDismissRequest = { confirmLeave = false },
-            title = { Text(if (state.isOwner) "部屋を閉じますか？" else "退室しますか？") },
-            text = {
-                Text(if (state.isOwner) "閉じると部屋がなくなり、一覧からも消えます。" else "退室すると、この部屋には戻れません。")
-            },
-            confirmButton = {
-                TextButton(onClick = { confirmLeave = false; vm.leave() }) {
-                    Text(if (state.isOwner) "閉じる" else "退室する")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmLeave = false }) { Text("続ける") }
-            },
+        QuietConfirmDialog(
+            title = if (state.isOwner) "部屋を閉じますか？" else "退室しますか？",
+            text = if (state.isOwner) "閉じると部屋がなくなり、一覧からも消えます。" else "退室すると、この部屋には戻れません。",
+            confirmLabel = if (state.isOwner) "閉じる" else "退室する",
+            onConfirm = { confirmLeave = false; vm.leave() },
+            onDismiss = { confirmLeave = false },
+            destructive = true,
+            dismissLabel = "続ける",
         )
     }
 
@@ -180,16 +174,13 @@ fun ChatScreen(room: ChatRoomRef, vm: ChatController, onBrowse: () -> Unit, onEx
     }
     // 送れたか分からない文章は自動で再送しないので、捨てる前に一度確かめる。
     if (confirmDiscard && state.failedMessage != null) {
-        AlertDialog(
-            onDismissRequest = { confirmDiscard = false },
-            title = { Text("この送信文を破棄しますか？") },
-            text = { Text("破棄した文章は元に戻せません。履歴に届いていなければ、もう一度書き直す必要があります。") },
-            confirmButton = {
-                TextButton(onClick = { confirmDiscard = false; vm.discardFailedMessage() }) {
-                    Text("破棄する", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = { TextButton(onClick = { confirmDiscard = false }) { Text("やめる") } },
+        QuietConfirmDialog(
+            title = "この送信文を破棄しますか？",
+            text = "破棄した文章は元に戻せません。履歴に届いていなければ、もう一度書き直す必要があります。",
+            confirmLabel = "破棄する",
+            onConfirm = { confirmDiscard = false; vm.discardFailedMessage() },
+            onDismiss = { confirmDiscard = false },
+            destructive = true,
         )
     }
     if (editingMessage) {
@@ -206,21 +197,11 @@ fun ChatScreen(room: ChatRoomRef, vm: ChatController, onBrowse: () -> Unit, onEx
         modifier = Modifier.imePadding(),
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(state.partnerName ?: state.title.ifEmpty { "チャット" }, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (state.partnerName != null && state.title.isNotEmpty()) {
-                            Text(state.title, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
-                navigationIcon = {
-                    IconButton(onClick = back) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = if (canLeaveSilently) "一覧に戻る" else "部屋に残ったまま一覧を見る")
-                    }
-                },
+            QuietTopBar(
+                title = state.partnerName ?: state.title.ifEmpty { "チャット" },
+                subtitle = state.title.takeIf { state.partnerName != null && it.isNotEmpty() },
+                backDescription = if (canLeaveSilently) "一覧に戻る" else "部屋に残ったまま一覧を見る",
+                onBack = back,
                 actions = {
                     // 入室した部屋は、長押しメニューと同じ操作（保存・追跡など）をここから選べる。自分で作った部屋には出さない。
                     if (!state.isOwner && !state.isLoading) {
@@ -346,12 +327,13 @@ private fun OwnerActionConfirmDialog(action: OwnerAction, partnerName: String?, 
         OwnerAction.MAKE_PUBLIC -> Triple("公開にしますか？", "会話をほかの人が閲覧できるようになります。", "公開にする")
         OwnerAction.CHANGE_MESSAGE -> return
     }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = { Text(text) },
-        confirmButton = { TextButton(onClick = onConfirm) { Text(confirm) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("やめる") } },
+    QuietConfirmDialog(
+        title = title,
+        text = text,
+        confirmLabel = confirm,
+        onConfirm = onConfirm,
+        onDismiss = onDismiss,
+        destructive = action == OwnerAction.BAN_GUEST || action == OwnerAction.CLEAR_LOG,
     )
 }
 
@@ -360,27 +342,24 @@ private fun WaitingMessageDialog(current: String, onSave: (String) -> Unit, onDi
     var message by rememberSaveable { mutableStateOf(current) }
     val width = messageWidth(message.trim())
     val max = ChatController.WAITING_MESSAGE_MAX_WIDTH
-    AlertDialog(
+    QuietDialog(
+        title = "待機メッセージを変更",
         onDismissRequest = onDismiss,
-        title = { Text("待機メッセージを変更") },
-        text = {
-            OutlinedTextField(
-                value = message,
-                onValueChange = { message = it },
-                minLines = 3,
-                maxLines = 8,
-                isError = width > max,
-                supportingText = { Text("$width / $max（全角は 2 文字として数えます）") },
-                modifier = Modifier.fillMaxWidth(),
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = { onSave(message) }, enabled = message.isNotBlank() && width <= max && message.trim() != current) {
-                Text("変更")
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("やめる") } },
-    )
+        confirmLabel = "変更",
+        onConfirm = { onSave(message) },
+        confirmEnabled = message.isNotBlank() && width <= max && message.trim() != current,
+        dismissLabel = "やめる",
+    ) {
+        OutlinedTextField(
+            value = message,
+            onValueChange = { message = it },
+            minLines = 3,
+            maxLines = 8,
+            isError = width > max,
+            supportingText = { Text("$width / $max（全角は 2 文字として数えます）") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
 }
 
 @Composable

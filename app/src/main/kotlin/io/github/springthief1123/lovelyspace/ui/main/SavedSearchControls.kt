@@ -1,11 +1,14 @@
 package io.github.springthief1123.lovelyspace.ui.main
 
+import io.github.springthief1123.lovelyspace.ui.components.QuietConfirmDialog
+import io.github.springthief1123.lovelyspace.ui.components.QuietDialog
+import io.github.springthief1123.lovelyspace.ui.theme.LovelyShapes
+import io.github.springthief1123.lovelyspace.ui.components.QuietAssistChip
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
@@ -49,14 +52,14 @@ internal fun SavedSearchControls(search: SearchUiState, onApply: (SearchPreset) 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text("保存した条件", style = MaterialTheme.typography.labelMedium)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            AssistChip(
+            QuietAssistChip(
                 onClick = {
                     vm.clearEditError()
                     draft = SearchPreset(label = "", genreKey = search.genre.key, criteria = search.criteria)
                 },
                 enabled = search.validAges && !state.working,
-                label = { Text("今の条件を保存") },
-                leadingIcon = { Icon(Icons.Outlined.Add, null, Modifier.size(16.dp)) },
+                label = "今の条件を保存",
+                icon = Icons.Outlined.Add,
             )
             state.presets.forEach { value ->
                 SavedSearchChip(
@@ -88,23 +91,15 @@ internal fun SavedSearchControls(search: SearchUiState, onApply: (SearchPreset) 
             onDismiss = { draft = null }, onSave = { vm.save(it) { draft = null } })
     }
     replacing?.let { value ->
-        AlertDialog(onDismissRequest = { if (!state.working) replacing = null },
-            title = { Text("保存した条件を更新しますか？") },
-            text = { Column {
-                Text("「${value.label}」を現在のジャンル（${Genres[value.genreKey]?.label}）と条件で上書きします。")
-                state.editError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            } },
-            confirmButton = { TextButton(enabled = !state.working, onClick = { vm.save(value) { replacing = null } }) { Text("更新") } },
-            dismissButton = { TextButton(enabled = !state.working, onClick = { replacing = null }) { Text("キャンセル") } })
+        QuietConfirmDialog(title = "保存した条件を更新しますか？",
+            text = "「${value.label}」を現在のジャンル（${Genres[value.genreKey]?.label}）と条件で上書きします。",
+            confirmLabel = "更新", onConfirm = { vm.save(value) { replacing = null } }, onDismiss = { replacing = null },
+            enabled = !state.working, dismissLabel = "キャンセル", error = state.editError)
     }
     deleting?.let { value ->
-        AlertDialog(onDismissRequest = { if (!state.working) deleting = null }, title = { Text("保存した条件を削除しますか？") },
-            text = { Column {
-                Text(value.label)
-                state.editError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            } },
-            confirmButton = { TextButton(enabled = !state.working, onClick = { vm.delete(value.id) { deleting = null } }) { Text("削除") } },
-            dismissButton = { TextButton(enabled = !state.working, onClick = { deleting = null }) { Text("キャンセル") } })
+        QuietConfirmDialog(title = "保存した条件を削除しますか？", text = value.label,
+            confirmLabel = "削除", onConfirm = { vm.delete(value.id) { deleting = null } }, onDismiss = { deleting = null },
+            destructive = true, enabled = !state.working, dismissLabel = "キャンセル", error = state.editError)
     }
 }
 
@@ -121,7 +116,8 @@ private fun SavedSearchChip(
     onDelete: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(8.dp)
+    // 隣の「今の条件を保存」（QuietAssistChip）と同じ角丸・境界にそろえる。
+    val shape = LovelyShapes.control
     val scheme = MaterialTheme.colorScheme
     Box {
         Text(
@@ -164,14 +160,12 @@ private fun SavedSearchChip(
 @Composable
 private fun SavedSearchNameDialog(value: SearchPreset, working: Boolean, error: String?, onDismiss: () -> Unit, onSave: (SearchPreset) -> Unit) {
     var label by rememberSaveable(value.id) { mutableStateOf(value.label) }
-    AlertDialog(onDismissRequest = { if (!working) onDismiss() }, title = { Text("検索条件の保存名") },
-        text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(Genres[value.genreKey]?.label ?: value.genreKey)
-            OutlinedTextField(label, { label = it }, singleLine = true, enabled = !working, label = { Text("保存名") })
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        } },
-        confirmButton = { TextButton(enabled = label.isNotBlank() && !working, onClick = { onSave(value.copy(label = label)) }) { Text("保存") } },
-        dismissButton = { TextButton(enabled = !working, onClick = onDismiss) { Text("キャンセル") } })
+    QuietDialog(title = "検索条件の保存名", onDismissRequest = { if (!working) onDismiss() },
+        confirmLabel = "保存", onConfirm = { onSave(value.copy(label = label)) }, confirmEnabled = label.isNotBlank() && !working,
+        onDismiss = onDismiss, dismissEnabled = !working, error = error) {
+        Text(Genres[value.genreKey]?.label ?: value.genreKey)
+        OutlinedTextField(label, { label = it }, singleLine = true, enabled = !working, label = { Text("保存名") })
+    }
 }
 
 // 保存・更新の確認中に画面が再生成されても、対象IDと条件のスナップショットを保持する。

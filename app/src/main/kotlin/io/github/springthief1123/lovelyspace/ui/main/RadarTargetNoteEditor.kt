@@ -1,5 +1,7 @@
 package io.github.springthief1123.lovelyspace.ui.main
 
+import io.github.springthief1123.lovelyspace.ui.components.QuietSheetHeader
+import io.github.springthief1123.lovelyspace.ui.components.QuietSheet
 import androidx.compose.foundation.layout.*
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
 import androidx.compose.foundation.rememberScrollState
@@ -15,10 +17,9 @@ import io.github.springthief1123.lovelyspace.data.TrackedRoom
 @Composable
 internal fun RadarTargetNoteEditor(target: TrackedRoom, working: Boolean, error: String?, onDismiss: () -> Unit, onSave: (String) -> Unit) {
     var note by rememberSaveable(target.identity) { mutableStateOf(target.note) }
-    ModalBottomSheet(onDismissRequest = { if (!working) onDismiss() }) {
-        Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(LovelySpacing.screenHorizontal), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("${target.identity.name}のメモ", style = MaterialTheme.typography.titleMedium)
-            Text("自分の端末内に保存します。相手には送信されません。", style = MaterialTheme.typography.bodySmall)
+    QuietSheet(onDismissRequest = { if (!working) onDismiss() }) {
+        Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = LovelySpacing.screenHorizontal).padding(top = 8.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            QuietSheetHeader("${target.identity.name}のメモ", "自分の端末内に保存します。相手には送信されません。")
             OutlinedTextField(note, { note = it }, label = { Text("自分用メモ") }, enabled = !working, minLines = 3, maxLines = 6,
                 isError = note.length > 500, supportingText = { Text("${note.length}/500文字") }, modifier = Modifier.fillMaxWidth())
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }

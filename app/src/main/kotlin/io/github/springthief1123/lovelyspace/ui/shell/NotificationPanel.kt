@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -30,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import io.github.springthief1123.lovelyspace.data.formatObservationTime
 import io.github.springthief1123.lovelyspace.notify.AppNotification
 import io.github.springthief1123.lovelyspace.notify.unreadCount
+import io.github.springthief1123.lovelyspace.ui.components.QuietMenuDefaults
 
 /** 通知ベルを開いたときの一覧。新しい順に並べ、未読には印を付ける。 */
 @Composable
@@ -49,7 +51,7 @@ internal fun NotificationPanel(
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp))
         } else {
             // 保存上限まで全件を確認できるよう、一覧部分だけをスクロール可能にする。
-            // DropdownMenu は中身の幅を固有サイズで測るため、LazyColumn は使えない（測れずに落ちる）。
+            // DropdownMenu（QuietDropdownMenu）は中身の幅を固有サイズで測るため、LazyColumn は使えない（測れずに落ちる）。
             // 件数は保存上限（100 件）までなので、通常の Column で足りる。
             Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
                 entries.forEach { entry ->
@@ -65,7 +67,10 @@ internal fun NotificationPanel(
 @Composable
 private fun NotificationPanelItem(entry: AppNotification, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 18.dp, vertical = 10.dp).testTag("notification-${entry.id}"),
+        // メニューの行と同じく、左右を少し空けた角丸の範囲を押せるようにする（文字の位置は見出しと同じ 18dp）。
+        Modifier.fillMaxWidth().padding(horizontal = QuietMenuDefaults.itemOuterPadding).clip(QuietMenuDefaults.itemShape)
+            .clickable(onClick = onClick).padding(horizontal = QuietMenuDefaults.itemInnerPadding, vertical = 10.dp)
+            .testTag("notification-${entry.id}"),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Box(Modifier.padding(top = 6.dp).size(8.dp).background(

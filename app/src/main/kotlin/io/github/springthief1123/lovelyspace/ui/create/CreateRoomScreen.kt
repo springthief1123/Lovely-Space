@@ -2,6 +2,7 @@
 
 package io.github.springthief1123.lovelyspace.ui.create
 
+import io.github.springthief1123.lovelyspace.ui.components.quietSegmentedButtonColors
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,7 +20,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
@@ -49,6 +49,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
+import io.github.springthief1123.lovelyspace.ui.components.QuietExposedMenu
+import io.github.springthief1123.lovelyspace.ui.components.QuietMenuRow
 import io.github.springthief1123.lovelyspace.ui.components.QuietHeading
 import io.github.springthief1123.lovelyspace.ui.components.QuietPanel
 import io.github.springthief1123.lovelyspace.ui.components.QuietTopBar
@@ -147,6 +149,7 @@ private fun CreateRoomForm(genre: Genre, state: CreateRoomUiState, vm: CreateRoo
                             selected = state.sex == value,
                             onClick = { vm.setSex(value) },
                             shape = SegmentedButtonDefaults.itemShape(i, 2),
+                            colors = quietSegmentedButtonColors(),
                         ) { Text(label) }
                     }
                 }
@@ -214,10 +217,10 @@ internal fun PrefectureField(selected: Int?, onSelect: (Int?) -> Unit) {
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
             modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable),
         )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(text = { Text("秘密") }, onClick = { onSelect(null); expanded = false })
+        QuietExposedMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            QuietMenuRow("秘密", selected = selected == null, onClick = { onSelect(null); expanded = false })
             Prefectures.names.forEachIndexed { i, name ->
-                DropdownMenuItem(text = { Text(name) }, onClick = { onSelect(i + 1); expanded = false })
+                QuietMenuRow(name, selected = selected == i + 1, onClick = { onSelect(i + 1); expanded = false })
             }
         }
     }

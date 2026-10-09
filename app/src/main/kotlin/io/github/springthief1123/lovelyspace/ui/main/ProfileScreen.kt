@@ -1,5 +1,8 @@
 package io.github.springthief1123.lovelyspace.ui.main
 
+import io.github.springthief1123.lovelyspace.ui.components.QuietDialog
+import io.github.springthief1123.lovelyspace.ui.components.QuietCheckboxRow
+import io.github.springthief1123.lovelyspace.ui.components.QuietFilterChip
 import androidx.compose.foundation.layout.*
 import io.github.springthief1123.lovelyspace.ui.components.QuietHeading
 import io.github.springthief1123.lovelyspace.ui.components.QuietListPanel
@@ -104,12 +107,12 @@ fun ProfileScreen(onOpenSettings: () -> Unit, onCreateRoom: () -> Unit) {
         vm.action(onSuccess = { messageEditor = false }) { vm.repository.save(value) }
     }
     deleting?.let { target ->
-        AlertDialog(onDismissRequest = { deleting = null }, title = { Text("プリセットを削除しますか？") },
-            confirmButton = { TextButton(enabled = !working, onClick = {
+        QuietDialog(title = "プリセットを削除しますか？", onDismissRequest = { deleting = null },
+            confirmLabel = "削除", confirmEnabled = !working, destructive = true, onConfirm = {
                 vm.action(onSuccess = { deleting = null }) {
                     if (target.first) vm.repository.deleteProfile(target.second) else vm.repository.deleteMessage(target.second)
                 }
-            }) { Text("削除") } }, dismissButton = { TextButton(onClick = { deleting = null }) { Text("キャンセル") } })
+            })
     }
 }
 
@@ -162,25 +165,24 @@ private fun ProfileEditor(preset: ProfilePreset?, working: Boolean, error: Strin
     var isDefault by rememberSaveable { mutableStateOf(preset?.isDefault ?: false) }
     val validYears = years.isEmpty() || years.toIntOrNull()?.let { it in 18..99 } == true
     val valid = label.isNotBlank() && validYears && validProfile(name, sex, years.toIntOrNull())
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(if (preset == null) "プロフィールを追加" else "プロフィールを編集") },
-        text = {
+    QuietDialog(title = if (preset == null) "プロフィールを追加" else "プロフィールを編集", onDismissRequest = onDismiss,
+        confirmLabel = "保存", confirmEnabled = valid && !working, dismissEnabled = !working, error = error, onConfirm = {
+            onSave(ProfilePreset(id = preset?.id ?: java.util.UUID.randomUUID().toString(), label = label, name = name,
+                sex = sex, years = years.toIntOrNull(), prefecture = prefecture, isDefault = isDefault))
+        }) {
             Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 OutlinedTextField(label, { label = it }, label = { Text("保存名") }, singleLine = true)
                 OutlinedTextField(name, { name = it }, label = { Text("名前") }, singleLine = true)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(sex == 1, { sex = 1 }, label = { Text("男性") })
-                    FilterChip(sex == 2, { sex = 2 }, label = { Text("女性") })
+                    QuietFilterChip(sex == 1, { sex = 1 }, label = "男性")
+                    QuietFilterChip(sex == 2, { sex = 2 }, label = "女性")
                 }
                 OutlinedTextField(years, { years = it.filter(Char::isDigit).take(2) }, label = { Text("年齢（空欄は秘密）") }, singleLine = true,
                     isError = !validYears, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                 PrefectureField(prefecture) { prefecture = it }
-                Row { Checkbox(isDefault, { isDefault = it }); Text("既定のプロフィールにする", modifier = Modifier.padding(top = 12.dp)) }
+                QuietCheckboxRow(isDefault, { isDefault = it }, "既定のプロフィールにする")
             }
-        }, confirmButton = { TextButton(enabled = valid && !working, onClick = {
-            onSave(ProfilePreset(id = preset?.id ?: java.util.UUID.randomUUID().toString(), label = label, name = name,
-                sex = sex, years = years.toIntOrNull(), prefecture = prefecture, isDefault = isDefault))
-        }) { Text("保存") } }, dismissButton = { TextButton(onClick = onDismiss, enabled = !working) { Text("キャンセル") } })
+        }
 }
 
 @Composable
@@ -189,17 +191,18 @@ private fun MessageEditor(preset: MessagePreset?, working: Boolean, error: Strin
     var message by rememberSaveable { mutableStateOf(preset?.message.orEmpty()) }
     var isDefault by rememberSaveable { mutableStateOf(preset?.isDefault ?: false) }
     val width = messageWidth(message)
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(if (preset == null) "待機メッセージを追加" else "待機メッセージを編集") }, text = {
+    QuietDialog(title = if (preset == null) "待機メッセージを追加" else "待機メッセージを編集", onDismissRequest = onDismiss,
+        confirmLabel = "保存", confirmEnabled = label.isNotBlank() && message.isNotBlank() && width <= 500 && !working,
+        dismissEnabled = !working, error = error, onConfirm = {
+            onSave(MessagePreset(id = preset?.id ?: java.util.UUID.randomUUID().toString(), label = label, message = message, isDefault = isDefault))
+        }) {
         Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             OutlinedTextField(label, { label = it }, label = { Text("保存名") }, singleLine = true)
             OutlinedTextField(message, { message = it.replace('\n', ' ') }, label = { Text("待機メッセージ") },
                 isError = width > 500, supportingText = { Text("$width / 500（全角は2文字）") })
-            Row { Checkbox(isDefault, { isDefault = it }); Text("既定のメッセージにする", modifier = Modifier.padding(top = 12.dp)) }
+            QuietCheckboxRow(isDefault, { isDefault = it }, "既定のメッセージにする")
         }
-    }, confirmButton = { TextButton(enabled = label.isNotBlank() && message.isNotBlank() && width <= 500 && !working, onClick = {
-        onSave(MessagePreset(id = preset?.id ?: java.util.UUID.randomUUID().toString(), label = label, message = message, isDefault = isDefault))
-    }) { Text("保存") } }, dismissButton = { TextButton(onClick = onDismiss, enabled = !working) { Text("キャンセル") } })
+    }
 }
 
 // 一覧の非同期読み込みより先に、編集中の対象と入力欄を復元できるよう保存する。

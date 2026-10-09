@@ -149,7 +149,7 @@ private fun LovelyTopBar(onOpenNotificationSettings: () -> Unit, searchButton: S
                             contentDescription = if (unread > 0) "お知らせ（未読${unread}件）" else "お知らせ")
                     }
                 }
-                DropdownMenu(notificationsOpen, { notificationsOpen = false }) {
+                QuietDropdownMenu(notificationsOpen, { notificationsOpen = false }) {
                     NotificationPanel(
                         entries = notifications,
                         onOpen = { notificationsOpen = false; app.notifier.open(it.id) },
