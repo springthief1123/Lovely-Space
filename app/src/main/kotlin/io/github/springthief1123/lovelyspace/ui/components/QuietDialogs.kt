@@ -25,7 +25,7 @@ import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
  * 確認・入力のダイアログ。面は surfaceContainerHigh、角丸は [LovelyShapes.sheet]、見出しは titleMedium で、
  * アプリの文字サイズ設定に合わせて大きくなる（標準の見出し headlineSmall は設定の外にある）。
  * [destructive] は削除・退室など取り消せない確定で、確定ボタンの文字を error の色にする。
- * [error] は保存の失敗などを本文の下に出す。[dismissLabel] が null なら確定ボタンだけを出す。
+ * [error] は保存の失敗などを本文の上に出す。[dismissLabel] が null なら確定ボタンだけを出す。
  */
 @Composable
 fun QuietDialog(
@@ -46,9 +46,10 @@ fun QuietDialog(
         onDismissRequest = onDismissRequest,
         title = { Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() }) },
         text = {
+            // 失敗の文は先頭に置く。本文がスクロールする高さいっぱいの入力欄でも、後ろへ押し出されて見えなくならない。
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                content()
                 error?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = scheme.error) }
+                content()
             }
         },
         confirmButton = {
