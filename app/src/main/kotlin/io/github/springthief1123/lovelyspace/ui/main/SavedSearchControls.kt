@@ -159,7 +159,7 @@ private fun SavedSearchChip(
 }
 
 @Composable
-private fun SavedSearchNameDialog(value: SearchPreset, working: Boolean, error: String?, onDismiss: () -> Unit, onSave: (SearchPreset) -> Unit) {
+internal fun SavedSearchNameDialog(value: SearchPreset, working: Boolean, error: String?, onDismiss: () -> Unit, onSave: (SearchPreset) -> Unit) {
     var label by rememberSaveable(value.id) { mutableStateOf(value.label) }
     QuietDialog(title = "検索条件の保存名", onDismissRequest = { if (!working) onDismiss() },
         confirmLabel = "保存", onConfirm = { onSave(value.copy(label = label)) }, confirmEnabled = label.isNotBlank() && !working,

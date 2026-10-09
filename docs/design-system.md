@@ -92,6 +92,7 @@
   - 検索欄（`SearchField`）だけ 18dp だった角丸を `LovelyShapes.control` にそろえた。同じパネルの下に並ぶ入力欄・チップと同じ部品に見せるため。
 - ダイアログ・シート・ヘッダー（Phase D、#76 で実装）: `ui/components/QuietDialogs.kt` と `QuietComponents.kt` の `QuietTopBar`。
   - `QuietDialog`（入力・選択を含むダイアログ）と `QuietConfirmDialog`（文章 1 つの確認）。面 `surfaceContainerHigh`、形 `LovelyShapes.sheet`、色の重ねなし。見出しは `titleMedium`（標準の `headlineSmall` は文字サイズの設定に追従しないため使わない）で、読み上げでは見出し。本文は `onSurfaceVariant`。ボタンは左に取り消し・右に確定。**削除・退室・データ消去など取り消せない確定は `destructive = true` で確定ボタンの文字を `error`** にする。失敗の文は `error` で本文の上に出す（高さいっぱいにスクロールする入力欄の後ろだと画面外に押し出されるため）。保存中は `confirmEnabled` / `dismissEnabled` を false にし、外側タップの閉じるも呼び出し側で止める。
+  - `QuietEditorScreen`（#85）: 入力欄が多い編集（プロフィール・待機メッセージ）の全画面。上部の `QuietTopBar` の右に「保存」を固定し、キーボードで隠れない。面は `background`、中身は左右 `LovelySpacing.screenHorizontal` で縦にスクロールし、失敗の文は入力欄の上。保存中は戻る・Back で閉じない。入力欄 2〜3 個までの短い入力は `QuietDialog` のままでよい。
   - `QuietSheet`（`ModalBottomSheet`）と `QuietSheetHeader`。面 `surfaceContainerLow`、上端 24dp。中身の余白は左右 `LovelySpacing.screenHorizontal`（20dp）・上 8dp・下 24dp、見出しは `titleLarge` と `bodySmall` の補足で、読み上げでは見出し。
   - `QuietTopBar`: シェルの外の画面（チャット・入室・部屋作成・公開ルーム・設定・アプリロック）の見出し。背景は画面と同じ `background`、題名 `titleMedium`（チャットは部屋名を `bodySmall` の 2 行目に出せる）、戻るは 48dp の `IconButton`、高さ 64dp。設定の `SettingsPageHeader` は `QuietTopBar`（ステータスバーの余白は親が取る）と `outlineVariant` の区切り線。メインの Glass ヘッダー（`LovelyTopBar`）は役割が違うので構造を残す。
 

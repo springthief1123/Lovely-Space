@@ -22,12 +22,13 @@ internal object Routes {
     const val ENTRY = "entry/{host}/{genre}/{roomId}?origin={origin}"
     /** pwdはrouteに載せず、ActiveRoomsの一時IDだけを渡す。 */
     const val CHAT = "chat/{session}?origin={origin}"
-    const val CREATE = "create/{genre}"
+    /** [origin] は部屋の作成を始めた主画面。会話の後はそこへ戻る。 */
+    const val CREATE = "create/{genre}?origin={origin}"
     const val PUBLIC = "public/{host}/{genre}/{roomId}"
 
     fun entry(host: String, genre: String, roomId: Long, origin: String = ROOMS) =
         "entry/${Uri.encode(host)}/${Uri.encode(genre)}/$roomId?origin=${mainOrigin(origin)}"
-    fun create(genre: String) = "create/${Uri.encode(genre)}"
+    fun create(genre: String, origin: String = ROOMS) = "create/${Uri.encode(genre)}?origin=${mainOrigin(origin)}"
     fun public(host: String, genre: String, roomId: Long) = "public/${Uri.encode(host)}/${Uri.encode(genre)}/$roomId"
     fun chat(sessionId: String, origin: String) = "chat/${Uri.encode(sessionId)}?origin=${mainOrigin(origin)}"
     fun mainOrigin(value: String?): String = when (value) { RADAR -> RADAR; SEARCH -> SEARCH; FAVORITES -> FAVORITES; PROFILE -> PROFILE; else -> ROOMS }

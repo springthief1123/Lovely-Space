@@ -1,6 +1,7 @@
 package io.github.springthief1123.lovelyspace.ui.main
 
 import io.github.springthief1123.lovelyspace.ui.components.QuietDialog
+import io.github.springthief1123.lovelyspace.ui.components.QuietEditorScreen
 import io.github.springthief1123.lovelyspace.ui.components.QuietCheckboxRow
 import io.github.springthief1123.lovelyspace.ui.components.QuietFilterChip
 import androidx.compose.foundation.layout.*
@@ -18,8 +19,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -34,7 +33,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
+import io.github.springthief1123.lovelyspace.core.MESSAGE_LABEL_LENGTH
+import io.github.springthief1123.lovelyspace.core.messagePresetLabel
 import io.github.springthief1123.lovelyspace.core.messageWidth
+import io.github.springthief1123.lovelyspace.core.profilePresetLabel
 import io.github.springthief1123.lovelyspace.core.validProfile
 import io.github.springthief1123.lovelyspace.data.MessagePreset
 import io.github.springthief1123.lovelyspace.data.ProfilePreset
@@ -154,7 +156,6 @@ private fun PresetRow(label: String, detail: String, isDefault: Boolean, enabled
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ProfileEditor(preset: ProfilePreset?, working: Boolean, error: String?, onDismiss: () -> Unit, onSave: (ProfilePreset) -> Unit) {
     var label by rememberSaveable { mutableStateOf(preset?.label.orEmpty()) }
@@ -164,25 +165,26 @@ private fun ProfileEditor(preset: ProfilePreset?, working: Boolean, error: Strin
     var prefecture by rememberSaveable { mutableStateOf(preset?.prefecture) }
     var isDefault by rememberSaveable { mutableStateOf(preset?.isDefault ?: false) }
     val validYears = years.isEmpty() || years.toIntOrNull()?.let { it in 18..99 } == true
-    val valid = label.isNotBlank() && validYears && validProfile(name, sex, years.toIntOrNull())
-    QuietDialog(title = if (preset == null) "プロフィールを追加" else "プロフィールを編集", onDismissRequest = onDismiss,
-        confirmLabel = "保存", confirmEnabled = valid && !working, dismissEnabled = !working, error = error, onConfirm = {
-            onSave(ProfilePreset(id = preset?.id ?: java.util.UUID.randomUUID().toString(), label = label, name = name,
+    // 保存名は空欄でもよく、そのときは名前から付ける。
+    val savedLabel = profilePresetLabel(label, name)
+    val valid = savedLabel.isNotBlank() && validYears && validProfile(name, sex, years.toIntOrNull())
+    QuietEditorScreen(title = if (preset == null) "プロフィールを追加" else "プロフィールを編集", onDismiss = onDismiss,
+        saveEnabled = valid, working = working, error = error, onSave = {
+            onSave(ProfilePreset(id = preset?.id ?: java.util.UUID.randomUUID().toString(), label = savedLabel, name = name,
                 sex = sex, years = years.toIntOrNull(), prefecture = prefecture, isDefault = isDefault))
         }) {
-            Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(label, { label = it }, label = { Text("保存名") }, singleLine = true)
-                OutlinedTextField(name, { name = it }, label = { Text("名前") }, singleLine = true)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    QuietFilterChip(sex == 1, { sex = 1 }, label = "男性")
-                    QuietFilterChip(sex == 2, { sex = 2 }, label = "女性")
-                }
-                OutlinedTextField(years, { years = it.filter(Char::isDigit).take(2) }, label = { Text("年齢（空欄は秘密）") }, singleLine = true,
-                    isError = !validYears, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                PrefectureField(prefecture) { prefecture = it }
-                QuietCheckboxRow(isDefault, { isDefault = it }, "既定のプロフィールにする")
-            }
+        OutlinedTextField(name, { name = it }, label = { Text("名前") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            QuietFilterChip(sex == 1, { sex = 1 }, label = "男性")
+            QuietFilterChip(sex == 2, { sex = 2 }, label = "女性")
         }
+        OutlinedTextField(years, { years = it.filter(Char::isDigit).take(2) }, label = { Text("年齢（空欄は秘密）") }, singleLine = true,
+            isError = !validYears, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+        PrefectureField(prefecture) { prefecture = it }
+        OutlinedTextField(label, { label = it }, label = { Text("保存名（任意）") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+            supportingText = { Text("空欄なら名前を使います") })
+        QuietCheckboxRow(isDefault, { isDefault = it }, "既定のプロフィールにする")
+    }
 }
 
 @Composable
@@ -191,17 +193,17 @@ private fun MessageEditor(preset: MessagePreset?, working: Boolean, error: Strin
     var message by rememberSaveable { mutableStateOf(preset?.message.orEmpty()) }
     var isDefault by rememberSaveable { mutableStateOf(preset?.isDefault ?: false) }
     val width = messageWidth(message)
-    QuietDialog(title = if (preset == null) "待機メッセージを追加" else "待機メッセージを編集", onDismissRequest = onDismiss,
-        confirmLabel = "保存", confirmEnabled = label.isNotBlank() && message.isNotBlank() && width <= 500 && !working,
-        dismissEnabled = !working, error = error, onConfirm = {
-            onSave(MessagePreset(id = preset?.id ?: java.util.UUID.randomUUID().toString(), label = label, message = message, isDefault = isDefault))
+    // 保存名は空欄でもよく、そのときは本文の先頭から付ける。
+    val savedLabel = messagePresetLabel(label, message)
+    QuietEditorScreen(title = if (preset == null) "待機メッセージを追加" else "待機メッセージを編集", onDismiss = onDismiss,
+        saveEnabled = savedLabel.isNotBlank() && message.isNotBlank() && width <= 500, working = working, error = error, onSave = {
+            onSave(MessagePreset(id = preset?.id ?: java.util.UUID.randomUUID().toString(), label = savedLabel, message = message, isDefault = isDefault))
         }) {
-        Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedTextField(label, { label = it }, label = { Text("保存名") }, singleLine = true)
-            OutlinedTextField(message, { message = it.replace('\n', ' ') }, label = { Text("待機メッセージ") },
-                isError = width > 500, supportingText = { Text("$width / 500（全角は2文字）") })
-            QuietCheckboxRow(isDefault, { isDefault = it }, "既定のメッセージにする")
-        }
+        OutlinedTextField(message, { message = it.replace('\n', ' ') }, label = { Text("待機メッセージ") }, minLines = 4,
+            isError = width > 500, supportingText = { Text("$width / 500（全角は2文字）") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(label, { label = it }, label = { Text("保存名（任意）") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+            supportingText = { Text("空欄ならメッセージの先頭${MESSAGE_LABEL_LENGTH}文字を使います") })
+        QuietCheckboxRow(isDefault, { isDefault = it }, "既定のメッセージにする")
     }
 }
 

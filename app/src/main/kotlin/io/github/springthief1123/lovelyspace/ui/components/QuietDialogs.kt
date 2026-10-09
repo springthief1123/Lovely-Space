@@ -3,13 +3,22 @@ package io.github.springthief1123.lovelyspace.ui.components
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -18,6 +27,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import io.github.springthief1123.lovelyspace.ui.theme.LovelyShapes
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
 
@@ -95,6 +106,57 @@ fun QuietConfirmDialog(
         dismissEnabled = enabled,
         error = error,
     ) { Text(text) }
+}
+
+/**
+ * 入力欄が多い編集（プロフィール・待機メッセージ）の全画面。保存は上部のバーに固定し、キーボードで隠れない。
+ * 戻る・Back で閉じる（[working] の間は閉じない）。[error] は保存の失敗などを入力欄の上に出す。
+ */
+@Composable
+fun QuietEditorScreen(
+    title: String,
+    onDismiss: () -> Unit,
+    saveLabel: String = "保存",
+    saveEnabled: Boolean,
+    working: Boolean,
+    onSave: () -> Unit,
+    error: String? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    Dialog(
+        onDismissRequest = { if (!working) onDismiss() },
+        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false),
+    ) {
+        Surface(Modifier.fillMaxSize(), color = scheme.background, contentColor = scheme.onBackground) {
+            Column(Modifier.fillMaxSize()) {
+                QuietTopBar(
+                    title = title,
+                    backDescription = "閉じる",
+                    // ダイアログの窓はステータスバーの下から始まるので、上の余白は取らない。
+                    windowInsets = WindowInsets(0, 0, 0, 0),
+                    actions = {
+                        TextButton(onClick = onSave, enabled = saveEnabled && !working,
+                            modifier = Modifier.padding(end = 8.dp)) { Text(saveLabel) }
+                    },
+                    onBack = { if (!working) onDismiss() },
+                )
+                HorizontalDivider(color = scheme.outlineVariant)
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .imePadding()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = LovelySpacing.screenHorizontal, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    error?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = scheme.error) }
+                    content()
+                }
+            }
+        }
+    }
 }
 
 /**
