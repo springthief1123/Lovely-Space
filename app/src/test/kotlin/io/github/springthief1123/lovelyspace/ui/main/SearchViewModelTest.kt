@@ -41,7 +41,8 @@ class SearchViewModelTest {
             val vm = SearchViewModel(RoomListSource { query, _ -> calls += query.page; page(query.genre.key, 1, listOf(room(1))) })
             vm.refresh(); runCurrent()
             assertNull(vm.resetCriteria())
-            vm.criteria(RoomSearchCriteria(text = "合成", gender = Gender.FEMALE))
+            // 端末側だけの条件（語・年齢の入力途中）なので、リセットと元に戻すで通信しない。
+            vm.criteria(RoomSearchCriteria(text = "合成", excluded = "除外"))
             vm.minAge("1")
             val before = vm.state.value
             val draft = vm.resetCriteria()
