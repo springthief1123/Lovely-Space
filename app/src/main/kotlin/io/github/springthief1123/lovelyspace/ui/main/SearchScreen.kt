@@ -173,18 +173,14 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
                 text = when {
                     state.results.isNotEmpty() -> "条件に合う部屋はすべて非表示です。"
                     state.awaitingNewConditions -> "変えた条件の一覧はまだ読み込めていません。"
-                    canReadNext && state.automatic -> "読み込んだ${state.page}ページには、条件に合う部屋はまだありません。残りのページを読み込んでいます。"
+                    canReadNext && state.automatic -> "条件に合う部屋はまだ見つかっていません。"
                     canReadNext -> "読み込んだ${state.page}ページには、条件に合う部屋はありません。"
                     else -> "条件に合う部屋はありません。"
                 },
                 onReset = if (activeFilterCount(c) > 0) resetSearch else null,
             )
         }
-        // 自動更新中は残りのページを自動で読み切るので、ボタンではなく進み具合を出す。
-        if (canReadNext && state.automatic) item(key = "next-page") {
-            QuietNotice("残りのページを自動で読み込んでいます（${state.page}/${state.lastPage}ページ）。条件に合う部屋は読み込むたびに追加されます。")
-        }
-        // 自動更新を止めているときは、利用者が押したときだけ 1 ページ読む。
+        // 自動更新中は残りのページを自動で読み切る。自動更新を止めているときは、利用者が押したときだけ 1 ページ読む。
         if (canReadNext && !state.automatic) item(key = "next-page") {
             OutlinedButton(onClick = vm::more, enabled = state.canLoadMore, modifier = Modifier.fillMaxWidth()) {
                 Text(if (state.loading) "読み込んでいます…" else "次のページを読み込む（${state.page + 1}/${state.lastPage}）")

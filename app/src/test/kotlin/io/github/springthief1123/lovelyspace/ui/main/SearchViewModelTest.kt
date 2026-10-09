@@ -28,7 +28,7 @@ class SearchViewModelTest {
             assertTrue(vm.state.value.initialized)
             assertEquals(1, vm.state.value.rooms.size)
             assertNotNull(vm.state.value.preferenceError)
-            vm.criteria(RoomSearchCriteria(text = "テスト"))
+            vm.criteria(RoomSearchCriteria(text = "テスト 該当なし", keywordMode = KeywordMode.ANY))
             assertEquals(1, calls.size)
             assertEquals(1, vm.state.value.results.size)
         } finally { Dispatchers.resetMain() }
@@ -42,7 +42,7 @@ class SearchViewModelTest {
             vm.refresh(); runCurrent()
             assertNull(vm.resetCriteria())
             // 端末側だけの条件（語・年齢の入力途中）なので、リセットと元に戻すで通信しない。
-            vm.criteria(RoomSearchCriteria(text = "合成", excluded = "除外"))
+            vm.criteria(RoomSearchCriteria(text = "合成 該当なし", keywordMode = KeywordMode.ANY, excluded = "除外"))
             vm.minAge("1")
             val before = vm.state.value
             val draft = vm.resetCriteria()
@@ -95,7 +95,7 @@ class SearchViewModelTest {
             })
             vm.refresh(); runCurrent()
             assertEquals(1, vm.state.value.page)
-            vm.criteria(RoomSearchCriteria(name = "該当なし"))
+            vm.criteria(RoomSearchCriteria(name = "該当なし 不一致", keywordMode = KeywordMode.ANY))
             assertTrue(vm.state.value.results.isEmpty())
             assertEquals(listOf(1), calls)
             vm.more(); runCurrent()
@@ -157,7 +157,7 @@ class SearchViewModelTest {
             vm.minAge("9")
             assertFalse(vm.state.value.validAges)
             val saved = SearchPreset(label = "保存済み", genreKey = Genres.default.key,
-                criteria = RoomSearchCriteria(name = "合成", minAge = 25, maxAge = 40, includeUnknownAge = false))
+                criteria = RoomSearchCriteria(name = "abc", minAge = 25, maxAge = 40, includeUnknownAge = false))
             vm.applyPreset(saved); runCurrent()
             assertEquals(2, calls)
             assertEquals(2, vm.state.value.page)
@@ -206,14 +206,22 @@ class SearchViewModelTest {
             vm.refresh(); runCurrent()
             vm.more(); runCurrent()
             assertEquals(4, vm.state.value.rooms.size)
-            // 語の条件は本家に渡さず、取得済みに掛けるだけ。
-            vm.criteria(RoomSearchCriteria(text = "合成"))
+            // 本家で探せない語（英字は大文字・小文字の扱いが違う）は本家に渡さず、取得済みに掛けるだけ。
+            vm.criteria(RoomSearchCriteria(text = "abc"))
             advanceTimeBy(SearchViewModel.REQUERY_DELAY_MS + 1); runCurrent()
             assertEquals(2, queries.size)
+            // 共通検索欄の語は、本家の名前検索と募集文検索の 2 つの一覧で探し、合わせて出す。
+            vm.criteria(RoomSearchCriteria(text = "合成"))
+            advanceTimeBy(SearchViewModel.REQUERY_DELAY_MS + 1); runCurrent()
+            assertEquals(listOf(RoomQuery(Genres.default, name = "合成"), RoomQuery(Genres.default, message = "合成")), queries.takeLast(2))
+            assertEquals(listOf(11L, 1L), vm.state.value.rooms.map { it.id })
+            assertEquals(2, vm.state.value.page)
+            assertTrue(vm.state.value.newRoomIds.isEmpty())
+            queries.clear()
             // 性別は本家で絞る。入力が続く間は待ち、新しい絞り込みの 1 ページ目から一覧を作り直す。
             vm.criteria(RoomSearchCriteria(gender = Gender.FEMALE))
             runCurrent()
-            assertEquals(2, queries.size)
+            assertTrue(queries.isEmpty())
             advanceTimeBy(SearchViewModel.REQUERY_DELAY_MS + 1); runCurrent()
             assertEquals(RoomQuery(Genres.default, sex = Gender.FEMALE), queries.last())
             assertEquals(listOf(9L), vm.state.value.rooms.map { it.id })
