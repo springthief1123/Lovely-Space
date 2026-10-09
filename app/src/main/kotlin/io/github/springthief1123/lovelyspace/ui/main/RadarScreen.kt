@@ -51,7 +51,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
     ForegroundPolling(state.automatic, onStop = { scanJob?.cancel() }) { app.radar.monitor() }
     var working by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var section by rememberSaveable { mutableIntStateOf(4) }
+    var section by rememberRadarSection()
     var selected by remember { mutableStateOf<RadarRoomSnapshot?>(null) }
     var result by remember { mutableStateOf<RadarRoomsDisplay?>(null) }
     var editing by rememberSaveable(stateSaver = SearchPresetSaver) { mutableStateOf<SearchPreset?>(null) }
@@ -92,32 +92,30 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = LovelySpacing.screenHorizontal, end = LovelySpacing.screenHorizontal,
         top = lovelyMainContentTopPadding(), bottom = lovelyMainContentBottomInset() + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item { QuietHeading("レーダー") }
-        item { RadarDashboard(state, planCount, working,
-            onScan = { scanJob?.cancel(); scanJob = scope.launch {
-                try { app.radar.scan(latestFirst = true) }
-                catch (e: kotlinx.coroutines.CancellationException) { throw e }
-                catch (e: Exception) { error = "レーダーの状態を確認できませんでした。再読み込みしてお試しください。" }
-            } }, onPause = { pauseConfirm = true }, onAutomatic = app.radar::automatic) }
         savedState.loadError?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error); TextButton(onClick = savedVm::reload) { Text("条件を読み直す") } } }
         item { QuietTabs(listOf(
-            4 to "一致 ${liveRooms.size}",
-            0 to "巡回 $planCount",
-            1 to "追跡 ${state.targets.size}",
-            3 to "候補 ${state.candidateRules.count { it.enabled }}",
-            5 to "順番待ち ${waitlist.count { it.status == WaitlistStatus.WATCHING }}",
-            2 to if (state.unreadEvents == 0) "履歴" else "履歴 ${state.unreadEvents}",
+            RadarSection.MATCHES to "一致 ${liveRooms.size}",
+            RadarSection.WATCH to "見張り",
+            RadarSection.HISTORY to if (state.unreadEvents == 0) "履歴" else "履歴 ${state.unreadEvents}",
         ), section) { section = it } }
         if (!state.loaded && state.error == null) item { CircularProgressIndicator() }
+        // エラーには読み込み済みでも常に再試行を出す。操作の失敗（error）は閉じることもできる。
         (error ?: state.error)?.let { message -> item {
-            Text(message, color = MaterialTheme.colorScheme.error)
-            if (!state.loaded) TextButton(onClick = app.radar::reload, enabled = !state.running) { Text("再試行") }
+            QuietNotice(message, error = true, onDismiss = if (error != null) ({ error = null }) else null,
+                actionLabel = "再試行", actionEnabled = !state.running, onAction = { error = null; app.radar.reload() })
         } }
         when (section) {
-            4 -> {
+            RadarSection.MATCHES -> {
+                item { RadarDashboard(state, planCount, working,
+                    onScan = { scanJob?.cancel(); scanJob = scope.launch {
+                        try { app.radar.scan(latestFirst = true) }
+                        catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                        catch (e: Exception) { error = "レーダーの状態を確認できませんでした。再読み込みしてお試しください。" }
+                    } }, onPause = { pauseConfirm = true }, onAutomatic = app.radar::automatic) }
                 if (liveRooms.isEmpty()) item { RadarEmpty(
                     if (planCount == 0 && state.candidateRules.none { it.enabled }) "巡回か候補条件を有効にすると、条件に合う部屋がここに並びます。"
                     else "いま条件に合う部屋はありません。新着を確認すると、ここに並びます。",
-                    if (planCount == 0) "巡回を設定" else null) { section = 0 } }
+                    if (planCount == 0) "見張りを設定" else null) { section = RadarSection.WATCH } }
                 items(liveRooms, key = { "live/${roomIdentity(it)}" }) { room ->
                     io.github.springthief1123.lovelyspace.ui.rooms.RoomCard(room,
                         onClick = { when (room.action) { RoomAction.ENTER -> onEnterRoom(room); RoomAction.PEEK -> onPeekRoom(room); RoomAction.NONE -> liveDetails = room } },
@@ -125,10 +123,14 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                         actionsEnabled = preferences.canEdit(room), onFavoriteClick = { preferencesVm.toggleFavorite(room) }, onHideClick = { preferencesVm.hide(room) })
                 }
             }
-            0 -> {
+            RadarSection.WATCH -> {
+                // 4 つの見張り方を、見出しと 1 行の説明・始め方で縦に並べる。動き・設定は以前の各タブと同じ。
+                item(key = "watch/plans") { QuietSectionHeader("保存した条件で巡回", "「見つける」で保存した条件の新着を、定期的に確かめます。") {
+                    TextButton(onClick = onFindRooms) { Text("条件を探す") }
+                } }
                 if (savedState.loading) item { CircularProgressIndicator() }
                 if (!savedState.loading && savedState.loadError == null && saved.isEmpty()) item {
-                    RadarEmpty("「見つける」の絞り込みで条件を保存すると、ここで巡回を有効にできます。", "条件を探す", onFindRooms)
+                    RadarEmpty("保存した条件はまだありません。")
                 }
                 if (saved.isNotEmpty()) item { RadarNote("有効にした条件は、画面を開いている間に新着を優先して全ページを巡回します。「︙」から背景でも巡回するを選ぶと、アプリを閉じていても新着の1ページ目を確認し、新しく一致した部屋を通知します。") }
                 if (state.activeBackgroundPlans.isNotEmpty() && !radarNotificationsAllowed) item {
@@ -140,7 +142,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                         RadarState.BACKGROUND_INTERVALS.map { it.toString() to if (it < 60) "${it}分ごと" else "${it / 60}時間ごと" },
                         state.loaded && !working) { value -> action { app.radar.setBackgroundInterval(value.toInt()) } }
                 }
-                items(saved, key = { it.id }) { preset ->
+                items(saved, key = { "plan/${it.id}" }) { preset ->
                     val found = state.resultFor(preset)
                     val background = preset.id in state.activeBackgroundPlans
                     RadarRuleRow(
@@ -164,37 +166,13 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                         ),
                     )
                 }
-            }
-            1 -> {
-                if (state.targets.isEmpty()) item {
-                    RadarEmpty("部屋の詳細から「この部屋を追跡」を選ぶと、一覧で確認できる部屋の変化を記録します。人の本人確認ではありません。", "部屋を見つける", onFindRooms)
-                }
-                if (state.targets.isNotEmpty()) item {
-                    RadarDropdown("並べ替え", state.targetSort.name, RadarTargetSort.entries.map { it.name to when (it) {
-                        RadarTargetSort.LAST_CONFIRMED -> "プロフィール照合が新しい順"
-                        RadarTargetSort.LAST_OBSERVED -> "IDの確認が新しい順"
-                        RadarTargetSort.NAME -> "名前順"
-                    } }, state.loaded && !working) { value -> action { app.radar.setTargetSort(RadarTargetSort.valueOf(value)) } }
-                }
-                items(state.targets.organized(state.targetSort), key = { roomIdentity(it.identity) }) { target ->
-                    RadarTargetCard(
-                        target = target,
-                        openEnabled = !working,
-                        editEnabled = state.loaded && !working,
-                        onOpen = { selected = RadarRoomSnapshot(target.identity, target.confirmedAt, target.observedPage, target.evidence == RoomIdentityEvidence.REUSED, target.sourceQuery) },
-                        onPin = { action { app.radar.updateTarget(target.identity, pinned = !target.pinned) } },
-                        onNote = { editingTargetKey = roomIdentity(target.identity); error = null },
-                        onRemove = { removingTargetKey = roomIdentity(target.identity); error = null })
-                }
-            }
-            3 -> {
-                item { QuietSectionHeader("候補条件", "名前で部屋を探します。部屋の追跡とは別の記録です。") {
+                item(key = "watch/candidates") { QuietSectionHeader("名前で探す（候補）", "名前や表示名の文字で、新着の部屋を見つけます。部屋の追跡とは別の記録です。") {
                     TextButton(enabled = state.loaded && !working && state.candidateRules.size < 20 && !state.running, onClick = {
                         error = null
                         candidateDraft = CandidateRule(label = "", genreKey = Genres.default.key, term = "")
                     }) { Text("追加") }
                 } }
-                if (state.candidateRules.isEmpty()) item { RadarEmpty("候補条件はまだありません。名前の一致や表示名の文字列で、新着の部屋を見つけられます。名前非表示の部屋は判定しません。") }
+                if (state.candidateRules.isEmpty()) item { RadarEmpty("候補条件はまだありません。名前非表示の部屋は判定しません。") }
                 items(state.candidateRules, key = { "candidate/${it.id}" }) { rule ->
                     val found = state.resultFor(rule)
                     RadarRuleRow(
@@ -214,10 +192,34 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                         ),
                     )
                 }
-            }
-            5 -> {
+                item(key = "watch/targets") { QuietSectionHeader("部屋を追跡", "決めた部屋の状態の変化を記録します。人の本人確認ではありません。") {
+                    TextButton(onClick = onFindRooms) { Text("部屋を探す") }
+                } }
+                if (state.targets.isEmpty()) item {
+                    RadarEmpty("追跡している部屋はまだありません。部屋の詳細から「この部屋を追跡」を選ぶと始まります。")
+                }
+                if (state.targets.isNotEmpty()) item {
+                    RadarDropdown("並べ替え", state.targetSort.name, RadarTargetSort.entries.map { it.name to when (it) {
+                        RadarTargetSort.LAST_CONFIRMED -> "プロフィール照合が新しい順"
+                        RadarTargetSort.LAST_OBSERVED -> "IDの確認が新しい順"
+                        RadarTargetSort.NAME -> "名前順"
+                    } }, state.loaded && !working) { value -> action { app.radar.setTargetSort(RadarTargetSort.valueOf(value)) } }
+                }
+                items(state.targets.organized(state.targetSort), key = { roomIdentity(it.identity) }) { target ->
+                    RadarTargetCard(
+                        target = target,
+                        openEnabled = !working,
+                        editEnabled = state.loaded && !working,
+                        onOpen = { selected = RadarRoomSnapshot(target.identity, target.confirmedAt, target.observedPage, target.evidence == RoomIdentityEvidence.REUSED, target.sourceQuery) },
+                        onPin = { action { app.radar.updateTarget(target.identity, pinned = !target.pinned) } },
+                        onNote = { editingTargetKey = roomIdentity(target.identity); error = null },
+                        onRemove = { removingTargetKey = roomIdentity(target.identity); error = null })
+                }
+                item(key = "watch/waitlist") { QuietSectionHeader("順番待ち", "満室の部屋に空きが出たら知らせます。") {
+                    TextButton(onClick = onFindRooms) { Text("部屋を探す") }
+                } }
                 item { RadarNote("満室の部屋の詳細から「空いたら知らせる」を選ぶと、${WaitlistRepository.DEFAULT_HOURS}時間まで空きを待ちます（同時に${WaitlistRepository.MAX_ACTIVE}件まで）。アプリを閉じている間は15分ごとに確認します。入室とロボット確認はご自身で行ってください。") }
-                if (waitlist.isEmpty()) item { RadarEmpty("順番待ちはまだありません。", "部屋を見つける", onFindRooms) }
+                if (waitlist.isEmpty()) item { RadarEmpty("順番待ちはまだありません。満室の部屋の詳細から「空いたら知らせる」を選ぶと始まります。") }
                 items(waitlist, key = { "waitlist/${it.key}" }) { entry ->
                     WaitlistRow(entry, onEnter = { entry.openedRoom?.let(onEnterRoom) },
                         onRemove = {
@@ -235,7 +237,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                         })
                 }
             }
-            2 -> {
+            RadarSection.HISTORY -> {
                 item { Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text("未読 ${state.unreadEvents}件・表示 ${visibleEvents.size}件", style = MaterialTheme.typography.bodySmall,
@@ -407,3 +409,14 @@ private fun RadarEmpty(text: String, actionLabel: String? = null, onAction: () -
 /** 背景の巡回をオンにしているのに、通知が出せないときの文言。 */
 internal fun backgroundRadarNoticeText(): String =
     "背景でも巡回していますが、通知がオフのため、一致しても知らせられません。"
+
+/** レーダーの切り替え。値は画面の状態として保存されるので変えない。 */
+internal object RadarSection {
+    const val MATCHES = 0
+    const val WATCH = 1
+    const val HISTORY = 2
+}
+
+/** レーダーの切り替えを、ほかの画面から戻ったときや画面の作り直しのあとも保つ。最初は一致を出す。 */
+@Composable
+internal fun rememberRadarSection(): MutableIntState = rememberSaveable { mutableIntStateOf(RadarSection.MATCHES) }
