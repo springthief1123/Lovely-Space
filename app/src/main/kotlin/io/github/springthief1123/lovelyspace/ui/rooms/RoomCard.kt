@@ -23,10 +23,13 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -122,6 +125,17 @@ val LocalRoomCardSwipeCoordinator = staticCompositionLocalOf { RoomCardSwipeCoor
 internal fun roomCardRevealThreshold(revealWidthPx: Float, startedOpen: Boolean): Float =
     revealWidthPx * if (startedOpen) CLOSE_FROM_OPEN_FRACTION else OPEN_FROM_CLOSED_FRACTION
 
+/**
+ * 離すと保存・非表示が確定する移動量。カード幅の半分を超えたら確定域に入る。
+ * 操作幅より手前にはしない（狭いカードで、開くより先に確定しないように）。
+ */
+internal fun roomCardCommitThreshold(cardWidthPx: Float, revealWidthPx: Float): Float =
+    max(cardWidthPx * COMMIT_FRACTION, revealWidthPx)
+
+/** 背後の「保存」「非表示」の表示の出具合（0〜1）。操作幅まで動かすと出切る。 */
+internal fun roomCardSwipeLabelProgress(offsetPx: Float, revealWidthPx: Float): Float =
+    if (revealWidthPx <= 0f) 0f else (abs(offsetPx) / revealWidthPx).coerceIn(0f, 1f)
+
 private enum class SwipeSide { NONE, FAVORITE, HIDDEN }
 
 internal enum class RoomCardSwipeRelease {
@@ -205,10 +219,7 @@ fun RoomCard(
     val velocityThresholdPx = with(density) { SWIPE_VELOCITY_THRESHOLD.toPx() }
     val flickMinOffsetPx = with(density) { SWIPE_FLICK_MIN_OFFSET.toPx() }
     val scrollCloseDistancePx = with(density) { SCROLL_CLOSE_DISTANCE.toPx() }
-    val commitThresholdPx = max(
-        cardWidthPx * MIN_COMMIT_FRACTION,
-        cardWidthPx - with(density) { SWIPE_EDGE_REMAINING.toPx() },
-    ).coerceAtLeast(revealWidthPx)
+    val commitThresholdPx = roomCardCommitThreshold(cardWidthPx, revealWidthPx)
 
     suspend fun animateOffsetTo(target: Float) {
         animate(
@@ -292,6 +303,9 @@ fun RoomCard(
         }
         if (nowArmed && !commitArmed) {
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        } else if (!nowArmed && commitArmed) {
+            // 指を戻して確定域を抜けたら、取り消せたことを軽い振動で知らせる。
+            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         }
 
         // カードは常に指の位置どおりに動かす。確定域に入ったことは触覚と背景色で知らせ、
@@ -332,6 +346,7 @@ fun RoomCard(
                 isFavorite = isFavorite,
                 isHidden = isHidden,
                 enabled = side != SwipeSide.NONE,
+                labelProgress = { roomCardSwipeLabelProgress(offsetPx, revealWidthPx) },
                 onClick = { invokeMenuAction(side) },
             )
 
@@ -412,6 +427,7 @@ private fun BoxScope.SwipeActionBackground(
     isFavorite: Boolean,
     isHidden: Boolean,
     enabled: Boolean,
+    labelProgress: () -> Float,
     onClick: () -> Unit,
 ) {
     val shape = RoundedCornerShape(16.dp)
@@ -441,6 +457,14 @@ private fun BoxScope.SwipeActionBackground(
     ) {
         if (enabled) {
             Row(
+                // スワイプ量に合わせて、カード端から開く方向へ滑りながら現れる。
+                // 位置は描画時に読み、指の動きごとに組み立て直さない。
+                Modifier.graphicsLayer {
+                    val progress = labelProgress()
+                    alpha = progress
+                    val slide = (1f - progress) * SWIPE_LABEL_SLIDE.toPx()
+                    translationX = if (isFavoriteSide) -slide else slide
+                },
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -528,11 +552,16 @@ private fun RoomCardSurface(
                         onLongClickLabel = if (hasMenu) "部屋の操作" else null,
                         onLongClick = if (hasMenu) ({ menuOpen = true }) else null,
                     )
-                    .semantics { if (a11yActions.isNotEmpty()) customActions = a11yActions }
+                    .semantics {
+                        if (a11yActions.isNotEmpty()) customActions = a11yActions
+                        if (isFavorite) stateDescription = "保存済み"
+                    }
                     .padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // 保存済みの印と重ならないよう、見出しの行はその幅だけ内側で終える。
+                Row(Modifier.padding(end = if (isFavorite) SAVED_RIBBON_CLEARANCE else 0.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(34.dp).clip(CircleShape).background(genderContainer), contentAlignment = Alignment.Center) {
                         if (name != null) {
                             Text(name.substring(0, name.offsetByCodePoints(0, 1)), style = MaterialTheme.typography.titleSmall, color = genderColor)
@@ -546,10 +575,6 @@ private fun RoomCardSurface(
                             Text(name ?: "会話中", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
                                 color = if (name == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                            if (isFavorite) {
-                                Icon(Icons.Outlined.Bookmark, contentDescription = "保存済み", tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(start = 4.dp).size(16.dp))
-                            }
                         }
                         ProfileLine(room, genderColor)
                     }
@@ -598,8 +623,32 @@ private fun RoomCardSurface(
                 items = menuItems,
                 onDismiss = { menuOpen = false },
             )
+            if (isFavorite) {
+                SavedRibbon(Modifier.align(Alignment.TopEnd).padding(end = SAVED_RIBBON_END))
+            }
         }
     }
+}
+
+/** 保存済みの部屋の右上に下げるしおり。読み上げはカード本体の状態（保存済み）で伝える。 */
+@Composable
+private fun SavedRibbon(modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .size(width = SAVED_RIBBON_WIDTH, height = SAVED_RIBBON_HEIGHT)
+            .clip(SavedRibbonShape)
+            .background(MaterialTheme.colorScheme.primary),
+    )
+}
+
+/** 上辺から下がり、下端が V 字に切れたしおりの形。 */
+private val SavedRibbonShape = GenericShape { size, _ ->
+    moveTo(0f, 0f)
+    lineTo(size.width, 0f)
+    lineTo(size.width, size.height)
+    lineTo(size.width / 2f, size.height * 0.74f)
+    lineTo(0f, size.height)
+    close()
 }
 
 @Composable
@@ -679,9 +728,13 @@ private const val CLOSE_FROM_OPEN_FRACTION = 0.7f
 private val SWIPE_FLICK_MIN_OFFSET = 24.dp
 private val SCROLL_CLOSE_DISTANCE = 12.dp
 private const val SETTLE_STIFFNESS = 380f
-private val SWIPE_EDGE_REMAINING = 64.dp
 private const val MAX_REVEAL_FRACTION = 0.42f
-private const val MIN_COMMIT_FRACTION = 0.72f
+private const val COMMIT_FRACTION = 0.5f
+private val SWIPE_LABEL_SLIDE = 32.dp
+private val SAVED_RIBBON_WIDTH = 14.dp
+private val SAVED_RIBBON_HEIGHT = 20.dp
+private val SAVED_RIBBON_END = 14.dp
+private val SAVED_RIBBON_CLEARANCE = SAVED_RIBBON_WIDTH + 6.dp
 
 /** カードを押したときの動きの短い表示。詳細が開くだけの部屋は null。 */
 internal fun cardActionLabel(action: RoomAction): String? = when (action) {
