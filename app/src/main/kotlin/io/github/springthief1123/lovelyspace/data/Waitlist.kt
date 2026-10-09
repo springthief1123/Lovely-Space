@@ -137,18 +137,20 @@ class WaitlistRepository(
 
     /**
      * 背景の実行と前面の [monitor] から呼ぶ。待っている部屋のページを [maxPages] まで取得して反映する。
-     * 取得できなかったページがあれば true を返す。
+     * 取得に失敗したら残りのページは取らずに止め（障害中に続けて取りに行かない）、true を返す。
      */
     suspend fun check(maxPages: Int): Boolean {
         expire()
         deliverPending()
         val queries = mutex.withLock { _entries.value.filter { it.active(now()) }.map { it.query } }
         if (queries.isEmpty()) return false
-        val outcomes = sync.sync(queries, maxPages, force = false, onResult = { query, outcome ->
+        var failed = false
+        sync.sync(queries, maxPages, force = false, shouldFetch = { !failed }, onResult = { query, outcome ->
+            if (outcome is ListSyncOutcome.Failed) failed = true
             if (outcome is ListSyncOutcome.Fetched) lists.observation(query)?.let { apply(it) }
         })
         expire()
-        return outcomes.values.any { it is ListSyncOutcome.Failed }
+        return failed
     }
 
     /**
@@ -157,8 +159,9 @@ class WaitlistRepository(
      */
     suspend fun monitor(interval: () -> Long) {
         while (currentCoroutineContext().isActive) {
+            // 待っている部屋が無くても、期限切れの処理と未通知の出し直しは [check] が行う（通信はしない）。
             // 保存の失敗などでアプリを落とさない。取得の失敗と同じく間を空けて続ける。
-            val failed = try { hasActive() && check(Int.MAX_VALUE) } catch (e: CancellationException) { throw e } catch (e: Exception) { true }
+            val failed = try { check(Int.MAX_VALUE) } catch (e: CancellationException) { throw e } catch (e: Exception) { true }
             delay(if (failed) maxOf(interval(), RoomPageSchedule.ERROR_INTERVAL_MS) else interval())
         }
     }

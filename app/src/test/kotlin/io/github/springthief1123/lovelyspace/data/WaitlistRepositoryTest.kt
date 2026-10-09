@@ -89,6 +89,16 @@ class WaitlistRepositoryTest {
         assertEquals(4, lists.calls.size)
     }
 
+    @Test fun aFailedPageStopsTheRestOfTheCheck() = runTest {
+        val lists = Lists().apply { fail = true }
+        val waitlist = WaitlistRepository(Memory(), lists, {}, backgroundScope) { 0L }
+        waitlist.register(full, RoomQuery(zenkoku))
+        waitlist.register(full.copy(id = 43), RoomQuery(zenkoku, page = 2))
+        assertTrue(waitlist.check(3))
+        // 1 ページ目で失敗したので、2 ページ目へは取りに行かない。
+        assertEquals(1, lists.calls.size)
+    }
+
     @Test fun aRoomMissingFromItsPageIsNotTreatedAsClosedAndTheNextPageIsChecked() = runTest {
         val lists = Lists().apply { lastPage = 2; pages = mapOf(1 to emptyList(), 2 to listOf(full)) }
         val waitlist = WaitlistRepository(Memory(), lists, {}, backgroundScope) { 0L }
