@@ -429,4 +429,6 @@ internal object RadarSection {
 
 /** レーダーの切り替えを、ほかの画面から戻ったときや画面の作り直しのあとも保つ。最初は一致を出す。 */
 @Composable
-internal fun rememberRadarSection(): MutableIntState = rememberSaveable { mutableIntStateOf(RadarSection.MATCHES) }
+// 以前の 6 つのタブの番号（0〜5）は意味が違うので、別の保存キーにして復元しない。
+internal fun rememberRadarSection(): MutableIntState =
+    rememberSaveable(key = "radar-section-v2") { mutableIntStateOf(RadarSection.MATCHES) }
