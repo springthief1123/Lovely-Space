@@ -57,6 +57,12 @@ class MainActivity : FragmentActivity() {
                 app.appLock.state.map { it.config.enabled }.distinctUntilChanged().collect(::hideFromRecents)
             }
         }
+        // 順番待ちの部屋があれば、アプリが見えている間は設定の間隔で空きを確認する（背景では WorkManager が 15 分ごと）。
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                app.waitlist.monitor { app.pacing.value.sanitized().waitlistMs }
+            }
+        }
         setContent {
             val themeMode by app.settings.themeMode.collectAsStateWithLifecycle(initialValue = ThemeMode.SYSTEM)
             val textScale by app.settings.textScale.collectAsStateWithLifecycle(initialValue = TextScale.STANDARD)

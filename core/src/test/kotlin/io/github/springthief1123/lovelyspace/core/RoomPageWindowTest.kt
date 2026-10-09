@@ -49,7 +49,7 @@ class RoomPageWindowTest {
     }
     @Test fun schedulePrioritizesNewRoomsWithoutRestartingTheRemainingPageCursor() {
         var now = 0L
-        val schedule = RoomPageSchedule { now }
+        val schedule = RoomPageSchedule(clock = { now })
         assertEquals(1, schedule.next(10)); schedule.completed(1, 10)
         now = 3_000
         assertEquals(2, schedule.next(10)); schedule.completed(2, 10)
@@ -59,9 +59,20 @@ class RoomPageWindowTest {
         assertEquals(3, schedule.next(10))
         assertEquals(3, schedule.next(10)) // 失敗したページは完了を通知せず同じ位置で再試行。
     }
+    @Test fun scheduleUsesTheHeadIntervalFromTheCurrentSettings() {
+        var now = 0L
+        var head = 4_000L
+        val schedule = RoomPageSchedule(clock = { now }) { head }
+        assertEquals(1, schedule.next(3)); schedule.completed(1, 3)
+        now = 2_000
+        assertEquals(2, schedule.next(3))
+        // 設定を 2 秒に縮めると、次の判断から 1 ページ目を優先する。
+        head = 2_000
+        assertEquals(1, schedule.next(3))
+    }
     @Test fun scheduleReadsEveryUnreadPageFirstAndKeepsTheHeadAtTheSlowerSweepInterval() {
         var now = 0L
-        val schedule = RoomPageSchedule { now }
+        val schedule = RoomPageSchedule(clock = { now })
         assertEquals(1, schedule.next(4, emptySet())); schedule.completed(1, 4)
         now = 3_000
         assertEquals(2, schedule.next(4, setOf(1)))

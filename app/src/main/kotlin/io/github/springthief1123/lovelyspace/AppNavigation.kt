@@ -16,6 +16,7 @@ internal object Routes {
     const val SETTINGS = "settings"
     const val SETTINGS_DISPLAY = "settings/display"
     const val SETTINGS_ROOMS = "settings/rooms"
+    const val SETTINGS_REFRESH = "settings/refresh"
     const val SETTINGS_HIDDEN = "settings/hidden"
     const val SETTINGS_NOTIFICATIONS = "settings/notifications"
     const val SETTINGS_LOCK = "settings/lock"

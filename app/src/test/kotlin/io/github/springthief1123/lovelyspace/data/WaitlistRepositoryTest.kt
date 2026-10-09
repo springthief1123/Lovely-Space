@@ -8,6 +8,9 @@ import io.github.springthief1123.lovelyspace.notify.NotificationKind
 import io.github.springthief1123.lovelyspace.notify.NotificationTarget
 import io.github.springthief1123.lovelyspace.notify.toOpenedNotification
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Test
@@ -65,6 +68,25 @@ class WaitlistRepositoryTest {
         assertEquals(NotificationKind.WAITLIST, n.kind)
         assertEquals(NotificationTarget.Room(zenkoku.host, "zenkoku", 42), n.target)
         assertTrue("同じです" in n.text)
+    }
+
+    @Test fun whileTheAppIsOpenWaitingRoomsAreCheckedAtTheChosenIntervalAndFailuresBackOff() = runTest {
+        val lists = Lists().apply { pages = mapOf(1 to listOf(full)) }
+        val waitlist = WaitlistRepository(Memory(), lists, {}, backgroundScope) { 0L }
+        waitlist.register(full, RoomQuery(zenkoku))
+        backgroundScope.launch { waitlist.monitor { 2_000L } }
+        runCurrent()
+        assertEquals(1, lists.calls.size)
+        advanceTimeBy(2_001)
+        assertEquals(2, lists.calls.size)
+        // 取得に失敗したら、設定の間隔より長く空けてから試す。
+        lists.fail = true
+        advanceTimeBy(2_000)
+        assertEquals(3, lists.calls.size)
+        advanceTimeBy(2_001)
+        assertEquals(3, lists.calls.size)
+        advanceTimeBy(RoomPageSchedule.ERROR_INTERVAL_MS)
+        assertEquals(4, lists.calls.size)
     }
 
     @Test fun aRoomMissingFromItsPageIsNotTreatedAsClosedAndTheNextPageIsChecked() = runTest {

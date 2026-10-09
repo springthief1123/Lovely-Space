@@ -7,6 +7,7 @@ import io.github.springthief1123.lovelyspace.data.PresetRepository
 import io.github.springthief1123.lovelyspace.data.RoomListRepository
 import io.github.springthief1123.lovelyspace.data.RoomPreferenceRepository
 import io.github.springthief1123.lovelyspace.data.SearchPresetRepository
+import io.github.springthief1123.lovelyspace.core.RefreshPacing
 import io.github.springthief1123.lovelyspace.core.ShaloveClient
 import io.github.springthief1123.lovelyspace.core.SharedSiteCookieJar
 import io.github.springthief1123.lovelyspace.settings.SettingsRepository
@@ -20,6 +21,7 @@ import io.github.springthief1123.lovelyspace.background.BackgroundSync
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.combine
@@ -32,6 +34,8 @@ class LovelySpaceApp : Application() {
     override fun onCreate() {
         super.onCreate()
         notifier.ensureChannels()
+        // 通信の間隔の設定を、通信のたびに読める置き場へ写す。
+        appScope.launch { settings.refreshPacing.collect { pacing.value = it } }
         // 前回の実行が空きの通知を出す前に止まっていれば、起動時に出し直す。
         appScope.launch { waitlist.deliverPending() }
         // 背景で巡回する計画か、待っている（または通知を出し終えていない）順番待ちがあるときだけ周期実行を登録し、
@@ -51,9 +55,12 @@ class LovelySpaceApp : Application() {
     }
 
 
+    /** 通信の間隔の設定（設定画面で選ぶ）。読み込むまでは既定値。 */
+    val pacing = MutableStateFlow(RefreshPacing())
+
     /** 本家への通信はアプリ全体でこの 1 つを共有し、アクセス間隔の制限を一元化する。 */
     val client: ShaloveClient by lazy {
-        ShaloveClient(ShaloveClient.defaultHttpClient(SharedSiteCookieJar(WebViewCookieStore())))
+        ShaloveClient(ShaloveClient.defaultHttpClient(SharedSiteCookieJar(WebViewCookieStore())), pacing = { pacing.value })
     }
     val roomLists: RoomListRepository by lazy { RoomListRepository(client) }
     val settings: SettingsRepository by lazy { SettingsRepository(this) }

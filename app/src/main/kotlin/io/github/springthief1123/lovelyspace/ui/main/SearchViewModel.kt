@@ -63,7 +63,9 @@ data class SearchUiState(
 }
 
 class SearchViewModel(private val repository: RoomListSource, private val preferences: RoomListPreferenceStore? = null,
-    private val clock: () -> Long = { System.nanoTime() / 1_000_000 }) : ViewModel() {
+    private val clock: () -> Long = { System.nanoTime() / 1_000_000 },
+    /** 取り直しの間隔の設定。巡回のたびに読むので、設定の変更は次の取得から効く。 */
+    private val pacing: () -> RefreshPacing = { RefreshPacing() }) : ViewModel() {
     private val _state = MutableStateFlow(SearchUiState(initialized = preferences == null))
     val state = _state.asStateFlow()
     private var job: Job? = null
@@ -176,7 +178,7 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
 
     /**
      * 画面が前面にある間だけ実行。取消はHTTP取得にも伝わる。
-     * 新着が出る 1 ページ目を [RoomPageSchedule.HEAD_INTERVAL_MS] ごとに取り直し、その合間に残りのページを順に巡る。
+     * 新着が出る 1 ページ目を設定の間隔（[RefreshPacing.searchHeadMs]）ごとに取り直し、その合間に残りのページを順に巡る。
      * 一覧が 2 つ（共通検索欄の語を名前と募集文で探す）なら、1 回ごとに交互に取る。
      */
     suspend fun monitor() {
@@ -190,21 +192,24 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
                 schedules.keys.retainAll(queries.toSet())
                 val index = turn++ % queries.size
                 val window = if (queries == windowQueries) windows[index] else RoomPageWindow()
-                val next = schedules.getOrPut(queries[index]) { RoomPageSchedule(clock) }.next(window.lastPage, window.pages.keys)
+                val next = schedules.getOrPut(queries[index]) { schedule() }.next(window.lastPage, window.pages.keys)
                 // 条件が変わった直後は 1 ページ目を取るので、実際に取ったページで巡回位置を進める。
                 val (fetched, page) = fetchPage(index, next, force = false)
                 if (_state.value.error == null) {
                     val lastPage = windowQueries?.indexOf(fetched)?.let { windows.getOrNull(it) }?.lastPage ?: 1
-                    schedules.getOrPut(fetched) { RoomPageSchedule(clock) }.completed(page, lastPage)
+                    schedules.getOrPut(fetched) { schedule() }.completed(page, lastPage)
                 }
                 delay(when {
                     _state.value.error != null -> RoomPageSchedule.ERROR_INTERVAL_MS
-                    _state.value.lastPage <= 1 -> RoomPageSchedule.HEAD_INTERVAL_MS
-                    else -> RoomPageSchedule.STEP_INTERVAL_MS
+                    _state.value.lastPage <= 1 -> pacing().sanitized().searchHeadMs
+                    // 残りのページは通信の最小間隔で順に取る（間隔は ShaloveClient も守る）。
+                    else -> pacing().sanitized().minIntervalMs
                 })
             }
         } finally { stopRefresh() }
     }
+
+    private fun schedule() = RoomPageSchedule(clock) { pacing().sanitized().searchHeadMs }
 
     /** [targets]（一覧の番号とページ）を順に取る。失敗したらそこで止める。 */
     private fun load(targets: List<Pair<Int, Int>>, force: Boolean) {

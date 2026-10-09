@@ -30,13 +30,16 @@ data class RoomPageWindow(
 }
 
 /**
- * 新着が出る 1 ページ目を [HEAD_INTERVAL_MS] ごとに優先し、その間に残りページを巡回する。失敗ページは進めない。
- * 通信は [ShaloveClient] が 3 秒以上空けるので、1 ページ目と残りのページをおおむね交互に取ることになる。
+ * 新着が出る 1 ページ目を [headInterval]（設定の間隔、ミリ秒）ごとに優先し、その間に残りページを巡回する。失敗ページは進めない。
+ * 通信は [ShaloveClient] が設定の最小間隔以上空けるので、1 ページ目と残りのページをおおむね交互に取ることになる。
  *
  * ただし、まだ一度も読んでいないページ（[next] の `loaded` に無いページ）があるうちは、それを先に順に読み切る。
  * 検索の結果が全ページそろうまでを短くするためで、その間の 1 ページ目は [SWEEP_HEAD_INTERVAL_MS] ごとにする。
  */
-class RoomPageSchedule(private val clock: () -> Long = { System.nanoTime() / 1_000_000 }) {
+class RoomPageSchedule(
+    private val clock: () -> Long = { System.nanoTime() / 1_000_000 },
+    private val headInterval: () -> Long = { RefreshPacing.DEFAULT_SEARCH_HEAD_MS },
+) {
     private var headAt: Long? = null
     private var nextPage = 2
     fun next(lastPage: Int, loaded: Set<Int> = emptySet()): Int {
@@ -45,16 +48,13 @@ class RoomPageSchedule(private val clock: () -> Long = { System.nanoTime() / 1_0
         val elapsed = clock() - head
         val unread = (2..lastPage).firstOrNull { it !in loaded }
         if (unread != null && loaded.isNotEmpty()) return if (elapsed >= SWEEP_HEAD_INTERVAL_MS) 1 else unread
-        return if (elapsed >= HEAD_INTERVAL_MS) 1 else nextPage.coerceAtMost(lastPage).coerceAtLeast(2)
+        return if (elapsed >= headInterval()) 1 else nextPage.coerceAtMost(lastPage).coerceAtLeast(2)
     }
     fun completed(page: Int, lastPage: Int) {
         if (page == 1) headAt = clock()
         else nextPage = if (page < lastPage) page + 1 else 2
     }
     companion object {
-        /** 1 ページ目を取り直す間隔。Chrome 拡張と同じ 4 秒（Yuya の決定、2026-10-09）。 */
-        const val HEAD_INTERVAL_MS = 4_000L
-        const val STEP_INTERVAL_MS = 3_000L
         /** まだ読んでいないページを読み切る間の、1 ページ目を取り直す間隔。 */
         const val SWEEP_HEAD_INTERVAL_MS = 20_000L
         /** 取得に失敗したときに次を試すまでの間。失敗が続くときに本家へ取りに行き続けない。 */

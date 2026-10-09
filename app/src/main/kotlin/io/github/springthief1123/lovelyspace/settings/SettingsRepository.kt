@@ -3,9 +3,11 @@ package io.github.springthief1123.lovelyspace.settings
 import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import io.github.springthief1123.lovelyspace.core.Genres
+import io.github.springthief1123.lovelyspace.core.RefreshPacing
 import io.github.springthief1123.lovelyspace.core.chat.EntryProfile
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -73,6 +75,11 @@ class SettingsRepository(private val context: Context) : RoomListPreferenceStore
     private val roomPrefectureKey = intPreferencesKey("room_prefecture")
     private val roomMessageKey = stringPreferencesKey("room_message")
     private val notificationPreviewKey = stringPreferencesKey("notification_preview")
+    private val minIntervalKey = longPreferencesKey("pacing_min_interval_ms")
+    private val searchHeadKey = longPreferencesKey("pacing_search_head_ms")
+    private val radarHeadKey = longPreferencesKey("pacing_radar_head_ms")
+    private val waitlistKey = longPreferencesKey("pacing_waitlist_ms")
+    private val publicRoomKey = longPreferencesKey("pacing_public_room_ms")
 
     val themeMode: Flow<ThemeMode> = context.dataStore.data.map { prefs ->
         prefs[themeKey]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.SYSTEM
@@ -103,6 +110,28 @@ class SettingsRepository(private val context: Context) : RoomListPreferenceStore
     val notificationPreview: Flow<NotificationPreview> = context.dataStore.data.map { prefs ->
         prefs[notificationPreviewKey]?.let { runCatching { NotificationPreview.valueOf(it) }.getOrNull() }
             ?: NotificationPreview.HIDE_ON_LOCK_SCREEN
+    }
+
+    /** 本家への自動の取り直しの間隔。未設定の項目は既定値、下限を割る値は下限にする。 */
+    val refreshPacing: Flow<RefreshPacing> = context.dataStore.data.map { prefs ->
+        RefreshPacing(
+            minIntervalMs = prefs[minIntervalKey] ?: RefreshPacing.DEFAULT_MIN_INTERVAL_MS,
+            searchHeadMs = prefs[searchHeadKey] ?: RefreshPacing.DEFAULT_SEARCH_HEAD_MS,
+            radarHeadMs = prefs[radarHeadKey] ?: RefreshPacing.DEFAULT_RADAR_HEAD_MS,
+            waitlistMs = prefs[waitlistKey] ?: RefreshPacing.DEFAULT_WAITLIST_MS,
+            publicRoomMs = prefs[publicRoomKey] ?: RefreshPacing.DEFAULT_PUBLIC_ROOM_MS,
+        ).sanitized()
+    }
+
+    suspend fun setRefreshPacing(pacing: RefreshPacing) {
+        val value = pacing.sanitized()
+        context.dataStore.edit {
+            it[minIntervalKey] = value.minIntervalMs
+            it[searchHeadKey] = value.searchHeadMs
+            it[radarHeadKey] = value.radarHeadMs
+            it[waitlistKey] = value.waitlistMs
+            it[publicRoomKey] = value.publicRoomMs
+        }
     }
 
     suspend fun setNotificationPreview(preview: NotificationPreview) {

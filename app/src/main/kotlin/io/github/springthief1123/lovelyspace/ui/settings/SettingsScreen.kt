@@ -20,6 +20,7 @@ import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material.icons.automirrored.outlined.ViewList
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.HorizontalDivider
@@ -40,6 +41,7 @@ import io.github.springthief1123.lovelyspace.ui.theme.LovelyShapes
 fun SettingsScreen(
     onOpenDisplay: () -> Unit,
     onOpenRoomList: () -> Unit,
+    onOpenRefresh: () -> Unit,
     onOpenHiddenRooms: () -> Unit,
     onOpenNotifications: () -> Unit,
     onOpenLock: () -> Unit,
@@ -61,7 +63,7 @@ fun SettingsScreen(
         ) {
             item {
                 Text(
-                    "アプリの表示・部屋一覧・通知・ロックの設定を、用途ごとに整理しています。",
+                    "アプリの表示・部屋一覧・更新の間隔・通知・ロックの設定を、用途ごとに整理しています。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 4.dp, end = 4.dp, bottom = 6.dp),
@@ -81,6 +83,14 @@ fun SettingsScreen(
                     title = "部屋一覧",
                     description = "起動時に開くジャンル",
                     onClick = onOpenRoomList,
+                )
+            }
+            item {
+                SettingsCategoryCard(
+                    icon = Icons.Outlined.Timer,
+                    title = "更新の間隔",
+                    description = "新しい部屋・自動巡回・空き枠・覗いている部屋を確認する間隔",
+                    onClick = onOpenRefresh,
                 )
             }
             item {

@@ -48,7 +48,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
     var liveDetails by remember { mutableStateOf<Room?>(null) }
     val scope = rememberCoroutineScope()
     var scanJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    ForegroundPolling(state.automatic, onStop = { scanJob?.cancel() }) { app.radar.monitor() }
+    ForegroundPolling(state.automatic, onStop = { scanJob?.cancel() }) { app.radar.monitor { app.pacing.value } }
     var working by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var section by rememberRadarSection()
@@ -228,7 +228,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                 item(key = "watch/waitlist") { QuietSectionHeader("順番待ち", "満室の部屋に空きが出たら知らせます。") {
                     TextButton(onClick = onFindRooms) { Text("部屋を探す") }
                 } }
-                item { RadarNote("満室の部屋の詳細から「空いたら知らせる」を選ぶと、${WaitlistRepository.DEFAULT_HOURS}時間まで空きを待ちます（同時に${WaitlistRepository.MAX_ACTIVE}件まで）。アプリを閉じている間は15分ごとに確認します。入室とロボット確認はご自身で行ってください。") }
+                item { RadarNote("満室の部屋の詳細から「空いたら知らせる」を選ぶと、${WaitlistRepository.DEFAULT_HOURS}時間まで空きを待ちます（同時に${WaitlistRepository.MAX_ACTIVE}件まで）。アプリを開いている間は設定の「更新の間隔」ごと、閉じている間は15分ごとに確認します。入室とロボット確認はご自身で行ってください。") }
                 if (waitlist.isEmpty()) item { RadarEmpty("順番待ちはまだありません。満室の部屋の詳細から「空いたら知らせる」を選ぶと始まります。") }
                 items(waitlist, key = { "waitlist/${it.key}" }) { entry ->
                     WaitlistRow(entry, onEnter = { entry.openedRoom?.let(onEnterRoom) },

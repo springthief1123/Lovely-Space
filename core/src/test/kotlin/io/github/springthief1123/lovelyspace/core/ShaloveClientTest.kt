@@ -26,7 +26,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
-import kotlin.time.Duration.Companion.seconds
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -36,7 +35,7 @@ class ShaloveClientTest {
     private val sleeps = mutableListOf<Long>()
 
     private val client = ShaloveClient(
-        minInterval = 3.seconds,
+        pacing = { RefreshPacing(minIntervalMs = 3_000) },
         clock = { now },
         sleep = { ms -> sleeps += ms; now += ms },
     )
@@ -79,7 +78,7 @@ class ShaloveClientTest {
     @Test
     fun aPageTheUserOpenedGoesBeforeQueuedListFetchesWithTheSameSpacing() = runBlocking {
         repeat(4) { server.enqueue(MockResponse().setBody("ok")) }
-        val gated = ShaloveClient(minInterval = 3.seconds, clock = { now }, sleep = { ms -> sleeps += ms; now += ms; kotlinx.coroutines.delay(100) })
+        val gated = ShaloveClient(pacing = { RefreshPacing(minIntervalMs = 3_000) }, clock = { now }, sleep = { ms -> sleeps += ms; now += ms; kotlinx.coroutines.delay(100) })
         gated.get(server.url("/a").toString())
         // b が間隔を待っている間に、一覧の取得 d と利用者の操作 c が順番待ちに並ぶ（d が先）。
         val b = async { gated.get(server.url("/b").toString()) }
@@ -154,7 +153,7 @@ class ShaloveClientTest {
     }
 
     /** 本家へ出ずに一覧の HTML を返し、通信回数を数えるクライアント。通信には 100ms かかる想定。 */
-    private fun countingListClient(calls: IntArray) = ShaloveClient(
+    private fun countingListClient(calls: IntArray, pacing: () -> RefreshPacing = { RefreshPacing() }) = ShaloveClient(
         http = OkHttpClient.Builder().addInterceptor { chain ->
             calls[0]++
             now += 100
@@ -166,6 +165,7 @@ class ShaloveClientTest {
                 .body("<html></html>".toResponseBody("text/html; charset=Shift_JIS".toMediaType()))
                 .build()
         }.build(),
+        pacing = pacing,
         clock = { now },
         sleep = { ms -> now += ms },
     )
@@ -192,31 +192,44 @@ class ShaloveClientTest {
     }
 
     @Test
-    fun laterPagesAreCachedForTwentySeconds() = runTest {
+    fun listsAreCachedForTheShortestAutomaticRefresh() = runTest {
+        // 既定では最も短い自動の取り直しは 4 秒。1 ページ目も 2 ページ目以降も同じ期間だけ使い回す。
+        for (page in listOf(1, 2)) {
+            val calls = IntArray(1)
+            val client = countingListClient(calls)
+            val query = RoomQuery(genre = Genres.default, page = page)
+            client.fetchRoomList(query)
+            now += 3_000
+            client.fetchRoomList(query)
+            assertEquals(1, calls[0])
+            now += 1_500
+            client.fetchRoomList(query)
+            assertEquals(2, calls[0])
+        }
+    }
+
+    @Test
+    fun cacheAndSpacingFollowTheCurrentSettings() = runTest {
         val calls = IntArray(1)
-        val client = countingListClient(calls)
-        val query = RoomQuery(genre = Genres.default, page = 2)
+        var pacing = RefreshPacing()
+        val client = countingListClient(calls) { pacing }
+        val query = RoomQuery(genre = Genres.default)
         client.fetchRoomList(query)
-        now += 19_000
-        client.fetchRoomList(query)
-        assertEquals(1, calls[0])
-        now += 2_000
+        // 設定を 2 秒に縮めると、次の取得から 2 秒で取り直す。
+        pacing = RefreshPacing(minIntervalMs = 1_000, searchHeadMs = 2_000, radarHeadMs = 2_000, waitlistMs = 2_000)
+        now += 2_100
         client.fetchRoomList(query)
         assertEquals(2, calls[0])
     }
 
     @Test
-    fun firstPageIsCachedForFourSeconds() = runTest {
-        val calls = IntArray(1)
-        val client = countingListClient(calls)
-        val query = RoomQuery(genre = Genres.default)
-        client.fetchRoomList(query)
-        now += 3_000
-        client.fetchRoomList(query)
-        assertEquals(1, calls[0])
-        now += 1_500
-        client.fetchRoomList(query)
-        assertEquals(2, calls[0])
+    fun spacingNeverGoesBelowOneSecond() = runTest {
+        val gated = ShaloveClient(pacing = { RefreshPacing(minIntervalMs = 100) }, clock = { now }, sleep = { ms -> sleeps += ms; now += ms })
+        server.enqueue(MockResponse().setBody("a"))
+        server.enqueue(MockResponse().setBody("b"))
+        gated.get(server.url("/").toString())
+        gated.get(server.url("/").toString())
+        assertEquals(listOf(1_000L), sleeps)
     }
 
     @Test
