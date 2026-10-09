@@ -38,6 +38,7 @@ import io.github.springthief1123.lovelyspace.data.SearchPreset
 import io.github.springthief1123.lovelyspace.ui.settings.DisplaySettingsScreen
 import io.github.springthief1123.lovelyspace.ui.settings.HiddenRoomsScreen
 import io.github.springthief1123.lovelyspace.ui.settings.NotificationSettingsScreen
+import io.github.springthief1123.lovelyspace.ui.settings.RefreshSettingsScreen
 import io.github.springthief1123.lovelyspace.ui.settings.RoomListSettingsScreen
 import io.github.springthief1123.lovelyspace.ui.settings.SettingsScreen
 import io.github.springthief1123.lovelyspace.ui.shell.LovelyAppShell
@@ -169,6 +170,7 @@ fun AppNavHost() {
                 SettingsScreen(
                     onOpenDisplay = { nav.navigate(Routes.SETTINGS_DISPLAY) { launchSingleTop = true } },
                     onOpenRoomList = { nav.navigate(Routes.SETTINGS_ROOMS) { launchSingleTop = true } },
+                    onOpenRefresh = { nav.navigate(Routes.SETTINGS_REFRESH) { launchSingleTop = true } },
                     onOpenHiddenRooms = { nav.navigate(Routes.SETTINGS_HIDDEN) { launchSingleTop = true } },
                     onOpenNotifications = { nav.navigate(Routes.SETTINGS_NOTIFICATIONS) { launchSingleTop = true } },
                     onOpenLock = { nav.navigate(Routes.SETTINGS_LOCK) { launchSingleTop = true } },
@@ -180,6 +182,9 @@ fun AppNavHost() {
             }
             composable(Routes.SETTINGS_ROOMS) {
                 RoomListSettingsScreen(onBack = { nav.popBackStack() })
+            }
+            composable(Routes.SETTINGS_REFRESH) {
+                RefreshSettingsScreen(onBack = { nav.popBackStack() })
             }
             composable(Routes.SETTINGS_HIDDEN) {
                 HiddenRoomsScreen(onBack = { nav.popBackStack() })

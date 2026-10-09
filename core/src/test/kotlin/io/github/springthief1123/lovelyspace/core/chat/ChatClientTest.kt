@@ -23,7 +23,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.net.URLDecoder
-import kotlin.time.Duration.Companion.seconds
 
 /** 本家へ出ていく通信の形（URL・本文）を、応答を差し替えて確かめる。 */
 class ChatClientTest {
@@ -45,7 +44,7 @@ class ChatClientTest {
 
     private val client = ShaloveClient(
         http = http,
-        minInterval = 3.seconds,
+        pacing = { io.github.springthief1123.lovelyspace.core.RefreshPacing(minIntervalMs = 3_000) },
         clock = { now },
         sleep = { ms -> sleeps += ms; now += ms },
     )

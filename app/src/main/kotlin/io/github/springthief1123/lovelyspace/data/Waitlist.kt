@@ -135,16 +135,35 @@ class WaitlistRepository(
         save(_entries.value.map { if (it.status == WaitlistStatus.WATCHING && at >= it.expiresAt) it.copy(status = WaitlistStatus.EXPIRED, changedAt = at) else it })
     }
 
-    /** 背景の実行から呼ぶ。待っている部屋のページを [maxPages] まで取得して反映する。 */
-    suspend fun check(maxPages: Int) {
+    /**
+     * 背景の実行と前面の [monitor] から呼ぶ。待っている部屋のページを [maxPages] まで取得して反映する。
+     * 取得に失敗したら残りのページは取らずに止め（障害中に続けて取りに行かない）、true を返す。
+     */
+    suspend fun check(maxPages: Int): Boolean {
         expire()
         deliverPending()
         val queries = mutex.withLock { _entries.value.filter { it.active(now()) }.map { it.query } }
-        if (queries.isEmpty()) return
-        sync.sync(queries, maxPages, force = false, onResult = { query, outcome ->
+        if (queries.isEmpty()) return false
+        var failed = false
+        sync.sync(queries, maxPages, force = false, shouldFetch = { !failed }, onResult = { query, outcome ->
+            if (outcome is ListSyncOutcome.Failed) failed = true
             if (outcome is ListSyncOutcome.Fetched) lists.observation(query)?.let { apply(it) }
         })
         expire()
+        return failed
+    }
+
+    /**
+     * アプリが前面の間、待っている部屋のページを [interval]（設定の間隔、ミリ秒）ごとに確認する。
+     * 背景（WorkManager）は最短でも 15 分ごとなので、空きを争う間はこちらで追う。取得に失敗したら間を空ける。
+     */
+    suspend fun monitor(interval: () -> Long) {
+        while (currentCoroutineContext().isActive) {
+            // 待っている部屋が無くても、期限切れの処理と未通知の出し直しは [check] が行う（通信はしない）。
+            // 保存の失敗などでアプリを落とさない。取得の失敗と同じく間を空けて続ける。
+            val failed = try { check(Int.MAX_VALUE) } catch (e: CancellationException) { throw e } catch (e: Exception) { true }
+            delay(if (failed) maxOf(interval(), RoomPageSchedule.ERROR_INTERVAL_MS) else interval())
+        }
     }
 
     /** 前回、空きを保存した後に通知を出す前に止まっていれば、ここで出し直す。通信はしない。 */

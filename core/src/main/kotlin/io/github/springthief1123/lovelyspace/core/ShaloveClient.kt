@@ -27,8 +27,6 @@ import okhttp3.Response
 import java.io.IOException
 import java.nio.charset.Charset
 import java.util.concurrent.TimeUnit
-import kotlin.time.Duration
-import kotlin.time.Duration.Companion.seconds
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -36,23 +34,17 @@ import kotlin.coroutines.resumeWithException
  * 本家サイトへのすべての通信をここに集約する。
  *
  * 規約で「通常のブラウザ利用とは異なるアクセスを繰り返す」ツールアクセスが禁止されているため、
- * - リクエスト同士の間隔を [minInterval] 以上空ける
- * - 同じ一覧 URL は [listCacheTtl]（新着が出る 1 ページ目は [headCacheTtl]）の間は再取得しない
- * をここで強制する。
+ * - リクエスト同士の間隔を [RefreshPacing.minIntervalMs] 以上空ける（1 秒より短くはしない）
+ * - 同じ一覧 URL は [RefreshPacing.listCacheTtlMs] の間は再取得しない
+ * をここで強制する。間隔は利用者が設定で選び、通信のたびに [pacing] から読む。
  *
  * 入室後のチャット（[ChatSession]）は本家のページと同じ規則（新着取得は常に 1 本・間隔は本家の計算式・
  * 発言は 1.5 秒以上空ける）で通信し、ページ操作用の最小間隔とは別に管理する。
  */
 class ShaloveClient(
     private val http: OkHttpClient = defaultHttpClient(),
-    private val minInterval: Duration = 3.seconds,
-    private val listCacheTtl: Duration = 20.seconds,
-    /**
-     * 1 ページ目のキャッシュ期間。新しい部屋は 1 ページ目に出るので、Chrome 拡張と同じ 4 秒まで縮める（Yuya の決定、2026-10-09）。
-     * リクエスト同士の [minInterval] は変えないので毎分の上限は同じだが、同じ 1 ページ目を取り直す回数は増える
-     * （1 ページだけのジャンルでは 20 秒ごと → 4 秒ごと）。
-     */
-    private val headCacheTtl: Duration = 4.seconds,
+    /** 通信の間隔の設定。通信のたびに読むので、設定の変更は次の通信から効く。 */
+    private val pacing: () -> RefreshPacing = { RefreshPacing() },
     /** 経過時間の計測用（ミリ秒）。端末の時計合わせの影響を受けないよう単調増加の時計を使う。 */
     private val clock: () -> Long = { System.nanoTime() / 1_000_000 },
     private val sleep: suspend (Long) -> Unit = { delay(it) },
@@ -78,10 +70,9 @@ class ShaloveClient(
     suspend fun fetchRoomList(query: RoomQuery, forceRefresh: Boolean = false): RoomListPage {
         val url = query.toUrl()
         val seen = listCache[url]?.generation
-        val ttl = if (query.page == 1) headCacheTtl else listCacheTtl
         return listGate.withLock {
             listCache[url]?.let { entry ->
-                val fresh = clock() - entry.fetchedAt < ttl.inWholeMilliseconds
+                val fresh = clock() - entry.fetchedAt < pacing().sanitized().listCacheTtlMs
                 if ((!forceRefresh && fresh) || entry.generation != seen) return@withLock entry.page
             }
             val firstUrl = query.firstPage.toUrl()
@@ -132,7 +123,7 @@ class ShaloveClient(
     }
 
     /**
-     * ページの読み込みやフォーム送信など、人の操作 1 回に当たる通信。前の通信から [minInterval] 以上空ける。
+     * ページの読み込みやフォーム送信など、人の操作 1 回に当たる通信。前の通信から [RefreshPacing.minIntervalMs] 以上空ける。
      * [operation]（利用者の操作による通信）は、一覧の取得（巡回・自動更新など）が順番を待っていても先に通す。
      * 間隔はどちらも同じように空けるので、本家へのアクセスの頻度は変わらない。
      */
@@ -140,7 +131,7 @@ class ShaloveClient(
         acquire(operation)
         try {
             lastRequestAt?.let { last ->
-                val wait = last + minInterval.inWholeMilliseconds - clock()
+                val wait = last + pacing().sanitized().minIntervalMs - clock()
                 if (wait > 0) sleep(wait)
             }
             lastRequestAt = clock()

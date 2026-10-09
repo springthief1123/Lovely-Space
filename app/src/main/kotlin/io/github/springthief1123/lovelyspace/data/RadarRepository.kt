@@ -265,18 +265,21 @@ class RadarRepository(
     }
     fun automatic(enabled: Boolean) = _state.update { it.copy(automatic = enabled) }
 
-    /** 新着を優先しながら、間に残りのページを取得する。画面のLifecycleが実行を管理する。 */
-    suspend fun monitor() {
+    /**
+     * 新着を優先しながら、間に残りのページを取得する。画面のLifecycleが実行を管理する。
+     * 1 ページ目は設定の間隔（[RefreshPacing.radarHeadMs]）ごと、残りのページは通信の最小間隔ごとに取る。
+     */
+    suspend fun monitor(pacing: () -> RefreshPacing = { RefreshPacing() }) {
         var headAt: Long? = null
         while (currentCoroutineContext().isActive && _state.value.automatic) {
             val now = System.nanoTime() / 1_000_000
             if (_state.value.loaded && !_state.value.running &&
                 (_state.value.plans.isNotEmpty() || _state.value.candidateRules.any { it.enabled } || _state.value.targets.any { it.evidence != RoomIdentityEvidence.REUSED })) {
-                val head = headAt == null || now - headAt >= RoomPageSchedule.HEAD_INTERVAL_MS
+                val head = headAt == null || now - headAt >= pacing().sanitized().radarHeadMs
                 scan(latestFirst = head, force = false)
                 if (head) headAt = System.nanoTime() / 1_000_000
             }
-            delay(if (_state.value.error != null) RoomPageSchedule.ERROR_INTERVAL_MS else RoomPageSchedule.STEP_INTERVAL_MS)
+            delay(if (_state.value.error != null) RoomPageSchedule.ERROR_INTERVAL_MS else pacing().sanitized().minIntervalMs)
         }
     }
 

@@ -26,7 +26,7 @@ fun PublicRoomScreen(host: String, genreKey: String, roomId: Long, onBack: () ->
         initializer { PublicRoomViewModel { app.client.openPublicRoom(host, genreKey, roomId) } }
     })
     val state by vm.state.collectAsStateWithLifecycle()
-    ForegroundPolling(state.automatic, vm, vm::stopRefresh) { vm.monitor() }
+    ForegroundPolling(state.automatic, vm, vm::stopRefresh) { vm.monitor { app.pacing.value.sanitized().publicRoomMs } }
     val snackbar = remember { SnackbarHostState() }
     val menuScope = rememberCoroutineScope()
     Scaffold(
