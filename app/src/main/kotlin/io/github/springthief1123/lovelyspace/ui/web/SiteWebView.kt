@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
+import android.webkit.WebSettings
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -36,6 +37,7 @@ fun SiteWebView(
     scriptPath: String? = null,
     onRoomOpened: ((ChatRoomRef) -> Unit)? = null,
 ) {
+    require(Uri.parse(url).isShalove()) { "Only HTTPS shalove.net pages can be opened in SiteWebView" }
     val currentOnRoomOpened = rememberUpdatedState(onRoomOpened)
     val currentScript = rememberUpdatedState(onLoadScript)
     AndroidView(
@@ -44,6 +46,10 @@ fun SiteWebView(
             WebView(context).apply {
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
+                // The hosted form and CAPTCHA require JavaScript, not local file access.
+                settings.allowFileAccess = false
+                settings.allowContentAccess = false
+                settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                 webViewClient = object : WebViewClient() {
                     private var done = false
 
