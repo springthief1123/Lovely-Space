@@ -113,8 +113,12 @@ class RadarRepositoryTest {
             assertEquals(setOf(42L, 43L, 44L), radar.state.value.livePages["zenkoku"]!!.rooms.map { it.id }.toSet())
             lists.roomsByPage = mapOf(1 to listOf(room.copy(id = 45)), 2 to listOf(room.copy(id = 43)), 3 to listOf(room.copy(id = 44)))
             radar.scan(latestFirst = true)
-            // 1 ページ目から消えた 42 は後ろのページへずれただけかもしれないので、もう一度 1 ページ目を読むまで残す。
+            // 1 ページ目から消えた 42 は後ろのページへずれただけかもしれないので、2 ページ目を読んだうえで 1 ページ目にも無いと分かるまで残す。
             assertEquals(setOf(42L, 43L, 44L, 45L), radar.state.value.livePages["zenkoku"]!!.rooms.map { it.id }.toSet())
+            radar.scan(latestFirst = true)
+            assertEquals(setOf(42L, 43L, 44L, 45L), radar.state.value.livePages["zenkoku"]!!.rooms.map { it.id }.toSet())
+            radar.scan(); radar.scan()
+            assertEquals(listOf(1, 2), lists.calls.takeLast(2).map { it.page })
             radar.scan(latestFirst = true)
             assertEquals(setOf(43L, 44L, 45L), radar.state.value.livePages["zenkoku"]!!.rooms.map { it.id }.toSet())
         } finally { db.close() }
