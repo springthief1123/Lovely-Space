@@ -21,7 +21,7 @@ import kotlinx.coroutines.launch
 data class CreateRoomUiState(
     val isLoaded: Boolean = false,
     val name: String = "",
-    /** 1=男, 2=女 */
+    /** 1=男性, 2=女性 */
     val sex: Int = 1,
     /** 空欄は「秘密」。 */
     val years: String = "",
@@ -39,6 +39,14 @@ data class CreateRoomUiState(
     val messageValid: Boolean get() = messageWidth <= MESSAGE_MAX_WIDTH
 
     val canContinue: Boolean get() = isLoaded && name.isNotBlank() && yearsValid && messageValid
+
+    /** 「ロボット確認へ進む」が押せない理由になっている入力。ボタンの近くに出す。 */
+    val missingInputs: List<String>
+        get() = listOfNotNull(
+            "名前".takeIf { name.isBlank() },
+            "年齢（${MIN_YEARS}〜${MAX_YEARS}、空欄なら秘密）".takeIf { !yearsValid },
+            "待機メッセージ（${MESSAGE_MAX_WIDTH}文字以内、全角は2文字）".takeIf { !messageValid },
+        )
 
     companion object {
         const val MIN_YEARS = 18

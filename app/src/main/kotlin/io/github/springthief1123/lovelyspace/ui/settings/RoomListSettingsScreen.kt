@@ -1,11 +1,9 @@
 package io.github.springthief1123.lovelyspace.ui.settings
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,9 +13,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -85,30 +81,33 @@ fun RoomListSettingsScreen(onBack: () -> Unit) {
             ) {
             item {
                 Text(
-                    "起動時に最初に表示するカテゴリ",
+                    "起動時に最初に表示するジャンル",
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(start = 20.dp, top = 10.dp, bottom = 6.dp),
                 )
             }
-            items(RoomListStartMode.entries.size) { index ->
-                val mode = RoomListStartMode.entries[index]
-                RoomListModeRow(
-                    mode = mode,
-                    selected = preferences.startMode == mode,
-                    description = when (mode) {
-                        RoomListStartMode.LAST_USED -> {
-                            val label = Genres[preferences.lastGenreKey]?.label ?: Genres.default.label
-                            "前回見ていた「$label」から再開"
-                        }
-                        RoomListStartMode.DEFAULT -> {
-                            val label = Genres[preferences.defaultGenreKey]?.label ?: Genres.default.label
-                            "毎回「$label」から開始"
-                        }
-                    },
-                    onClick = { saveSetting { app.settings.setRoomListStartMode(mode) } },
-                )
+            item {
+                SettingsChoiceGroup {
+                    RoomListStartMode.entries.forEach { mode ->
+                        SettingsChoiceRow(
+                            title = mode.label,
+                            selected = preferences.startMode == mode,
+                            description = when (mode) {
+                                RoomListStartMode.LAST_USED -> {
+                                    val label = Genres[preferences.lastGenreKey]?.label ?: Genres.default.label
+                                    "前回見ていた「$label」から再開"
+                                }
+                                RoomListStartMode.DEFAULT -> {
+                                    val label = Genres[preferences.defaultGenreKey]?.label ?: Genres.default.label
+                                    "毎回「$label」から開始"
+                                }
+                            },
+                            onClick = { saveSetting { app.settings.setRoomListStartMode(mode) } },
+                        )
+                    }
+                }
             }
             item {
                 HorizontalDivider(
@@ -136,37 +135,6 @@ fun RoomListSettingsScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun RoomListModeRow(
-    mode: RoomListStartMode,
-    selected: Boolean,
-    description: String,
-    onClick: () -> Unit,
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(
-            Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(3.dp),
-        ) {
-            Text(mode.label, style = MaterialTheme.typography.bodyLarge)
-            Text(
-                description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        if (selected) {
-            Icon(Icons.Outlined.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-        }
-    }
-}
-
-@Composable
 private fun DefaultGenrePicker(
     selectedKey: String,
     enabled: Boolean,
@@ -179,12 +147,12 @@ private fun DefaultGenrePicker(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            "指定カテゴリ",
+            "指定するジャンル",
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
         )
         Text(
-            if (enabled) "「指定したカテゴリ」を選んだ場合に使います。" else "開始方法を「指定したカテゴリ」にすると有効になります。",
+            if (enabled) "「指定したジャンル」を選んだ場合に使います。" else "開始方法を「指定したジャンル」にすると有効になります。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

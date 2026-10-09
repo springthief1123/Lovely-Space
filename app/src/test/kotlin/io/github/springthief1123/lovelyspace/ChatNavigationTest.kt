@@ -36,6 +36,7 @@ class ChatNavigationTest {
                 navArgument("host") { type = NavType.StringType }, navArgument("genre") { type = NavType.StringType },
                 navArgument("roomId") { type = NavType.LongType }, origin,
             )) { }
+            composable(Routes.CREATE, arguments = listOf(navArgument("genre") { type = NavType.StringType }, origin)) { }
             composable(Routes.CHAT, arguments = listOf(navArgument("session") { type = NavType.StringType }, origin)) { }
         }
         return nav
@@ -100,6 +101,28 @@ class ChatNavigationTest {
         assertSame(profile, nav.getBackStackEntry(Routes.PROFILE))
         nav.returnFromChat(Routes.PROFILE)
         assertSame(profile, nav.currentBackStackEntry)
+    }
+
+    @Test fun roomCreatedFromProfileReturnsToProfileAfterChat() {
+        val nav = controller()
+        nav.navigate(Routes.PROFILE)
+        val profile = nav.getBackStackEntry(Routes.PROFILE)
+        nav.navigate(Routes.create("zenkoku", Routes.PROFILE))
+        val origin = nav.currentBackStackEntry!!.arguments!!.getString("origin")!!
+        assertEquals(Routes.PROFILE, origin)
+        nav.navigateToChat("created-session", origin)
+        assertEquals(Routes.CHAT, nav.currentDestination!!.route)
+        nav.returnFromChat(origin)
+        assertSame(profile, nav.currentBackStackEntry)
+    }
+
+    @Test fun roomCreatedFromTheListReturnsToTheListAfterChat() {
+        val nav = controller()
+        nav.navigate(Routes.create("zenkoku"))
+        assertEquals(Routes.ROOMS, nav.currentBackStackEntry!!.arguments!!.getString("origin"))
+        nav.navigateToChat("created-session", Routes.ROOMS)
+        nav.returnFromChat(Routes.ROOMS)
+        assertEquals(Routes.ROOMS, nav.currentDestination!!.route)
     }
 
     // 合成データ。本家の実データは使わない。

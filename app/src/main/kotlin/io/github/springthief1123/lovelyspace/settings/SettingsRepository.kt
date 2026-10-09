@@ -38,8 +38,8 @@ enum class NotificationPreview(val label: String, val description: String) {
 }
 
 enum class RoomListStartMode(val label: String) {
-    LAST_USED("最後に見たカテゴリ"),
-    DEFAULT("指定したカテゴリ"),
+    LAST_USED("最後に見たジャンル"),
+    DEFAULT("指定したジャンル"),
 }
 
 data class RoomListPreferences(

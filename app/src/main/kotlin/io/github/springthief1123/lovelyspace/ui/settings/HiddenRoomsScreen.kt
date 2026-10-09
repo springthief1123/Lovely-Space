@@ -17,6 +17,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -27,6 +30,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.core.Genres
 import io.github.springthief1123.lovelyspace.data.toRoom
+import io.github.springthief1123.lovelyspace.ui.components.QuietConfirmDialog
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomCard
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomPreferenceViewModel
 
@@ -37,6 +41,8 @@ fun HiddenRoomsScreen(onBack: () -> Unit) {
         factory = viewModelFactory { initializer { RoomPreferenceViewModel(app.roomPreferences) } },
     )
     val state by vm.state.collectAsStateWithLifecycle()
+    // 解除を確かめている部屋（host/roomId）。画面が作り直されても確認を開いたままにする。
+    var unhiding by rememberSaveable { mutableStateOf<String?>(null) }
 
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         SettingsPageHeader(title = "非表示にした部屋", onBack = onBack)
@@ -52,7 +58,7 @@ fun HiddenRoomsScreen(onBack: () -> Unit) {
         ) {
             item {
                 Text(
-                    "左へスワイプすると非表示を解除できます。非表示設定はこの端末内だけに保存されます。",
+                    "押すか左へスワイプすると非表示を解除できます。非表示設定はこの端末内だけに保存されます。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 4.dp, end = 4.dp, bottom = 8.dp),
@@ -85,13 +91,22 @@ fun HiddenRoomsScreen(onBack: () -> Unit) {
                     )
                     RoomCard(
                         room = value.toRoom(),
-                        enabled = false,
-                        onClick = {},
+                        onClick = { unhiding = "${value.host}/${value.roomId}" },
                         isHidden = true,
                         onHideClick = { vm.clearHidden(value) },
                     )
                 }
             }
         }
+    }
+
+    state.hidden.firstOrNull { "${it.host}/${it.roomId}" == unhiding }?.let { value ->
+        QuietConfirmDialog(
+            title = "非表示を解除しますか？",
+            text = "${value.toRoom().name ?: "会話中の部屋"}を部屋一覧に戻します。",
+            confirmLabel = "解除",
+            onConfirm = { vm.clearHidden(value); unhiding = null },
+            onDismiss = { unhiding = null },
+        )
     }
 }

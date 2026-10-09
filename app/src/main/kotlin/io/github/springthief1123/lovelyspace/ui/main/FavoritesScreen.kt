@@ -33,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -59,6 +60,14 @@ fun FavoritesScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onA
     val values = state.favorites
     val presets by app.searchPresets.presets.collectAsStateWithLifecycle(initialValue = emptyList())
     var section by rememberSaveable { mutableIntStateOf(0) }
+    // 保存した条件の名前の変更・削除は「見つける」と同じ ViewModel、巡回のオン・オフはレーダーと同じ保存先を使う。
+    val savedVm: SavedSearchViewModel = viewModel(factory = viewModelFactory { initializer { SavedSearchViewModel(app.searchPresets) } })
+    val savedState by savedVm.state.collectAsStateWithLifecycle()
+    val radar by app.radar.state.collectAsStateWithLifecycle()
+    var renaming by rememberSaveable(stateSaver = SearchPresetSaver) { mutableStateOf<SearchPreset?>(null) }
+    var deleting by rememberSaveable(stateSaver = SearchPresetSaver) { mutableStateOf<SearchPreset?>(null) }
+    var patrolWorking by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     // 保存の解除はスワイプ1回で起きるので、見つけるの非表示と同じく「元に戻す」を出す。
     LaunchedEffect(vm) {
@@ -66,6 +75,17 @@ fun FavoritesScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onA
             if (snackbar.showSnackbar("保存を解除しました", actionLabel = "元に戻す", withDismissAction = true) == SnackbarResult.ActionPerformed) {
                 vm.restoreFavorite(value)
             }
+        }
+    }
+
+    fun patrol(id: String, enabled: Boolean) {
+        if (patrolWorking) return
+        patrolWorking = true
+        scope.launch {
+            try { app.radar.setPlan(id, enabled) }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) { snackbar.showSnackbar("巡回の設定を保存できませんでした。もう一度お試しください。") }
+            finally { patrolWorking = false }
         }
     }
 
@@ -85,19 +105,33 @@ fun FavoritesScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onA
         item { QuietTabs(listOf(0 to "部屋 ${values.size}", 1 to "検索条件 ${presets.size}"), section) { section = it } }
         if (section == 1) {
             if (presets.isEmpty()) item { FavoritesEmpty("検索条件はまだありません。「見つける」の絞り込みから保存できます。") }
-            else item { FavoritesNote("名前の変更・更新・削除は「見つける」の保存した条件から、巡回の選択はレーダーから行えます。") }
-            items(presets, key = { "search/${it.id}" }) { preset -> QuietListPanel(onClick = { onApplyPreset(preset) }) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(preset.label, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(listOf(Genres[preset.genreKey]?.label ?: preset.genreKey,
-                            listOf(preset.criteria.text, preset.criteria.name, preset.criteria.message).filter { it.isNotBlank() }.joinToString("・").ifBlank { "キーワード指定なし" },
-                        ).joinToString("・"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    }
-                    TextButton(onClick = { onApplyPreset(preset) }) { Text("この条件で探す") }
-                }
+            else item { FavoritesNote("押すとこの条件で「見つける」を開きます。「︙」から名前の変更・巡回・削除ができます。") }
+            savedState.editError?.takeIf { renaming == null && deleting == null }?.let { message -> item {
+                Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             } }
+            items(presets, key = { "search/${it.id}" }) { preset ->
+                val patrolling = preset.id in radar.plans
+                QuietListPanel(onClick = { onApplyPreset(preset) }) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(preset.label, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(listOfNotNull(Genres[preset.genreKey]?.label ?: preset.genreKey,
+                                listOf(preset.criteria.text, preset.criteria.name, preset.criteria.message).filter { it.isNotBlank() }.joinToString("・").ifBlank { "キーワード指定なし" },
+                                if (patrolling) "巡回中" else null,
+                            ).joinToString("・"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                        QuietOverflowMenu(savedSearchMenu(
+                            patrolling = patrolling,
+                            enabled = !savedState.working,
+                            patrolEnabled = radar.loaded && !radar.running && !patrolWorking,
+                            onRename = { savedVm.clearEditError(); renaming = preset },
+                            onPatrol = { on -> patrol(preset.id, on) },
+                            onDelete = { savedVm.clearEditError(); deleting = preset },
+                        ), contentDescription = "「${preset.label}」の操作")
+                    }
+                }
+            }
         }
 
         if (section == 0 && state.loading) item { CircularProgressIndicator() }
@@ -134,7 +168,31 @@ fun FavoritesScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onA
     SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
         .padding(start = 16.dp, end = 16.dp, bottom = lovelyMainContentBottomInset()))
     }
+
+    renaming?.let { value ->
+        SavedSearchNameDialog(value, savedState.working, savedState.editError,
+            onDismiss = { renaming = null }, onSave = { savedVm.save(it) { renaming = null } })
+    }
+    deleting?.let { value ->
+        QuietConfirmDialog(title = "保存した条件を削除しますか？", text = value.label,
+            confirmLabel = "削除", onConfirm = { savedVm.delete(value.id) { deleting = null } }, onDismiss = { deleting = null },
+            destructive = true, enabled = !savedState.working, dismissLabel = "キャンセル", error = savedState.editError)
+    }
 }
+
+/** 保存タブの検索条件の「︙」。見つけるの長押しメニューとレーダーの巡回のスイッチを、ここからも操作できるようにする。 */
+internal fun savedSearchMenu(
+    patrolling: Boolean,
+    enabled: Boolean,
+    patrolEnabled: Boolean,
+    onRename: () -> Unit,
+    onPatrol: (Boolean) -> Unit,
+    onDelete: () -> Unit,
+): List<QuietMenuItem> = listOf(
+    QuietMenuItem("名前を変更", enabled = enabled, onClick = onRename),
+    QuietMenuItem(if (patrolling) "巡回をやめる" else "レーダーで巡回する", enabled = patrolEnabled) { onPatrol(!patrolling) },
+    QuietMenuItem("削除", enabled = enabled, destructive = true, onClick = onDelete),
+)
 
 @Composable
 private fun FavoritesNote(text: String) {

@@ -8,6 +8,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
@@ -53,6 +57,36 @@ class QuietControlsTest {
         }
         compose.onNodeWithText("合成の無効なチェック").performClick()
         compose.onNodeWithText("合成の無効なチェック").assertIsOff()
+    }
+
+    /** 説明つきのスイッチは行全体で切り替わり、読み上げではスイッチの役割を持つ 1 つの項目になる。 */
+    @Test fun switchRowTogglesFromItsTitle() {
+        compose.setContent {
+            LovelySpaceTheme {
+                var checked by remember { mutableStateOf(false) }
+                QuietSwitchRow(checked, { checked = it }, "合成のスイッチ", description = "合成の説明")
+            }
+        }
+        compose.onNodeWithText("合成のスイッチ")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Switch))
+            .assertIsOff()
+            .performClick()
+        compose.onNodeWithText("合成のスイッチ").assertIsOn()
+    }
+
+    /** 画面内の切り替えは、見た目がチップでも読み上げではタブとして選択状態を伝える。 */
+    @Test fun tabsAreReadAsTabs() {
+        compose.setContent {
+            LovelySpaceTheme {
+                var selected by remember { mutableStateOf(1) }
+                QuietTabs(listOf(1 to "合成のタブ1", 2 to "合成のタブ2"), selected) { selected = it }
+            }
+        }
+        val tab = SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab)
+        compose.onNodeWithText("合成のタブ1").assert(tab).assertIsSelected()
+        compose.onNodeWithText("合成のタブ2").assert(tab).assertIsNotSelected().performClick()
+        compose.onNodeWithText("合成のタブ2").assertIsSelected()
+        compose.onNodeWithText("合成のタブ1").assertIsNotSelected()
     }
 
     /** 絞り込みのチップは選択状態を読み上げに出す。 */

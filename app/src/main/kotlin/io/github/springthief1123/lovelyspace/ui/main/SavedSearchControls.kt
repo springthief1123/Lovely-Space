@@ -134,7 +134,8 @@ private fun SavedSearchChip(
                 .combinedClickable(
                     enabled = enabled,
                     role = Role.Button,
-                    onClickLabel = "適用",
+                    // 適用できない条件（ジャンルが無くなったなど）は、押すとメニューが開くので読み上げ名もそれに合わせる。
+                    onClickLabel = if (canApply) "この条件を適用" else "保存した条件のメニュー",
                     onLongClickLabel = "保存した条件のメニュー",
                     onLongClick = { menu = true },
                     onClick = { if (canApply) onApply() else menu = true },
@@ -158,7 +159,7 @@ private fun SavedSearchChip(
 }
 
 @Composable
-private fun SavedSearchNameDialog(value: SearchPreset, working: Boolean, error: String?, onDismiss: () -> Unit, onSave: (SearchPreset) -> Unit) {
+internal fun SavedSearchNameDialog(value: SearchPreset, working: Boolean, error: String?, onDismiss: () -> Unit, onSave: (SearchPreset) -> Unit) {
     var label by rememberSaveable(value.id) { mutableStateOf(value.label) }
     QuietDialog(title = "検索条件の保存名", onDismissRequest = { if (!working) onDismiss() },
         confirmLabel = "保存", onConfirm = { onSave(value.copy(label = label)) }, confirmEnabled = label.isNotBlank() && !working,

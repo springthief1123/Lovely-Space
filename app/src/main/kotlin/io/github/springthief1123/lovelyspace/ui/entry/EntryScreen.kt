@@ -47,7 +47,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
-import io.github.springthief1123.lovelyspace.ui.components.QuietHeading
 import io.github.springthief1123.lovelyspace.ui.components.QuietPanel
 import io.github.springthief1123.lovelyspace.ui.components.QuietTopBar
 import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
@@ -127,7 +126,6 @@ private fun EntryFormContent(state: EntryUiState, vm: EntryViewModel, onOpenBrow
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            QuietHeading("入室")
             QuietPanel {
                 Text("待機している相手", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                 Text(form.hostDescription, style = MaterialTheme.typography.titleSmall)
@@ -152,7 +150,7 @@ private fun EntryFormContent(state: EntryUiState, vm: EntryViewModel, onOpenBrow
                 )
 
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                    listOf(1 to "男", 2 to "女").forEachIndexed { i, (value, label) ->
+                    listOf(1 to "男性", 2 to "女性").forEachIndexed { i, (value, label) ->
                         SegmentedButton(
                             selected = state.sex == value,
                             enabled = !state.isEntering,
@@ -199,6 +197,7 @@ private fun EntryFormContent(state: EntryUiState, vm: EntryViewModel, onOpenBrow
                         enabled = state.name.isNotBlank() && state.yearsValid && !state.isLoading && !state.isEntering && state.entered == null,
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("ロボット確認へ進む") }
+                    MissingInputs(state.missingInputs)
                 }
             } else {
                 Button(onClick = vm::enter, enabled = state.canEnter, modifier = Modifier.fillMaxWidth()) {
@@ -209,7 +208,16 @@ private fun EntryFormContent(state: EntryUiState, vm: EntryViewModel, onOpenBrow
                         Text("この部屋に入室する")
                     }
                 }
+                MissingInputs(state.missingInputs)
             }
         }
     }
+}
+
+/** 押せないボタンの近くに、足りない入力を出す。 */
+@Composable
+internal fun MissingInputs(items: List<String>) {
+    if (items.isEmpty()) return
+    Text("入力が必要です：${items.joinToString("、")}", style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant)
 }

@@ -100,29 +100,34 @@ fun NotificationSettingsScreen(onBack: () -> Unit) {
                         title = if (canPost) "オン" else "オフ",
                         description = if (canPost) "端末の設定から変更できます" else "タップして通知を許可する",
                         selected = canPost,
+                        radio = false,
                         // 許可済みなら、アプリの通知をまとめてオフにできるよう端末の設定を開く。
                         onClick = { if (canPost) context.startActivity(appNotificationSettingsIntent(context)) else requestPermission() },
                     )
                 }
                 item { SettingsDivider() }
                 item { SettingsSectionTitle("通知に出す内容") }
-                items(NotificationPreview.entries) { option ->
-                    SettingsChoiceRow(
-                        title = option.label,
-                        description = option.description,
-                        selected = option == preview,
-                        onClick = {
-                            scope.launch {
-                                try {
-                                    app.settings.setNotificationPreview(option)
-                                } catch (e: CancellationException) {
-                                    throw e
-                                } catch (e: Exception) {
-                                    show("設定の保存に失敗しました：${describeError(e)}")
-                                }
-                            }
-                        },
-                    )
+                item {
+                    SettingsChoiceGroup {
+                        NotificationPreview.entries.forEach { option ->
+                            SettingsChoiceRow(
+                                title = option.label,
+                                description = option.description,
+                                selected = option == preview,
+                                onClick = {
+                                    scope.launch {
+                                        try {
+                                            app.settings.setNotificationPreview(option)
+                                        } catch (e: CancellationException) {
+                                            throw e
+                                        } catch (e: Exception) {
+                                            show("設定の保存に失敗しました：${describeError(e)}")
+                                        }
+                                    }
+                                },
+                            )
+                        }
+                    }
                 }
                 item { SettingsDivider() }
                 item { SettingsSectionTitle("通知の種類") }
@@ -137,7 +142,8 @@ fun NotificationSettingsScreen(onBack: () -> Unit) {
                 item {
                     Text(
                         "種類ごとの音やバイブは、行をタップして端末の設定で変えられます。" +
-                            "巡回の一致・入室者あり・順番待ちの通知は、背景での確認機能と合わせて順に届くようになります。",
+                            "巡回の一致と順番待ちは、背景での確認で見つかったときに届きます。" +
+                            "入室者ありの通知はまだ届きません（準備中）。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
@@ -166,7 +172,7 @@ private fun NotificationKindRow(kind: NotificationKind, enabled: Boolean, onOpen
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(kind.label, style = MaterialTheme.typography.bodyLarge)
             Text(
-                if (enabled) kind.description else "オフ・${kind.description}",
+                listOfNotNull("オフ".takeIf { !enabled }, kind.description, "準備中".takeIf { !kind.delivered }).joinToString("・"),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

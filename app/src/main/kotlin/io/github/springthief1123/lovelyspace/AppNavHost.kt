@@ -92,7 +92,7 @@ fun AppNavHost() {
         onDestinationSelected = { destination -> nav.navigateMain(destination.route) },
         onOpenNotificationSettings = { nav.navigate(Routes.SETTINGS_NOTIFICATIONS) { launchSingleTop = true } },
         showCreateFab = currentRoute == Routes.ROOMS,
-        onCreateRoom = { nav.navigate(Routes.create(createGenreKey)) { launchSingleTop = true } },
+        onCreateRoom = { nav.navigate(Routes.create(createGenreKey, currentRoute ?: Routes.ROOMS)) { launchSingleTop = true } },
     ) {
         NavHost(
             navController = nav,
@@ -163,7 +163,7 @@ fun AppNavHost() {
             }
             composable(Routes.PROFILE) { ProfileScreen(
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) { launchSingleTop = true } },
-                onCreateRoom = { nav.navigate(Routes.create(createGenreKey)) { launchSingleTop = true } },
+                onCreateRoom = { nav.navigate(Routes.create(createGenreKey, Routes.PROFILE)) { launchSingleTop = true } },
             ) }
             composable(Routes.SETTINGS) {
                 SettingsScreen(
@@ -202,13 +202,15 @@ fun AppNavHost() {
                     },
                 )
             }
-            composable(Routes.CREATE, arguments = listOf(navArgument("genre") { type = NavType.StringType })) { entry ->
+            composable(Routes.CREATE, arguments = listOf(navArgument("genre") { type = NavType.StringType }, originArg)) { entry ->
                 val genre = Genres[entry.arguments!!.getString("genre")!!] ?: Genres.default
+                val origin = Routes.mainOrigin(entry.arguments!!.getString("origin"))
                 CreateRoomScreen(
                     genre = genre,
                     onBack = { nav.popBackStack() },
                     onCreated = { room ->
-                        nav.navigateToChat(app.activeRooms.register(room))
+                        // 部屋を作り始めた画面（一覧・マイルーム）の上に会話を重ね、会話の後はそこへ戻る。
+                        nav.navigateToChat(app.activeRooms.register(room), origin)
                     },
                 )
             }

@@ -244,11 +244,11 @@ private fun RoomList(
         item { SexFilter(selected = state.sex, onSelect = onSexSelect) }
         item { SummaryLine(state) }
         state.preferenceError?.let { error -> item {
-            Text("カテゴリの記憶に失敗しました：$error", color = MaterialTheme.colorScheme.error)
+            Text("ジャンルの記憶に失敗しました：$error", color = MaterialTheme.colorScheme.error)
         } }
         item {
             Text(
-                "カードを右へスワイプでお気に入り、左へスワイプで非表示",
+                "カードを右へスワイプで保存、左へスワイプで非表示",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 4.dp),

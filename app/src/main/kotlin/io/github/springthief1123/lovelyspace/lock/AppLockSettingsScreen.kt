@@ -4,7 +4,6 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -15,11 +14,9 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -34,6 +31,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
+import io.github.springthief1123.lovelyspace.ui.components.QuietSwitchRow
+import io.github.springthief1123.lovelyspace.ui.settings.SettingsChoiceGroup
 import io.github.springthief1123.lovelyspace.ui.settings.SettingsChoiceRow
 import io.github.springthief1123.lovelyspace.ui.settings.SettingsPageHeader
 import io.github.springthief1123.lovelyspace.ui.settings.SettingsSectionTitle
@@ -78,49 +77,54 @@ fun AppLockSettingsScreen(onBack: () -> Unit) {
         SettingsPageHeader(title = "アプリロック", onBack = onBack)
         LazyColumn(contentPadding = PaddingValues(top = 14.dp, bottom = bottom)) {
             item {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("アプリを開くときにロックする", style = MaterialTheme.typography.bodyLarge)
-                        Text("背景の巡回・順番待ちの通知はロック中も届きます。通知から開いたときもロックを先に解きます。",
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Switch(config.enabled, onCheckedChange = { on -> if (on) setup = LockMethod.PASSCODE else verifying = LockChange(null) })
-                }
+                QuietSwitchRow(
+                    checked = config.enabled,
+                    onCheckedChange = { on -> if (on) setup = LockMethod.PASSCODE else verifying = LockChange(null) },
+                    title = "アプリを開くときにロックする",
+                    description = "背景の巡回・順番待ちの通知はロック中も届きます。通知から開いたときもロックを先に解きます。",
+                )
             }
             if (config.enabled) {
                 item { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(vertical = 10.dp)) }
                 item { SettingsSectionTitle("解除の方法") }
-                items(LockMethod.entries) { method ->
-                    SettingsChoiceRow(
-                        title = method.label,
-                        description = when (method) {
-                            LockMethod.PASSCODE -> if (config.method == method) "${config.passcodeLength}桁の数字。押すと変更します" else "4〜8桁の数字"
-                            LockMethod.PATTERN -> if (config.method == method) "押すと変更します" else "4つ以上の点をなぞる"
-                        },
-                        selected = config.method == method,
-                        onClick = { verifying = LockChange(method) },
-                    )
+                item {
+                    SettingsChoiceGroup {
+                        LockMethod.entries.forEach { method ->
+                            SettingsChoiceRow(
+                                title = method.label,
+                                description = when (method) {
+                                    LockMethod.PASSCODE -> if (config.method == method) "${config.passcodeLength}桁の数字。押すと変更します" else "4〜8桁の数字"
+                                    LockMethod.PATTERN -> if (config.method == method) "押すと変更します" else "4つ以上の点をなぞる"
+                                },
+                                selected = config.method == method,
+                                onClick = { verifying = LockChange(method) },
+                            )
+                        }
+                    }
                 }
                 item {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("生体認証でも解除する", style = MaterialTheme.typography.bodyLarge)
-                            Text(if (biometricReady) "指紋・顔で解除します。使えないときはパスコード・パターンで解除できます。"
-                                else "この端末では使えません（指紋・顔が登録されていない場合を含む）。",
-                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Switch(config.biometric && biometricReady, onCheckedChange = controller::setBiometric, enabled = biometricReady)
-                    }
+                    QuietSwitchRow(
+                        checked = config.biometric && biometricReady,
+                        onCheckedChange = controller::setBiometric,
+                        title = "生体認証でも解除する",
+                        description = if (biometricReady) "指紋・顔で解除します。使えないときはパスコード・パターンで解除できます。"
+                            else "この端末では使えません（指紋・顔が登録されていない場合を含む）。",
+                        enabled = biometricReady,
+                    )
                 }
                 item { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(vertical = 10.dp)) }
                 item { SettingsSectionTitle("ロックするまでの時間") }
-                items(LockDelay.entries) { delay ->
-                    SettingsChoiceRow(
-                        title = delay.label,
-                        description = if (delay == LockDelay.IMMEDIATE) "アプリを離れたらすぐロック" else "アプリを離れてから${delay.label.removeSuffix("後")}たったらロック",
-                        selected = config.delay == delay,
-                        onClick = { controller.setDelay(delay) },
-                    )
+                item {
+                    SettingsChoiceGroup {
+                        LockDelay.entries.forEach { delay ->
+                            SettingsChoiceRow(
+                                title = delay.label,
+                                description = if (delay == LockDelay.IMMEDIATE) "アプリを離れたらすぐロック" else "アプリを離れてから${delay.label.removeSuffix("後")}たったらロック",
+                                selected = config.delay == delay,
+                                onClick = { controller.setDelay(delay) },
+                            )
+                        }
+                    }
                 }
                 item {
                     Text("パスコード・パターンを忘れたときは、ロック画面の「忘れた場合」からアプリのデータを消して作り直します。",

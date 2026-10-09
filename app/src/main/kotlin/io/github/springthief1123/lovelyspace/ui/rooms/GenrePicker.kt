@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -33,6 +35,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.springthief1123.lovelyspace.core.Genre
@@ -54,9 +59,10 @@ fun GenreBar(
         modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        // 見出しに見えるが、押すとジャンルの一覧を開くボタン。
         Row(
             Modifier
-                .clickable { sheetOpen = true }
+                .clickable(onClickLabel = "ジャンルを選ぶ", role = Role.Button) { sheetOpen = true }
                 .padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -65,7 +71,7 @@ fun GenreBar(
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
             )
-            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "ジャンルを選ぶ")
+            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null)
             counts[selected.key]?.let {
                 Text(
                     "$it rooms",
@@ -80,6 +86,7 @@ fun GenreBar(
             Row(
                 Modifier
                     .fillMaxWidth()
+                    .selectableGroup()
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(18.dp),
             ) {
@@ -89,7 +96,7 @@ fun GenreBar(
                         style = MaterialTheme.typography.labelMedium,
                         color = if (genre == selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier
-                            .clickable { onSelect(genre) }
+                            .selectable(selected = genre == selected, role = Role.Tab) { onSelect(genre) }
                             .padding(vertical = 4.dp),
                     )
                 }
@@ -133,9 +140,10 @@ private fun GenreSheet(
                     group.label,
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 20.dp, bottom = 8.dp),
+                    modifier = Modifier.padding(top = 20.dp, bottom = 8.dp).semantics { heading() },
                 )
                 FlowRow(
+                    Modifier.selectableGroup(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
@@ -151,7 +159,7 @@ private fun GenreSheet(
                                     else MaterialTheme.colorScheme.surfaceContainer,
                                     RoundedCornerShape(8.dp),
                                 )
-                                .clickable {
+                                .selectable(selected = active, role = Role.RadioButton) {
                                     scope.launch { sheetState.hide() }.invokeOnCompletion { onSelect(genre) }
                                 }
                                 .padding(horizontal = 11.dp, vertical = 8.dp),

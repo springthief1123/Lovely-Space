@@ -71,7 +71,7 @@ fun SettingsScreen(
                 SettingsCategoryCard(
                     icon = Icons.Outlined.Palette,
                     title = "表示設定",
-                    description = "テーマ、テキストサイズ",
+                    description = "テーマ、テキストサイズ、待機メッセージの行数",
                     onClick = onOpenDisplay,
                 )
             }
@@ -79,7 +79,7 @@ fun SettingsScreen(
                 SettingsCategoryCard(
                     icon = Icons.AutoMirrored.Outlined.ViewList,
                     title = "部屋一覧",
-                    description = "起動時のカテゴリ、最後に見たカテゴリ",
+                    description = "起動時に開くジャンル",
                     onClick = onOpenRoomList,
                 )
             }

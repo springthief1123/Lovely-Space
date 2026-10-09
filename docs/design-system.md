@@ -83,14 +83,16 @@
   | `SegmentedButton` | 境界 `outline`、選択中は `secondaryContainer` と ✓ | 選択中の境界を `primary`、非選択の面は透明。境界は入力欄と同じ `outline` | `quietSegmentedButtonColors()` |
   | `Checkbox` | チェックだけが押せ、横の文字は読み上げで結び付かない | 行全体を押せる 1 つの項目（`Role.Checkbox`）にする。色は標準のまま | `QuietCheckboxRow` |
   | `OutlinedTextField` | 境界 `outline`、フォーカス `primary`、エラー `error` | 変えない（下記） | なし |
-  | `Switch` | 軌道 `primary` / `surfaceContainerHighest`、オフの縁と丸 `outline` | 変えない（下記） | なし |
+  | `Switch` | 軌道 `primary` / `surfaceContainerHighest`、オフの縁と丸 `outline` | 色は変えない（下記）。見出し・説明と並べるときは行全体を押せる 1 つの項目（`Role.Switch`）にする | `QuietSwitchRow` |
 
   - 選択中のチップ・セグメントは `secondaryContainer` の面だけだと背景との差が 1.2:1 程度しかなく見分けにくい。そのため `primary` で縁取る（背景との差はライト 5.8:1・ダーク 8.4:1）。
   - 入力欄とセグメントの境界は `outlineVariant`（背景との差 1.3:1）に下げない。入力欄の境界は WCAG 1.4.11 の 3:1 が必要なので、`outline`（ライト 3.0:1・ダーク 6.4:1）のままにする。チップは文字で役割が分かる補助的な部品なので `outlineVariant` でよい。
+  - 読み上げ（#83）: `QuietTabs` は見た目がチップでも `Role.Tab` と選択状態を持つ。設定の「1 つだけ選ぶ」行は `SettingsChoiceGroup`（`selectableGroup`）に `SettingsChoiceRow`（`Role.RadioButton`）を並べ、選択肢ではない行は `radio = false` でボタンとして読ませる。行の中にメニューなど別の操作があってスイッチを行全体にできないときは、スイッチに何のオン・オフかが分かる読み上げ名を付ける（レーダーの条件の行）。
   - `OutlinedTextField` と `Switch` は、使う色ロールが #72 で全て Quiet Rose の値になっていて、角丸も `LovelyShapes.control` / 全丸で合っているので、ラッパーを作らない（名前だけの薄いラッパーを増やさない）。
   - 検索欄（`SearchField`）だけ 18dp だった角丸を `LovelyShapes.control` にそろえた。同じパネルの下に並ぶ入力欄・チップと同じ部品に見せるため。
 - ダイアログ・シート・ヘッダー（Phase D、#76 で実装）: `ui/components/QuietDialogs.kt` と `QuietComponents.kt` の `QuietTopBar`。
   - `QuietDialog`（入力・選択を含むダイアログ）と `QuietConfirmDialog`（文章 1 つの確認）。面 `surfaceContainerHigh`、形 `LovelyShapes.sheet`、色の重ねなし。見出しは `titleMedium`（標準の `headlineSmall` は文字サイズの設定に追従しないため使わない）で、読み上げでは見出し。本文は `onSurfaceVariant`。ボタンは左に取り消し・右に確定。**削除・退室・データ消去など取り消せない確定は `destructive = true` で確定ボタンの文字を `error`** にする。失敗の文は `error` で本文の上に出す（高さいっぱいにスクロールする入力欄の後ろだと画面外に押し出されるため）。保存中は `confirmEnabled` / `dismissEnabled` を false にし、外側タップの閉じるも呼び出し側で止める。
+  - `QuietEditorScreen`（#85）: 入力欄が多い編集（プロフィール・待機メッセージ）の全画面。上部の `QuietTopBar` の右に「保存」を固定し、キーボードで隠れない。面は `background`、中身は左右 `LovelySpacing.screenHorizontal` で縦にスクロールし、失敗の文は入力欄の上。保存中は戻る・Back で閉じない。入力欄 2〜3 個までの短い入力は `QuietDialog` のままでよい。
   - `QuietSheet`（`ModalBottomSheet`）と `QuietSheetHeader`。面 `surfaceContainerLow`、上端 24dp。中身の余白は左右 `LovelySpacing.screenHorizontal`（20dp）・上 8dp・下 24dp、見出しは `titleLarge` と `bodySmall` の補足で、読み上げでは見出し。
   - `QuietTopBar`: シェルの外の画面（チャット・入室・部屋作成・公開ルーム・設定・アプリロック）の見出し。背景は画面と同じ `background`、題名 `titleMedium`（チャットは部屋名を `bodySmall` の 2 行目に出せる）、戻るは 48dp の `IconButton`、高さ 64dp。設定の `SettingsPageHeader` は `QuietTopBar`（ステータスバーの余白は親が取る）と `outlineVariant` の区切り線。メインの Glass ヘッダー（`LovelyTopBar`）は役割が違うので構造を残す。
 
@@ -106,7 +108,7 @@
 
 参考実装:
 - `ui/components/QuietComponents.kt`: `QuietPanel`、`QuietListPanel`、`QuietTabs`、`QuietOverflowMenu`。`QuietTabs` は `QuietFilterChip` を使う。
-- `ui/components/QuietControls.kt`: `QuietFilterChip` / `QuietAssistChip` / `quietSegmentedButtonColors()` / `QuietCheckboxRow`（2.3）。標準の `FilterChip` / `AssistChip` / `Checkbox` を画面に直接書かない。
+- `ui/components/QuietControls.kt`: `QuietFilterChip` / `QuietAssistChip` / `quietSegmentedButtonColors()` / `QuietCheckboxRow` / `QuietSwitchRow`（2.3）。標準の `FilterChip` / `AssistChip` / `Checkbox` を画面に直接書かない。
 - `ui/components/QuietMenu.kt`: 汎用メニューの `QuietDropdownMenu` / `QuietExposedMenu` / `QuietMenuRow`（2.3）。新しいメニューはこれを使い、標準の `DropdownMenu` / `DropdownMenuItem` を画面に直接書かない。
 - `ui/rooms/RoomActionMenu.kt`: 部屋名・状態・アイコン付き操作を備えた独自メニュー。**部屋固有のヘッダーや配置を一般用途へ無理に転用せず**、必要ならパネルの外観と操作行だけを共通化する。
 - `ui/components/Glass.kt` と `ui/shell/LovelyAppShell.kt`: メインシェルの Glass UI。
@@ -153,3 +155,23 @@ UI を含む PR は次を報告する。
 - **実画面確認**: 可能なら before/after の同条件スクリーンショットを比較。エミュレーターや実機を使えない環境では視覚確認済みと書かず、実機確認事項を PR に残す。
 
 UI 改修は **1テーマ / 1 PR を基本**とし、差分を小さく、挙動の変更や機能の追加と混在させない。レビューコメント・未解決スレッド・CI 失敗／警告を確認し、結果と未解決項目を明示する。
+
+## 7. 用語集（#84）
+
+画面の文言・読み上げ名・通知・ドキュメントで同じものを同じ言葉で呼ぶ。新しい画面や文言を足すときはここに合わせ、合わない言葉が必要になったらここを先に直す。
+
+| 使う言葉 | 使わない言葉 | 意味・使い方 |
+| --- | --- | --- |
+| ジャンル | カテゴリ | 本家の部屋の分類（全国・地域・年代など）。一覧の切り替え・保存した条件・巡回で共通 |
+| 男性／女性 | 男／女 | 自分のプロフィールの性別。本家の表示（「〇〇(女)さん」）をそのまま引用するときだけ例外 |
+| 部屋を作る | 部屋を作成・部屋をつくる | 自分の部屋を作る操作。ボタン・見出し・読み上げ名で共通 |
+| 待機メッセージ | 待機文・募集文 | 部屋カードに出る、待っている人の文 |
+| 保存 | お気に入り | 部屋・検索条件を端末に残すこと。保存タブ、「部屋を保存」「保存を解除」 |
+| 追跡 | 見張り（部屋単位） | 特定の部屋の状態を見続けること |
+| 巡回 | 監視・定期検索 | 保存した条件で一覧を定期的に確かめること。オン・オフは「巡回する」「巡回をやめる」 |
+| 候補 | 名前検索 | 名前・表示名で探す条件（レーダーの候補条件） |
+| 順番待ち | 空き待ち・ウェイティング | 満室の部屋の空きを待つこと |
+| 全角は2文字 | 全角は 2 文字として数えます | 文字数の注記。「120 / 500（全角は2文字）」の形で入力欄の下に出す |
+
+- 押せないボタンの理由は、ボタンのすぐ下に「入力が必要です：名前、年齢（18〜99、空欄なら秘密）」の形で出す（入室・部屋を作る）。
+- まだ届かない通知は、種類の説明に「準備中」と書き、届く通知と分けて説明する（入室者あり #43）。
