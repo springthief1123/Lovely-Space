@@ -229,6 +229,7 @@ class ShaloveClientTest {
                 val body = if (requested.size == 1) """
                     <a href="https://chat.shalove.net/g/kanto/vwait/1/vsex/2/pageID/2/">次</a>
                     <a href="https://example.com/g/kanto/pageID/3/">別のホスト</a>
+                    <a href="https://chat.shalove.net/g/kanto/vsex/1/vwait/1/pageID/3/">別の性別</a>
                     <a href="https://chat.shalove.net/g/talk/pageID/4/">別のジャンル</a>
                 """ else "<html></html>"
                 Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("OK")
@@ -240,7 +241,7 @@ class ShaloveClientTest {
         val first = RoomQuery(kanto, sex = Gender.FEMALE, waitingOnly = true)
         client.fetchRoomList(first)
         client.fetchRoomList(first.copy(page = 2))
-        // ページャに無いページは自前で組み立て、別ホスト・別ジャンルのリンクは使わない。
+        // 今の条件と食い違うリンク（別ホスト・別の性別・別ジャンル）は使わず、自前で組み立てる。
         client.fetchRoomList(first.copy(page = 3))
         assertEquals(
             listOf(

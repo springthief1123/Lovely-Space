@@ -40,6 +40,8 @@ data class SearchUiState(
     val pageTimes: Map<Int, Long> = emptyMap(),
     val automatic: Boolean = true,
     val newRoomIds: Set<String> = emptySet(),
+    /** [rooms] を本家から取ったときの絞り込み（1 ページ目）。まだ取っていなければ null。 */
+    val listQuery: RoomQuery? = null,
 ) {
     val validAges: Boolean get() = (minAgeInput.isEmpty() || minAgeInput.toIntOrNull()?.let { it in 18..99 } == true) &&
         (maxAgeInput.isEmpty() || maxAgeInput.toIntOrNull()?.let { it in 18..99 } == true) && criteria.isValid
@@ -49,6 +51,11 @@ data class SearchUiState(
     val canLoadMore: Boolean get() = page in 1 until lastPage && !loading
     /** 本家に渡す絞り込み（1 ページ目）。性別・待機・公開などは本家側で絞り、残りは取得後に端末で判定する。 */
     val siteQuery: RoomQuery get() = effectiveCriteria.siteQuery(genre)
+    /**
+     * 本家側の条件を変えた後で、まだ新しい条件の一覧を取れていない。表示中の [results] は前の条件で取った部屋に
+     * 新しい条件を掛けたものなので、条件を広げた場合（女性 → 指定なしなど）は本来出る部屋が欠けている。
+     */
+    val awaitingNewConditions: Boolean get() = listQuery != null && listQuery != siteQuery
 }
 
 class SearchViewModel(private val repository: RoomListSource, private val preferences: RoomListPreferenceStore? = null,
@@ -201,7 +208,7 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
             val previous = if (fresh) emptySet() else _state.value.rooms.map(::roomIdentity).toSet()
             window = window.observe(observation?.page ?: result, observation?.revision)
             val rooms = window.rooms
-            _state.update { it.copy(rooms = rooms,
+            _state.update { it.copy(rooms = rooms, listQuery = base,
                 page = window.pages.keys.maxOrNull() ?: 0, lastPage = window.lastPage, loading = false, errorOnMore = false,
                 newRoomIds = ((if (fresh) emptySet() else it.newRoomIds) + if (previous.isEmpty()) emptySet() else rooms.map(::roomIdentity).toSet() - previous).intersect(rooms.map(::roomIdentity).toSet()),
                 pageTimes = ((if (fresh) emptyMap() else it.pageTimes) + (observation?.let { mapOf(target to it.confirmedAt) } ?: emptyMap()))

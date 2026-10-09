@@ -68,20 +68,23 @@ data class RoomQuery(
     val message: String? = null,
     val page: Int = 1,
 ) {
-    fun toUrl(): String {
-        val params = buildList {
-            when (sex) {
-                Gender.MALE -> add("vsex" to "1")
-                Gender.FEMALE -> add("vsex" to "2")
-                else -> Unit
-            }
-            prefecture?.let { add("vpref" to it.toString()) }
-            ageBand?.let { add("vyears" to it) }
-            publicOnly?.let { add("vnonpub" to if (it) "2" else "1") }
-            waitingOnly?.let { add("vwait" to if (it) "1" else "2") }
-            name?.takeIf { it.isNotBlank() }?.let { add("srchname" to it) }
-            message?.takeIf { it.isNotBlank() }?.let { add("srchmsg" to it) }
+    /** 本家の一覧に渡す絞り込み（パラメータ名と値）。空の条件は含めない。 */
+    val siteParams: List<Pair<String, String>> get() = buildList {
+        when (sex) {
+            Gender.MALE -> add("vsex" to "1")
+            Gender.FEMALE -> add("vsex" to "2")
+            else -> Unit
         }
+        prefecture?.let { add("vpref" to it.toString()) }
+        ageBand?.let { add("vyears" to it) }
+        publicOnly?.let { add("vnonpub" to if (it) "2" else "1") }
+        waitingOnly?.let { add("vwait" to if (it) "1" else "2") }
+        name?.takeIf { it.isNotBlank() }?.let { add("srchname" to it) }
+        message?.takeIf { it.isNotBlank() }?.let { add("srchmsg" to it) }
+    }
+
+    fun toUrl(): String {
+        val params = siteParams
         // サイトは Shift_JIS のため、検索語も Shift_JIS でエンコードする。
         fun encode(v: String) = java.net.URLEncoder.encode(v, SITE_CHARSET)
         val root = "https://${genre.host}/g/${genre.key}/"
@@ -91,6 +94,25 @@ data class RoomQuery(
         if (page > 1) return root + params.joinToString("") { (k, v) -> "$k/${encode(v)}/" } + "pageID/$page/"
         if (params.isEmpty()) return root
         return root + "?" + params.joinToString("&") { (k, v) -> k + "=" + encode(v) }
+    }
+
+    /**
+     * 本家のページャのリンク（`/g/<genre>/vsex/1/pageID/2/`）が、この一覧のこのページを指しているか。
+     * パスの条件の並び順は問わず、条件の組み合わせとページ番号が一致するものだけを認める。
+     */
+    fun matchesPagerUrl(url: String): Boolean {
+        val path = runCatching { java.net.URI(url).rawPath }.getOrNull() ?: return false
+        val prefix = "/g/${genre.key}/"
+        if (!path.startsWith(prefix)) return false
+        val segments = path.removePrefix(prefix).trimEnd('/').split('/')
+        if (segments.size < 2 || segments.size % 2 != 0) return false
+        val pairs = segments.chunked(2).map { (k, v) ->
+            k to (runCatching { java.net.URLDecoder.decode(v, SITE_CHARSET) }.getOrNull() ?: return false)
+        }
+        val (pageKey, pageValue) = pairs.last()
+        if (pageKey != "pageID" || pageValue != page.toString()) return false
+        val filters = pairs.dropLast(1)
+        return filters.size == filters.toMap().size && filters.toSet() == siteParams.toSet()
     }
 
     /** 本家側の絞り込み（ページ以外）が同じ一覧。ページャのリンクを共有する単位。 */

@@ -49,7 +49,8 @@ class ShaloveClient(
     private val listCacheTtl: Duration = 20.seconds,
     /**
      * 1 ページ目のキャッシュ期間。新しい部屋は 1 ページ目に出るので、Chrome 拡張と同じ 4 秒まで縮める（Yuya の決定、2026-10-09）。
-     * リクエスト同士の [minInterval] は変えないので、本家への総数は増えない。
+     * リクエスト同士の [minInterval] は変えないので毎分の上限は同じだが、同じ 1 ページ目を取り直す回数は増える
+     * （1 ページだけのジャンルでは 20 秒ごと → 4 秒ごと）。
      */
     private val headCacheTtl: Duration = 4.seconds,
     /** 経過時間の計測用（ミリ秒）。端末の時計合わせの影響を受けないよう単調増加の時計を使う。 */
@@ -84,7 +85,8 @@ class ShaloveClient(
                 if ((!forceRefresh && fresh) || entry.generation != seen) return@withLock entry.page
             }
             val firstUrl = query.firstPage.toUrl()
-            val requestUrl = pagerLinks[firstUrl]?.get(query.page)?.takeIf { isListUrl(it, query.genre) } ?: url
+            // 本家のリンクでも、今の条件・ページと食い違うもの（別の性別など）は使わず、自前で組み立てた URL で取る。
+            val requestUrl = pagerLinks[firstUrl]?.get(query.page)?.takeIf { isListUrl(it, query.genre) && query.matchesPagerUrl(it) } ?: url
             val html = get(requestUrl)
             val page = RoomListParser.parse(html, query.genre.key, query.page, requestUrl)
             val links = page.pageUrls.filterValues { isListUrl(it, query.genre) }

@@ -241,4 +241,28 @@ class SearchViewModelTest {
             assertFalse(vm.state.value.loading)
         } finally { Dispatchers.resetMain() }
     }
+
+    @Test fun listFromOldSiteConditionsIsMarkedUntilTheNewConditionsLoad() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            var fail = true
+            val vm = SearchViewModel(RoomListSource { query, _ ->
+                if (query.sex == null && fail) throw IOException("合成の通信エラー")
+                page(query.genre.key, 1, listOf(room(if (query.sex == null) 1L else 2L)))
+            })
+            vm.criteria(RoomSearchCriteria(gender = Gender.FEMALE))
+            vm.refresh(); runCurrent()
+            assertFalse(vm.state.value.awaitingNewConditions)
+            // 女性 → 指定なしへ広げると、取り直すまでは前の条件で取った部屋しか無い。
+            vm.criteria(RoomSearchCriteria())
+            assertTrue(vm.state.value.awaitingNewConditions)
+            advanceTimeBy(SearchViewModel.REQUERY_DELAY_MS + 1); runCurrent()
+            assertNotNull(vm.state.value.error)
+            assertTrue(vm.state.value.awaitingNewConditions)
+            fail = false
+            vm.refresh(); runCurrent()
+            assertFalse(vm.state.value.awaitingNewConditions)
+            assertEquals(listOf(1L), vm.state.value.rooms.map { it.id })
+        } finally { Dispatchers.resetMain() }
+    }
 }
