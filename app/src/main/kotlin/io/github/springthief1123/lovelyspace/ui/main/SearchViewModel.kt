@@ -171,7 +171,7 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
                 if (!_state.value.initialized) { state.first { it.initialized }; continue }
                 job?.join()
                 // 条件が変わった直後は 1 ページ目を取るので、実際に取ったページで巡回位置を進める。
-                val page = fetchPage(schedule.next(_state.value.lastPage), force = false)
+                val page = fetchPage(schedule.next(_state.value.lastPage, window.pages.keys), force = false)
                 if (_state.value.error == null) schedule.completed(page, _state.value.lastPage)
                 delay(when {
                     _state.value.error != null -> RoomPageSchedule.ERROR_INTERVAL_MS

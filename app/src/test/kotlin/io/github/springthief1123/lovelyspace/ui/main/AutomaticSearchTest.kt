@@ -23,9 +23,10 @@ class AutomaticSearchTest {
                 page(query.page, listOf(room(query.page.toLong())))
             }, clock = { testScheduler.currentTime })
             val job = backgroundScope.launch { vm.monitor() }
-            // 1 ページ目は 4 秒ごと、残りは 3 秒ごと。0 秒: 1、3 秒: 2、6 秒: 1（4 秒経過）、9 秒: 3。
+            // まだ読んでいないページを先に 3 秒ごとに読み切り、その後に 1 ページ目を取り直す。
+            // 0 秒: 1、3 秒: 2、6 秒: 3、9 秒: 1。
             runCurrent(); advanceTimeBy(9_001); runCurrent()
-            assertEquals(listOf(1, 2, 1, 3), calls)
+            assertEquals(listOf(1, 2, 3, 1), calls)
             assertEquals(setOf(1L, 2L, 3L), vm.state.value.rooms.map { it.id }.toSet())
             vm.refresh(); runCurrent()
             assertEquals(3, vm.state.value.rooms.size)
