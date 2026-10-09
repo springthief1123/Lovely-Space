@@ -2,7 +2,6 @@ package io.github.springthief1123.lovelyspace.ui.web
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import io.github.springthief1123.lovelyspace.core.RoomPageSchedule
 import io.github.springthief1123.lovelyspace.core.chat.PublicRoomPage
 import io.github.springthief1123.lovelyspace.core.chat.PublicRoomUnavailableException
 import io.github.springthief1123.lovelyspace.core.chat.RoomRoles
@@ -33,7 +32,7 @@ class PublicRoomViewModel(private val fetch: suspend () -> PublicRoomPage) : Vie
     suspend fun monitor() {
         while (currentCoroutineContext().isActive && _state.value.automatic) {
             read()
-            delay(RoomPageSchedule.HEAD_INTERVAL_MS)
+            delay(REFRESH_INTERVAL_MS)
         }
     }
     private suspend fun read() = mutex.withLock {
@@ -55,5 +54,10 @@ class PublicRoomViewModel(private val fetch: suspend () -> PublicRoomPage) : Vie
             _state.update { it.copy(lines = emptyList(), opened = false, automatic = false, error = e.message) }
         } catch (e: Exception) { _state.update { it.copy(error = describeError(e)) } }
         finally { _state.update { it.copy(loading = false) } }
+    }
+
+    companion object {
+        /** 公開ログを読み直す間隔。一覧の 1 ページ目の間隔とは別に、これまでどおり 20 秒にする。 */
+        const val REFRESH_INTERVAL_MS = 20_000L
     }
 }

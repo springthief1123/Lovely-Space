@@ -14,6 +14,7 @@ import io.github.springthief1123.lovelyspace.core.chat.EntryForm
 import io.github.springthief1123.lovelyspace.core.chat.EntryFormParser
 import io.github.springthief1123.lovelyspace.core.chat.EntryProfile
 import io.github.springthief1123.lovelyspace.core.chat.EntryResult
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Cookie
 import okhttp3.Call
 import okhttp3.Callback
@@ -36,7 +37,7 @@ import kotlin.coroutines.resumeWithException
  *
  * 規約で「通常のブラウザ利用とは異なるアクセスを繰り返す」ツールアクセスが禁止されているため、
  * - リクエスト同士の間隔を [minInterval] 以上空ける
- * - 同じ一覧 URL は [listCacheTtl] の間は再取得しない
+ * - 同じ一覧 URL は [listCacheTtl]（新着が出る 1 ページ目は [headCacheTtl]）の間は再取得しない
  * をここで強制する。
  *
  * 入室後のチャット（[ChatSession]）は本家のページと同じ規則（新着取得は常に 1 本・間隔は本家の計算式・
@@ -46,6 +47,11 @@ class ShaloveClient(
     private val http: OkHttpClient = defaultHttpClient(),
     private val minInterval: Duration = 3.seconds,
     private val listCacheTtl: Duration = 20.seconds,
+    /**
+     * 1 ページ目のキャッシュ期間。新しい部屋は 1 ページ目に出るので、Chrome 拡張と同じ 4 秒まで縮める（Yuya の決定、2026-10-09）。
+     * リクエスト同士の [minInterval] は変えないので、本家への総数は増えない。
+     */
+    private val headCacheTtl: Duration = 4.seconds,
     /** 経過時間の計測用（ミリ秒）。端末の時計合わせの影響を受けないよう単調増加の時計を使う。 */
     private val clock: () -> Long = { System.nanoTime() / 1_000_000 },
     private val sleep: suspend (Long) -> Unit = { delay(it) },
@@ -60,6 +66,8 @@ class ShaloveClient(
     /** [listGate] の外からも読むので同期付きにする。書き込みは [listGate] の中だけ。 */
     private val listCache: MutableMap<String, CachedList> = java.util.Collections.synchronizedMap(mutableMapOf())
     private var generation = 0L
+    /** 絞り込みごと（1 ページ目の URL）のページャのリンク。2 ページ目以降は本家が出した URL をそのまま使う。 */
+    private val pagerLinks: MutableMap<String, Map<Int, String>> = java.util.Collections.synchronizedMap(mutableMapOf())
 
     /**
      * 一覧を取得する。キャッシュの確認から保存までを [listGate] の中で行うので、
@@ -69,16 +77,28 @@ class ShaloveClient(
     suspend fun fetchRoomList(query: RoomQuery, forceRefresh: Boolean = false): RoomListPage {
         val url = query.toUrl()
         val seen = listCache[url]?.generation
+        val ttl = if (query.page == 1) headCacheTtl else listCacheTtl
         return listGate.withLock {
             listCache[url]?.let { entry ->
-                val fresh = clock() - entry.fetchedAt < listCacheTtl.inWholeMilliseconds
+                val fresh = clock() - entry.fetchedAt < ttl.inWholeMilliseconds
                 if ((!forceRefresh && fresh) || entry.generation != seen) return@withLock entry.page
             }
-            val html = get(url)
-            val page = RoomListParser.parse(html, query.genre.key, query.page, url)
+            val firstUrl = query.firstPage.toUrl()
+            val requestUrl = pagerLinks[firstUrl]?.get(query.page)?.takeIf { isListUrl(it, query.genre) } ?: url
+            val html = get(requestUrl)
+            val page = RoomListParser.parse(html, query.genre.key, query.page, requestUrl)
+            val links = page.pageUrls.filterValues { isListUrl(it, query.genre) }
+            // 1 ページ目のページャがいちばん新しい全体像なので、そのときは置き換える。
+            pagerLinks[firstUrl] = if (query.page == 1) links else pagerLinks[firstUrl].orEmpty() + links
             listCache[url] = CachedList(page, clock(), ++generation)
             page
         }
+    }
+
+    /** ページャのリンクが同じジャンルの一覧を指しているか。ほかのホスト・ページへは取りに行かない。 */
+    private fun isListUrl(url: String, genre: Genre): Boolean {
+        val parsed = url.toHttpUrlOrNull() ?: return false
+        return parsed.scheme == "https" && parsed.host == genre.host && parsed.encodedPath.startsWith("/g/${genre.key}/")
     }
 
     /**

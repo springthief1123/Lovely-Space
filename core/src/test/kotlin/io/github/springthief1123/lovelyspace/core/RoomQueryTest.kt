@@ -14,6 +14,17 @@ class RoomQueryTest {
     }
 
     @Test
+    fun firstPageFiltersUseTheSiteFormQuery() {
+        val url = RoomQuery(genre = kanto, sex = Gender.FEMALE, waitingOnly = true).toUrl()
+        assertEquals("https://chat.shalove.net/g/kanto/?vsex=2&vwait=1", url)
+    }
+
+    @Test
+    fun plainLaterPageKeepsThePagerPath() {
+        assertEquals("https://chat.shalove.net/g/kanto/pageID/3/", RoomQuery(kanto, page = 3).toUrl())
+    }
+
+    @Test
     fun pageAndFiltersAreEncoded() {
         val url = RoomQuery(
             genre = kanto,
@@ -25,7 +36,7 @@ class RoomQueryTest {
             page = 3,
         ).toUrl()
         assertEquals(
-            "https://chat.shalove.net/g/kanto/pageID/3/?vsex=2&vpref=13&vyears=20-29&vnonpub=2&vwait=1",
+            "https://chat.shalove.net/g/kanto/vsex/2/vpref/13/vyears/20-29/vnonpub/2/vwait/1/pageID/3/",
             url,
         )
     }

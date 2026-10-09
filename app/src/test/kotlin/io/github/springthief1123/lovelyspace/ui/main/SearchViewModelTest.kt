@@ -191,4 +191,53 @@ class SearchViewModelTest {
             assertTrue(vm.state.value.rooms.isEmpty())
         } finally { Dispatchers.resetMain() }
     }
+
+    @Test fun siteConditionsAreSentToTheSiteAndRestartTheListFromItsFirstPage() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val queries = mutableListOf<RoomQuery>()
+            val vm = SearchViewModel(RoomListSource { query, _ ->
+                queries += query
+                val rooms = if (query.sex == Gender.FEMALE) listOf(room(9).copy(gender = Gender.FEMALE))
+                    else listOf(room(query.page.toLong()), room(10L + query.page))
+                page(query.genre.key, query.page, rooms)
+            })
+            vm.refresh(); runCurrent()
+            vm.more(); runCurrent()
+            assertEquals(4, vm.state.value.rooms.size)
+            // 語の条件は本家に渡さず、取得済みに掛けるだけ。
+            vm.criteria(RoomSearchCriteria(text = "合成"))
+            advanceTimeBy(SearchViewModel.REQUERY_DELAY_MS + 1); runCurrent()
+            assertEquals(2, queries.size)
+            // 性別は本家で絞る。入力が続く間は待ち、新しい絞り込みの 1 ページ目から一覧を作り直す。
+            vm.criteria(RoomSearchCriteria(gender = Gender.FEMALE))
+            runCurrent()
+            assertEquals(2, queries.size)
+            advanceTimeBy(SearchViewModel.REQUERY_DELAY_MS + 1); runCurrent()
+            assertEquals(RoomQuery(Genres.default, sex = Gender.FEMALE), queries.last())
+            assertEquals(listOf(9L), vm.state.value.rooms.map { it.id })
+            assertEquals(1, vm.state.value.page)
+            assertTrue(vm.state.value.newRoomIds.isEmpty())
+        } finally { Dispatchers.resetMain() }
+    }
+
+    @Test fun changingSiteConditionsCancelsTheOldRequestInsteadOfShowingIt() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val gate = CompletableDeferred<Unit>()
+            val queries = mutableListOf<RoomQuery>()
+            val vm = SearchViewModel(RoomListSource { query, _ ->
+                queries += query
+                if (query.waitingOnly == null) gate.await()
+                page(query.genre.key, 1, listOf(room(if (query.waitingOnly == null) 1L else 2L)))
+            })
+            vm.refresh(); runCurrent()
+            vm.criteria(RoomSearchCriteria(waitingOnly = true))
+            advanceTimeBy(SearchViewModel.REQUERY_DELAY_MS + 1); runCurrent()
+            gate.complete(Unit); runCurrent()
+            assertEquals(RoomQuery(Genres.default, waitingOnly = true), queries.last())
+            assertEquals(listOf(2L), vm.state.value.rooms.map { it.id })
+            assertFalse(vm.state.value.loading)
+        } finally { Dispatchers.resetMain() }
+    }
 }

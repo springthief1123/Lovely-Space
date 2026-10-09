@@ -40,4 +40,31 @@ class RoomSearchTest {
         assertEquals(listOf(2L, 1L, 1L, 3L), searchRooms(rooms, RoomSearchCriteria(sort = RoomSort.ELAPSED)).map { it.id })
         assertNull(searchRooms(rooms, RoomSearchCriteria(sort = RoomSort.NAME)).last().name)
     }
+
+    @Test
+    fun siteQueryCarriesOnlyConditionsTheSiteCanFilterWithoutLosingMatches() {
+        val kanto = Genres["kanto"]!!
+        val query = RoomSearchCriteria(
+            gender = Gender.FEMALE, waitingOnly = true, publicOnly = false,
+            name = "合成", message = "合成", text = "合成", excluded = "除外", area = "東京",
+        ).siteQuery(kanto)
+        assertEquals(RoomQuery(kanto, sex = Gender.FEMALE, publicOnly = false, waitingOnly = true), query)
+        assertEquals(RoomQuery(kanto), RoomSearchCriteria().siteQuery(kanto))
+    }
+
+    @Test
+    fun siteQueryUsesAnAgeBandOnlyWhenTheRangeFitsOneBandAndUnknownAgesAreExcluded() {
+        val kanto = Genres["kanto"]!!
+        fun band(min: Int?, max: Int?, unknown: Boolean = false) =
+            RoomSearchCriteria(minAge = min, maxAge = max, includeUnknownAge = unknown).siteQuery(kanto).ageBand
+        assertEquals("20-29", band(20, 29))
+        assertEquals("20-29", band(23, 25))
+        assertEquals("60-", band(60, null))
+        assertEquals("-19", band(18, 19))
+        assertNull(band(25, 35))
+        assertNull(band(null, 29))
+        assertNull(band(30, null))
+        assertNull(band(20, 29, unknown = true))
+        assertNull(band(30, 20))
+    }
 }

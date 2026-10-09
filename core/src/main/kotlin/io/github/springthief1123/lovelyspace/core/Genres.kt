@@ -69,10 +69,6 @@ data class RoomQuery(
     val page: Int = 1,
 ) {
     fun toUrl(): String {
-        val path = buildString {
-            append("https://").append(genre.host).append("/g/").append(genre.key).append('/')
-            if (page > 1) append("pageID/").append(page).append('/')
-        }
         val params = buildList {
             when (sex) {
                 Gender.MALE -> add("vsex" to "1")
@@ -86,12 +82,19 @@ data class RoomQuery(
             name?.takeIf { it.isNotBlank() }?.let { add("srchname" to it) }
             message?.takeIf { it.isNotBlank() }?.let { add("srchmsg" to it) }
         }
-        if (params.isEmpty()) return path
         // サイトは Shift_JIS のため、検索語も Shift_JIS でエンコードする。
-        return path + "?" + params.joinToString("&") { (k, v) ->
-            k + "=" + java.net.URLEncoder.encode(v, SITE_CHARSET)
-        }
+        fun encode(v: String) = java.net.URLEncoder.encode(v, SITE_CHARSET)
+        val root = "https://${genre.host}/g/${genre.key}/"
+        // 1 ページ目は本家の絞り込みフォームと同じクエリの形。2 ページ目以降は本家のページャと同じく
+        // 条件をパスに入れる（`/g/hokkaido/vsex/1/pageID/2/`）。実際の取得では、一覧に載っていた
+        // ページャのリンクがあればそちらを使う（[ShaloveClient.fetchRoomList]）。
+        if (page > 1) return root + params.joinToString("") { (k, v) -> "$k/${encode(v)}/" } + "pageID/$page/"
+        if (params.isEmpty()) return root
+        return root + "?" + params.joinToString("&") { (k, v) -> k + "=" + encode(v) }
     }
+
+    /** 本家側の絞り込み（ページ以外）が同じ一覧。ページャのリンクを共有する単位。 */
+    val firstPage: RoomQuery get() = if (page == 1) this else copy(page = 1)
 }
 
 internal val SITE_CHARSET: java.nio.charset.Charset = java.nio.charset.Charset.forName("windows-31j")
