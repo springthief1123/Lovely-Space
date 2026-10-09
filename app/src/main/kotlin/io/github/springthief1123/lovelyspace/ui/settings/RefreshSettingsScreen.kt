@@ -47,7 +47,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun RefreshSettingsScreen(onBack: () -> Unit) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
-    val pacing by app.settings.refreshPacing.collectAsStateWithLifecycle(initialValue = app.pacing.value)
+    val pacing by app.pacing.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     val bottomContentPadding = 14.dp +
