@@ -81,8 +81,8 @@ fun RefreshSettingsScreen(onBack: () -> Unit) {
                 }
                 item {
                     IntervalPicker(
-                        title = "新しい部屋の確認",
-                        description = "見つける画面で、新しい部屋が出る1ページ目を取り直す間隔",
+                        title = "見つける画面の更新",
+                        description = "見つける画面で、一覧を1ページ目から順に読み直す1周の間隔（ページの間は通信の最小間隔）",
                         value = pacing.searchHeadMs,
                         choices = RefreshPacing.LIST_CHOICES,
                         defaultValue = RefreshPacing.DEFAULT_SEARCH_HEAD_MS,
@@ -92,7 +92,7 @@ fun RefreshSettingsScreen(onBack: () -> Unit) {
                 item {
                     IntervalPicker(
                         title = "レーダーの自動巡回",
-                        description = "レーダー画面を開いている間に、1ページ目を取り直す間隔",
+                        description = "レーダー画面を開いている間に、一覧を1ページ目から順に読み直す1周の間隔",
                         value = pacing.radarHeadMs,
                         choices = RefreshPacing.LIST_CHOICES,
                         defaultValue = RefreshPacing.DEFAULT_RADAR_HEAD_MS,

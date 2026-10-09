@@ -13,9 +13,33 @@ class RoomPageWindowTest {
         val window = RoomPageWindow().observe(page(1, listOf(first, room(2))))
             .observe(page(2, listOf(room(3), full)))
             .observe(page(1, listOf(room(4))))
-        assertEquals(listOf(4L, 3L, 1L), window.rooms.map { it.id })
+        // 1 ページ目から消えた 2 は後ろへずれただけかもしれないので、もう一度 1 ページ目を読むまで残す。
+        assertEquals(listOf(4L, 2L, 3L, 1L), window.rooms.map { it.id })
         assertEquals(RoomAction.NONE, window.rooms.last().action)
-        assertFalse(window.rooms.any { it.id == 2L })
+        assertFalse(window.observe(page(1, listOf(room(4)))).rooms.any { it.id == 2L })
+    }
+    @Test fun roomsThatMoveToAnotherPageBetweenReadsStayInTheList() {
+        // 前のページの部屋が閉じて 3 が 1 ページ目へ繰り上がった。1 ページ目を読んだ後に 2 ページ目を読むと、3 はどちらにも無い。
+        val window = RoomPageWindow().observe(page(1, listOf(room(1), room(2))))
+            .observe(page(2, listOf(room(3), room(4))))
+            .observe(page(2, listOf(room(4), room(5))))
+        assertEquals(listOf(1L, 2L, 4L, 5L, 3L), window.rooms.map { it.id })
+        // 次の周で 1 ページ目に見つかれば、そこに並ぶ。
+        val next = window.observe(page(1, listOf(room(3), room(1))))
+        assertEquals(listOf(3L, 1L, 2L, 4L, 5L), next.rooms.map { it.id })
+        assertTrue(next.carried.keys.none { it.endsWith("/3") })
+        // 新しい部屋が開いて後ろのページへずれた部屋は、上から順に読めば同じ周で見つかる。
+        val shifted = RoomPageWindow().observe(page(1, listOf(room(1), room(2))))
+            .observe(page(2, listOf(room(3))))
+            .observe(page(1, listOf(room(9), room(1))))
+        assertEquals(listOf(9L, 1L, 2L, 3L), shifted.rooms.map { it.id })
+        assertEquals(listOf(9L, 1L, 2L, 3L), shifted.observe(page(2, listOf(room(2), room(3)))).rooms.map { it.id })
+        assertTrue(shifted.observe(page(2, listOf(room(2), room(3)))).carried.isEmpty())
+        // 1 ページだけの一覧では、消えた部屋は閉じた部屋なので残さない。
+        val single = RoomPageWindow().observe(page(1, listOf(room(1), room(2)), last = 1)).observe(page(1, listOf(room(1)), last = 1))
+        assertEquals(listOf(1L), single.rooms.map { it.id })
+        // 同じページをもう一度読んでも無ければ、閉じた部屋として外す。
+        assertEquals(listOf(1L, 2L, 4L, 5L), window.observe(page(2, listOf(room(4), room(5)))).rooms.map { it.id })
     }
     @Test fun duplicateOnOlderPageCannotOverrideNewerProfileAndReducedPageCountDropsOldPages() {
         val original = room(1)
@@ -47,49 +71,33 @@ class RoomPageWindowTest {
         assertSame(window, window.observe(page(1, listOf(room(1))), observationRevision = 2))
         assertEquals(listOf(latest), window.rooms)
     }
-    @Test fun schedulePrioritizesNewRoomsWithoutRestartingTheRemainingPageCursor() {
+    @Test fun scheduleReadsEveryPageInOrderAndStartsTheNextLapAfterTheSettingInterval() {
         var now = 0L
-        val schedule = RoomPageSchedule(clock = { now })
-        assertEquals(1, schedule.next(10)); schedule.completed(1, 10)
+        var lap = 4_000L
+        val schedule = RoomPageSchedule(clock = { now }) { lap }
+        assertEquals(1, schedule.next(3)); assertEquals(0, schedule.waitMs(3)); schedule.completed(1, 3)
         now = 3_000
-        assertEquals(2, schedule.next(10)); schedule.completed(2, 10)
-        now = 20_000
-        assertEquals(1, schedule.next(10)); schedule.completed(1, 10)
-        now = 23_000
-        assertEquals(3, schedule.next(10))
-        assertEquals(3, schedule.next(10)) // 失敗したページは完了を通知せず同じ位置で再試行。
-    }
-    @Test fun scheduleUsesTheHeadIntervalFromTheCurrentSettings() {
-        var now = 0L
-        var head = 4_000L
-        val schedule = RoomPageSchedule(clock = { now }) { head }
-        assertEquals(1, schedule.next(3)); schedule.completed(1, 3)
-        now = 2_000
-        assertEquals(2, schedule.next(3))
-        // 設定を 2 秒に縮めると、次の判断から 1 ページ目を優先する。
-        head = 2_000
-        assertEquals(1, schedule.next(3))
-    }
-    @Test fun scheduleReadsEveryUnreadPageFirstAndKeepsTheHeadAtTheSlowerSweepInterval() {
-        var now = 0L
-        val schedule = RoomPageSchedule(clock = { now })
-        assertEquals(1, schedule.next(4, emptySet())); schedule.completed(1, 4)
-        now = 3_000
-        assertEquals(2, schedule.next(4, setOf(1)))
+        assertEquals(2, schedule.next(3)); assertEquals(0, schedule.waitMs(3)); schedule.completed(2, 3)
         now = 6_000
-        assertEquals(2, schedule.next(4, setOf(1))) // 失敗したページは読めるまで同じ位置。
-        now = 9_000
-        assertEquals(2, schedule.next(4, setOf(1))); schedule.completed(2, 4)
-        now = 12_000
-        assertEquals(3, schedule.next(4, setOf(1, 2))); schedule.completed(3, 4)
-        now = 21_000
-        assertEquals(1, schedule.next(4, setOf(1, 2, 3))); schedule.completed(1, 4)
-        now = 24_000
-        assertEquals(4, schedule.next(4, setOf(1, 2, 3))); schedule.completed(4, 4)
-        // 全ページを読んだら、1 ページ目を 4 秒ごとに優先する通常の巡回に戻る。
-        now = 24_500
-        assertEquals(2, schedule.next(4, setOf(1, 2, 3, 4)))
-        now = 25_000
-        assertEquals(1, schedule.next(4, setOf(1, 2, 3, 4)))
+        assertEquals(3, schedule.next(3))
+        assertEquals(3, schedule.next(3)) // 失敗したページは完了を通知せず同じ位置で再試行。
+        schedule.completed(3, 3)
+        // 全ページを読んだら 1 ページ目に戻る。前の周の始まりから 4 秒経っているので待たない。
+        assertEquals(1, schedule.next(3)); assertEquals(0, schedule.waitMs(3))
+        // 設定の間隔が長ければ、新しい周の始まりだけを待つ。
+        lap = 10_000
+        assertEquals(4_000, schedule.waitMs(3))
+        // ページ数が減って次のページが無くなったら 1 ページ目へ。
+        schedule.completed(1, 3)
+        assertEquals(1, schedule.next(1))
+    }
+    @Test fun singlePageListIsReadAgainAtTheSettingInterval() {
+        var now = 0L
+        val schedule = RoomPageSchedule(clock = { now }) { 4_000 }
+        assertEquals(1, schedule.next(1)); schedule.completed(1, 1)
+        now = 3_000
+        assertEquals(1, schedule.next(1)); assertEquals(1_000, schedule.waitMs(1))
+        now = 4_000
+        assertEquals(0, schedule.waitMs(1))
     }
 }

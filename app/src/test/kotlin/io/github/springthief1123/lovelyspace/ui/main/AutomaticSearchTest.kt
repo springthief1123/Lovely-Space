@@ -23,7 +23,7 @@ class AutomaticSearchTest {
                 page(query.page, listOf(room(query.page.toLong())))
             }, clock = { testScheduler.currentTime })
             val job = backgroundScope.launch { vm.monitor() }
-            // まだ読んでいないページを先に 3 秒ごとに読み切り、その後に 1 ページ目を取り直す。
+            // 1 ページ目から順に 3 秒ごとに全ページを読み、読み終えたらまた 1 ページ目から読む。
             // 0 秒: 1、3 秒: 2、6 秒: 3、9 秒: 1。
             runCurrent(); advanceTimeBy(9_001); runCurrent()
             assertEquals(listOf(1, 2, 3, 1), calls)
@@ -102,9 +102,9 @@ class AutomaticSearchTest {
             runCurrent(); advanceTimeBy(3_001); runCurrent()
             assertNotNull(vm.state.value.error)
             advanceTimeBy(20_001); runCurrent()
-            // 復旧時の新着優先取得のあと、失敗した2ページ目に戻る。
+            // 失敗した 2 ページ目から読み直し、続けて 3 ページ目へ進む。
             advanceTimeBy(3_001); runCurrent()
-            assertEquals(listOf(1, 2, 1, 2), calls)
+            assertEquals(listOf(1, 2, 2, 3), calls)
             job.cancelAndJoin()
             assertTrue(cancelled)
             assertFalse(vm.state.value.loading)

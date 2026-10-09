@@ -266,18 +266,21 @@ class RadarRepository(
     fun automatic(enabled: Boolean) = _state.update { it.copy(automatic = enabled) }
 
     /**
-     * 新着を優先しながら、間に残りのページを取得する。画面のLifecycleが実行を管理する。
-     * 1 ページ目は設定の間隔（[RefreshPacing.radarHeadMs]）ごと、残りのページは通信の最小間隔ごとに取る。
+     * 計画・候補条件ごとに、一覧を 1 ページ目から最後のページまで順に読み直し、読み終えたらまた 1 ページ目から読む。
+     * 1 ページ目だけでなく全ページを 1 周ごとに読むので、既存の部屋の募集文や公開/非公開の変化、後ろのページの部屋も拾える。
+     * ページ同士は通信の最小間隔。すべての計画・候補条件が 1 ページ目に戻ったとき（新しい周）は、前の周の始まりから
+     * 設定の間隔（[RefreshPacing.radarHeadMs]）が経つまで待つ。画面のLifecycleが実行を管理する。
      */
     suspend fun monitor(pacing: () -> RefreshPacing = { RefreshPacing() }) {
-        var headAt: Long? = null
+        var lapAt: Long? = null
         while (currentCoroutineContext().isActive && _state.value.automatic) {
-            val now = System.nanoTime() / 1_000_000
             if (_state.value.loaded && !_state.value.running &&
                 (_state.value.plans.isNotEmpty() || _state.value.candidateRules.any { it.enabled } || _state.value.targets.any { it.evidence != RoomIdentityEvidence.REUSED })) {
-                val head = headAt == null || now - headAt >= pacing().sanitized().radarHeadMs
-                scan(latestFirst = head, force = false)
-                if (head) headAt = System.nanoTime() / 1_000_000
+                val newLap = (_state.value.nextPages.values + _state.value.nextCandidatePages.values).all { it == 1 }
+                val wait = lapAt?.takeIf { newLap }?.let { pacing().sanitized().radarHeadMs - (System.nanoTime() / 1_000_000 - it) } ?: 0L
+                if (wait > 0) { delay(wait); continue }
+                if (newLap) lapAt = System.nanoTime() / 1_000_000
+                scan(latestFirst = false, force = false)
             }
             delay(if (_state.value.error != null) RoomPageSchedule.ERROR_INTERVAL_MS else pacing().sanitized().minIntervalMs)
         }

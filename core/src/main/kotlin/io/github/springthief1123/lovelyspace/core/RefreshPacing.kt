@@ -10,9 +10,9 @@ package io.github.springthief1123.lovelyspace.core
 data class RefreshPacing(
     /** すべてのリクエスト同士の最小間隔。毎分のリクエスト数の上限を決める。 */
     val minIntervalMs: Long = DEFAULT_MIN_INTERVAL_MS,
-    /** 見つける画面で、新しい部屋が出る 1 ページ目を取り直す間隔。 */
+    /** 見つける画面で、一覧を 1 ページ目から順に読み直す 1 周の間隔（周の始まり同士の最短の間）。1 ページだけの一覧なら 1 ページ目を取り直す間隔。 */
     val searchHeadMs: Long = DEFAULT_SEARCH_HEAD_MS,
-    /** レーダーの自動巡回（前面）で、1 ページ目を取り直す間隔。 */
+    /** レーダーの自動巡回（前面）で、一覧を 1 ページ目から順に読み直す 1 周の間隔。 */
     val radarHeadMs: Long = DEFAULT_RADAR_HEAD_MS,
     /** アプリが前面の間に、順番待ちの部屋のページを確認する間隔。 */
     val waitlistMs: Long = DEFAULT_WAITLIST_MS,
