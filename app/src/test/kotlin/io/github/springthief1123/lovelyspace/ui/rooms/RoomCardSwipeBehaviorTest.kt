@@ -82,6 +82,22 @@ class RoomCardSwipeBehaviorTest {
         assertEquals(81.2f, roomCardRevealThreshold(116f, startedOpen = true), 0.01f)
     }
 
+    @Test
+    fun commitThresholdIsHalfOfCardWidth() {
+        assertEquals(540f, roomCardCommitThreshold(cardWidthPx = 1080f, revealWidthPx = 348f), 0.01f)
+        // 狭いカードでも、操作幅より手前では確定しない。
+        assertEquals(120f, roomCardCommitThreshold(cardWidthPx = 200f, revealWidthPx = 120f), 0.01f)
+    }
+
+    @Test
+    fun swipeLabelFadesInWithSwipeAmountOnBothSides() {
+        assertEquals(0f, roomCardSwipeLabelProgress(0f, 348f), 0.001f)
+        assertEquals(0.5f, roomCardSwipeLabelProgress(174f, 348f), 0.001f)
+        assertEquals(0.5f, roomCardSwipeLabelProgress(-174f, 348f), 0.001f)
+        assertEquals(1f, roomCardSwipeLabelProgress(700f, 348f), 0.001f)
+        assertEquals(0f, roomCardSwipeLabelProgress(50f, 0f), 0.001f)
+    }
+
     private fun release(offset: Float, velocity: Float) = resolveRoomCardSwipeRelease(
         offsetPx = offset,
         velocityPx = velocity,
