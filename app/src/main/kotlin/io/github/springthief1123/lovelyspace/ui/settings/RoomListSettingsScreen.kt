@@ -81,7 +81,7 @@ fun RoomListSettingsScreen(onBack: () -> Unit) {
             ) {
             item {
                 Text(
-                    "起動時に最初に表示するカテゴリ",
+                    "起動時に最初に表示するジャンル",
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.primary,
@@ -147,12 +147,12 @@ private fun DefaultGenrePicker(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            "指定カテゴリ",
+            "指定するジャンル",
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
         )
         Text(
-            if (enabled) "「指定したカテゴリ」を選んだ場合に使います。" else "開始方法を「指定したカテゴリ」にすると有効になります。",
+            if (enabled) "「指定したジャンル」を選んだ場合に使います。" else "開始方法を「指定したジャンル」にすると有効になります。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

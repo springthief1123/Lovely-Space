@@ -51,13 +51,13 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.ui.components.QuietExposedMenu
 import io.github.springthief1123.lovelyspace.ui.components.QuietMenuRow
-import io.github.springthief1123.lovelyspace.ui.components.QuietHeading
 import io.github.springthief1123.lovelyspace.ui.components.QuietPanel
 import io.github.springthief1123.lovelyspace.ui.components.QuietTopBar
 import io.github.springthief1123.lovelyspace.core.Genre
 import io.github.springthief1123.lovelyspace.core.Prefectures
 import io.github.springthief1123.lovelyspace.core.SitePages
 import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
+import io.github.springthief1123.lovelyspace.ui.entry.MissingInputs
 import io.github.springthief1123.lovelyspace.ui.main.ProfilePresetPicker
 import io.github.springthief1123.lovelyspace.ui.main.MessagePresetPicker
 import io.github.springthief1123.lovelyspace.ui.web.SiteWebView
@@ -129,7 +129,8 @@ private fun CreateRoomForm(genre: Genre, state: CreateRoomUiState, vm: CreateRoo
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            QuietHeading("部屋を作成")
+            // 見出しはツールバーの「部屋を作る」に任せ、本文ではどのジャンルに作るかを出す。
+            Text("ジャンル：${genre.label}", style = MaterialTheme.typography.titleSmall)
             QuietPanel {
                 Text("あなたのプロフィール", style = MaterialTheme.typography.titleSmall)
                 ProfilePresetPicker(profiles, onSelect = vm::applyProfile)
@@ -144,7 +145,7 @@ private fun CreateRoomForm(genre: Genre, state: CreateRoomUiState, vm: CreateRoo
                 )
 
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                    listOf(1 to "男", 2 to "女").forEachIndexed { i, (value, label) ->
+                    listOf(1 to "男性", 2 to "女性").forEachIndexed { i, (value, label) ->
                         SegmentedButton(
                             selected = state.sex == value,
                             onClick = { vm.setSex(value) },
@@ -185,14 +186,14 @@ private fun CreateRoomForm(genre: Genre, state: CreateRoomUiState, vm: CreateRoo
                     label = { Text("待機メッセージ") },
                     isError = !state.messageValid,
                     supportingText = {
-                        Text("${state.messageWidth} / ${CreateRoomUiState.MESSAGE_MAX_WIDTH}（全角は 2 文字として数えます）")
+                        Text("${state.messageWidth} / ${CreateRoomUiState.MESSAGE_MAX_WIDTH}（全角は2文字）")
                     },
                     modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp),
                 )
 
             }
             QuietPanel {
-                Text("公開設定", style = MaterialTheme.typography.titleSmall)
+                Text("ロボット確認", style = MaterialTheme.typography.titleSmall)
                 Text(
                     "部屋の作成には毎回ロボット確認が必要です。ラブルームの作成画面を開くので、確認のあと作成ボタンを押してください。入力した内容は入力済みになります。",
                     style = MaterialTheme.typography.bodyMedium,
@@ -200,6 +201,7 @@ private fun CreateRoomForm(genre: Genre, state: CreateRoomUiState, vm: CreateRoo
                 Button(onClick = onContinue, enabled = state.canContinue, modifier = Modifier.fillMaxWidth()) {
                     Text("ロボット確認へ進む")
                 }
+                MissingInputs(state.missingInputs)
             }
         }
     }

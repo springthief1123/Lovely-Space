@@ -25,7 +25,7 @@ data class EntryUiState(
     /** 入室前画面が開けなかった（満室になった・閉じられた・通信エラー）。 */
     val loadError: String? = null,
     val name: String = "",
-    /** 1=男, 2=女 */
+    /** 1=男性, 2=女性 */
     val sex: Int = 1,
     /** 空欄は「秘密」。 */
     val years: String = "",
@@ -40,6 +40,13 @@ data class EntryUiState(
     /** 入室前画面の取り直し中は、使用済みのトークンで送らないよう押せなくする。 */
     val canEnter: Boolean
         get() = form != null && !isLoading && !form.requiresCaptcha && name.isNotBlank() && yearsValid && !isEntering && entered == null
+
+    /** 入室ボタンが押せない理由になっている入力。ボタンの近くに出す。 */
+    val missingInputs: List<String>
+        get() = listOfNotNull(
+            "名前".takeIf { name.isBlank() },
+            "年齢（${MIN_YEARS}〜${MAX_YEARS}、空欄なら秘密）".takeIf { !yearsValid },
+        )
 
     companion object {
         const val MIN_YEARS = 18

@@ -69,14 +69,14 @@ fun ProfileScreen(onOpenSettings: () -> Unit, onCreateRoom: () -> Unit) {
         item { Button(onClick = onCreateRoom, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
             Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
-            Text("部屋をつくる")
+            Text("部屋を作る")
         } }
         item { QuietListPanel(onClick = onOpenSettings) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Outlined.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
                     Text("設定", style = MaterialTheme.typography.titleSmall)
-                    Text("表示・一覧・非表示にした部屋", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("表示・部屋一覧・非表示にした部屋・通知・アプリロック", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 10.dp))

@@ -356,7 +356,7 @@ private fun WaitingMessageDialog(current: String, onSave: (String) -> Unit, onDi
             minLines = 3,
             maxLines = 8,
             isError = width > max,
-            supportingText = { Text("$width / $max（全角は 2 文字として数えます）") },
+            supportingText = { Text("$width / $max（全角は2文字）") },
             modifier = Modifier.fillMaxWidth(),
         )
     }
