@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -85,6 +86,7 @@ fun GenreBar(
             Row(
                 Modifier
                     .fillMaxWidth()
+                    .selectableGroup()
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(18.dp),
             ) {
@@ -141,6 +143,7 @@ private fun GenreSheet(
                     modifier = Modifier.padding(top = 20.dp, bottom = 8.dp).semantics { heading() },
                 )
                 FlowRow(
+                    Modifier.selectableGroup(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
