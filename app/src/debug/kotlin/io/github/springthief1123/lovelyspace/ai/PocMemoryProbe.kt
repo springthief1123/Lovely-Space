@@ -16,6 +16,7 @@ import java.io.FileOutputStream
 import java.io.OutputStreamWriter
 import java.time.Instant
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -191,6 +192,9 @@ internal object PocChatCoexistenceProbe {
     @Volatile private var screen: String = "poc"
     @Volatile private var backgroundSinceMs: Long? = null
     @Volatile private var hasVisitedMain = false
+    @Volatile private var lastError: String? = null
+
+    fun lastError(): String? = lastError
 
     fun isRunning(): Boolean = synchronized(lock) { job?.isActive == true }
 
@@ -201,6 +205,7 @@ internal object PocChatCoexistenceProbe {
             screen = "poc"
             backgroundSinceMs = null
             hasVisitedMain = false
+            lastError = null
             val runId = UUID.randomUUID().toString()
             val wall = SystemClock.elapsedRealtime()
             val cpu = Process.getElapsedCpuTime()
@@ -238,8 +243,17 @@ internal object PocChatCoexistenceProbe {
                         val current = screen
                         val phase = if (current == last) "coexistence_sample" else "coexistence_transition"
                         last = current
-                        val sample = PocMemoryMetrics.read(app, runId, phase, current, wall, cpu)
-                        PocMemoryLogs.append(app, sample)
+                        try {
+                            val sample = PocMemoryMetrics.read(app, runId, phase, current, wall, cpu)
+                            PocMemoryLogs.append(app, sample)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            // ファイル容量上限・OS測定エラーでアプリ全体を落とさない。
+                            // 例外メッセージには端末環境由来の情報があり得るためログに出さない。
+                            lastError = "RAM計測の記録を継続できませんでした。容量と保存状態を確認してください。"
+                            break
+                        }
                         delay(PocMemoryProbePolicy.SAMPLE_INTERVAL_MS)
                     }
                 } finally {
