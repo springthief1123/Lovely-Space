@@ -11,6 +11,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,6 +20,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -42,6 +47,10 @@ import java.io.File
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -54,14 +63,6 @@ class EmbeddingPocActivity : ComponentActivity() {
         }
     }
 }
-
-private val fakeMessages = listOf(
-    "寝るまでのんびりお話ししませんか",
-    "まったり雑談、気軽にどうぞ",
-    "5分だけ暇つぶししよう",
-    "ゲームの攻略情報を教え合いませんか",
-    "ゆっくり映画の感想を話したいです",
-)
 
 private const val MODEL_NAME = "embeddinggemma-2-text-270m.litertlm"
 private const val MIN_MODEL_BYTES = 1_000_000L
@@ -111,8 +112,25 @@ private fun importModel(context: Context, uri: Uri): Long {
 
 private data class Benchmark(
     val results: List<SemanticRanking.Result>,
+    val corpusSize: Int,
+    val keywordMatches: Int,
+    val requireAll: Boolean,
     val initializationMs: Long,
     val embeddingMs: Long,
+    val rankingMs: Long,
+    val cacheHits: Int,
+    val cacheMisses: Int,
+    val resources: PocResourceReport,
+    val loggingError: String?,
+)
+
+private data class PocWork(
+    val results: List<SemanticRanking.Result>,
+    val initializationMs: Long,
+    val embeddingMs: Long,
+    val rankingMs: Long,
+    val cacheHits: Int,
+    val cacheMisses: Int,
 )
 
 /**
@@ -159,20 +177,72 @@ private class DebugEmbeddingEngine(modelPath: String) : AutoCloseable {
         } ?: e
 }
 
-private fun evaluate(model: File, query: String): Benchmark {
+private suspend fun evaluate(
+    context: Context,
+    model: File,
+    query: String,
+    count: Int,
+    keywords: List<String>,
+    requireAll: Boolean,
+): Benchmark = coroutineScope {
     check(model.isFile && model.length() >= MIN_MODEL_BYTES) { "先にモデルを取り込んでください" }
-    val startInitialize = SystemClock.elapsedRealtime()
-    DebugEmbeddingEngine(model.absolutePath).use { engine ->
-        val initializationMs = SystemClock.elapsedRealtime() - startInitialize
-        val startEmbeddings = SystemClock.elapsedRealtime()
-        val queryVector = engine.embed(QUERY_PREFIX + query.trim())
-        val documents = fakeMessages.map { text ->
-            text to engine.embed(DOCUMENT_PREFIX + text.trim())
+    val corpus = PocCorpus.take(count)
+    val baselineHits = PocKeywordBaseline.matchedCount(corpus, keywords, requireAll)
+    val telemetry = PocTelemetry(context)
+    telemetry.sample()
+    val sampler = launch(Dispatchers.Default) {
+        while (isActive) {
+            delay(120)
+            telemetry.sample()
         }
-        val embeddingMs = SystemClock.elapsedRealtime() - startEmbeddings
-        // SDKの正規化指定を使わず、SemanticRankingのコサイン計算でL2正規化する。
-        return Benchmark(SemanticRanking.rank(queryVector, documents), initializationMs, embeddingMs)
     }
+    val work = try {
+        withContext(Dispatchers.IO) {
+            val initStart = SystemClock.elapsedRealtime()
+            DebugEmbeddingEngine(model.absolutePath).use { engine ->
+                val initMs = SystemClock.elapsedRealtime() - initStart
+                PocVectorCache.prepare(model)
+                val embedStart = SystemClock.elapsedRealtime()
+                val queryVector = engine.embed(QUERY_PREFIX + query.trim())
+                var hits = 0
+                var misses = 0
+                val documents = corpus.map { text ->
+                    val cached = PocVectorCache.get(text)
+                    if (cached != null) {
+                        hits++
+                        text to cached
+                    } else {
+                        val vector = engine.embed(DOCUMENT_PREFIX + text.trim())
+                        PocVectorCache.put(text, vector)
+                        misses++
+                        text to vector
+                    }
+                }
+                val embedMs = SystemClock.elapsedRealtime() - embedStart
+                val rankStart = SystemClock.elapsedRealtime()
+                val ranked = SemanticRanking.rank(queryVector, documents)
+                val rankMs = SystemClock.elapsedRealtime() - rankStart
+                PocWork(ranked, initMs, embedMs, rankMs, hits, misses)
+            }
+        }
+    } finally {
+        sampler.cancelAndJoin()
+        telemetry.sample()
+    }
+    val resources = telemetry.finish()
+    val record = PocLogRecord.new(
+        count, requireAll, baselineHits, work.cacheHits, work.cacheMisses,
+        work.initializationMs, work.embeddingMs, work.rankingMs,
+        work.results.firstOrNull()?.similarity, resources,
+    )
+    val loggingError = withContext(Dispatchers.IO) {
+        runCatching { PocLogs.append(context, record) }.exceptionOrNull()?.message
+    }
+    Benchmark(
+        work.results, count, baselineHits, requireAll,
+        work.initializationMs, work.embeddingMs, work.rankingMs,
+        work.cacheHits, work.cacheMisses, resources, loggingError,
+    )
 }
 
 @Composable
@@ -182,15 +252,21 @@ private fun EmbeddingPocScreen(onClose: () -> Unit) {
     val model = remember(context) { modelFile(context) }
     var modelPresent by remember { mutableStateOf(model.isFile && model.length() >= MIN_MODEL_BYTES) }
     var query by rememberSaveable { mutableStateOf("落ち着いて、長めに雑談できる部屋") }
+    var sampleCount by rememberSaveable { mutableStateOf(5) }
+    var keywords by rememberSaveable { mutableStateOf("まったり,のんびり") }
+    var requireAll by rememberSaveable { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf("モデルは自動取得しません。公式モデルを選択してください。") }
+    var message by remember { mutableStateOf("モデルを選択してください。計測値を端末内のCSVに保存します。") }
     var benchmark by remember { mutableStateOf<Benchmark?>(null) }
+    var logSize by remember { mutableStateOf(PocLogs.size(context)) }
+    var confirmDelete by remember { mutableStateOf(false) }
 
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
             busy = true
             try {
                 val bytes = withContext(Dispatchers.IO) { importModel(context, uri) }
+                PocVectorCache.clear()
                 modelPresent = true
                 benchmark = null
                 message = "モデルを取り込みました（" + (bytes / (1024 * 1024)) + " MiB）。"
@@ -203,6 +279,42 @@ private fun EmbeddingPocScreen(onClose: () -> Unit) {
             }
         }
     }
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/csv"),
+    ) { uri ->
+        if (uri != null) scope.launch {
+            busy = true
+            try {
+                withContext(Dispatchers.IO) { PocLogs.export(context, uri) }
+                message = "CSVを書き出しました。検索文や本家のデータは含みません。"
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message = "CSV書き出しに失敗: " + (e.message ?: "保存先を確認してください")
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("計測ログを削除しますか？") },
+            text = { Text("端末内に保存されたCSV記録を削除します。先に書き出しておくことをおすすめします。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = false
+                    val done = PocLogs.delete(context)
+                    logSize = PocLogs.size(context)
+                    message = if (done) "計測ログを削除しました。" else "計測ログを削除できませんでした。"
+                }) { Text("削除する") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) { Text("やめる") }
+            },
+        )
+    }
 
     Scaffold(topBar = { QuietTopBar(title = "AI意味検索・実機検証", onBack = onClose) }) { insets ->
         Column(
@@ -212,7 +324,7 @@ private fun EmbeddingPocScreen(onClose: () -> Unit) {
             QuietPanel {
                 Text("debug版限定・オフライン評価", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "既存の部屋検索や通知とは接続していません。端末内の架空の募集文だけを評価します。",
+                    "実際の部屋・通信・通知には未接続です。100件すべて架空の募集文です。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -225,9 +337,10 @@ private fun EmbeddingPocScreen(onClose: () -> Unit) {
                 if (modelPresent) {
                     OutlinedButton(onClick = {
                         if (model.delete()) {
+                            PocVectorCache.clear()
                             modelPresent = false
                             benchmark = null
-                            message = "アプリ内のモデルを削除しました。"
+                            message = "モデルのアプリ内コピーを削除しました。"
                         } else message = "モデルを削除できませんでした。"
                     }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
                         Text("モデルを削除する")
@@ -240,29 +353,69 @@ private fun EmbeddingPocScreen(onClose: () -> Unit) {
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
-                    label = { Text("希望する部屋の説明") },
+                    label = { Text("希望する部屋の説明（CSVには保存しません）") },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !busy,
                     minLines = 2,
                     maxLines = 4,
                 )
-                Text("テスト用の募集文は5件。個人データは含みません。", style = MaterialTheme.typography.bodySmall)
+                Text("検証する架空の募集文の件数", style = MaterialTheme.typography.bodyMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    for (size in listOf(5, 30, 100)) {
+                        FilterChip(
+                            selected = sampleCount == size,
+                            onClick = { sampleCount = size },
+                            label = { Text(size.toString() + "件") },
+                            enabled = !busy,
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = keywords,
+                    onValueChange = { keywords = it },
+                    label = { Text("参考比較キーワード（カンマ区切り）") },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !busy,
+                    singleLine = true,
+                )
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = requireAll,
+                        onCheckedChange = { requireAll = it },
+                        enabled = !busy,
+                    )
+                    Text("すべて含む（AND）・OFFはOR", style = MaterialTheme.typography.bodySmall)
+                }
+                Text(
+                    "AND/ORは文字列の単純包含による参考比較です。本番の検索エンジンと同一ではありません。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 Button(
                     onClick = {
+                        val queryNow = query
+                        val countNow = sampleCount
+                        val termsNow = PocKeywordBaseline.terms(keywords)
+                        val allNow = requireAll
                         busy = true
                         benchmark = null
-                        message = "CPUでモデルを読み込んで評価しています..."
+                        message = "CPUで評価中です。100件の初回は時間がかかる場合があります。"
                         scope.launch {
                             try {
-                                val result = withContext(Dispatchers.IO) { evaluate(model, query) }
+                                val result = evaluate(context, model, queryNow, countNow, termsNow, allNow)
                                 benchmark = result
-                                message = "評価完了。通信を使用せず端末内で処理しました。"
+                                logSize = PocLogs.size(context)
+                                message = if (result.loggingError == null) {
+                                    "端末内で評価し、計測ログをCSVへ保存しました。"
+                                } else {
+                                    "評価は成功しましたが、ログ保存に失敗: " + result.loggingError
+                                }
                             } catch (e: CancellationException) {
                                 throw e
                             } catch (e: LinkageError) {
-                                message = "端末で推論ライブラリを読み込めません: " + (e.message ?: "互換性を確認してください")
+                                message = "推論ライブラリに問題があります: " + (e.message ?: "互換性を確認してください")
                             } catch (e: Exception) {
-                                message = "推論に失敗: " + (e.message ?: "モデルまたは端末の対応状況を確認してください")
+                                message = "推論に失敗: " + (e.message ?: "モデルとメモリを確認してください")
                             } finally {
                                 busy = false
                             }
@@ -270,20 +423,55 @@ private fun EmbeddingPocScreen(onClose: () -> Unit) {
                     },
                     enabled = modelPresent && !busy && query.isNotBlank(),
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("端末内で意味検索") }
+                ) { Text("端末内で意味検索・負荷測定") }
                 if (busy) CircularProgressIndicator()
                 Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
             benchmark?.let { result ->
                 QuietPanel {
-                    Text("CPU実行結果", style = MaterialTheme.typography.titleMedium)
+                    Text("CPU実行・端末負荷", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "モデル初期化: " + result.initializationMs + " ms / ベクトル計算（希望文と5件）: " +
-                            result.embeddingMs + " ms",
+                        "初期化 " + result.initializationMs + " ms / ベクトル計算 " + result.embeddingMs +
+                            " ms / 並べ替え " + result.rankingMs + " ms / 合計 " +
+                            result.resources.elapsedMs + " ms",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        "文書ベクトルキャッシュ: " + result.cacheHits + "件再利用 / " +
+                            result.cacheMisses + "件新規",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        "プロセスCPU時間: " + result.resources.processCpuMs +
+                            " ms / 平均コア換算負荷 " +
+                            String.format(Locale.ROOT, "%.1f", result.resources.averageCpuCorePercent) + "%",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        "アプリPSSメモリ: 終了時 " + (result.resources.finalPssKb / 1024) +
+                            " MiB / 観測ピーク " + (result.resources.peakSampledPssKb / 1024) +
+                            " MiB / Javaヒープ観測ピーク " +
+                            (result.resources.peakSampledHeapKb / 1024) + " MiB",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    val battery = result.resources
+                    Text(
+                        "バッテリー残量: " + (battery.batteryPercent?.toString() ?: "取得不可") +
+                            "% / 電池温度: " + (battery.batteryTemperatureC?.toString() ?: "取得不可") +
+                            " ℃（CPU温度ではありません）",
                         style = MaterialTheme.typography.bodySmall,
                     )
-                    result.results.forEachIndexed { index, item ->
+                    Text(
+                        "文字列包含 " + (if (result.requireAll) "AND" else "OR") +
+                            " 一致: " + result.keywordMatches + "/" + result.corpusSize + "件",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        "意味検索の上位 " + minOf(10, result.results.size) + "件",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    result.results.take(10).forEachIndexed { index, item ->
                         Text(
                             (index + 1).toString() + ". " + item.text +
                                 "\nコサイン類似度 " + String.format(Locale.ROOT, "%.4f", item.similarity),
@@ -291,11 +479,39 @@ private fun EmbeddingPocScreen(onClose: () -> Unit) {
                         )
                     }
                     Text(
-                        "スコアは確率・安全性・人物の属性を示しません。日本語の順位は実機で検証してください。",
+                        "PSSは120msごとの近似測定。CPU負荷は本アプリのコア換算で、100%を超える場合があります。スコアは確率ではありません。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+
+            QuietPanel {
+                Text("計測ログ", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "保存済み: " + (logSize / 1024) + " KiB / アプリ専用領域。実行ごとの要約と約120ms間隔のサンプルです。",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    "CSVには処理時間、アプリPSS/ヒープ、CPU時間、電池状態、キャッシュ件数だけを記録。検索文・募集文・認証情報・個体識別情報は含みません。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedButton(
+                    onClick = { exportLauncher.launch("lovely-ai-benchmark.csv") },
+                    enabled = !busy && logSize > 0,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("計測ログをCSVに書き出す") }
+                OutlinedButton(
+                    onClick = { PocVectorCache.clear(); message = "メモリ内の文書ベクトルを消去しました。" },
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("文書ベクトルのキャッシュを消去") }
+                OutlinedButton(
+                    onClick = { confirmDelete = true },
+                    enabled = !busy && logSize > 0,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("保存した計測ログを削除") }
             }
             Spacer(Modifier.height(16.dp))
         }
