@@ -1,6 +1,7 @@
 package io.github.springthief1123.lovelyspace.ai
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
@@ -40,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import io.github.springthief1123.lovelyspace.MainActivity
 import io.github.springthief1123.lovelyspace.ui.components.QuietPanel
 import io.github.springthief1123.lovelyspace.ui.components.QuietTopBar
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpaceTheme
@@ -328,6 +330,8 @@ private fun EmbeddingPocScreen(onClose: () -> Unit) {
     var qualityResults by remember { mutableStateOf<List<PocQualityResult>?>(null) }
     var qualityLogSize by remember { mutableStateOf(PocQualityLogs.size(context)) }
     var modeLogSize by remember { mutableStateOf(PocRunModeLogs.size(context)) }
+    var memoryLogSize by remember { mutableStateOf(PocMemoryLogs.size(context)) }
+    var lastRelease by remember { mutableStateOf<PocReleaseResult?>(null) }
     var diskSize by remember { mutableStateOf(PocVectorCache.onDiskBytes(context)) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("モデルを選択してください。計測値を端末内のCSVに保存します。") }
@@ -388,6 +392,21 @@ private fun EmbeddingPocScreen(onClose: () -> Unit) {
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 message = "実行条件CSVの書き出しに失敗: " + (e.message ?: "保存先を確認してください")
+            } finally { busy = false }
+        }
+    }
+
+    val memoryExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/csv"),
+    ) { uri ->
+        if (uri != null) scope.launch {
+            busy = true
+            try {
+                withContext(Dispatchers.IO) { PocMemoryLogs.export(context, uri) }
+                message = "メモリ・画面操作の計測CSVを保存しました。チャット内容は含まれません。"
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                message = "メモリCSVの書き出しに失敗: " + (e.message ?: "保存先を確認してください")
             } finally { busy = false }
         }
     }
@@ -715,6 +734,111 @@ private fun EmbeddingPocScreen(onClose: () -> Unit) {
                     enabled = !busy && qualityLogSize > 0,
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("品質評価のCSVを書き出す") }
+            }
+
+            QuietPanel {
+                Text("モデル解放と通常画面のRAM検証", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "推論モデルを保持した状態のメモリを調べ、解放から0/250/1000/3000ms後のPSS・Native PSS・ヒープをCSVへ記録します。GCは強制しません。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Button(
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !busy,
+                    onClick = {
+                        busy = true
+                        message = "モデルの解放前後のメモリを3秒間測定しています..."
+                        scope.launch {
+                            try {
+                                val result = measurePocRelease(context)
+                                lastRelease = result
+                                memoryLogSize = PocMemoryLogs.size(context)
+                                message = if (result.engineWasLoaded && !result.engineLoadedAfter) {
+                                    "モデル解放が完了しました。PSSの数値は測定サンプルで確認してください。"
+                                } else if (!result.engineWasLoaded) {
+                                    "保持中のモデルがなかったため、解放は不要でした。測定値は保存しました。"
+                                } else {
+                                    "モデルがまだ保持されている可能性があります。ログを確認してください。"
+                                }
+                            } catch (e: CancellationException) { throw e }
+                            catch (e: Exception) {
+                                message = "メモリ解放の測定に失敗: " + (e.message ?: "ログを確認してください")
+                            } finally { busy = false }
+                        }
+                    },
+                ) { Text("読み込み済みモデルを解放してRAMを測る") }
+                lastRelease?.let { result ->
+                    Text(
+                        "解放前のエンジン: " + (if (result.engineWasLoaded) "保持あり" else "保持なし") +
+                            " / 3秒後: " + (if (result.engineLoadedAfter) "保持あり" else "保持なし"),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text(
+                        "PSS（観測値）: " + (result.pssBeforeKb / 1024) + " → " +
+                            (result.pssAfter3SecondsKb / 1024) + " MiB。直後から3秒後までの各点はCSVに保存。",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Text(
+                    "通常のLovely Space画面を開き、最大90秒間、同一プロセスのCPU/PSS/Native PSSを1秒ごとに計測します。画面を離れるとモデルは自動解放。通常画面での既存通信は従来どおりです。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Button(
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !busy && !PocChatCoexistenceProbe.isRunning(),
+                    onClick = {
+                        if (PocChatCoexistenceProbe.start(context)) {
+                            message = "通常画面の負荷計測を開始。最大90秒で自動停止します。"
+                            try {
+                                context.startActivity(Intent(context, MainActivity::class.java))
+                            } catch (e: Exception) {
+                                PocChatCoexistenceProbe.stop()
+                                message = "通常画面を起動できません: " + (e.message ?: "端末を確認してください")
+                            }
+                        }
+                    },
+                ) { Text("負荷計測を開始して通常のLovely Spaceを開く") }
+                OutlinedButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !busy,
+                    onClick = {
+                        PocChatCoexistenceProbe.stop()
+                        memoryLogSize = PocMemoryLogs.size(context)
+                        message = "計測停止を要求しました。保存済みの記録を確認してください。"
+                    },
+                ) { Text("通常画面の計測を停止") }
+                Text(
+                    "メモリログ " + (memoryLogSize / 1024) + " KiB。チャットの本文・部屋名・URL・ユーザー名は記録しません。",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !busy,
+                    onClick = {
+                        memoryLogSize = PocMemoryLogs.size(context)
+                        PocChatCoexistenceProbe.lastError()?.let { message = it }
+                    },
+                ) { Text("メモリログの容量を更新") }
+                OutlinedButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !busy && memoryLogSize > 0,
+                    onClick = { memoryExportLauncher.launch("lovely-ai-memory-lifecycle.csv") },
+                ) { Text("RAM・通常画面の計測CSVを書き出す") }
+                OutlinedButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !busy && memoryLogSize > 0,
+                    onClick = {
+                        if (PocChatCoexistenceProbe.isRunning()) {
+                            message = "計測を停止してからログを削除してください。"
+                        } else {
+                            val deleted = PocMemoryLogs.delete(context)
+                            memoryLogSize = PocMemoryLogs.size(context)
+                            message = if (deleted) "RAM計測ログを削除しました。" else "RAM計測ログの削除に失敗しました。"
+                        }
+                    },
+                ) { Text("RAM計測ログを削除する") }
             }
 
             QuietPanel {

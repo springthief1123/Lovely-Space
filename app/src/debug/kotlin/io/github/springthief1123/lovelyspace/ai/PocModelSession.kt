@@ -55,6 +55,9 @@ internal object PocModelSession {
         }
     }
 
+    /** debug計測でのみ使用。SDKエンジンを保持しているかを同期して確認する。 */
+    fun hasActiveEngine(): Boolean = synchronized(lock) { active != null }
+
     fun releaseNow() = synchronized(lock) {
         releaseRequested = true
         closeLocked()
