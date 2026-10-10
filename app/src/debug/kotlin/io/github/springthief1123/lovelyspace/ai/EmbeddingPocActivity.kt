@@ -63,7 +63,7 @@ class EmbeddingPocActivity : ComponentActivity() {
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (level >= TRIM_MEMORY_RUNNING_LOW) PocModelSession.releaseAsync()
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) PocModelSession.releaseAsync()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -506,7 +506,11 @@ private fun EmbeddingPocScreen(onClose: () -> Unit) {
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                     Checkbox(
                         checked = persistVectors,
-                        onCheckedChange = { persistVectors = it },
+                        onCheckedChange = {
+                            persistVectors = it
+                            // ON/OFF切替時には旧メモリの復元状態をリセットし、次回に正しく読み直す。
+                            PocVectorCache.clear()
+                        },
                         enabled = !busy,
                     )
                     Text("架空文のベクトルを再起動後も再利用する", style = MaterialTheme.typography.bodySmall)
