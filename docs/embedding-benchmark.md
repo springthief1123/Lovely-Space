@@ -11,7 +11,7 @@
 
 ## Galaxy Z Fold5での実機手順
 
-1. [PR #106 のCI](https://github.com/springthief1123/Lovely-Space/pulls?q=is%3Apr+is%3Aopen+embedding) に対応するGitHub Actionsの**debug APK**を取得してインストール（正しいPR・コミットのAPKを選ぶ）。
+1. [Draft PR #107 のCI](https://github.com/springthief1123/Lovely-Space/pull/107/checks) に対応するGitHub Actionsの**debug APK**を取得してインストール（正しいPR・コミットのAPKを選ぶ）。
 2. ホーム画面の「AI意味検索検証」を開き、以前に取り込んだモデルが使える場合はそのまま利用。モデル未取得なら [モデル配布ページ](https://huggingface.co/litert-community/embeddinggemma-2-text-270m-litert-lm/tree/main) から `embeddinggemma-2-text-270m.litertlm` を取得して取り込む。
 3. まず**5件**を1回実行してログを残す。続けて同じ条件で再実行し、キャッシュヒットによる速度差を比較。
 4. **30件→100件**の順に実行し、初回の文書埋め込みが増えた際の時間・RAM・CPU時間を比較する。100件実行後に同じ条件でもう1回検索し、文書ベクトルのキャッシュ効果を確認。
