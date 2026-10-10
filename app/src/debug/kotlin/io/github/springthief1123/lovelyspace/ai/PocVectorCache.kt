@@ -51,7 +51,7 @@ internal object PocVectorCache {
         modelIdentity = null
         val sha = PocDiskCache.hashFile(model)
         val corpus = PocDiskCache.hashString(
-            PocCorpus.all.withIndex().joinToString("\u0000") { (i, s) -> "$" + "{i}:" + s },
+            PocCorpus.all.withIndex().joinToString("\u0000") { (i, s) -> i.toString() + ":" + s },
         )
         modelSha = sha
         corpusSha = corpus
