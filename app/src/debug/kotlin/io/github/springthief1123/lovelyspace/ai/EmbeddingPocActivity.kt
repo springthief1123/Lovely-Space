@@ -768,7 +768,7 @@ private fun EmbeddingPocScreen(onClose: () -> Unit) {
                 ) { Text("永続キャッシュも含めて消去") }
                 OutlinedButton(
                     onClick = { confirmDelete = true },
-                    enabled = !busy && logSize > 0,
+                    enabled = !busy && (logSize > 0 || modeLogSize > 0),
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("保存した計測ログを削除") }
             }
