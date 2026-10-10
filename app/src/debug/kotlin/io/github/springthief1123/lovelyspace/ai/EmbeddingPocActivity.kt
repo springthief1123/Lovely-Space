@@ -35,11 +35,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.google.ai.edge.litertlm.Backend
-import com.google.ai.edge.litertlm.EmbeddingEngine
-import com.google.ai.edge.litertlm.EmbeddingEngineConfig
-import com.google.ai.edge.litertlm.EmbeddingOptions
-import com.google.ai.edge.litertlm.InputData
 import io.github.springthief1123.lovelyspace.ui.components.QuietPanel
 import io.github.springthief1123.lovelyspace.ui.components.QuietTopBar
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpaceTheme
@@ -120,30 +115,63 @@ private data class Benchmark(
     val embeddingMs: Long,
 )
 
+/**
+ * LiteRT-LM 0.18.0 は Kotlin 2.4 でビルドされており、既存の Kotlin 2.1 コンパイラで
+ * SDKのクラスを直接参照するとメタデータ互換性エラーになる。PoCはdebugRuntimeOnlyと
+ * リフレクションで型付きAPI境界をこのクラス内に隔離する。本番採用時はツールチェーンを更新して置き換える。
+ */
+private class DebugEmbeddingEngine(modelPath: String) : AutoCloseable {
+    private val engineClass = Class.forName("com.google.ai.edge.litertlm.EmbeddingEngine")
+    private val inputTextClass = Class.forName("com.google.ai.edge.litertlm.InputData" + '$' + "Text")
+    private val engine: Any
+
+    init {
+        val configClass = Class.forName("com.google.ai.edge.litertlm.EmbeddingEngineConfig")
+        // @JvmOverloadsによりモデルパスだけのコンストラクタが提供され、backendはCPUが既定値。
+        val config = configClass.getConstructor(String::class.java).newInstance(modelPath)
+        engine = engineClass.getConstructor(configClass).newInstance(config)
+        try {
+            engineClass.getMethod("initialize").invoke(engine)
+        } catch (e: Exception) {
+            // initialize()未成功時はSDK側のclose()が例外になるので呼ばない。
+            throw unwrap(e)
+        }
+    }
+
+    fun embed(text: String): FloatArray {
+        val input = inputTextClass.getConstructor(String::class.java).newInstance(text)
+        val response = try {
+            engineClass.getMethod("computeEmbedding", java.util.List::class.java)
+                .invoke(engine, listOf(input))
+        } catch (e: Exception) {
+            throw unwrap(e)
+        }
+        return response.javaClass.getMethod("getEmbedding").invoke(response) as FloatArray
+    }
+
+    override fun close() {
+        engineClass.getMethod("close").invoke(engine)
+    }
+
+    private fun unwrap(e: Exception): Exception =
+        (e as? java.lang.reflect.InvocationTargetException)?.targetException?.let {
+            IllegalStateException(it.message ?: "ネイティブ推論に失敗しました", it)
+        } ?: e
+}
+
 private fun evaluate(model: File, query: String): Benchmark {
     check(model.isFile && model.length() >= MIN_MODEL_BYTES) { "先にモデルを取り込んでください" }
-    val config = EmbeddingEngineConfig(modelPath = model.absolutePath, backend = Backend.CPU())
-    val engine = EmbeddingEngine(config)
-    try {
-        val startInitialize = SystemClock.elapsedRealtime()
-        engine.initialize()
+    val startInitialize = SystemClock.elapsedRealtime()
+    DebugEmbeddingEngine(model.absolutePath).use { engine ->
         val initializationMs = SystemClock.elapsedRealtime() - startInitialize
         val startEmbeddings = SystemClock.elapsedRealtime()
-        // モデルに応じて768次元等のfloatベクトルが返る。SDKにL2正規化を依頼する。
-        val options = EmbeddingOptions(normalize = true)
-        val queryVector = engine.computeEmbedding(
-            listOf(InputData.Text(QUERY_PREFIX + query.trim())), options,
-        ).embedding
+        val queryVector = engine.embed(QUERY_PREFIX + query.trim())
         val documents = fakeMessages.map { text ->
-            text to engine.computeEmbedding(
-                listOf(InputData.Text(DOCUMENT_PREFIX + text.trim())), options,
-            ).embedding
+            text to engine.embed(DOCUMENT_PREFIX + text.trim())
         }
         val embeddingMs = SystemClock.elapsedRealtime() - startEmbeddings
+        // SDKの正規化指定を使わず、SemanticRankingのコサイン計算でL2正規化する。
         return Benchmark(SemanticRanking.rank(queryVector, documents), initializationMs, embeddingMs)
-    } finally {
-        // initialize()失敗時はclose()が例外を投げるSDK実装なので、成功時のみ解放。
-        if (engine.isInitialized()) engine.close()
     }
 }
 
