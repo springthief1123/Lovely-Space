@@ -107,7 +107,7 @@ ShaloveClient → RoomListRepository / ListSync → RadarRepository / Waitlist
 
 | 既存 | 状況・重複 | 方針 |
 | --- | --- | --- |
-| [#36](https://github.com/springthief1123/Lovely-Space/issues/36)、[#15](https://github.com/springthief1123/Lovely-Space/issues/15)、[#18〜#25](https://github.com/springthief1123/Lovely-Space/issues/18) | 検索・巡回計画・候補・追跡・履歴の基盤 | **二重実装しない**。意味的評価だけを追加 |
+| [#36](https://github.com/springthief1123/Lovely-Space/issues/36)、[PR #15](https://github.com/springthief1123/Lovely-Space/pull/15)、[PR #18〜#25](https://github.com/springthief1123/Lovely-Space/pulls?q=is%3Apr+18..25) | 検索・巡回計画・候補・追跡・履歴の基盤 | **二重実装しない**。意味的評価だけを追加 |
 | [#40](https://github.com/springthief1123/Lovely-Space/issues/40)、[#42](https://github.com/springthief1123/Lovely-Space/issues/42)、[PR #98](https://github.com/springthief1123/Lovely-Space/pull/98) | 一覧共有と巡回方式が既に存在／更新中 | 観測イベントの購読に限定。新しい取得処理は作らない |
 | [#41](https://github.com/springthief1123/Lovely-Space/issues/41)、[#45](https://github.com/springthief1123/Lovely-Space/issues/45) | 既存の通知・空き検出がある | AIは発火条件と通知保証に介入しない |
 | [#31](https://github.com/springthief1123/Lovely-Space/issues/31)、[#33](https://github.com/springthief1123/Lovely-Space/issues/33)、[#43](https://github.com/springthief1123/Lovely-Space/issues/43)、[#44](https://github.com/springthief1123/Lovely-Space/issues/44) | 入室通知のデータ・継続方式に未決事項 | 入室者管理は後続。確定イベントのみ使用 |
