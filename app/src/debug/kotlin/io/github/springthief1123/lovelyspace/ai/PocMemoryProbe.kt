@@ -244,7 +244,9 @@ internal object PocChatCoexistenceProbe {
                     }
                 } finally {
                     app.unregisterActivityLifecycleCallbacks(callbacks)
-                    synchronized(lock) { job = null }
+                    // 旧計測の終了が新しい計測のJob参照を消さないようにする。
+                    val ended = coroutineContext[Job]
+                    synchronized(lock) { if (job === ended) job = null }
                 }
             }
             return true
