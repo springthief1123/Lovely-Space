@@ -76,7 +76,8 @@ dependencies {
     testImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     // 本番APKには含めない。debug版のEmbeddingGemma 2検証専用。
-    debugImplementation("com.google.ai.edge.litertlm:litertlm-android:0.18.0")
+    // Kotlin 2.4メタデータを持つSDKは現行Kotlin 2.1のcompile classpathへ載せず、debug専用アダプターから実行時に呼ぶ。
+    debugRuntimeOnly("com.google.ai.edge.litertlm:litertlm-android:0.18.0")
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 }
 
