@@ -75,7 +75,21 @@ dependencies {
     testImplementation(libs.androidx.navigation.testing)
     testImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
+    // 本番APKには含めない。debug版のEmbeddingGemma 2検証専用。
+    // Kotlin 2.4メタデータを持つSDKは現行Kotlin 2.1のcompile classpathへ載せず、debug専用アダプターから実行時に呼ぶ。
+    debugRuntimeOnly("com.google.ai.edge.litertlm:litertlm-android:0.18.0")
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+}
+
+// LiteRT-LM 0.18.0の実行時依存はKotlin 2.4だが、既存appコンパイラ/KSPは2.1。
+// debug本体・ユニットテストのコンパイルだけ2.1へ固定。debugRuntimeClasspathには適用しない。
+configurations.configureEach {
+    if (name.startsWith("debug") && name.endsWith("CompileClasspath")) {
+        resolutionStrategy.force(
+            "org.jetbrains.kotlin:kotlin-stdlib:2.1.0",
+            "org.jetbrains.kotlin:kotlin-reflect:2.1.0",
+        )
+    }
 }
 
 ksp { arg("room.schemaLocation", "$projectDir/schemas") }
