@@ -109,7 +109,7 @@ class RoomPageWindowTest {
     @Test fun roomPushedPastTheRecentPagesIsLookedForOnTheNextPageBeforeTheRotation() {
         val rooms = listOf(listOf(room(1, 1.minutes), room(2, 2.minutes)), listOf(room(3, 70.minutes)), listOf(room(4, 90.minutes)), listOf(room(5, 120.minutes)))
         var w = window(*rooms.toTypedArray())
-        var cursor = PageCursor().after(4, w)
+        var cursor = PageCursor(swept = true).after(4, w)
         assertEquals(1, cursor.next)
         // 新しい部屋 9 が開き、2 が 2 ページ目へ押し出された。
         w = w.observe(page(1, listOf(room(9, 0.minutes), room(1, 1.minutes)), last = 4))
@@ -124,12 +124,20 @@ class RoomPageWindowTest {
         // 1 ページ目しか直近の範囲が無いときは、押し出された部屋を探す次のページが、順に回るページより先。
         val narrow = window(listOf(room(1, 1.minutes), room(2, 2.minutes)), listOf(room(3, 70.minutes)), listOf(room(4, 90.minutes)))
             .observe(page(1, listOf(room(9, 0.minutes), room(1, 1.minutes)), last = 3))
-        val boundary = PageCursor(cold = 2).after(1, narrow)
-        assertEquals(PageCursor(next = 2, cold = 2, boundary = true), boundary)
+        val boundary = PageCursor(cold = 2, swept = true).after(1, narrow)
+        assertEquals(PageCursor(next = 2, cold = 2, boundary = true, swept = true), boundary)
         // 続く周では順に回る位置（3 ページ目）を進め、押し出しの確認を続けては行わない。
         val back = boundary.after(2, narrow)
         assertEquals(1, back.next); assertEquals(2, back.cold)
         assertEquals(3, back.after(1, narrow).next)
+    }
+    @Test fun newCursorReadsEveryPageOnceEvenWhenTheSharedListIsAlreadyRead() {
+        // ほかの条件が全ページを読み済みの一覧でも、新しく有効にした条件の最初の周は全ページを読む。
+        val w = window(listOf(room(1, 1.minutes)), listOf(room(2, 90.minutes)), listOf(room(3, 120.minutes)))
+        val read = mutableListOf<Int>()
+        var cursor = PageCursor()
+        repeat(6) { val p = cursor.page(w.lastPage); read += p; cursor = cursor.after(p, w) }
+        assertEquals(listOf(1, 2, 3, 1, 2, 1), read)
     }
     @Test fun scheduleStartsTheNextLapAfterTheSettingInterval() {
         var now = 0L

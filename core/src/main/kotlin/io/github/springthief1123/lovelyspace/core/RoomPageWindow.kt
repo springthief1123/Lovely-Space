@@ -73,16 +73,18 @@ val RECENT_ROOM_AGE: Duration = 1.hours
  * 読み終えるごとに、それより後ろのページを 1 つだけ読んでから 1 ページ目へ戻る。後ろのページは周ごとに 1 つずつ順に回る（[cold] が最後に回ったページ）。
  * 新しい部屋が開いて新しい範囲の最後のページから次のページへ押し出された部屋がある周は、次のページを先に読む（[boundary]。続けては行わず、順に回る分を止めない）。
  * 直近の部屋が後ろのページまで並ぶ一覧や、まだ読んでいないページがある一覧では、全ページを順に読むのと同じになる。
+ * 最初の周（[swept] になるまで）は、ほかの条件と共有する一覧が読み済みでも、この位置で全ページを順に読む。
  */
-data class PageCursor(val next: Int = 1, val cold: Int = 0, val boundary: Boolean = false) {
+data class PageCursor(val next: Int = 1, val cold: Int = 0, val boundary: Boolean = false, val swept: Boolean = false) {
     /** 次に読むページ。ページ数が減って無くなったら 1 ページ目。 */
     fun page(lastPage: Int): Int = if (next > lastPage.coerceAtLeast(1)) 1 else next
 
     /** [page] を読み、[window] に反映した後の位置。 */
     fun after(page: Int, window: RoomPageWindow): PageCursor {
         val last = window.lastPage.coerceAtLeast(1)
-        val recent = window.recentPages().coerceAtMost(last)
+        val recent = if (swept) window.recentPages().coerceAtMost(last) else last
         return when {
+            !swept && page >= last -> copy(next = 1, cold = page, swept = true)
             // 後ろのページを 1 つ読んだので、新しい周へ。押し出された部屋を探しに読んだページでは、順に回る位置を進めない。
             page > recent -> copy(next = 1, cold = if (boundary) cold else page)
             page < recent -> copy(next = page + 1)
