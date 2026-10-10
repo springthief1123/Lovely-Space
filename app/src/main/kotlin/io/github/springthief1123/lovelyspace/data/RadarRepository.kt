@@ -80,6 +80,10 @@ class RadarRepository(
     private val candidateBaselines = mutableMapOf<String, Set<String>>()
     private val candidateKnown = mutableMapOf<String, MutableSet<String>>()
     private val candidateNext = mutableMapOf<String, Int>()
+    /** 自動巡回で、計画・候補条件ごとに 1 ページ目を読み始めた時刻（周の始まり）。 */
+    private val lapStartedAt = mutableMapOf<String, Long>()
+    /** 計画・候補条件ごとの、後ろのページを回る位置。 */
+    private val cursors = mutableMapOf<String, PageCursor>()
     private val evaluatedCandidates = mutableMapOf<String, Long>()
     private var observationJob: Job? = null
     init { reload() }
@@ -92,7 +96,7 @@ class RadarRepository(
                 mutex.withLock {
                     val saved = dao.state(KEY)
                     saved?.let(::restore)
-                    seen.clear(); baselines.clear(); baselineAt.clear(); knownMatches.clear(); nextPages.clear(); planKeys.clear(); candidateBaselines.clear(); candidateKnown.clear(); candidateNext.clear(); evaluatedPlans.clear(); evaluatedCandidates.clear()
+                    seen.clear(); baselines.clear(); baselineAt.clear(); knownMatches.clear(); nextPages.clear(); planKeys.clear(); candidateBaselines.clear(); candidateKnown.clear(); candidateNext.clear(); evaluatedPlans.clear(); evaluatedCandidates.clear(); lapStartedAt.clear(); cursors.clear()
                     backgroundTriedAt.clear()
                     saved?.let(::restoreBaselines)
                     _state.update { it.copy(loaded = true, scopes = emptyMap(), results = emptyMap(), nextPages = emptyMap(), candidateResults = emptyMap(), nextCandidatePages = emptyMap(), lastScan = null, lastConfirmedAt = null, livePages = emptyMap()) }
@@ -168,6 +172,8 @@ class RadarRepository(
         candidateKnown.keys.removeAll { it.startsWith("$id/") }
         candidateNext.keys.removeAll { it.startsWith("$id/") }
         evaluatedCandidates.keys.removeAll { it.startsWith("$id/") }
+        lapStartedAt.remove("candidate/$id")
+        cursors.keys.removeAll { it.startsWith("candidate/$id/") }
     }
     private fun resetPlan(id: String) {
         baselines.keys.removeAll { it.startsWith("$id/") }
@@ -175,6 +181,8 @@ class RadarRepository(
         knownMatches.keys.removeAll { it.startsWith("$id/") }
         nextPages.keys.removeAll { it.startsWith("$id/") }
         evaluatedPlans.keys.removeAll { it.startsWith("$id/") }
+        lapStartedAt.remove("plan/$id")
+        cursors.keys.removeAll { it.startsWith("plan/$id/") }
     }
     private fun reconcilePlans(saved: List<SearchPreset>) {
         val keys = saved.associate { it.id to planKey(it) }
@@ -243,6 +251,8 @@ class RadarRepository(
         val oldCandidateBaselines = candidateBaselines.toMap()
         val oldCandidateKnown = candidateKnown.mapValues { it.value.toMutableSet() }
         val oldCandidateNext = candidateNext.toMap()
+        val oldLapStartedAt = lapStartedAt.toMap()
+        val oldCursors = cursors.toMap()
         val oldEvaluatedPlans = evaluatedPlans.toMap()
         val oldEvaluatedCandidates = evaluatedCandidates.toMap()
         try {
@@ -258,6 +268,8 @@ class RadarRepository(
             candidateBaselines.clear(); candidateBaselines.putAll(oldCandidateBaselines)
             candidateKnown.clear(); candidateKnown.putAll(oldCandidateKnown)
             candidateNext.clear(); candidateNext.putAll(oldCandidateNext)
+            lapStartedAt.clear(); lapStartedAt.putAll(oldLapStartedAt)
+            cursors.clear(); cursors.putAll(oldCursors)
             evaluatedPlans.clear(); evaluatedPlans.putAll(oldEvaluatedPlans)
             evaluatedCandidates.clear(); evaluatedCandidates.putAll(oldEvaluatedCandidates)
             throw e
@@ -266,18 +278,22 @@ class RadarRepository(
     fun automatic(enabled: Boolean) = _state.update { it.copy(automatic = enabled) }
 
     /**
-     * 新着を優先しながら、間に残りのページを取得する。画面のLifecycleが実行を管理する。
-     * 1 ページ目は設定の間隔（[RefreshPacing.radarHeadMs]）ごと、残りのページは通信の最小間隔ごとに取る。
+     * 計画・候補条件ごとに、一覧を新着順の前のページから読み直す（[PageCursor]）。最初の周は全ページを順に読み、
+     * その後は直近 1 時間の部屋が載るページを周ごとに読み直し、古い部屋の並ぶ後ろのページは周ごとに 1 つずつ回る。
+     * ページ同士は通信の最小間隔。1 ページ目に戻った計画・候補条件は、その前の周の始まりから設定の間隔
+     * （[RefreshPacing.radarHeadMs]）が経つまで、次の周を始めない（[scan] の lapIntervalMs）。画面のLifecycleが実行を管理する。
      */
     suspend fun monitor(pacing: () -> RefreshPacing = { RefreshPacing() }) {
-        var headAt: Long? = null
         while (currentCoroutineContext().isActive && _state.value.automatic) {
-            val now = System.nanoTime() / 1_000_000
-            if (_state.value.loaded && !_state.value.running &&
-                (_state.value.plans.isNotEmpty() || _state.value.candidateRules.any { it.enabled } || _state.value.targets.any { it.evidence != RoomIdentityEvidence.REUSED })) {
-                val head = headAt == null || now - headAt >= pacing().sanitized().radarHeadMs
-                scan(latestFirst = head, force = false)
-                if (head) headAt = System.nanoTime() / 1_000_000
+            val s = _state.value
+            val lap = pacing().sanitized().radarHeadMs
+            val clockNow = System.nanoTime() / 1_000_000
+            // 1 ページ目に戻って周の始まりを待っている計画・候補条件しか無ければ、巡回を始めない（前回の巡回の報告を消さない）。
+            fun ready(key: String, next: Int) = next != 1 || lapStartedAt[key]?.let { clockNow - it >= lap } ?: true
+            if (s.loaded && !s.running && (s.targets.any { it.evidence != RoomIdentityEvidence.REUSED } ||
+                    s.plans.any { ready("plan/$it", s.nextPages[it] ?: 1) } ||
+                    s.candidateRules.any { it.enabled && ready("candidate/${it.id}", s.nextCandidatePages[it.id] ?: 1) })) {
+                scan(latestFirst = false, force = false, lapIntervalMs = lap)
             }
             delay(if (_state.value.error != null) RoomPageSchedule.ERROR_INTERVAL_MS else pacing().sanitized().minIntervalMs)
         }
@@ -287,8 +303,10 @@ class RadarRepository(
      * [maxPages] は1回の巡回で取得するページ数の上限（背景実行で使う）。超えたページは次回に回す。
      * [backgroundOnly] では背景で巡回する計画だけを確認し、候補条件・部屋の追跡は前面でだけ確認する。
      * 戻り値はこの巡回で新しく記録した履歴。
+     * [lapIntervalMs] が 0 より大きいと、1 ページ目に戻った計画・候補条件は、前の周の始まりからその時間が経つまで今回は取らない。
      */
-    suspend fun scan(latestFirst: Boolean = false, force: Boolean = true, maxPages: Int = Int.MAX_VALUE, backgroundOnly: Boolean = false): List<RadarEvent> {
+    suspend fun scan(latestFirst: Boolean = false, force: Boolean = true, maxPages: Int = Int.MAX_VALUE, backgroundOnly: Boolean = false,
+        lapIntervalMs: Long = 0): List<RadarEvent> {
         fun plansOf(state: RadarState) = if (backgroundOnly) state.activeBackgroundPlans else state.plans
         val previousEvents = mutex.withLock {
             check(_state.value.loaded) { "読み込み中です。" }
@@ -307,13 +325,22 @@ class RadarRepository(
                 val selected = saved.filter { it.id in plansOf(_state.value) }
                     .let { plans -> if (backgroundOnly) plans.sortedBy { backgroundTriedAt[planKey(it)] ?: Long.MIN_VALUE } else plans }
                 val requests = linkedMapOf<RoomQuery, MutableList<SearchPreset>>()
-                selected.forEach { preset ->
+                val startedAt = System.nanoTime() / 1_000_000
+                // 新しい周の 1 ページ目は、前の周の始まりから lapIntervalMs 経つまで取らない。取るならここを周の始まりにする。
+                fun lapReady(key: String, page: Int): Boolean {
+                    if (latestFirst || page != 1 || lapIntervalMs <= 0) return true
+                    val at = lapStartedAt[key]
+                    if (at != null && startedAt - at < lapIntervalMs) return false
+                    lapStartedAt[key] = startedAt
+                    return true
+                }
+                selected.filter { lapReady("plan/${it.id}", nextPages[planKey(it)] ?: 1) }.forEach { preset ->
                     Genres[preset.genreKey]?.let { genre ->
                         val query = RoomQuery(genre, page = if (latestFirst) 1 else nextPages[planKey(preset)] ?: 1)
                         requests.getOrPut(query) { mutableListOf() }.add(preset)
                     }
                 }
-                val candidates = if (backgroundOnly) emptyList() else _state.value.candidateRules.filter { it.enabled }
+                val candidates = if (backgroundOnly) emptyList() else _state.value.candidateRules.filter { it.enabled && lapReady("candidate/${it.id}", candidateNext[it.key] ?: 1) }
                 candidates.forEach { rule ->
                     Genres[rule.genreKey]?.let { genre -> requests.getOrPut(RoomQuery(genre, page = if (latestFirst) 1 else candidateNext[rule.key] ?: 1)) { mutableListOf() } }
                 }
@@ -387,10 +414,10 @@ class RadarRepository(
                 process(observation, scheduledPlans, scheduledCandidates, notice)
                 seen[query] = maxOf(seen[query] ?: 0, observation.revision)
                 if (!latestFirst) scheduledPlans.forEach { preset ->
-                    nextPages[planKey(preset)] = if (observation.page.hasNextPage) observation.page.page + 1 else 1
+                    nextPages[planKey(preset)] = advance("plan/${planKey(preset)}", observation)
                 }
                 if (!latestFirst) scheduledCandidates.forEach { rule ->
-                    candidateNext[rule.key] = if (observation.page.hasNextPage) observation.page.page + 1 else 1
+                    candidateNext[rule.key] = advance("candidate/${rule.key}", observation)
                 }
                 val hidden = preferences.preferences.first().filter { it.hidden }
                 val trackedMatches = _state.value.targets.filter { target ->
@@ -492,6 +519,11 @@ class RadarRepository(
         val livePages = if (freshTracking && o.query == RoomQuery(o.query.genre, page = o.query.page))
             current.livePages + (o.query.genre.key to (current.livePages[o.query.genre.key] ?: RoomPageWindow()).observe(o.page, o.revision)) else current.livePages
         _state.update { current.copy(automatic = it.automatic, livePages = livePages, targets = targets, events = (events + current.events).take(100), scopes = scopes, results = results, candidateResults = candidateResults) }
+    }
+    /** 読んだページの次に読むページ。前のページを優先する位置（[PageCursor]）は [cursors] に覚える。 */
+    private fun advance(key: String, o: ObservedRoomPage): Int {
+        val window = _state.value.livePages[o.query.genre.key]?.takeIf { it.pages[o.page.page] != null } ?: RoomPageWindow().observe(o.page)
+        return (cursors[key] ?: PageCursor()).after(o.page.page, window).also { cursors[key] = it }.next
     }
     private fun planKey(preset: SearchPreset): String = "${preset.id}/${preset.genreKey}/${preset.criteria}"
     private suspend fun persist() {

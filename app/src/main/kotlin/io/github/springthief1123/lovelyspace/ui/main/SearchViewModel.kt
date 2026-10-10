@@ -178,8 +178,10 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
 
     /**
      * 画面が前面にある間だけ実行。取消はHTTP取得にも伝わる。
-     * 新着が出る 1 ページ目を設定の間隔（[RefreshPacing.searchHeadMs]）ごとに取り直し、その合間に残りのページを順に巡る。
-     * 一覧が 2 つ（共通検索欄の語を名前と募集文で探す）なら、1 回ごとに交互に取る。
+     * 最初の周は 1 ページ目から最後のページまで順に読み、その後は直近 1 時間の部屋が載る前のページを周ごとに読み直し、
+     * 後ろのページは周ごとに 1 つずつ回る（[RoomPageSchedule]）。
+     * 新しい周は前の周の始まりから設定の間隔（[RefreshPacing.searchHeadMs]）が経つまで始めない。
+     * 一覧が 2 つ（共通検索欄の語を名前と募集文で探す）なら、待たずに読める方から、同じなら交互に取る。
      */
     suspend fun monitor() {
         val schedules = mutableMapOf<RoomQuery, RoomPageSchedule>()
@@ -190,21 +192,21 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
                 job?.join()
                 val queries = _state.value.siteQueries
                 schedules.keys.retainAll(queries.toSet())
-                val index = turn++ % queries.size
-                val window = if (queries == windowQueries) windows[index] else RoomPageWindow()
-                val next = schedules.getOrPut(queries[index]) { schedule() }.next(window.lastPage, window.pages.keys)
+                val current = if (queries == windowQueries) windows else queries.map { RoomPageWindow() }
+                fun scheduleOf(i: Int) = schedules.getOrPut(queries[i]) { schedule() }
+                val index = queries.indices.map { (turn + it) % queries.size }.minBy { scheduleOf(it).waitMs(current[it]) }
+                val wait = scheduleOf(index).waitMs(current[index])
+                // 新しい周の始まりを待つ間に条件が変わることがあるので、待った後に選び直す。
+                if (wait > 0) { delay(wait); continue }
+                turn = index + 1
                 // 条件が変わった直後は 1 ページ目を取るので、実際に取ったページで巡回位置を進める。
-                val (fetched, page) = fetchPage(index, next, force = false)
+                val (fetched, page) = fetchPage(index, scheduleOf(index).next(current[index]), force = false)
                 if (_state.value.error == null) {
-                    val lastPage = windowQueries?.indexOf(fetched)?.let { windows.getOrNull(it) }?.lastPage ?: 1
-                    schedules.getOrPut(fetched) { schedule() }.completed(page, lastPage)
+                    val window = windowQueries?.indexOf(fetched)?.let { windows.getOrNull(it) } ?: RoomPageWindow()
+                    schedules.getOrPut(fetched) { schedule() }.completed(page, window)
                 }
-                delay(when {
-                    _state.value.error != null -> RoomPageSchedule.ERROR_INTERVAL_MS
-                    _state.value.lastPage <= 1 -> pacing().sanitized().searchHeadMs
-                    // 残りのページは通信の最小間隔で順に取る（間隔は ShaloveClient も守る）。
-                    else -> pacing().sanitized().minIntervalMs
-                })
+                // ページ同士は通信の最小間隔で順に取る（間隔は ShaloveClient も守る）。
+                delay(if (_state.value.error != null) RoomPageSchedule.ERROR_INTERVAL_MS else pacing().sanitized().minIntervalMs)
             }
         } finally { stopRefresh() }
     }
