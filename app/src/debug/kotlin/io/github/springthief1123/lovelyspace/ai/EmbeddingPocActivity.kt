@@ -56,6 +56,16 @@ import kotlinx.coroutines.withContext
 
 /** debug APKのみに存在する実機向け検証画面。通信・通知・実部屋データは使用しない。 */
 class EmbeddingPocActivity : ComponentActivity() {
+    override fun onStop() {
+        super.onStop()
+        PocModelSession.releaseAsync()
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= TRIM_MEMORY_RUNNING_LOW) PocModelSession.releaseAsync()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -120,6 +130,10 @@ private data class Benchmark(
     val rankingMs: Long,
     val cacheHits: Int,
     val cacheMisses: Int,
+    val restoredFromDisk: Int,
+    val diskLoadMs: Long,
+    val engineReused: Boolean,
+    val diskSaveError: String?,
     val resources: PocResourceReport,
     val loggingError: String?,
 )
@@ -131,6 +145,9 @@ private data class PocWork(
     val rankingMs: Long,
     val cacheHits: Int,
     val cacheMisses: Int,
+    val diskLoaded: PocVectorCache.LoadResult,
+    val engineReused: Boolean,
+    val diskSaveError: String?,
 )
 
 /**
@@ -138,7 +155,7 @@ private data class PocWork(
  * SDKのクラスを直接参照するとメタデータ互換性エラーになる。PoCはdebugRuntimeOnlyと
  * リフレクションで型付きAPI境界をこのクラス内に隔離する。本番採用時はツールチェーンを更新して置き換える。
  */
-private class DebugEmbeddingEngine(modelPath: String) : AutoCloseable {
+internal class DebugEmbeddingEngine(modelPath: String) : AutoCloseable {
     private val engineClass = Class.forName("com.google.ai.edge.litertlm.EmbeddingEngine")
     private val inputTextClass = Class.forName("com.google.ai.edge.litertlm.InputData" + '$' + "Text")
     private val engine: Any
@@ -184,6 +201,8 @@ private suspend fun evaluate(
     count: Int,
     keywords: List<String>,
     requireAll: Boolean,
+    keepWarm: Boolean,
+    persistCache: Boolean,
 ): Benchmark = coroutineScope {
     check(model.isFile && model.length() >= MIN_MODEL_BYTES) { "先にモデルを取り込んでください" }
     val corpus = PocCorpus.take(count)
@@ -198,32 +217,44 @@ private suspend fun evaluate(
     }
     val work = try {
         withContext(Dispatchers.IO) {
-            val initStart = SystemClock.elapsedRealtime()
-            DebugEmbeddingEngine(model.absolutePath).use { engine ->
-                val initMs = SystemClock.elapsedRealtime() - initStart
-                PocVectorCache.prepare(model)
+            val loaded = PocVectorCache.prepare(context, model, persistCache)
+            val session = PocModelSession.run(model, keepWarm) { engine ->
                 val embedStart = SystemClock.elapsedRealtime()
                 val queryVector = engine.embed(QUERY_PREFIX + query.trim())
                 var hits = 0
                 var misses = 0
                 val documents = corpus.map { text ->
-                    val cached = PocVectorCache.get(text)
-                    if (cached != null) {
+                    val vector = PocVectorCache.get(text)
+                    if (vector != null) {
                         hits++
-                        text to cached
-                    } else {
-                        val vector = engine.embed(DOCUMENT_PREFIX + text.trim())
-                        PocVectorCache.put(text, vector)
-                        misses++
                         text to vector
+                    } else {
+                        val created = engine.embed(DOCUMENT_PREFIX + text.trim())
+                        PocVectorCache.put(text, created)
+                        misses++
+                        text to created
                     }
                 }
                 val embedMs = SystemClock.elapsedRealtime() - embedStart
                 val rankStart = SystemClock.elapsedRealtime()
                 val ranked = SemanticRanking.rank(queryVector, documents)
                 val rankMs = SystemClock.elapsedRealtime() - rankStart
-                PocWork(ranked, initMs, embedMs, rankMs, hits, misses)
+                Triple(ranked, Triple(embedMs, rankMs, hits), misses)
             }
+            val saveError = if (persistCache && session.value.third > 0) {
+                runCatching { PocVectorCache.persist(context) }.exceptionOrNull()?.message
+            } else null
+            PocWork(
+                results = session.value.first,
+                initializationMs = session.initializationMs,
+                embeddingMs = session.value.second.first,
+                rankingMs = session.value.second.second,
+                cacheHits = session.value.second.third,
+                cacheMisses = session.value.third,
+                diskLoaded = loaded,
+                engineReused = session.reusedEngine,
+                diskSaveError = saveError,
+            )
         }
     } finally {
         sampler.cancelAndJoin()
@@ -235,14 +266,43 @@ private suspend fun evaluate(
         work.initializationMs, work.embeddingMs, work.rankingMs,
         work.results.firstOrNull()?.similarity, resources,
     )
-    val loggingError = withContext(Dispatchers.IO) {
+    val logError = withContext(Dispatchers.IO) {
         runCatching { PocLogs.append(context, record) }.exceptionOrNull()?.message
     }
     Benchmark(
         work.results, count, baselineHits, requireAll,
         work.initializationMs, work.embeddingMs, work.rankingMs,
-        work.cacheHits, work.cacheMisses, resources, loggingError,
+        work.cacheHits, work.cacheMisses, work.diskLoaded.restoredDocuments,
+        work.diskLoaded.loadMs, work.engineReused, work.diskSaveError,
+        resources, logError,
     )
+}
+
+/** 正解ラベルを持つ7ケースのバッチ評価。既存の100件の文書ベクトルは再利用する。 */
+private suspend fun evaluateQuality(
+    context: Context,
+    model: File,
+    keepWarm: Boolean,
+    persistCache: Boolean,
+): List<PocQualityResult> = withContext(Dispatchers.IO) {
+    check(model.isFile && model.length() >= MIN_MODEL_BYTES)
+    PocVectorCache.prepare(context, model, persistCache)
+    val result = PocModelSession.run(model, keepWarm) { engine ->
+        val documents = PocCorpus.all.map { text ->
+            val vector = PocVectorCache.get(text) ?: engine.embed(DOCUMENT_PREFIX + text).also {
+                PocVectorCache.put(text, it)
+            }
+            text to vector
+        }
+        PocQuality.cases.map { case ->
+            val query = engine.embed(QUERY_PREFIX + case.query)
+            val indices = SemanticRanking.rank(query, documents).map { it.originalIndex }
+            PocQuality.compare(case, indices)
+        }
+    }.value
+    if (persistCache) PocVectorCache.persist(context)
+    PocQualityLogs.append(context, result)
+    result
 }
 
 @Composable
