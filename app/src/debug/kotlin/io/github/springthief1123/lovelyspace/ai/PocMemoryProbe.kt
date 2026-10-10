@@ -3,7 +3,6 @@ package io.github.springthief1123.lovelyspace.ai
 import android.app.Activity
 import android.app.Application
 import android.content.Context
-import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.Build
@@ -21,7 +20,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -76,7 +74,9 @@ internal object PocMemoryMetrics {
         val scale = battery?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
         val temperature = battery?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1
         val thermal = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            (context.getSystemService(Context.POWER_SERVICE) as PowerManager).currentThermalStatus
+            runCatching {
+                (context.getSystemService(Context.POWER_SERVICE) as PowerManager).currentThermalStatus
+            }.getOrNull()
         } else null
         return PocMemorySample(
             timeUtc = Instant.now().toString(),
