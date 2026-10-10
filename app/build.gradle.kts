@@ -75,6 +75,8 @@ dependencies {
     testImplementation(libs.androidx.navigation.testing)
     testImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
+    // 本番APKには含めない。debug版のEmbeddingGemma 2検証専用。
+    debugImplementation("com.google.ai.edge.litertlm:litertlm-android:0.18.0")
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 }
 
