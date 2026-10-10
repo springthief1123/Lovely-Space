@@ -1,12 +1,10 @@
 package io.github.springthief1123.lovelyspace.ui.main
 
-import io.github.springthief1123.lovelyspace.ui.components.QuietAssistChip
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Sync
@@ -39,6 +37,7 @@ import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.core.*
 import io.github.springthief1123.lovelyspace.ui.rooms.GenreBar
 import io.github.springthief1123.lovelyspace.ui.shell.LocalLovelyShellState
+import io.github.springthief1123.lovelyspace.ui.shell.ShellScrollToTop
 import io.github.springthief1123.lovelyspace.ui.shell.ShellSearchButton
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.unit.IntRect
@@ -132,10 +131,6 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
                 refreshEnabled = state.initialized && !state.loading,
             )
         }
-        if (newCount > 0) item {
-            QuietAssistChip(onClick = { scope.launch { listState.scrollToItem(0); vm.clearNewRooms() } },
-                label = "新着 ${newCount}件・先頭へ", icon = Icons.Outlined.ArrowUpward)
-        }
         if (state.awaitingNewConditions) item {
             QuietNotice(
                 if (state.error != null) "変えた条件で読み込めませんでした。表示中の一覧は前の条件で取った部屋だけで、条件に合う部屋がほかにもある可能性があります。"
@@ -190,19 +185,22 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
     }
     // 検索パネルが上に隠れたらトップバーに検索ボタンを、少しでも下へ進んだら「トップへ戻る」を出す。
     // どちらも外枠に置くので、トップバー・ボトムナビと同じく後ろの一覧がぼける。
+    // 新着は一覧の上に足されるので、下へ進んでいる間は「トップへ戻る」を「新着 N件」にして知らせる。
+    // 先頭が見えている間に届いた新着はその場で見えるので、数えない。
     val panelIndex = if (state.initialized) 1 else 0
     val panelHidden by remember(panelIndex) { derivedStateOf { listState.firstVisibleItemIndex > panelIndex } }
     val scrolled by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0 } }
+    val atTop = !scrolled
+    LaunchedEffect(atTop, newCount) { if (atTop && newCount > 0) vm.clearNewRooms() }
     val shell = LocalLovelyShellState.current
     val owner = remember { Any() }
     val openSearch = remember { { anchor: IntRect -> searchAnchor = anchor; searchOpen = true } }
     val scrollToTop = remember(scope, listState) { { scope.launch { listState.animateScrollToItem(0) }; Unit } }
     val activeCount = activeFilterCount(c)
-    SideEffect {
-        shell.publish(owner,
-            searchButton = if (panelHidden) ShellSearchButton(activeCount, openSearch) else null,
-            scrollToTop = if (scrolled) scrollToTop else null)
-    }
+    // SideEffect の中で読んだ状態は再コンポーズのきっかけにならない。先頭へ戻ったのにボタンが残らないよう、ここで読む。
+    val searchButton = if (panelHidden) ShellSearchButton(activeCount, openSearch) else null
+    val scrollButton = if (scrolled) ShellScrollToTop(newCount, scrollToTop) else null
+    SideEffect { shell.publish(owner, searchButton = searchButton, scrollToTop = scrollButton) }
     DisposableEffect(shell, owner) { onDispose { shell.release(owner) } }
     // パネルが見えるところまで戻ったら、上から開いたポップオーバーは閉じる。
     LaunchedEffect(panelHidden) { if (!panelHidden) searchOpen = false }

@@ -3,6 +3,10 @@ package io.github.springthief1123.lovelyspace.lock
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -150,20 +154,11 @@ private fun LockVerify(
     onCancel: () -> Unit,
 ) {
     BackHandler(onBack = onCancel)
-    Column(Modifier.fillMaxSize().statusBarsPadding()) {
-        SettingsPageHeader(title = title, onBack = onCancel)
-        Column(
-            Modifier.fillMaxSize().padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Text("続けるには、いまの解除方法で確認してください。", style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
-            Spacer(Modifier.height(20.dp))
-            LockChallenge(state, check = check, onSuccess = onVerified,
-                onBiometricSuccess = verifyBiometric?.let { verify -> { if (verify()) onVerified() } })
-            Spacer(Modifier.height(16.dp))
-            TextButton(onClick = onCancel) { Text("やめる") }
-        }
+    LockStepScaffold(title = title, onCancel = onCancel) {
+        Text("続けるには、いまの解除方法で確認してください。", style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(20.dp))
+        LockChallenge(state, check = check, onSuccess = onVerified,
+            onBiometricSuccess = verifyBiometric?.let { verify -> { if (verify()) onVerified() } })
     }
 }
 
@@ -185,53 +180,82 @@ private fun LockSetup(method: LockMethod, onDone: (String) -> Unit, onCancel: ()
         entered = ""
     }
 
-    Column(Modifier.fillMaxSize().statusBarsPadding()) {
-        SettingsPageHeader(title = "${method.label}の登録", onBack = onCancel)
+    // 「やめる」と「次へ」「最初から」は下端の同じ行に固定し、1 回目と 2 回目で入力欄の位置が動かないようにする。
+    LockStepScaffold(
+        title = "${method.label}の登録",
+        onCancel = onCancel,
+        action = {
+            when {
+                first != null -> TextButton(onClick = { first = null; entered = ""; message = null }) { Text("最初から") }
+                method == LockMethod.PASSCODE -> Button(onClick = { submit(entered) }, enabled = entered.length >= MIN_PASSCODE_LENGTH) { Text("次へ") }
+            }
+        },
+    ) {
+        Text(
+            message ?: when {
+                method == LockMethod.PASSCODE && first == null -> "4〜8桁の数字を入力"
+                method == LockMethod.PASSCODE -> "確認のため、もう一度入力"
+                first == null -> "4つ以上の点をなぞる"
+                else -> "確認のため、もう一度なぞる"
+            },
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (message != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center,
+            // 文言が 1 行と 2 行で入れ替わっても、下の入力欄が上下しないようにする。
+            minLines = 2,
+        )
+        Spacer(Modifier.height(20.dp))
+        when (method) {
+            LockMethod.PASSCODE -> {
+                PasscodeDots(entered.length, first?.length ?: 0)
+                Spacer(Modifier.height(28.dp))
+                PasscodeKeypad(
+                    onDigit = { digit ->
+                        val limit = first?.length ?: MAX_PASSCODE_LENGTH
+                        if (entered.length < limit) {
+                            entered += digit
+                            // 2 回目は 1 回目と同じ桁数になったら確かめる。
+                            if (first != null && entered.length == limit) submit(entered)
+                        }
+                    },
+                    onDelete = { entered = entered.dropLast(1) },
+                    onBiometric = null,
+                )
+            }
+            LockMethod.PATTERN -> PatternPad(onComplete = { dots ->
+                if (dots.size < MIN_PATTERN_DOTS) message = "4つ以上の点をつないでください"
+                else submit(patternSecret(dots))
+            }, error = message != null)
+        }
+    }
+}
+
+/**
+ * 登録・確認の画面の枠。入力欄は中央に置き、「やめる」と次の操作 [action] は下端の 1 行に固定する。
+ * どの段階でも「やめる」が同じ位置にあり、段階が変わっても入力欄が動かない。
+ */
+@Composable
+private fun LockStepScaffold(
+    title: String,
+    onCancel: () -> Unit,
+    action: @Composable () -> Unit = {},
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+        SettingsPageHeader(title = title, onBack = onCancel)
         Column(
-            Modifier.fillMaxSize().padding(24.dp),
+            Modifier.weight(1f).fillMaxWidth().padding(horizontal = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
+            content = content,
+        )
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                message ?: when {
-                    method == LockMethod.PASSCODE && first == null -> "4〜8桁の数字を入力"
-                    method == LockMethod.PASSCODE -> "確認のため、もう一度入力"
-                    first == null -> "4つ以上の点をなぞる"
-                    else -> "確認のため、もう一度なぞる"
-                },
-                style = MaterialTheme.typography.bodyLarge,
-                color = if (message != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(Modifier.height(28.dp))
-            when (method) {
-                LockMethod.PASSCODE -> {
-                    PasscodeDots(entered.length, first?.length ?: 0)
-                    Spacer(Modifier.height(28.dp))
-                    PasscodeKeypad(
-                        onDigit = { digit ->
-                            val limit = first?.length ?: MAX_PASSCODE_LENGTH
-                            if (entered.length < limit) {
-                                entered += digit
-                                // 2 回目は 1 回目と同じ桁数になったら確かめる。
-                                if (first != null && entered.length == limit) submit(entered)
-                            }
-                        },
-                        onDelete = { entered = entered.dropLast(1) },
-                        onBiometric = null,
-                    )
-                    if (first == null) {
-                        Spacer(Modifier.height(20.dp))
-                        Button(onClick = { submit(entered) }, enabled = entered.length >= MIN_PASSCODE_LENGTH) { Text("次へ") }
-                    }
-                }
-                LockMethod.PATTERN -> PatternPad(onComplete = { dots ->
-                    if (dots.size < MIN_PATTERN_DOTS) message = "4つ以上の点をつないでください"
-                    else submit(patternSecret(dots))
-                }, error = message != null)
-            }
-            Spacer(Modifier.height(16.dp))
             TextButton(onClick = onCancel) { Text("やめる") }
+            Spacer(Modifier.weight(1f))
+            action()
         }
     }
 }

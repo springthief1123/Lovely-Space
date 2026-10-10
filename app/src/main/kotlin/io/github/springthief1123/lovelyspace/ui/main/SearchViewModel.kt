@@ -22,7 +22,49 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /** 「条件をリセット」の前の入力。「元に戻す」で戻す。年齢は入力途中の文字もそのまま持つ。 */
-data class SearchDraft(val criteria: RoomSearchCriteria, val minAgeInput: String, val maxAgeInput: String)
+data class SearchDraft(val criteria: RoomSearchCriteria, val minAgeInput: String, val maxAgeInput: String,
+    val keywordScope: KeywordScope = KeywordScope.ALL)
+
+/**
+ * 検索欄の語を探す場所。語は条件の 1 つの欄（共通検索欄 [RoomSearchCriteria.text]・名前・待機メッセージ）に入れる。
+ * 名前だけ・待機メッセージだけで探すと、本家の文字検索 1 つで絞れるので一覧を早く読み切れる。
+ */
+enum class KeywordScope(val label: String, val placeholder: String) {
+    ALL("名前と待機メッセージ", "名前・待機メッセージを検索"),
+    NAME("名前", "名前を検索"),
+    MESSAGE("待機メッセージ", "待機メッセージを検索"),
+}
+
+/** [scope] の欄に入っている語。 */
+internal fun RoomSearchCriteria.keyword(scope: KeywordScope): String = when (scope) {
+    KeywordScope.ALL -> text
+    KeywordScope.NAME -> name
+    KeywordScope.MESSAGE -> message
+}
+
+/** [scope] の欄の語を [value] にした条件。 */
+internal fun RoomSearchCriteria.withKeyword(scope: KeywordScope, value: String): RoomSearchCriteria = when (scope) {
+    KeywordScope.ALL -> copy(text = value)
+    KeywordScope.NAME -> copy(name = value)
+    KeywordScope.MESSAGE -> copy(message = value)
+}
+
+/** 語を探す場所を [from] から [to] へ移す。検索欄の語はそのまま、新しい場所で探す。 */
+internal fun RoomSearchCriteria.moveKeyword(from: KeywordScope, to: KeywordScope): RoomSearchCriteria =
+    // 検索欄が空なら移す語は無い。移した先の欄に残っている語はそのまま検索欄に出す。
+    if (from == to || keyword(from).isBlank()) this else withKeyword(from, "").withKeyword(to, keyword(from))
+
+/** 保存した条件などから、検索欄に出す欄を決める。名前・待機メッセージの片方だけに語があればその欄、ほかは共通検索欄。 */
+internal fun keywordScopeOf(c: RoomSearchCriteria): KeywordScope = when {
+    c.text.isNotBlank() -> KeywordScope.ALL
+    c.name.isNotBlank() && c.message.isBlank() -> KeywordScope.NAME
+    c.message.isNotBlank() && c.name.isBlank() -> KeywordScope.MESSAGE
+    else -> KeywordScope.ALL
+}
+
+/** 検索欄に出していない欄に残っている語（以前の版で保存した条件など）。欄の名前と語の組。 */
+internal fun hiddenKeywords(c: RoomSearchCriteria, scope: KeywordScope): List<Pair<KeywordScope, String>> =
+    KeywordScope.entries.filter { it != scope }.map { it to c.keyword(it) }.filter { (_, word) -> word.isNotBlank() }
 
 data class SearchUiState(
     val genre: Genre = Genres.default,
@@ -43,6 +85,8 @@ data class SearchUiState(
     val newRoomIds: Set<String> = emptySet(),
     /** [rooms] を本家から取ったときの絞り込み（各一覧の 1 ページ目）。まだ取っていなければ null。 */
     val listQueries: List<RoomQuery>? = null,
+    /** 検索欄の語を探す場所。 */
+    val keywordScope: KeywordScope = KeywordScope.ALL,
 ) {
     val validAges: Boolean get() = (minAgeInput.isEmpty() || minAgeInput.toIntOrNull()?.let { it in 18..99 } == true) &&
         (maxAgeInput.isEmpty() || maxAgeInput.toIntOrNull()?.let { it in 18..99 } == true) && criteria.isValid
@@ -99,6 +143,16 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
         if (key != handledRefreshKey && _state.value.initialized) { handledRefreshKey = key; refresh() }
     }
     fun criteria(value: RoomSearchCriteria) { _state.update { it.copy(criteria = value) }; requeryIfNeeded() }
+    /** 検索欄の語。いま選んでいる場所（[SearchUiState.keywordScope]）の欄に入れる。 */
+    fun keyword(value: String) = criteria(_state.value.let { it.criteria.withKeyword(it.keywordScope, value) })
+    fun keywordScope(value: KeywordScope) {
+        _state.update { it.copy(criteria = it.criteria.moveKeyword(it.keywordScope, value), keywordScope = value) }
+        requeryIfNeeded()
+    }
+    /** 検索欄に出していない欄の語を消す。 */
+    fun clearHiddenKeywords() = criteria(_state.value.let { s ->
+        KeywordScope.entries.filter { it != s.keywordScope }.fold(s.criteria) { c, scope -> c.withKeyword(scope, "") }
+    })
 
     /**
      * 本家側に渡す条件が変わったら、少し待ってから 1 ページ目から取り直す。端末側だけの条件（語・除外・並び替えなど）なら通信しない。
@@ -118,15 +172,16 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
     /** 条件をすべて既定に戻し、戻す前の入力を返す。もともと既定なら何もせず null。 */
     fun resetCriteria(): SearchDraft? {
         val s = _state.value
-        val draft = SearchDraft(s.criteria, s.minAgeInput, s.maxAgeInput)
+        val draft = SearchDraft(s.criteria, s.minAgeInput, s.maxAgeInput, s.keywordScope)
         if (draft == SearchDraft(RoomSearchCriteria(), "", "")) return null
-        _state.update { it.copy(criteria = RoomSearchCriteria(), minAgeInput = "", maxAgeInput = "") }
+        _state.update { it.copy(criteria = RoomSearchCriteria(), minAgeInput = "", maxAgeInput = "", keywordScope = KeywordScope.ALL) }
         requeryIfNeeded()
         return draft
     }
 
     fun restoreCriteria(draft: SearchDraft) {
-        _state.update { it.copy(criteria = draft.criteria, minAgeInput = draft.minAgeInput, maxAgeInput = draft.maxAgeInput) }
+        _state.update { it.copy(criteria = draft.criteria, minAgeInput = draft.minAgeInput, maxAgeInput = draft.maxAgeInput,
+            keywordScope = draft.keywordScope) }
         requeryIfNeeded()
     }
     fun minAge(value: String) {
@@ -143,7 +198,8 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
         if (value == _state.value.genre) return
         job?.cancel(); requery?.cancel()
         windows = emptyList(); windowQueries = null
-        _state.update { SearchUiState(automatic = it.automatic, genre = value, criteria = it.criteria, minAgeInput = it.minAgeInput, maxAgeInput = it.maxAgeInput) }
+        _state.update { SearchUiState(automatic = it.automatic, genre = value, criteria = it.criteria, minAgeInput = it.minAgeInput, maxAgeInput = it.maxAgeInput,
+            keywordScope = it.keywordScope) }
         rememberGenre(value.key)
     }
     /** 同じジャンルの取得済みページは再利用し、別ジャンルへの適用は通信を取消・結果を破棄する。 */
@@ -155,7 +211,7 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
         _state.update {
             val scoped = if (genre == it.genre) it else SearchUiState(genre = genre, automatic = it.automatic)
             scoped.copy(criteria = value.criteria, minAgeInput = value.criteria.minAge?.toString().orEmpty(),
-                maxAgeInput = value.criteria.maxAge?.toString().orEmpty())
+                maxAgeInput = value.criteria.maxAge?.toString().orEmpty(), keywordScope = keywordScopeOf(value.criteria))
         }
         if (sameGenre) requeryIfNeeded()
         rememberGenre(genre.key)
