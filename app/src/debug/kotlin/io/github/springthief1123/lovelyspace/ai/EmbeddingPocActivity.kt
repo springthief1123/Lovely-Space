@@ -315,6 +315,11 @@ private fun EmbeddingPocScreen(onClose: () -> Unit) {
     var sampleCount by rememberSaveable { mutableStateOf(5) }
     var keywords by rememberSaveable { mutableStateOf("まったり,のんびり") }
     var requireAll by rememberSaveable { mutableStateOf(false) }
+    var keepWarm by rememberSaveable { mutableStateOf(false) }
+    var persistVectors by rememberSaveable { mutableStateOf(false) }
+    var qualityResults by remember { mutableStateOf<List<PocQualityResult>?>(null) }
+    var qualityLogSize by remember { mutableStateOf(PocQualityLogs.size(context)) }
+    var diskSize by remember { mutableStateOf(PocVectorCache.onDiskBytes(context)) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("モデルを選択してください。計測値を端末内のCSVに保存します。") }
     var benchmark by remember { mutableStateOf<Benchmark?>(null) }
@@ -325,10 +330,16 @@ private fun EmbeddingPocScreen(onClose: () -> Unit) {
         if (uri != null) scope.launch {
             busy = true
             try {
-                val bytes = withContext(Dispatchers.IO) { importModel(context, uri) }
-                PocVectorCache.clear()
+                val bytes = withContext(Dispatchers.IO) {
+                    PocModelSession.releaseNow()
+                    val copied = importModel(context, uri)
+                    check(PocVectorCache.clearAll(context)) { "旧モデルのキャッシュを削除できません" }
+                    copied
+                }
+                diskSize = PocVectorCache.onDiskBytes(context)
                 modelPresent = true
                 benchmark = null
+                qualityResults = null
                 message = "モデルを取り込みました（" + (bytes / (1024 * 1024)) + " MiB）。"
             } catch (e: CancellationException) {
                 throw e
@@ -354,6 +365,22 @@ private fun EmbeddingPocScreen(onClose: () -> Unit) {
             } finally {
                 busy = false
             }
+        }
+    }
+
+    val qualityExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/csv"),
+    ) { uri ->
+        if (uri != null) scope.launch {
+            busy = true
+            try {
+                withContext(Dispatchers.IO) { PocQualityLogs.export(context, uri) }
+                message = "品質比較のCSVを書き出しました。検索文は保存していません。"
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message = "品質CSVの書き出しに失敗: " + (e.message ?: "保存先を確認してください")
+            } finally { busy = false }
         }
     }
 
@@ -396,12 +423,26 @@ private fun EmbeddingPocScreen(onClose: () -> Unit) {
                 ) { Text(if (modelPresent) "モデルを入れ替える" else "モデルを選んで取り込む") }
                 if (modelPresent) {
                     OutlinedButton(onClick = {
-                        if (model.delete()) {
-                            PocVectorCache.clear()
-                            modelPresent = false
-                            benchmark = null
-                            message = "モデルのアプリ内コピーを削除しました。"
-                        } else message = "モデルを削除できませんでした。"
+                        busy = true
+                        scope.launch {
+                            try {
+                                val deleted = withContext(Dispatchers.IO) {
+                                    PocModelSession.releaseNow()
+                                    val success = model.delete()
+                                    if (success) check(PocVectorCache.clearAll(context))
+                                    success
+                                }
+                                if (deleted) {
+                                    modelPresent = false
+                                    benchmark = null
+                                    qualityResults = null
+                                    diskSize = 0L
+                                    message = "モデルと旧モデルのキャッシュを削除しました。"
+                                } else message = "モデルを削除できませんでした。"
+                            } catch (e: CancellationException) { throw e }
+                            catch (e: Exception) { message = "削除に失敗: " + e.message }
+                            finally { busy = false }
+                        }
                     }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
                         Text("モデルを削除する")
                     }
@@ -451,6 +492,39 @@ private fun EmbeddingPocScreen(onClose: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = keepWarm,
+                        onCheckedChange = { checked ->
+                            keepWarm = checked
+                            if (!checked) PocModelSession.releaseAsync()
+                        },
+                        enabled = !busy,
+                    )
+                    Text("画面内でCPUモデルを一時再利用する", style = MaterialTheme.typography.bodySmall)
+                }
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = persistVectors,
+                        onCheckedChange = { persistVectors = it },
+                        enabled = !busy,
+                    )
+                    Text("架空文のベクトルを再起動後も再利用する", style = MaterialTheme.typography.bodySmall)
+                }
+                Text(
+                    "モデルは背景移行・メモリ不足時に解放します。永続キャッシュは合成文のみで、検索文は保存しません。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text("永続キャッシュ: " + (diskSize / 1024) + " KiB", style = MaterialTheme.typography.bodySmall)
+                OutlinedButton(
+                    onClick = {
+                        PocModelSession.releaseAsync()
+                        message = "CPUモデルの解放を要求しました。"
+                    },
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("読み込み済みモデルを解放する") }
                 Button(
                     onClick = {
                         val queryNow = query
@@ -462,13 +536,17 @@ private fun EmbeddingPocScreen(onClose: () -> Unit) {
                         message = "CPUで評価中です。100件の初回は時間がかかる場合があります。"
                         scope.launch {
                             try {
-                                val result = evaluate(context, model, queryNow, countNow, termsNow, allNow)
+                                val warmNow = keepWarm
+                                val diskNow = persistVectors
+                                val result = evaluate(context, model, queryNow, countNow, termsNow, allNow, warmNow, diskNow)
                                 benchmark = result
+                                diskSize = PocVectorCache.onDiskBytes(context)
                                 logSize = PocLogs.size(context)
-                                message = if (result.loggingError == null) {
+                                val warning = listOfNotNull(result.loggingError, result.diskSaveError).joinToString("; ")
+                                message = if (warning.isEmpty()) {
                                     "端末内で評価し、計測ログをCSVへ保存しました。"
                                 } else {
-                                    "評価は成功しましたが、ログ保存に失敗: " + result.loggingError
+                                    "評価は成功しましたが、一部の保存に失敗: " + warning
                                 }
                             } catch (e: CancellationException) {
                                 throw e
@@ -500,6 +578,12 @@ private fun EmbeddingPocScreen(onClose: () -> Unit) {
                     Text(
                         "文書ベクトルキャッシュ: " + result.cacheHits + "件再利用 / " +
                             result.cacheMisses + "件新規",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        "モデル再利用: " + (if (result.engineReused) "あり（初期化0ms）" else "なし") +
+                            " / ディスクから復元 " + result.restoredFromDisk +
+                            "件（復元準備 " + result.diskLoadMs + "ms）",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Text(
@@ -547,6 +631,63 @@ private fun EmbeddingPocScreen(onClose: () -> Unit) {
             }
 
             QuietPanel {
+                Text("日本語検索の品質検証", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "7つの固定した架空の検索文で、意味検索と文字列包含の参考ベースラインを比較します。正解ラベルは合成文の分類に基づく暫定値です。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Button(
+                    enabled = modelPresent && !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        val warmNow = keepWarm
+                        val diskNow = persistVectors
+                        busy = true
+                        qualityResults = null
+                        message = "7つの日本語検索ケースを評価中です..."
+                        scope.launch {
+                            try {
+                                val rows = evaluateQuality(context, model, warmNow, diskNow)
+                                qualityResults = rows
+                                qualityLogSize = PocQualityLogs.size(context)
+                                diskSize = PocVectorCache.onDiskBytes(context)
+                                message = "品質検証を完了し、匿名CSVに記録しました。"
+                            } catch (e: CancellationException) { throw e }
+                            catch (e: LinkageError) {
+                                message = "品質評価の推論ライブラリでエラー: " + e.message
+                            } catch (e: Exception) {
+                                message = "品質評価に失敗: " + e.message
+                            } finally { busy = false }
+                        }
+                    },
+                ) { Text("日本語品質を7ケースで評価") }
+                qualityResults?.let { rows ->
+                    for (row in rows) {
+                        Text(row.id + "  意味 P@5 " +
+                            String.format(Locale.ROOT, "%.2f", row.semantic.precisionAt5) +
+                            " / R@10 " + String.format(Locale.ROOT, "%.2f", row.semantic.recallAt10) +
+                            " / MRR@10 " + String.format(Locale.ROOT, "%.2f", row.semantic.mrrAt10),
+                            style = MaterialTheme.typography.bodySmall)
+                        Text("        文字列 P@5 " +
+                            String.format(Locale.ROOT, "%.2f", row.literal.precisionAt5) +
+                            " / R@10 " + String.format(Locale.ROOT, "%.2f", row.literal.recallAt10) +
+                            " / MRR@10 " + String.format(Locale.ROOT, "%.2f", row.literal.mrrAt10),
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text("数字は今回の架空セットでの比較指標です。本番の通知判定や確率には使用しません。",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+                Text("品質評価の保存済みCSV: " + (qualityLogSize / 1024) + " KiB",
+                    style = MaterialTheme.typography.bodySmall)
+                OutlinedButton(
+                    onClick = { qualityExportLauncher.launch("lovely-ai-quality.csv") },
+                    enabled = !busy && qualityLogSize > 0,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("品質評価のCSVを書き出す") }
+            }
+
+            QuietPanel {
                 Text("計測ログ", style = MaterialTheme.typography.titleMedium)
                 Text(
                     "保存済み: " + (logSize / 1024) + " KiB / アプリ専用領域。実行ごとの要約と約120ms間隔のサンプルです。",
@@ -563,10 +704,28 @@ private fun EmbeddingPocScreen(onClose: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("計測ログをCSVに書き出す") }
                 OutlinedButton(
-                    onClick = { PocVectorCache.clear(); message = "メモリ内の文書ベクトルを消去しました。" },
+                    onClick = {
+                        PocVectorCache.clear()
+                        message = "メモリ内のベクトルを消去しました。永続キャッシュは残っています。"
+                    },
                     enabled = !busy,
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("文書ベクトルのキャッシュを消去") }
+                ) { Text("メモリ内のキャッシュだけを消去") }
+                OutlinedButton(
+                    onClick = {
+                        busy = true
+                        scope.launch {
+                            try {
+                                val success = withContext(Dispatchers.IO) { PocVectorCache.clearAll(context) }
+                                diskSize = PocVectorCache.onDiskBytes(context)
+                                message = if (success) "メモリ・端末内のベクトルキャッシュを消去しました。" else "永続キャッシュの削除に失敗しました。"
+                            } catch (e: Exception) { message = "削除に失敗: " + e.message }
+                            finally { busy = false }
+                        }
+                    },
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("永続キャッシュも含めて消去") }
                 OutlinedButton(
                     onClick = { confirmDelete = true },
                     enabled = !busy && logSize > 0,
