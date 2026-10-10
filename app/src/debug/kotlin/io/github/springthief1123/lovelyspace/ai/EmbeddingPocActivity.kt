@@ -267,7 +267,15 @@ private suspend fun evaluate(
         work.results.firstOrNull()?.similarity, resources,
     )
     val logError = withContext(Dispatchers.IO) {
-        runCatching { PocLogs.append(context, record) }.exceptionOrNull()?.message
+        val perfError = runCatching { PocLogs.append(context, record) }.exceptionOrNull()?.message
+        val modeError = runCatching {
+            PocRunModeLogs.append(
+                context, record, keepWarm, work.engineReused, persistCache,
+                work.diskLoaded.restoredDocuments, work.diskLoaded.loadMs,
+                PocVectorCache.onDiskBytes(context),
+            )
+        }.exceptionOrNull()?.message
+        listOfNotNull(perfError, modeError).joinToString("; ").ifEmpty { null }
     }
     Benchmark(
         work.results, count, baselineHits, requireAll,
@@ -319,6 +327,7 @@ private fun EmbeddingPocScreen(onClose: () -> Unit) {
     var persistVectors by rememberSaveable { mutableStateOf(false) }
     var qualityResults by remember { mutableStateOf<List<PocQualityResult>?>(null) }
     var qualityLogSize by remember { mutableStateOf(PocQualityLogs.size(context)) }
+    var modeLogSize by remember { mutableStateOf(PocRunModeLogs.size(context)) }
     var diskSize by remember { mutableStateOf(PocVectorCache.onDiskBytes(context)) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("モデルを選択してください。計測値を端末内のCSVに保存します。") }
@@ -368,6 +377,21 @@ private fun EmbeddingPocScreen(onClose: () -> Unit) {
         }
     }
 
+    val modeExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/csv"),
+    ) { uri ->
+        if (uri != null) scope.launch {
+            busy = true
+            try {
+                withContext(Dispatchers.IO) { PocRunModeLogs.export(context, uri) }
+                message = "実行条件CSVを書き出しました。CPU/PSS CSVとrun_idで結合できます。"
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                message = "実行条件CSVの書き出しに失敗: " + (e.message ?: "保存先を確認してください")
+            } finally { busy = false }
+        }
+    }
+
     val qualityExportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/csv"),
     ) { uri ->
@@ -392,9 +416,10 @@ private fun EmbeddingPocScreen(onClose: () -> Unit) {
             confirmButton = {
                 TextButton(onClick = {
                     confirmDelete = false
-                    val done = PocLogs.delete(context)
+                    val done = PocLogs.delete(context) && PocRunModeLogs.delete(context)
                     logSize = PocLogs.size(context)
-                    message = if (done) "計測ログを削除しました。" else "計測ログを削除できませんでした。"
+                    modeLogSize = PocRunModeLogs.size(context)
+                    message = if (done) "計測ログと実行条件ログを削除しました。" else "計測ログの削除に失敗しました。"
                 }) { Text("削除する") }
             },
             dismissButton = {
@@ -546,6 +571,7 @@ private fun EmbeddingPocScreen(onClose: () -> Unit) {
                                 benchmark = result
                                 diskSize = PocVectorCache.onDiskBytes(context)
                                 logSize = PocLogs.size(context)
+                                modeLogSize = PocRunModeLogs.size(context)
                                 val warning = listOfNotNull(result.loggingError, result.diskSaveError).joinToString("; ")
                                 message = if (warning.isEmpty()) {
                                     "端末内で評価し、計測ログをCSVへ保存しました。"
@@ -707,6 +733,16 @@ private fun EmbeddingPocScreen(onClose: () -> Unit) {
                     enabled = !busy && logSize > 0,
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("計測ログをCSVに書き出す") }
+                Text(
+                    "実行条件ログ " + (modeLogSize / 1024) +
+                        " KiB（モデル再利用・ディスク復元）。性能CSVのrun_idと対応します。",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedButton(
+                    onClick = { modeExportLauncher.launch("lovely-ai-run-modes.csv") },
+                    enabled = !busy && modeLogSize > 0,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("実行条件ログをCSVに書き出す") }
                 OutlinedButton(
                     onClick = {
                         PocVectorCache.clear()
