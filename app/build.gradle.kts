@@ -81,4 +81,15 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 }
 
+// LiteRT-LM 0.18.0の実行時依存はKotlin 2.4だが、既存appコンパイラ/KSPは2.1。
+// debugコンパイル用の依存解決だけ2.1に固定する。debugRuntimeClasspathには適用しない。
+configurations.configureEach {
+    if (name == "debugCompileClasspath") {
+        resolutionStrategy.force(
+            "org.jetbrains.kotlin:kotlin-stdlib:2.1.0",
+            "org.jetbrains.kotlin:kotlin-reflect:2.1.0",
+        )
+    }
+}
+
 ksp { arg("room.schemaLocation", "$projectDir/schemas") }
