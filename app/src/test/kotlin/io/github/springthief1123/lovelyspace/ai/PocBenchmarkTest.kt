@@ -1,6 +1,5 @@
 package io.github.springthief1123.lovelyspace.ai
 
-import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -33,18 +32,16 @@ class PocBenchmarkTest {
     }
 
     @Test fun cachedDocumentsCanBeReusedAndCleared() {
-        val model = File.createTempFile("poc-model", ".litertlm")
+        val text = PocCorpus.all.first()
         try {
             PocVectorCache.clear()
-            PocVectorCache.prepare(model)
-            assertNull(PocVectorCache.get("文書"))
-            PocVectorCache.put("文書", floatArrayOf(0.1f, 0.2f))
-            assertNotNull(PocVectorCache.get("文書"))
+            assertNull(PocVectorCache.get(text))
+            PocVectorCache.put(text, floatArrayOf(0.1f, 0.2f))
+            assertNotNull(PocVectorCache.get(text))
             assertEquals(1, PocVectorCache.size())
             PocVectorCache.clear()
-            assertNull(PocVectorCache.get("文書"))
+            assertNull(PocVectorCache.get(text))
         } finally {
-            model.delete()
             PocVectorCache.clear()
         }
     }
