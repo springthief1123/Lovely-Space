@@ -816,7 +816,10 @@ private fun EmbeddingPocScreen(onClose: () -> Unit) {
                 OutlinedButton(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !busy,
-                    onClick = { memoryLogSize = PocMemoryLogs.size(context) },
+                    onClick = {
+                        memoryLogSize = PocMemoryLogs.size(context)
+                        PocChatCoexistenceProbe.lastError()?.let { message = it }
+                    },
                 ) { Text("メモリログの容量を更新") }
                 OutlinedButton(
                     modifier = Modifier.fillMaxWidth(),
