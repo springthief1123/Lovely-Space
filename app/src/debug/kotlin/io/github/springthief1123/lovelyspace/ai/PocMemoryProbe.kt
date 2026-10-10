@@ -3,6 +3,7 @@ package io.github.springthief1123.lovelyspace.ai
 import android.app.Activity
 import android.app.Application
 import android.content.Context
+import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.Build
