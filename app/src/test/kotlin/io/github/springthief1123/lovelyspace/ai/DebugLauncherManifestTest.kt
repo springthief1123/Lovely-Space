@@ -3,46 +3,43 @@ package io.github.springthief1123.lovelyspace.ai
 import android.app.Application
 import android.content.ComponentName
 import android.content.Intent
-import android.content.pm.PackageManager
 import androidx.test.core.app.ApplicationProvider
 import io.github.springthief1123.lovelyspace.MainActivity
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** Androidが各ホームアイコンを同一タスクへ戻してしまう退行を防ぐ。 */
+/** debug APKの起動アイコンは通常アプリひとつ。開発用Activityは外部公開しない。 */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class)
 class DebugLauncherManifestTest {
-    @Test fun threeLauncherIconsOpenDistinctTasks() {
+    @Test fun onlyMainActivityHasLauncherIcon() {
         val context = ApplicationProvider.getApplicationContext<Application>()
         val pm = context.packageManager
-        val launchIntent = Intent(Intent.ACTION_MAIN)
+        val intent = Intent(Intent.ACTION_MAIN)
             .addCategory(Intent.CATEGORY_LAUNCHER)
             .setPackage(context.packageName)
-        val activities = pm.queryIntentActivities(launchIntent, 0)
+        val launcherNames = pm.queryIntentActivities(intent, 0)
             .map { it.activityInfo.name }
             .toSet()
 
-        val names = listOf(
-            MainActivity::class.java.name,
-            EmbeddingPocActivity::class.java.name,
-            ExistingSnapshotSearchActivity::class.java.name,
+        assertEquals(setOf(MainActivity::class.java.name), launcherNames)
+        val main = pm.getActivityInfo(
+            ComponentName(context.packageName, MainActivity::class.java.name), 0,
         )
-        assertTrue("3つのランチャーActivityが必要", activities.containsAll(names))
+        assertTrue(main.exported)
+    }
 
-        val affinities = names.map { name ->
-            val info = pm.getActivityInfo(ComponentName(context.packageName, name), 0)
-            assertTrue("Launcherはexportedが必要: ${name}", info.exported)
-            info.taskAffinity
+    @Test fun debugToolsAreInternalActivitiesWithoutLauncherEntries() {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        val pm = context.packageManager
+        for (type in listOf(EmbeddingPocActivity::class.java, ExistingSnapshotSearchActivity::class.java)) {
+            val info = pm.getActivityInfo(ComponentName(context.packageName, type.name), 0)
+            assertFalse("${type.simpleName} は外部アプリへ公開しない", info.exported)
         }
-        assertEquals("各ランチャーは異なるタスク所属先を持つ", 3, affinities.toSet().size)
-        assertNotEquals(affinities[0], affinities[1])
-        assertNotEquals(affinities[0], affinities[2])
-        assertNotEquals(affinities[1], affinities[2])
     }
 }
