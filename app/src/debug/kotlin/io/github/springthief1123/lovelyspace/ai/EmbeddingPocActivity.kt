@@ -792,7 +792,9 @@ private fun EmbeddingPocScreen(onClose: () -> Unit) {
                         if (PocChatCoexistenceProbe.start(context)) {
                             message = "通常画面の負荷計測を開始。最大90秒で自動停止します。"
                             try {
-                                context.startActivity(Intent(context, MainActivity::class.java))
+                                context.startActivity(Intent(context, MainActivity::class.java).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                                })
                             } catch (e: Exception) {
                                 PocChatCoexistenceProbe.stop()
                                 message = "通常画面を起動できません: " + (e.message ?: "端末を確認してください")
