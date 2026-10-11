@@ -21,6 +21,7 @@ import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.automirrored.outlined.ViewList
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.HorizontalDivider
@@ -45,6 +46,7 @@ fun SettingsScreen(
     onOpenHiddenRooms: () -> Unit,
     onOpenNotifications: () -> Unit,
     onOpenLock: () -> Unit,
+    onOpenDeveloperTools: (() -> Unit)? = null,
     onBack: () -> Unit,
 ) {
     val bottomContentPadding = 18.dp +
@@ -116,6 +118,16 @@ fun SettingsScreen(
                     description = "パスコード・パターン・生体認証、ロックまでの時間",
                     onClick = onOpenLock,
                 )
+            }
+            if (onOpenDeveloperTools != null) {
+                item {
+                    SettingsCategoryCard(
+                        icon = Icons.Outlined.Build,
+                        title = "開発者用ツール",
+                        description = "AI意味検索・取得済み一覧の検証（debug専用）",
+                        onClick = onOpenDeveloperTools,
+                    )
+                }
             }
         }
     }
