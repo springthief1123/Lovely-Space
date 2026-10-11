@@ -3,6 +3,7 @@ package io.github.springthief1123.lovelyspace.ai
 import android.content.Intent
 import android.os.Bundle
 import android.os.SystemClock
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
@@ -57,6 +58,8 @@ class ExistingSnapshotSearchActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 一覧由来の公開募集文も最近のアプリ一覧・スクリーンショットへ残さない。
+        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         setContent {
             LovelySpaceTheme { ExistingSnapshotSearchScreen(::finish) }
         }
@@ -110,6 +113,22 @@ private suspend fun evaluateExistingSnapshot(
 private fun ExistingSnapshotSearchScreen(onClose: () -> Unit) {
     val context = LocalContext.current
     val app = context.applicationContext as LovelySpaceApp
+    // 独立したdebugアイコンから通常のアプリロックを迂回して一覧を見ることを防ぐ。
+    // MainActivityを背面化すると即時ロックされ得るため、有効時は解除済みでも使用しない。
+    if (app.appLock.state.value.config.enabled) {
+        Scaffold(topBar = { QuietTopBar(title = "取得済み一覧AI検証", onBack = onClose) }) { inset ->
+            Column(Modifier.fillMaxSize().padding(inset).padding(16.dp)) {
+                QuietPanel {
+                    Text("アプリロックが有効なため、この検証は利用できません。")
+                    Text(
+                        "実データの表示を伴うdebug画面はロック解除画面を備えていません。通常のLovely Spaceでアプリロックを解除してから利用してください。",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        }
+        return
+    }
     val scope = rememberCoroutineScope()
     val model = remember(context) {
         File(File(context.filesDir, "ai-poc"), MODEL_FILE)
