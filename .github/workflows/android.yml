@@ -36,6 +36,11 @@ jobs:
       - name: Android unit tests and Lint
         run: ./gradlew :app:testDebugUnitTest :app:lintDebug --stacktrace
 
+      # release側のDeveloperTools空実装も実際にコンパイルして、
+      # debug専用画面が製品APKへ混入しない構成を検証する。
+      - name: Build release APK
+        run: ./gradlew :app:assembleRelease --stacktrace
+
       - name: Upload APK
         uses: actions/upload-artifact@v6
         with:
