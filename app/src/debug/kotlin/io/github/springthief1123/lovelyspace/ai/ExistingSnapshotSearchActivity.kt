@@ -29,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
@@ -115,7 +116,8 @@ private fun ExistingSnapshotSearchScreen(onClose: () -> Unit) {
     val app = context.applicationContext as LovelySpaceApp
     // 独立したdebugアイコンから通常のアプリロックを迂回して一覧を見ることを防ぐ。
     // MainActivityを背面化すると即時ロックされ得るため、有効時は解除済みでも使用しない。
-    if (app.appLock.state.value.config.enabled) {
+    val lockState by app.appLock.state.collectAsStateWithLifecycle()
+    if (lockState.config.enabled) {
         Scaffold(topBar = { QuietTopBar(title = "取得済み一覧AI検証", onBack = onClose) }) { inset ->
             Column(Modifier.fillMaxSize().padding(inset).padding(16.dp)) {
                 QuietPanel {
