@@ -121,7 +121,7 @@ private fun ExistingSnapshotSearchScreen(onClose: () -> Unit) {
                 QuietPanel {
                     Text("アプリロックが有効なため、この検証は利用できません。")
                     Text(
-                        "実データの表示を伴うdebug画面はロック解除画面を備えていません。通常のLovely Spaceでアプリロックを解除してから利用してください。",
+                        "実データの表示を伴うdebug画面には独立の認証がありません。アプリロックを有効にしたまま、この検証を行うことはできません。",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
