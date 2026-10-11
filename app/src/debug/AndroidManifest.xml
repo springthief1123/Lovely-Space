@@ -12,5 +12,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- debug専用。取得済み公開募集文を利用者の明示操作時だけ端末内で再順位付けする。 -->
+        <activity
+            android:name=".ai.ExistingSnapshotSearchActivity"
+            android:exported="true"
+            android:label="取得済み一覧AI検証"
+            android:theme="@style/Theme.LovelySpace">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
     </application>
 </manifest>
