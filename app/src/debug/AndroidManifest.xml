@@ -1,31 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
-        <!-- 同じtaskAffinityだとランチャーが既存タスクを再表示して別アイコンが同じ画面になる。
-             MainActivityの通常タスクとdebug各検証タスクを分離。プロセスは共有する。 -->
-        <!-- debug APK のみホーム画面に「AI意味検索検証」を追加。本番の画面・通信は変更しない。 -->
+        <!-- debug専用。ホームアイコンは通常のMainActivityひとつ。
+             設定 > 開発者用ツールからのみ起動する。外部アプリへ公開しない。 -->
         <activity
             android:name=".ai.EmbeddingPocActivity"
-            android:exported="true"
+            android:exported="false"
             android:label="AI意味検索検証"
-            android:taskAffinity="${applicationId}.debug.embedding_poc"
-            android:theme="@style/Theme.LovelySpace">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-        <!-- debug専用。取得済み公開募集文を利用者の明示操作時だけ端末内で再順位付けする。 -->
+            android:theme="@style/Theme.LovelySpace" />
         <activity
             android:name=".ai.ExistingSnapshotSearchActivity"
-            android:exported="true"
+            android:exported="false"
             android:label="取得済み一覧AI検証"
-            android:taskAffinity="${applicationId}.debug.existing_snapshot"
-            android:theme="@style/Theme.LovelySpace">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:theme="@style/Theme.LovelySpace" />
     </application>
 </manifest>
