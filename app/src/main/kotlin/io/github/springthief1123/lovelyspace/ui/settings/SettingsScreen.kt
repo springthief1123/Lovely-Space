@@ -141,7 +141,7 @@ internal fun SettingsPageHeader(title: String, onBack: () -> Unit) {
 }
 
 @Composable
-private fun SettingsCategoryCard(
+internal fun SettingsCategoryCard(
     icon: ImageVector,
     title: String,
     description: String,
