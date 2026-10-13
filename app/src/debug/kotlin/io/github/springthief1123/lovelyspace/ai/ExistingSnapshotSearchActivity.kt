@@ -6,6 +6,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.PersistableBundle
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.WindowManager
@@ -433,7 +434,7 @@ private fun ExistingSnapshotSearchScreen(onClose: () -> Unit) {
                             if (ExistingRoomShareDraft.canCopy(text, shareReviewed)) {
                                 val clip = ClipData.newPlainText("確認済み募集文", text)
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                    clip.description.extras = Bundle().apply {
+                                    clip.description.extras = PersistableBundle().apply {
                                         putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
                                     }
                                 }
