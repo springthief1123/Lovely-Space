@@ -239,7 +239,7 @@ private fun ExistingSnapshotSearchScreen(onClose: () -> Unit) {
                     singleLine = true,
                 )
                 Text(
-                    "空欄なら20文字以内・空白なしの希望文を比較語句に使用します。語句は募集文のみを文字列照合し、名前やタイトルは対象外です。",
+                    "空欄なら12文字以内・空白なしの希望文を比較語句に使用します。語句は募集文のみを文字列照合し、名前やタイトルは対象外です。",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 val modelReady = model.isFile && model.length() in 1_000_000L..600_000_000L
