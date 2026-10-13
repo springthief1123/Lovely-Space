@@ -1,6 +1,11 @@
 package io.github.springthief1123.lovelyspace.ai
 
+import android.content.ClipData
+import android.content.ClipDescription
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.WindowManager
@@ -37,6 +42,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.MainActivity
+import io.github.springthief1123.lovelyspace.ui.components.QuietCheckboxRow
 import io.github.springthief1123.lovelyspace.ui.components.QuietPanel
 import io.github.springthief1123.lovelyspace.ui.components.QuietTopBar
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpaceTheme
@@ -156,6 +162,9 @@ private fun ExistingSnapshotSearchScreen(onClose: () -> Unit) {
     }
     var busy by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf<ExistingSnapshotResult?>(null) }
+    var shareDraft by remember { mutableStateOf<String?>(null) }
+    var shareReviewed by remember { mutableStateOf(false) }
+    var shareMessage by remember { mutableStateOf("") }
     var message by remember {
         mutableStateOf("公開待機中の取得済み募集文のみ、手動で1回だけ端末内検索します。")
     }
@@ -187,6 +196,8 @@ private fun ExistingSnapshotSearchScreen(onClose: () -> Unit) {
                                     app.roomLists.observations.value.values, System.currentTimeMillis(), genre.key,
                                 ).size
                                 result = null
+                                shareDraft = null
+                                shareReviewed = false
                             },
                         )
                     }
@@ -202,6 +213,8 @@ private fun ExistingSnapshotSearchScreen(onClose: () -> Unit) {
                         if (availableGenres.none { it.key == genreKey }) genreKey = availableGenres.firstOrNull()?.key
                         currentCount = genreKey?.let { ExistingRoomSnapshot.select(pages, now, it).size } ?: 0
                         result = null
+                        shareDraft = null
+                        shareReviewed = false
                         message = if (currentCount == 0) {
                             "取得済みの待機中募集文がありません。「見つける」で一覧を取得してから戻ってください。"
                         } else "取得済み一覧を確認しました。この画面からの通信は行っていません。"
@@ -229,6 +242,8 @@ private fun ExistingSnapshotSearchScreen(onClose: () -> Unit) {
                     onValueChange = {
                         query = it.take(ExistingRoomSnapshot.MAX_QUERY_LENGTH)
                         result = null
+                        shareDraft = null
+                        shareReviewed = false
                     },
                     label = { Text("希望する雰囲気（最大120文字）") },
                     modifier = Modifier.fillMaxWidth(),
@@ -241,6 +256,8 @@ private fun ExistingSnapshotSearchScreen(onClose: () -> Unit) {
                     onValueChange = {
                         keyword = it.take(ExistingRoomSnapshot.MAX_KEYWORD_LENGTH)
                         result = null
+                        shareDraft = null
+                        shareReviewed = false
                     },
                     label = { Text("文字列照合の語句（任意・最大40文字）") },
                     modifier = Modifier.fillMaxWidth(),
@@ -266,6 +283,8 @@ private fun ExistingSnapshotSearchScreen(onClose: () -> Unit) {
                     onClick = {
                         busy = true
                         result = null
+                        shareDraft = null
+                        shareReviewed = false
                         message = "端末内で検索しています。データの保存や外部送信は行いません。"
                         val input = query
                         val inputKeyword = keyword
@@ -332,6 +351,14 @@ private fun ExistingSnapshotSearchScreen(onClose: () -> Unit) {
                                     (index + 1).toString() + ". " + ranked.text +
                                         "\nコサイン類似度 " + String.format(Locale.ROOT, "%.4f", ranked.similarity),
                                 )
+                                OutlinedButton(
+                                    onClick = {
+                                        shareDraft = ExistingRoomShareDraft.prepare(ranked.text)
+                                        shareReviewed = false
+                                        shareMessage = "共有前に個人情報・連絡先・固有の言い回しを確認してください。"
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { Text("この募集文の共有下書きを作る") }
                             }
                         }
                     } else {
@@ -352,12 +379,87 @@ private fun ExistingSnapshotSearchScreen(onClose: () -> Unit) {
                             (index + 1).toString() + ". " + ranked.text +
                                 "\nコサイン類似度 " + String.format(Locale.ROOT, "%.4f", ranked.similarity),
                         )
+                        OutlinedButton(
+                            onClick = {
+                                shareDraft = ExistingRoomShareDraft.prepare(ranked.text)
+                                shareReviewed = false
+                                shareMessage = "AI上位候補でも関連性は未確認です。共有文を必ず見直してください。"
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("この募集文の共有下書きを作る") }
                     }
                     Text(
                         "コサイン類似度は確率ではありません。参考候補を自動通知・入室判断に使用しません。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+            }
+            shareDraft?.let { draft ->
+                QuietPanel {
+                    Text("匿名化した募集文の共有下書き（任意）", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "連絡先・URLなどは自動的に仮伏字へ置き換えますが、氏名、地名、固有の表現やSNSの識別子などは残る場合があります。第三者が特定されないよう文面を編集し、不要な文章を削除してください。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedTextField(
+                        value = draft,
+                        onValueChange = {
+                            shareDraft = it.take(ExistingRoomSnapshot.MAX_MESSAGE_LENGTH)
+                            shareReviewed = false
+                            shareMessage = "文章を変更したため、もう一度内容を確認してください。"
+                        },
+                        label = { Text("共有する募集文（編集・削除できます）") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 3,
+                        maxLines = 8,
+                    )
+                    if (ExistingRoomShareDraft.hasRecognizableIdentifiers(draft)) {
+                        Text(
+                            "連絡先やURLらしき文字が残っています。削除するまでコピーできません。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    QuietCheckboxRow(
+                        checked = shareReviewed,
+                        onCheckedChange = { shareReviewed = it },
+                        label = "固有名詞・連絡先・場所・識別できる内容を確認し、共有してよい文面にした",
+                    )
+                    Button(
+                        onClick = {
+                            val text = shareDraft?.trim().orEmpty()
+                            if (ExistingRoomShareDraft.canCopy(text, shareReviewed)) {
+                                val clip = ClipData.newPlainText("確認済み募集文", text)
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    clip.description.extras = Bundle().apply {
+                                        putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
+                                    }
+                                }
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(clip)
+                                shareMessage = "確認済み募集文だけをコピーしました。このチャットへ貼り付けてください。利用後は端末のクリップボードを消去してください。"
+                                shareReviewed = false
+                            }
+                        },
+                        enabled = ExistingRoomShareDraft.canCopy(draft, shareReviewed),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("確認した募集文だけコピー") }
+                    OutlinedButton(
+                        onClick = {
+                            shareDraft = null
+                            shareReviewed = false
+                            shareMessage = ""
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("下書きを破棄") }
+                    Text(
+                        "コピーは端末のクリップボードへの明示操作です。他のアプリから見える場合があります。GitHubや外部サービスへの自動投稿・永続ログ保存はしません。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (shareMessage.isNotBlank()) Text(shareMessage, style = MaterialTheme.typography.bodySmall)
                 }
             }
             Spacer(Modifier.height(16.dp))
