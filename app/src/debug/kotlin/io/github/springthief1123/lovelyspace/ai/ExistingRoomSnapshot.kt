@@ -58,14 +58,14 @@ internal object ExistingRoomSnapshot {
     }
 
     /**
-     * 希望文が20文字以下の単語ならそのまま文字列比較にも使う。
+     * 希望文が12文字以下の単語ならそのまま文字列比較にも使う。
      * 長い自然文は自動的に分かち書きしない（誤った一致を作らないため）。
      */
     fun comparisonKeyword(query: String, explicit: String): String? {
         val trimmed = explicit.trim()
         require(trimmed.length <= MAX_KEYWORD_LENGTH) { "照合語句は40文字までです" }
         val candidate = trimmed.ifEmpty {
-            query.trim().takeIf { it.length <= 20 && it.none(Char::isWhitespace) } ?: ""
+            query.trim().takeIf { it.length <= 12 && it.none(Char::isWhitespace) } ?: ""
         }
         return candidate.takeIf { it.isNotBlank() }
     }
