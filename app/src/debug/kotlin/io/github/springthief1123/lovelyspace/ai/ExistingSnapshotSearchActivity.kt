@@ -5,11 +5,11 @@ import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.widget.Toast
 import android.os.Build
-import android.os.PersistableBundle
 import android.os.Bundle
+import android.os.PersistableBundle
 import android.os.SystemClock
+import android.widget.Toast
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -83,7 +83,7 @@ private const val MODEL_FILE = "embeddinggemma-2-text-270m.litertlm"
 
 // 利用者が選んだ取得済み公開募集文だけを、原文のまま端末内でコピーする。
 // 追加通信・ログ・ファイル保存・GitHubへの投稿は行わない。
-private fun copyPublicMessage(context: Context, text: String) {
+internal fun copyPublicMessage(context: Context, text: String) {
     val clip = ClipData.newPlainText("募集文", text)
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         clip.description.extras = PersistableBundle().apply {
@@ -317,7 +317,7 @@ private fun ExistingSnapshotSearchScreen(onClose: () -> Unit) {
                 if (busy) CircularProgressIndicator()
                 Text(message, style = MaterialTheme.typography.bodySmall)
                 Text(
-                    "この試験で検索文・募集文・ベクトルは保存しません。入室、通知、巡回、元の検索条件には一切反映しません。",
+                    "検索文・募集文・ベクトルをファイルやログには保存しません。コピーした募集文だけは端末のクリップボードに残ります。入室・通知・巡回には反映しません。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -382,6 +382,11 @@ private fun ExistingSnapshotSearchScreen(onClose: () -> Unit) {
                             modifier = Modifier.fillMaxWidth(),
                         ) { Text("募集文をコピー") }
                     }
+                    Text(
+                        "募集文のコピーは原文そのままです。連絡先等が含まれる場合があるため、共有先はご自身で選んでください。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     Text(
                         "コサイン類似度は確率ではありません。参考候補を自動通知・入室判断に使用しません。",
                         style = MaterialTheme.typography.bodySmall,
