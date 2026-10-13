@@ -226,7 +226,10 @@ private fun ExistingSnapshotSearchScreen(onClose: () -> Unit) {
                 Text("日本語で希望を入力", style = MaterialTheme.typography.titleMedium)
                 OutlinedTextField(
                     value = query,
-                    onValueChange = { query = it.take(ExistingRoomSnapshot.MAX_QUERY_LENGTH) },
+                    onValueChange = {
+                        query = it.take(ExistingRoomSnapshot.MAX_QUERY_LENGTH)
+                        result = null
+                    },
                     label = { Text("希望する雰囲気（最大120文字）") },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !busy,
@@ -235,7 +238,10 @@ private fun ExistingSnapshotSearchScreen(onClose: () -> Unit) {
                 )
                 OutlinedTextField(
                     value = keyword,
-                    onValueChange = { keyword = it.take(ExistingRoomSnapshot.MAX_KEYWORD_LENGTH) },
+                    onValueChange = {
+                        keyword = it.take(ExistingRoomSnapshot.MAX_KEYWORD_LENGTH)
+                        result = null
+                    },
                     label = { Text("文字列照合の語句（任意・最大40文字）") },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !busy,
