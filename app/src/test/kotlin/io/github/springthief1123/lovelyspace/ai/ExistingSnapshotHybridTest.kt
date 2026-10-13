@@ -96,6 +96,28 @@ class ExistingSnapshotHybridTest {
         assertEquals(0.68, result.lowestCosine!!, 0.0001)
     }
 
+    @Test fun checksVectorDimensionsFiniteValuesAndDistinctFingerprints() {
+        val valid = ExistingRoomSnapshot.inspectVectors(
+            floatArrayOf(1f, 0f),
+            listOf(
+                "a" to floatArrayOf(0f, 1f),
+                "b" to floatArrayOf(0f, 1f),
+                "c" to floatArrayOf(1f, 0f),
+            ),
+        )
+        assertEquals(2, valid.dimensions)
+        assertEquals(2, valid.distinctDocumentFingerprints)
+        assertTrue(runCatching {
+            ExistingRoomSnapshot.inspectVectors(floatArrayOf(0f, 0f), listOf("a" to floatArrayOf(1f, 0f)))
+        }.isFailure)
+        assertTrue(runCatching {
+            ExistingRoomSnapshot.inspectVectors(floatArrayOf(1f, 0f), listOf("a" to floatArrayOf(Float.NaN, 0f)))
+        }.isFailure)
+        assertTrue(runCatching {
+            ExistingRoomSnapshot.inspectVectors(floatArrayOf(1f, 0f), listOf("a" to floatArrayOf(1f)))
+        }.isFailure)
+    }
+
     @Test fun noLiteralMatchDoesNotCountHighCosineAsConfirmed() {
         val ranked = listOf(SemanticRanking.Result("関係のない募集文", 0.95, 0))
         val result = ExistingRoomSnapshot.classify(ranked, "カカオ", "")
