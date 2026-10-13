@@ -77,6 +77,27 @@ internal object ExistingRoomSnapshot {
     private fun normalize(text: String): String =
         Normalizer.normalize(text, Normalizer.Form.NFKC).lowercase(Locale.ROOT)
 
+    data class VectorDiagnostics(val dimensions: Int, val distinctDocumentFingerprints: Int)
+
+    /**
+     * 正規の埋め込み次元・有限値・非ゼロを検査する。ハッシュの種類数は参考であり、
+     * 同じ文章やハッシュ衝突を含み得るため検索品質の判定には使用しない。
+     */
+    fun inspectVectors(query: FloatArray, documents: List<Pair<String, FloatArray>>): VectorDiagnostics {
+        require(query.isNotEmpty() && query.all { it.isFinite() } && query.any { it != 0f }) {
+            "検索ベクトルが不正です"
+        }
+        documents.forEach { (_, vector) ->
+            require(vector.size == query.size && vector.all { it.isFinite() } && vector.any { it != 0f }) {
+                "募集文ベクトルが不正です"
+            }
+        }
+        return VectorDiagnostics(
+            dimensions = query.size,
+            distinctDocumentFingerprints = documents.map { it.second.contentHashCode() }.toSet().size,
+        )
+    }
+
     data class HybridRanking(
         val keyword: String?,
         val confirmed: List<SemanticRanking.Result>,
