@@ -76,6 +76,7 @@ private const val MODEL_FILE = "embeddinggemma-2-text-270m.litertlm"
 
 private data class ExistingSnapshotResult(
     val assessment: ExistingRoomSnapshot.HybridRanking,
+    val vectorDiagnostics: ExistingRoomSnapshot.VectorDiagnostics,
     val corpusSize: Int,
     val initializationMs: Long,
     val embeddingMs: Long,
@@ -102,11 +103,13 @@ private suspend fun evaluateExistingSnapshot(
             message to engine.embed(DOCUMENT_PREFIX + message)
         }
         val embeddingMs = SystemClock.elapsedRealtime() - embedStart
+        val diagnostics = ExistingRoomSnapshot.inspectVectors(queryVector, vectors)
         val ranked = SemanticRanking.rank(queryVector, vectors)
-        ExistingRoomSnapshot.classify(ranked, query, rawKeyword) to embeddingMs
+        Triple(ExistingRoomSnapshot.classify(ranked, query, rawKeyword), embeddingMs, diagnostics)
     }
     ExistingSnapshotResult(
         assessment = session.value.first,
+        vectorDiagnostics = session.value.third,
         corpusSize = texts.size,
         initializationMs = session.initializationMs,
         embeddingMs = session.value.second,
@@ -302,6 +305,12 @@ private fun ExistingSnapshotSearchScreen(onClose: () -> Unit) {
                             value.initializationMs + "ms / ベクトル計算 " +
                             value.embeddingMs + "ms / 全体 " + value.totalMs + "ms",
                     )
+                    Text("埋め込み次元 " + value.vectorDiagnostics.dimensions +
+                        " / 文書ベクトル指紋の種類 " + value.vectorDiagnostics.distinctDocumentFingerprints +
+                        " / " + value.corpusSize + "件")
+                    if (value.corpusSize > 1 && value.vectorDiagnostics.distinctDocumentFingerprints == 1) {
+                        Text("注意: 文書ベクトルの指紋が全件同じです。モデル／文章の重複を確認してください。")
+                    }
                     Text("文字列照合: " + (assessment.keyword ?: "未設定（希望文が長いため自動設定なし）"))
                     if (assessment.keyword != null) {
                         Text(
