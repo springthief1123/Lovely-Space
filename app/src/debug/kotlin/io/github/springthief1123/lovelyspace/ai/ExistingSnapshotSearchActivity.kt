@@ -17,11 +17,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -72,7 +75,7 @@ private const val DOCUMENT_PREFIX = "task: search result | text: "
 private const val MODEL_FILE = "embeddinggemma-2-text-270m.litertlm"
 
 private data class ExistingSnapshotResult(
-    val ranked: List<SemanticRanking.Result>,
+    val assessment: ExistingRoomSnapshot.HybridRanking,
     val corpusSize: Int,
     val initializationMs: Long,
     val embeddingMs: Long,
@@ -83,6 +86,7 @@ private suspend fun evaluateExistingSnapshot(
     model: File,
     texts: List<String>,
     rawQuery: String,
+    rawKeyword: String,
 ): ExistingSnapshotResult = withContext(Dispatchers.IO) {
     val query = ExistingRoomSnapshot.validateQuery(rawQuery)
     require(texts.isNotEmpty()) { "新しい一覧データがありません" }
@@ -99,10 +103,10 @@ private suspend fun evaluateExistingSnapshot(
         }
         val embeddingMs = SystemClock.elapsedRealtime() - embedStart
         val ranked = SemanticRanking.rank(queryVector, vectors)
-        ranked to embeddingMs
+        ExistingRoomSnapshot.classify(ranked, query, rawKeyword) to embeddingMs
     }
     ExistingSnapshotResult(
-        ranked = session.value.first,
+        assessment = session.value.first,
         corpusSize = texts.size,
         initializationMs = session.initializationMs,
         embeddingMs = session.value.second,
@@ -136,8 +140,16 @@ private fun ExistingSnapshotSearchScreen(onClose: () -> Unit) {
         File(File(context.filesDir, "ai-poc"), MODEL_FILE)
     }
     var query by remember { mutableStateOf("") }
+    var keyword by remember { mutableStateOf("") }
+    var availableGenres by remember {
+        mutableStateOf(ExistingRoomSnapshot.availableGenres(app.roomLists.observations.value.values, System.currentTimeMillis()))
+    }
+    var genreKey by remember { mutableStateOf(availableGenres.firstOrNull()?.key) }
+    var genreExpanded by remember { mutableStateOf(false) }
     var currentCount by remember {
-        mutableStateOf(ExistingRoomSnapshot.select(app.roomLists.observations.value.values, System.currentTimeMillis()).size)
+        mutableStateOf(genreKey?.let {
+            ExistingRoomSnapshot.select(app.roomLists.observations.value.values, System.currentTimeMillis(), it).size
+        } ?: 0)
     }
     var busy by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf<ExistingSnapshotResult?>(null) }
@@ -157,14 +169,35 @@ private fun ExistingSnapshotSearchScreen(onClose: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Text("対象カテゴリーを選択（取得済み一覧のみ）")
+                TextButton(onClick = { genreExpanded = true }, enabled = !busy && availableGenres.isNotEmpty()) {
+                    Text(availableGenres.firstOrNull { it.key == genreKey }?.label ?: "取得済みカテゴリーなし")
+                }
+                DropdownMenu(expanded = genreExpanded, onDismissRequest = { genreExpanded = false }) {
+                    availableGenres.forEach { genre ->
+                        DropdownMenuItem(
+                            text = { Text(genre.label) },
+                            onClick = {
+                                genreExpanded = false
+                                genreKey = genre.key
+                                currentCount = ExistingRoomSnapshot.select(
+                                    app.roomLists.observations.value.values, System.currentTimeMillis(), genre.key,
+                                ).size
+                                result = null
+                            },
+                        )
+                    }
+                }
                 Text("対象の募集文: " + currentCount + "件（最大100件）")
                 OutlinedButton(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !busy,
                     onClick = {
-                        currentCount = ExistingRoomSnapshot.select(
-                            app.roomLists.observations.value.values, System.currentTimeMillis(),
-                        ).size
+                        val pages = app.roomLists.observations.value.values
+                        val now = System.currentTimeMillis()
+                        availableGenres = ExistingRoomSnapshot.availableGenres(pages, now)
+                        if (availableGenres.none { it.key == genreKey }) genreKey = availableGenres.firstOrNull()?.key
+                        currentCount = genreKey?.let { ExistingRoomSnapshot.select(pages, now, it).size } ?: 0
                         result = null
                         message = if (currentCount == 0) {
                             "取得済みの待機中募集文がありません。「見つける」で一覧を取得してから戻ってください。"
@@ -197,6 +230,18 @@ private fun ExistingSnapshotSearchScreen(onClose: () -> Unit) {
                     minLines = 2,
                     maxLines = 3,
                 )
+                OutlinedTextField(
+                    value = keyword,
+                    onValueChange = { keyword = it.take(ExistingRoomSnapshot.MAX_KEYWORD_LENGTH) },
+                    label = { Text("文字列照合の語句（任意・最大40文字）") },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !busy,
+                    singleLine = true,
+                )
+                Text(
+                    "空欄なら20文字以内・空白なしの希望文を比較語句に使用します。語句は募集文のみを文字列照合し、名前やタイトルは対象外です。",
+                    style = MaterialTheme.typography.bodySmall,
+                )
                 val modelReady = model.isFile && model.length() in 1_000_000L..600_000_000L
                 if (!modelReady) {
                     Text("先に従来の「AI意味検索検証」からモデルを取り込んでください。")
@@ -208,20 +253,22 @@ private fun ExistingSnapshotSearchScreen(onClose: () -> Unit) {
                 }
                 Button(
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !busy && modelReady && currentCount > 0 && query.isNotBlank(),
+                    enabled = !busy && modelReady && currentCount > 0 && genreKey != null && query.isNotBlank(),
                     onClick = {
                         busy = true
                         result = null
                         message = "端末内で検索しています。データの保存や外部送信は行いません。"
                         val input = query
+                        val inputKeyword = keyword
+                        val selectedGenre = requireNotNull(genreKey)
                         scope.launch {
                             try {
                                 // 押した瞬間に取得済みページをコピーし、古い一覧は使用しない。
                                 val texts = ExistingRoomSnapshot.select(
-                                    app.roomLists.observations.value.values, System.currentTimeMillis(),
+                                    app.roomLists.observations.value.values, System.currentTimeMillis(), selectedGenre,
                                 )
                                 currentCount = texts.size
-                                val evaluated = evaluateExistingSnapshot(model, texts, input)
+                                val evaluated = evaluateExistingSnapshot(model, texts, input, inputKeyword)
                                 result = evaluated
                                 message = "検索が完了しました。結果はこの画面のメモリにだけ保持します。"
                             } catch (e: CancellationException) {
@@ -248,22 +295,51 @@ private fun ExistingSnapshotSearchScreen(onClose: () -> Unit) {
 
             result?.let { value ->
                 QuietPanel {
-                    Text("検索結果（相対的な類似度順）", style = MaterialTheme.typography.titleMedium)
+                    val assessment = value.assessment
+                    Text("照合結果とAI参考順位", style = MaterialTheme.typography.titleMedium)
                     Text(
                         "対象 " + value.corpusSize + "件 / モデル初期化 " +
                             value.initializationMs + "ms / ベクトル計算 " +
                             value.embeddingMs + "ms / 全体 " + value.totalMs + "ms",
                     )
-                    value.ranked.take(10).forEachIndexed { index, ranked ->
+                    Text("文字列照合: " + (assessment.keyword ?: "未設定（希望文が長いため自動設定なし）"))
+                    if (assessment.keyword != null) {
+                        Text(
+                            "募集文の文字列一致 " + assessment.confirmed.size +
+                                "件 / AI上位10件に含まれた文字列一致 " + assessment.aiTop10KeywordHits + "件",
+                        )
+                        if (assessment.confirmed.isEmpty()) {
+                            Text("文字列一致する募集文はありません。AIだけの候補を一致結果として扱いません。")
+                        } else {
+                            Text("文字列一致した募集文（AIスコア順・最大10件）", style = MaterialTheme.typography.titleSmall)
+                            assessment.confirmed.take(10).forEachIndexed { index, ranked ->
+                                Text(
+                                    (index + 1).toString() + ". " + ranked.text +
+                                        "\nコサイン類似度 " + String.format(Locale.ROOT, "%.4f", ranked.similarity),
+                                )
+                            }
+                        }
+                    } else {
+                        Text("文字列照合なし。意味検索の順位のみを参考表示します。")
+                    }
+                    Text(
+                        "AI類似度の範囲: " +
+                            String.format(Locale.ROOT, "%.4f", assessment.lowestCosine ?: 0.0) +
+                            " ～ " + String.format(Locale.ROOT, "%.4f", assessment.highestCosine ?: 0.0),
+                    )
+                    Text(
+                        if (assessment.keyword == null) "AI順位（参考・一致判定なし）"
+                        else "文字列不一致のAI候補（参考・関連性未確認）",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    assessment.aiOnly.take(5).forEachIndexed { index, ranked ->
                         Text(
                             (index + 1).toString() + ". " + ranked.text +
-                                "\nコサイン類似度 " +
-                                String.format(Locale.ROOT, "%.4f", ranked.similarity),
-                            style = MaterialTheme.typography.bodyMedium,
+                                "\nコサイン類似度 " + String.format(Locale.ROOT, "%.4f", ranked.similarity),
                         )
                     }
                     Text(
-                        "順位とスコアは参考値です。通知条件や入室判断に使用しません。",
+                        "コサイン類似度は確率ではありません。参考候補を自動通知・入室判断に使用しません。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
