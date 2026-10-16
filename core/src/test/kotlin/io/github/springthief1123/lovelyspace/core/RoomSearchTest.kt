@@ -98,4 +98,53 @@ class RoomSearchTest {
         assertNull(band(20, 29, unknown = true))
         assertNull(band(30, 20))
     }
+
+    @Test
+    fun absorbsWidthCaseKanaAndDashVariants() {
+        val r = room.copy(name = "ｹﾞｰﾑ好き", message = "まったり〜ゲームしよ ＡＢＣ")
+        assertTrue(RoomSearchCriteria(text = "げーむ").matches(r))
+        assertTrue(RoomSearchCriteria(name = "ゲーム").matches(r))
+        assertTrue(RoomSearchCriteria(message = "まったりー abc").matches(r))
+        assertTrue(RoomSearchCriteria(message = "まったり～").matches(r))
+        assertFalse(RoomSearchCriteria(excluded = "げーむ").matches(r))
+        assertEquals("ちゃh", KeywordFolding.fold("ﾁｬＨ"))
+    }
+
+    @Test
+    fun synonymsMatchEveryWordOfTheGroupOnlyForWholeTerms() {
+        val r = room.copy(message = "今夜はチャHしたい")
+        assertTrue(RoomSearchCriteria(message = "ちゃえっち").matches(r))
+        assertTrue(RoomSearchCriteria(text = "チャットエッチ").matches(r))
+        assertFalse(RoomSearchCriteria(message = "ちゃえっち").matches(r, SynonymDictionary.NONE))
+        // 言い換えは語がまとまりの語と同じときだけ。「えっち」は「チャH」に広げない。
+        assertFalse(RoomSearchCriteria(message = "えっち").matches(r))
+        assertFalse(RoomSearchCriteria(excluded = "ちゃえっち").matches(r))
+        val custom = SynonymDictionary(listOf(listOf("猫", "ねこ", "ニャンコ")))
+        assertTrue(RoomSearchCriteria(message = "にゃんこ").matches(room, custom))
+        assertEquals(setOf("猫", "ねこ", "にゃんこ"), custom.variants("ネコ"))
+    }
+
+    @Test
+    fun siteSearchSendsEveryKanaFormAndSkipsTermsItCannotMatchTheSameWay() {
+        val kanto = Genres["kanto"]!!
+        val base = RoomQuery(kanto)
+        // ひらがな・カタカナは本家が区別するので、両方の書き方の一覧にする。
+        assertEquals(listOf(base.copy(message = "ゲーム"), base.copy(message = "げーむ")),
+            RoomSearchCriteria(message = "ゲーム").siteQueries(kanto))
+        assertNull(RoomSearchCriteria(message = "ゲーム").siteQuery(kanto).message)
+        assertEquals(listOf(base.copy(name = "げーむ"), base.copy(message = "げーむ"), base.copy(name = "ゲーム"), base.copy(message = "ゲーム")),
+            RoomSearchCriteria(text = "げーむ").siteQueries(kanto))
+        // すべてを含むなら、書き方が 1 つの語（漢字だけ）で絞る。
+        assertEquals(listOf(base.copy(message = "合成")), RoomSearchCriteria(message = "ゲーム 合成").siteQueries(kanto))
+        // 半角カナ・長音の類・言い換えのある語は本家では絞らない。
+        assertEquals(listOf(base), RoomSearchCriteria(message = "ｹﾞｰﾑ").siteQueries(kanto))
+        assertEquals(listOf(base), RoomSearchCriteria(message = "まったり〜").siteQueries(kanto))
+        assertEquals(listOf(base), RoomSearchCriteria(message = "ちゃえっち").siteQueries(kanto))
+        // かなと漢字の混じった語は 3 通りになり、共通検索欄では 6 つの一覧で上限を超えるので絞らない。
+        assertEquals(listOf(base), RoomSearchCriteria(text = "ゲームしよ").siteQueries(kanto))
+        assertEquals(3, RoomSearchCriteria(message = "ゲームしよ").siteQueries(kanto).size)
+        // 両方の欄で上限を超えるなら、書き方の少ない欄だけで絞る。
+        assertEquals(listOf(base.copy(name = "ねこ"), base.copy(name = "ネコ")),
+            RoomSearchCriteria(name = "ねこ", message = "ゲームしよ").siteQueries(kanto))
+    }
 }

@@ -24,7 +24,8 @@ data class RoomSearchCriteria(
     val isValid: Boolean get() = (minAge == null || minAge in 18..99) &&
         (maxAge == null || maxAge in 18..99) && (minAge == null || maxAge == null || minAge <= maxAge)
 
-    fun matches(room: Room): Boolean {
+    /** [room] がこの条件に合うか。語は表記の揺れ（[KeywordFolding]）と [synonyms] の言い換えを吸収して比べる。 */
+    fun matches(room: Room, synonyms: SynonymDictionary = SynonymDictionary.BUILT_IN): Boolean {
         if (!isValid) return false
         if (gender != null && room.gender != gender) return false
         if (room.age == null) {
@@ -33,34 +34,52 @@ data class RoomSearchCriteria(
         if (area != null && room.area != area) return false
         if (waitingOnly != null && !room.isFull != waitingOnly) return false
         if (publicOnly != null && room.isPublic != publicOnly) return false
-        if (!keywordsMatch(room.name.orEmpty(), name) || !keywordsMatch(room.message, message)) return false
-        val allText = "${room.name.orEmpty()} ${room.message}".lowercase(Locale.ROOT)
-        if (!keywordsMatch(allText, this.text)) return false
-        return words(excluded).none { allText.contains(it) }
+        if (!keywordsMatch(room.name.orEmpty(), name, synonyms) || !keywordsMatch(room.message, message, synonyms)) return false
+        val allText = KeywordFolding.fold("${room.name.orEmpty()} ${room.message}")
+        if (!keywordsMatch(allText, this.text, synonyms)) return false
+        return words(excluded).none { term -> synonyms.variants(term).any(allText::contains) }
     }
 
-    private fun keywordsMatch(text: String, query: String): Boolean {
+    private fun keywordsMatch(text: String, query: String, synonyms: SynonymDictionary): Boolean {
         val terms = words(query)
         if (terms.isEmpty()) return true
-        val normalized = text.lowercase(Locale.ROOT)
-        return if (keywordMode == KeywordMode.ALL) terms.all { normalized.contains(it) } else terms.any { normalized.contains(it) }
+        val folded = KeywordFolding.fold(text)
+        val hit = { term: String -> synonyms.variants(term).any(folded::contains) }
+        return if (keywordMode == KeywordMode.ALL) terms.all(hit) else terms.any(hit)
     }
-    private fun words(text: String) = text.trim().lowercase(Locale.ROOT).split(Regex("[\\s　]+" )).filter(String::isNotEmpty)
+    private fun words(text: String) = KeywordFolding.fold(text).split(Regex("[\\s　]+")).filter(String::isNotEmpty)
 
     /**
-     * [query] の語のうち、本家の文字検索（`srchname` / `srchmsg`、1 語の部分一致）に渡しても取りこぼしが出ない 1 語。
-     * すべての語を含む（AND）なら 1 語で絞っても一致する部屋は残るので、いちばん長い語を選ぶ。どれかを含む（OR）は 1 語のときだけ。
+     * [query] の語のうち、本家の文字検索（`srchname` / `srchmsg`、1 語の部分一致）に渡しても取りこぼしが出ない 1 語と、
+     * その語の本家に渡す書き方（[siteForms]）。すべてを含む（AND）なら 1 語で絞っても一致する部屋は残るので、
+     * 書き方の少ない語、同じなら長い語を選ぶ。どれかを含む（OR）は 1 語のときだけ。
      */
-    internal fun siteKeyword(query: String): String? {
-        val terms = words(query)
-        val term = when {
-            terms.size == 1 -> terms.single()
-            keywordMode == KeywordMode.ALL -> terms.filter(::isSiteSearchable).maxByOrNull { it.length }
+    internal fun siteKeyword(query: String, synonyms: SynonymDictionary = SynonymDictionary.BUILT_IN): List<String>? {
+        val terms = query.trim().split(Regex("[\\s　]+")).filter(String::isNotEmpty)
+        return when {
+            terms.size == 1 -> siteForms(terms.single(), synonyms)
+            keywordMode == KeywordMode.ALL -> terms.mapNotNull { siteForms(it, synonyms) }
+                .minWithOrNull(compareBy<List<String>> { it.size }.thenByDescending { it.first().length })
             else -> null
         }
-        return term?.takeIf(::isSiteSearchable)
     }
 }
+
+/**
+ * 本家の文字検索で [term] に一致する部屋を取りこぼさないために渡す書き方。端末はひらがな・カタカナを同じに扱うが本家は区別するので、
+ * 入力どおり・ひらがな・カタカナの書き方を渡す（その分だけ一覧が増える）。次の語は渡さない（null）。
+ * - 本家に渡せない語（[isSiteSearchable]）
+ * - 半角カナ・長音の類など、かな以外の揺れを含む語（本家では書き方が多すぎて一覧に収まらない）
+ * - 言い換え（[SynonymDictionary]）のある語
+ */
+private fun siteForms(term: String, synonyms: SynonymDictionary): List<String>? {
+    if (!isSiteSearchable(term) || synonyms.hasSynonyms(term)) return null
+    if (KeywordFolding.fold(term) != KeywordFolding.toHiragana(term)) return null
+    return listOf(term, KeywordFolding.toHiragana(term), KeywordFolding.toKatakana(term)).distinct()
+}
+
+/** 1 つの検索で読む本家の一覧の数の上限。語の書き方の分だけ一覧が増えるので、増えすぎるなら本家では語を絞らない。 */
+const val MAX_SITE_QUERIES = 4
 
 /**
  * 本家の文字検索に渡せる語。端末側は大文字・小文字を区別しないが、本家は区別する（かな/カナはどちらも区別する）ので、
@@ -79,7 +98,8 @@ private fun isSiteSearchable(term: String): Boolean =
  *   （本家の年齢帯で未記入の部屋がどう扱われるかは未確認なので、含める設定では載せない）。
  * - 地域は載せない。端末側の地域は募集文の地域タグで、本家の vpref（プロフィールの都道府県）とは別物のため。
  * - 名前・募集文の語は、本家の文字検索に渡せる 1 語（[RoomSearchCriteria.siteKeyword]）を `srchname` / `srchmsg` に載せる。
- *   共通検索欄（名前か募集文のどちらか）は 1 つの一覧では表せないので、ここでは載せない（[siteQueries] を使う）。
+ *   書き方が 1 つに決まる語（ひらがな・カタカナを含まない語）だけ。共通検索欄（名前か募集文のどちらか）と、
+ *   書き方が複数ある語は 1 つの一覧では表せないので、ここでは載せない（[siteQueries] を使う）。
  */
 fun RoomSearchCriteria.siteQuery(genre: Genre, page: Int = 1): RoomQuery = RoomQuery(
     genre = genre,
@@ -87,22 +107,33 @@ fun RoomSearchCriteria.siteQuery(genre: Genre, page: Int = 1): RoomQuery = RoomQ
     ageBand = if (includeUnknownAge || !isValid) null else ageBandFor(minAge, maxAge),
     publicOnly = publicOnly,
     waitingOnly = waitingOnly,
-    name = siteKeyword(name),
-    message = siteKeyword(message),
+    name = siteKeyword(name)?.singleOrNull(),
+    message = siteKeyword(message)?.singleOrNull(),
     page = page,
 )
 
 /**
  * 検索に使う本家の一覧（1 ページ目）。ふつうは [siteQuery] の 1 つ。
+ * 名前・募集文の語の書き方が複数あるとき（ひらがなとカタカナ）は、書き方ごとの一覧にする。
  * 名前・募集文の欄で本家の文字検索を使わず、共通検索欄に本家へ渡せる語があるときは、その語を名前で探した一覧と
- * 募集文で探した一覧の 2 つにする。2 つを合わせれば、共通検索欄で一致する部屋を取りこぼさない。
- * 文字検索を使うと本家の一覧が数ページに収まるので、全ページをすぐ読み切れる。
+ * 募集文で探した一覧の 2 つ（書き方が複数ならその分）にする。合わせれば、端末側の判定で一致する部屋を取りこぼさない。
+ * 文字検索を使うと本家の一覧が数ページに収まるので、全ページをすぐ読み切れる。一覧が [MAX_SITE_QUERIES] を超えるなら語では絞らない。
  */
 fun RoomSearchCriteria.siteQueries(genre: Genre): List<RoomQuery> {
-    val base = siteQuery(genre)
-    if (base.name != null || base.message != null) return listOf(base)
-    val keyword = siteKeyword(text) ?: return listOf(base)
-    return listOf(base.copy(name = keyword), base.copy(message = keyword))
+    val base = siteQuery(genre).copy(name = null, message = null)
+    val names = siteKeyword(name)
+    val messages = siteKeyword(message)
+    if (names != null || messages != null) {
+        val (n, m) = when {
+            (names?.size ?: 1) * (messages?.size ?: 1) <= MAX_SITE_QUERIES -> names to messages
+            // 上限を超えるのは両方の欄に書き方が複数あるときだけ。書き方の少ない欄で絞る。
+            names!!.size <= messages!!.size -> names to null
+            else -> null to messages
+        }
+        return (n ?: listOf(null)).flatMap { nn -> (m ?: listOf(null)).map { mm -> base.copy(name = nn, message = mm) } }
+    }
+    val forms = siteKeyword(text)?.takeIf { it.size * 2 <= MAX_SITE_QUERIES } ?: return listOf(base)
+    return forms.flatMap { listOf(base.copy(name = it), base.copy(message = it)) }
 }
 
 /** [min]〜[max] が本家の年齢帯 1 つに収まればその値（"20-29" など）。またがる・指定なしなら null。 */
@@ -120,8 +151,8 @@ private val AGE_BANDS = listOf(
 /** hostと部屋IDで重複を除く。ジャンルを横断しても別サーバーの同じ番号は別の部屋。 */
 fun roomIdentity(room: Room): String = "${Genres[room.genreKey]?.host ?: room.genreKey}/${room.id}"
 
-fun searchRooms(rooms: List<Room>, criteria: RoomSearchCriteria): List<Room> {
-    val matches = rooms.distinctBy(::roomIdentity).filter(criteria::matches)
+fun searchRooms(rooms: List<Room>, criteria: RoomSearchCriteria, synonyms: SynonymDictionary = SynonymDictionary.BUILT_IN): List<Room> {
+    val matches = rooms.distinctBy(::roomIdentity).filter { criteria.matches(it, synonyms) }
     return when (criteria.sort) {
         RoomSort.SITE -> matches
         RoomSort.NAME -> matches.sortedWith(compareBy(nullsLast()) { it.name?.lowercase(Locale.ROOT) })
