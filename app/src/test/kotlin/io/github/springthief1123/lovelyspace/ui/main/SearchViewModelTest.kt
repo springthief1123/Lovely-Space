@@ -154,11 +154,12 @@ class SearchViewModelTest {
             var automaticCalls = 0
             var manualCalls = 0
             val vm = SearchViewModel(object : RoomListSource {
-                override suspend fun fetch(query: RoomQuery, force: Boolean): RoomListPage { automaticCalls++; return page(query.genre.key, 1, listOf(room(1))) }
+                override suspend fun fetch(query: RoomQuery, force: Boolean): RoomListPage { automaticCalls++; return page(query.genre.key, 1, listOf(room(1))).copy(lastPage = 1) }
                 override suspend fun fetchNow(query: RoomQuery): RoomListPage {
                     manualCalls++
                     releases.receive()
-                    return page(query.genre.key, 1, listOf(room(1), room(manualCalls + 1L)))
+                    // 1 ページだけの一覧にして、取り直しで消えた部屋が残らないようにする。
+                    return page(query.genre.key, 1, listOf(room(1), room(manualCalls + 1L))).copy(lastPage = 1)
                 }
             })
             vm.refresh(); runCurrent()
