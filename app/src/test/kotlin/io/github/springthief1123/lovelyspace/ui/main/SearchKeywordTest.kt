@@ -19,8 +19,10 @@ class SearchKeywordTest {
         // 検索欄が空なら、移した先に残っている語を消さない。
         val saved = RoomSearchCriteria(name = "合成")
         assertEquals(saved, saved.moveKeyword(KeywordScope.ALL, KeywordScope.NAME))
-        // 移した先に残っていた語は消さず、検索欄の語の後ろにつなげる。
-        assertEquals(RoomSearchCriteria(name = "映画 合成"), RoomSearchCriteria(text = "映画", name = "合成").moveKeyword(KeywordScope.ALL, KeywordScope.NAME))
+        // 移した先に語が残っていれば、どちらの条件も変えない（つなげると「どれかを含む」で緩むため）。
+        val legacy = RoomSearchCriteria(text = "映画", name = "合成")
+        assertEquals(legacy, legacy.moveKeyword(KeywordScope.ALL, KeywordScope.NAME))
+        assertEquals(listOf(KeywordScope.ALL to "映画"), hiddenKeywords(legacy, KeywordScope.NAME))
     }
 
     @Test fun savedCriteriaPickTheFieldThatHoldsTheWord() {

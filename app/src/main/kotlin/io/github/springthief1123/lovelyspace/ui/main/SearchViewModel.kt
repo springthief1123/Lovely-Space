@@ -51,14 +51,12 @@ internal fun RoomSearchCriteria.withKeyword(scope: KeywordScope, value: String):
 
 /**
  * 語を探す場所を [from] から [to] へ移す。検索欄の語はそのまま、新しい場所で探す。
- * 移した先の欄に語が残っていれば（以前の版で保存した条件など）、黙って消さずに後ろへつなげて検索欄に出す。
+ * 移した先の欄に語が残っていれば（以前の版で保存した条件など）、どちらも動かさない。検索欄にはその語が出て、
+ * 元の語は「ほかに…でも絞り込んでいます」（[hiddenKeywords]）に残る。つなげると「どれかを含む」で条件が緩むため。
  */
-internal fun RoomSearchCriteria.moveKeyword(from: KeywordScope, to: KeywordScope): RoomSearchCriteria {
-    val word = keyword(from)
-    if (from == to || word.isBlank()) return this
-    val merged = listOf(word.trim(), keyword(to).trim()).filter(String::isNotEmpty).joinToString(" ")
-    return withKeyword(from, "").withKeyword(to, merged)
-}
+internal fun RoomSearchCriteria.moveKeyword(from: KeywordScope, to: KeywordScope): RoomSearchCriteria =
+    if (from == to || keyword(from).isBlank() || keyword(to).isNotBlank()) this
+    else withKeyword(from, "").withKeyword(to, keyword(from))
 
 /** 保存した条件などから、検索欄に出す欄を決める。名前・待機メッセージの片方だけに語があればその欄、ほかは共通検索欄。 */
 internal fun keywordScopeOf(c: RoomSearchCriteria): KeywordScope = when {
