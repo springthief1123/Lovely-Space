@@ -52,6 +52,13 @@ class AutomaticSearchTest {
             runCurrent(); advanceTimeBy(18_001); runCurrent()
             assertEquals(listOf(1, 2, 3, 1, 2, 1, 3), calls)
             job.cancelAndJoin()
+            // 画面に戻って巡回を再開しても、最初の周（全ページ）からやり直さない。
+            // 19 秒: 1（前の周の始まりから 4 秒）、22 秒: 2、25 秒: 1。
+            calls.clear()
+            val resumed = backgroundScope.launch { vm.monitor() }
+            runCurrent(); advanceTimeBy(7_001); runCurrent()
+            assertEquals(listOf(1, 2, 1), calls)
+            resumed.cancelAndJoin()
         } finally { Dispatchers.resetMain() }
     }
     @Test fun discoveryUsesRepositoryObservationOrderInsteadOfCacheReadOrder() = runTest {

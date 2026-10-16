@@ -22,7 +22,53 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 
 /** 「条件をリセット」の前の入力。「元に戻す」で戻す。年齢は入力途中の文字もそのまま持つ。 */
-data class SearchDraft(val criteria: RoomSearchCriteria, val minAgeInput: String, val maxAgeInput: String)
+data class SearchDraft(val criteria: RoomSearchCriteria, val minAgeInput: String, val maxAgeInput: String,
+    val keywordScope: KeywordScope = KeywordScope.ALL)
+
+/**
+ * 検索欄の語を探す場所。語は条件の 1 つの欄（共通検索欄 [RoomSearchCriteria.text]・名前・待機メッセージ）に入れる。
+ * どの場所でも本家には渡さず、取得済みの一覧を端末で絞る。
+ */
+enum class KeywordScope(val label: String, val placeholder: String) {
+    ALL("名前と待機メッセージ", "名前・待機メッセージを検索"),
+    NAME("名前", "名前を検索"),
+    MESSAGE("待機メッセージ", "待機メッセージを検索"),
+}
+
+/** [scope] の欄に入っている語。 */
+internal fun RoomSearchCriteria.keyword(scope: KeywordScope): String = when (scope) {
+    KeywordScope.ALL -> text
+    KeywordScope.NAME -> name
+    KeywordScope.MESSAGE -> message
+}
+
+/** [scope] の欄の語を [value] にした条件。 */
+internal fun RoomSearchCriteria.withKeyword(scope: KeywordScope, value: String): RoomSearchCriteria = when (scope) {
+    KeywordScope.ALL -> copy(text = value)
+    KeywordScope.NAME -> copy(name = value)
+    KeywordScope.MESSAGE -> copy(message = value)
+}
+
+/**
+ * 語を探す場所を [from] から [to] へ移す。検索欄の語はそのまま、新しい場所で探す。
+ * 移した先の欄に語が残っていれば（以前の版で保存した条件など）、どちらも動かさない。検索欄にはその語が出て、
+ * 元の語は「ほかに…でも絞り込んでいます」（[hiddenKeywords]）に残る。つなげると「どれかを含む」で条件が緩むため。
+ */
+internal fun RoomSearchCriteria.moveKeyword(from: KeywordScope, to: KeywordScope): RoomSearchCriteria =
+    if (from == to || keyword(from).isBlank() || keyword(to).isNotBlank()) this
+    else withKeyword(from, "").withKeyword(to, keyword(from))
+
+/** 保存した条件などから、検索欄に出す欄を決める。名前・待機メッセージの片方だけに語があればその欄、ほかは共通検索欄。 */
+internal fun keywordScopeOf(c: RoomSearchCriteria): KeywordScope = when {
+    c.text.isNotBlank() -> KeywordScope.ALL
+    c.name.isNotBlank() && c.message.isBlank() -> KeywordScope.NAME
+    c.message.isNotBlank() && c.name.isBlank() -> KeywordScope.MESSAGE
+    else -> KeywordScope.ALL
+}
+
+/** 検索欄に出していない欄に残っている語（以前の版で保存した条件など）。欄の名前と語の組。 */
+internal fun hiddenKeywords(c: RoomSearchCriteria, scope: KeywordScope): List<Pair<KeywordScope, String>> =
+    KeywordScope.entries.filter { it != scope }.map { it to c.keyword(it) }.filter { (_, word) -> word.isNotBlank() }
 
 data class SearchUiState(
     val genre: Genre = Genres.default,
@@ -41,6 +87,8 @@ data class SearchUiState(
     val pageTimes: Map<RoomQuery, Long> = emptyMap(),
     val automatic: Boolean = true,
     val newRoomIds: Set<String> = emptySet(),
+    /** 検索欄の語を探す場所。 */
+    val keywordScope: KeywordScope = KeywordScope.ALL,
 ) {
     val validAges: Boolean get() = (minAgeInput.isEmpty() || minAgeInput.toIntOrNull()?.let { it in 18..99 } == true) &&
         (maxAgeInput.isEmpty() || maxAgeInput.toIntOrNull()?.let { it in 18..99 } == true) && criteria.isValid
@@ -75,6 +123,8 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
     private var refreshAgain = false
     /** 進行中の取得の数。0 でなければ読み込み中と表示する。 */
     private var inFlight = 0
+    /** いまのジャンルの巡回位置。画面に戻って [monitor] を呼び直しても、ジャンルを変えるまでは最初の周からやり直さない。 */
+    private var schedule: RoomPageSchedule? = null
     init {
         if (repository is ObservedRoomListSource) viewModelScope.launch {
             repository.observations.collect { observed -> if (_state.value.initialized) absorbShared(observed.values) }
@@ -103,18 +153,27 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
     }
     /** 条件はすべて端末で判定するので、変えても通信しない。 */
     fun criteria(value: RoomSearchCriteria) = _state.update { it.copy(criteria = value) }
+    /** 検索欄の語。いま選んでいる場所（[SearchUiState.keywordScope]）の欄に入れる。 */
+    fun keyword(value: String) = criteria(_state.value.let { it.criteria.withKeyword(it.keywordScope, value) })
+    fun keywordScope(value: KeywordScope) =
+        _state.update { it.copy(criteria = it.criteria.moveKeyword(it.keywordScope, value), keywordScope = value) }
+    /** 検索欄に出していない欄の語を消す。 */
+    fun clearHiddenKeywords() = criteria(_state.value.let { s ->
+        KeywordScope.entries.filter { it != s.keywordScope }.fold(s.criteria) { c, scope -> c.withKeyword(scope, "") }
+    })
 
     /** 条件をすべて既定に戻し、戻す前の入力を返す。もともと既定なら何もせず null。 */
     fun resetCriteria(): SearchDraft? {
         val s = _state.value
-        val draft = SearchDraft(s.criteria, s.minAgeInput, s.maxAgeInput)
+        val draft = SearchDraft(s.criteria, s.minAgeInput, s.maxAgeInput, s.keywordScope)
         if (draft == SearchDraft(RoomSearchCriteria(), "", "")) return null
-        _state.update { it.copy(criteria = RoomSearchCriteria(), minAgeInput = "", maxAgeInput = "") }
+        _state.update { it.copy(criteria = RoomSearchCriteria(), minAgeInput = "", maxAgeInput = "", keywordScope = KeywordScope.ALL) }
         return draft
     }
 
     fun restoreCriteria(draft: SearchDraft) {
-        _state.update { it.copy(criteria = draft.criteria, minAgeInput = draft.minAgeInput, maxAgeInput = draft.maxAgeInput) }
+        _state.update { it.copy(criteria = draft.criteria, minAgeInput = draft.minAgeInput, maxAgeInput = draft.maxAgeInput,
+            keywordScope = draft.keywordScope) }
     }
     fun minAge(value: String) {
         val input = value.filter(Char::isDigit).take(2)
@@ -127,8 +186,9 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
     fun genre(value: Genre) {
         if (value == _state.value.genre) return
         cancelFetches()
-        window = RoomPageWindow()
-        _state.update { SearchUiState(automatic = it.automatic, genre = value, criteria = it.criteria, minAgeInput = it.minAgeInput, maxAgeInput = it.maxAgeInput) }
+        window = RoomPageWindow(); schedule = null
+        _state.update { SearchUiState(automatic = it.automatic, genre = value, criteria = it.criteria, minAgeInput = it.minAgeInput, maxAgeInput = it.maxAgeInput,
+            keywordScope = it.keywordScope) }
         seedShared()
         rememberGenre(value.key)
     }
@@ -137,11 +197,11 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
         val genre = requireNotNull(Genres[value.genreKey])
         require(value.criteria.isValid)
         val sameGenre = genre == _state.value.genre
-        if (!sameGenre) { cancelFetches(); window = RoomPageWindow() }
+        if (!sameGenre) { cancelFetches(); window = RoomPageWindow(); schedule = null }
         _state.update {
             val scoped = if (sameGenre) it else SearchUiState(genre = genre, automatic = it.automatic)
             scoped.copy(criteria = value.criteria, minAgeInput = value.criteria.minAge?.toString().orEmpty(),
-                maxAgeInput = value.criteria.maxAge?.toString().orEmpty())
+                maxAgeInput = value.criteria.maxAge?.toString().orEmpty(), keywordScope = keywordScopeOf(value.criteria))
         }
         if (!sameGenre) seedShared()
         rememberGenre(genre.key)
@@ -180,13 +240,12 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
      * 新しい周は前の周の始まりから設定の間隔（[RefreshPacing.searchHeadMs]）が経つまで始めない。
      */
     suspend fun monitor() {
-        var genre: Genre? = null
-        var schedule = schedule()
         try {
             while (currentCoroutineContext().isActive && _state.value.automatic) {
                 if (!_state.value.initialized) { state.first { it.initialized }; continue }
                 job?.join()
-                if (_state.value.genre != genre) { genre = _state.value.genre; schedule = schedule() }
+                val genre = _state.value.genre
+                val schedule = schedule ?: schedule().also { schedule = it }
                 val wait = schedule.waitMs(window)
                 // 新しい周の始まりを待つ間にジャンルが変わることがあるので、待った後に選び直す。
                 if (wait > 0) { delay(wait); continue }
@@ -199,7 +258,7 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
         } finally { stopRefresh() }
     }
 
-    private fun schedule() = RoomPageSchedule(clock) { pacing().sanitized().searchHeadMs }
+    private fun schedule(): RoomPageSchedule = RoomPageSchedule(clock) { pacing().sanitized().searchHeadMs }
 
     private fun load(page: Int, force: Boolean) {
         job?.cancel()
