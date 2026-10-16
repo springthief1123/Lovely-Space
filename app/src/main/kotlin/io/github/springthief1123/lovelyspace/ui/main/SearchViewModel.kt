@@ -73,6 +73,8 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
     private var windows: List<RoomPageWindow> = emptyList()
     /** [windows] がどの絞り込みの一覧か。条件が変わったら次の取得で一覧を作り直す。 */
     private var windowQueries: List<RoomQuery>? = null
+    /** [windowQueries] の一覧ごとの巡回位置。画面に戻って [monitor] を呼び直しても、一覧を作り直すまでは最初の周からやり直さない。 */
+    private val schedules = mutableMapOf<RoomQuery, RoomPageSchedule>()
     /** 条件の変更で取り直すまでの待ち。入力が続く間は取り直さない。 */
     private var requery: Job? = null
     private val fetchMutex = Mutex()
@@ -184,7 +186,6 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
      * 一覧が 2 つ（共通検索欄の語を名前と募集文で探す）なら、待たずに読める方から、同じなら交互に取る。
      */
     suspend fun monitor() {
-        val schedules = mutableMapOf<RoomQuery, RoomPageSchedule>()
         var turn = 0
         try {
             while (currentCoroutineContext().isActive && _state.value.automatic) {
@@ -244,7 +245,7 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
                 return@withLock base to target
             }
             val observation = repository.observation(query)?.takeIf { it.query == query }
-            if (fresh) { windows = queries.map { RoomPageWindow() }; windowQueries = queries }
+            if (fresh) { windows = queries.map { RoomPageWindow() }; windowQueries = queries; schedules.clear() }
             // 初めて読んだページの部屋は、前からあった部屋なので新着にしない。新着は読んだことのあるページの取り直しで数える。
             val firstSight = target !in windows[i].pages
             val previous = _state.value.rooms.map(::roomIdentity).toSet()
