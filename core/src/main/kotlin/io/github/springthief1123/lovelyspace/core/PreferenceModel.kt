@@ -37,11 +37,13 @@ class PreferenceModel private constructor(
         const val BACKGROUND_WEIGHT = 0.2
         private const val ALPHA = 1.0
 
-        /** 保存した部屋 [liked] が [MIN_LIKED] に満たなければ null（並べ替えない）。 */
+        /** 保存した部屋 [liked]（非表示にしたものを除く）が [MIN_LIKED] に満たなければ null（並べ替えない）。 */
         fun train(liked: List<Room>, disliked: List<Room>, background: List<Room>): PreferenceModel? {
-            val likedRooms = liked.distinctBy(::roomIdentity)
-            if (likedRooms.size < MIN_LIKED) return null
+            // 保存したまま非表示にした部屋は、非表示を優先して好みでない側だけに数える。
             val dislikedRooms = disliked.distinctBy(::roomIdentity)
+            val dislikedIds = dislikedRooms.map(::roomIdentity).toSet()
+            val likedRooms = liked.distinctBy(::roomIdentity).filter { roomIdentity(it) !in dislikedIds }
+            if (likedRooms.size < MIN_LIKED) return null
             val labeled = (likedRooms + dislikedRooms).map(::roomIdentity).toSet()
             val positive = HashMap<String, Double>()
             val negative = HashMap<String, Double>()

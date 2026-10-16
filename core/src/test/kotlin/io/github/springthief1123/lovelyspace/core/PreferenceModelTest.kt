@@ -18,6 +18,17 @@ class PreferenceModelTest {
         // 同じ部屋を重ねても数えない。
         assertNull(PreferenceModel.train(liked.take(2) + liked.first(), disliked, emptyList()))
         assertNotNull(PreferenceModel.train(liked, emptyList(), emptyList()))
+        // 保存したまま非表示にした部屋は保存の側に数えない。
+        assertNull(PreferenceModel.train(liked, listOf(liked.first()), emptyList()))
+    }
+
+    @Test
+    fun hiddenTakesPrecedenceOverSaved() {
+        val hiddenSaved = room("即決できる人だけ")
+        val model = PreferenceModel.train(liked + hiddenSaved, listOf(hiddenSaved), emptyList())!!
+        assertEquals(3, model.likedCount)
+        assertEquals(1, model.dislikedCount)
+        assertTrue(model.score(room("即決の人")) < model.score(room("映画")))
     }
 
     @Test
