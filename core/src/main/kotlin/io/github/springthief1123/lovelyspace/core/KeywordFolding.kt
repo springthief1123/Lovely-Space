@@ -21,10 +21,6 @@ object KeywordFolding {
             }
         }.joinToString("")
 
-    internal fun toHiragana(text: String): String = text.map { if (it in KATAKANA) it - KANA_OFFSET else it }.joinToString("")
-    internal fun toKatakana(text: String): String = text.map { if (it in HIRAGANA) it + KANA_OFFSET else it }.joinToString("")
-
-    private val HIRAGANA = 'ぁ'..'ゖ'
     private val KATAKANA = 'ァ'..'ヶ'
     private const val KANA_OFFSET = 0x60
     private const val DASHES = "-‐‑‒–—―−~〜"

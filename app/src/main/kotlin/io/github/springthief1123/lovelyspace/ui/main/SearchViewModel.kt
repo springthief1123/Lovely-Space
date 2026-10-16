@@ -3,6 +3,8 @@ package io.github.springthief1123.lovelyspace.ui.main
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.springthief1123.lovelyspace.core.*
+import io.github.springthief1123.lovelyspace.data.ObservedRoomListSource
+import io.github.springthief1123.lovelyspace.data.ObservedRoomPage
 import io.github.springthief1123.lovelyspace.data.RoomListSource
 import io.github.springthief1123.lovelyspace.data.SearchPreset
 import io.github.springthief1123.lovelyspace.ui.describeError
@@ -41,47 +43,45 @@ data class SearchUiState(
     val pageTimes: Map<RoomQuery, Long> = emptyMap(),
     val automatic: Boolean = true,
     val newRoomIds: Set<String> = emptySet(),
-    /** [rooms] を本家から取ったときの絞り込み（各一覧の 1 ページ目）。まだ取っていなければ null。 */
-    val listQueries: List<RoomQuery>? = null,
 ) {
     val validAges: Boolean get() = (minAgeInput.isEmpty() || minAgeInput.toIntOrNull()?.let { it in 18..99 } == true) &&
         (maxAgeInput.isEmpty() || maxAgeInput.toIntOrNull()?.let { it in 18..99 } == true) && criteria.isValid
     /** 一覧に使う条件。年齢の入力が正しくない間は年齢の条件だけを外し、一覧は消さない。 */
     val effectiveCriteria: RoomSearchCriteria get() = if (validAges) criteria else criteria.copy(minAge = null, maxAge = null)
+    /** 取得済みの全ページに条件を掛けた結果。条件を変えても通信せず、その場で絞り直す。 */
     val results: List<Room> get() = searchRooms(rooms, effectiveCriteria)
     val canLoadMore: Boolean get() = page in 1 until lastPage && !loading
-    /**
-     * 本家に渡す絞り込み（各一覧の 1 ページ目）。性別・待機・公開・語などは本家側で絞り、残りは取得後に端末で判定する。
-     * 共通検索欄の語は名前と募集文の 2 つの一覧で探す（[siteQueries]）。[page] と [lastPage] は全一覧の合計。
-     */
-    val siteQueries: List<RoomQuery> get() = effectiveCriteria.siteQueries(genre)
-    /**
-     * 本家側の条件を変えた後で、まだ新しい条件の一覧を取れていない。表示中の [results] は前の条件で取った部屋に
-     * 新しい条件を掛けたものなので、条件を広げた場合（女性 → 指定なしなど）は本来出る部屋が欠けている。
-     */
-    val awaitingNewConditions: Boolean get() = listQueries != null && listQueries != siteQueries
 }
 
+/**
+ * 見つける画面。本家からはジャンル全体の一覧（本家側の絞り込みなし）を全ページ読んで手元に持ち、条件はすべて端末で判定する。
+ * 語・性別・待機などを変えても、検索ボタンを押しても通信せず、取得済みの全ページからその場で結果を出す（Yuya の決定、2026-10-16）。
+ *
+ * レーダーの巡回も同じジャンル全体の一覧を [RoomListRepository] から読むので、[ObservedRoomListSource] なら
+ * 他の機能が読んだページもこの画面の一覧に取り込む（ジャンルを開いた直後から結果が出る。古すぎるページは取り込まない）。
+ */
 class SearchViewModel(private val repository: RoomListSource, private val preferences: RoomListPreferenceStore? = null,
     private val clock: () -> Long = { System.nanoTime() / 1_000_000 },
     /** 取り直しの間隔の設定。巡回のたびに読むので、設定の変更は次の取得から効く。 */
-    private val pacing: () -> RefreshPacing = { RefreshPacing() }) : ViewModel() {
+    private val pacing: () -> RefreshPacing = { RefreshPacing() },
+    /** 共有の一覧の確認時刻（[ObservedRoomPage.confirmedAt]）と比べる時計。 */
+    private val now: () -> Long = System::currentTimeMillis) : ViewModel() {
     private val _state = MutableStateFlow(SearchUiState(initialized = preferences == null))
     val state = _state.asStateFlow()
     private var job: Job? = null
-    /** [windowQueries] の一覧ごとの取得済みページ。 */
-    private var windows: List<RoomPageWindow> = emptyList()
-    /** [windows] がどの絞り込みの一覧か。条件が変わったら次の取得で一覧を作り直す。 */
-    private var windowQueries: List<RoomQuery>? = null
-    /** 条件の変更で取り直すまでの待ち。入力が続く間は取り直さない。 */
-    private var requery: Job? = null
+    /** いまのジャンルの一覧の取得済みページ。 */
+    private var window = RoomPageWindow()
     private val fetchMutex = Mutex()
     init {
+        if (repository is ObservedRoomListSource) viewModelScope.launch {
+            repository.observations.collect { observed -> if (_state.value.initialized) absorbShared(observed.values) }
+        }
         if (preferences != null) viewModelScope.launch {
             val genre = try { Genres[preferences.roomListPreferences.first().initialGenreKey()] ?: Genres.default }
             catch (e: CancellationException) { throw e }
             catch (e: Exception) { _state.update { it.copy(preferenceError = describeError(e)) }; Genres.default }
             _state.update { it.copy(genre = genre, initialized = true) }
+            seedShared()
             refresh()
             rememberGenre(genre.key)
         }
@@ -98,22 +98,8 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
     fun onRefreshKey(key: Int) {
         if (key != handledRefreshKey && _state.value.initialized) { handledRefreshKey = key; refresh() }
     }
-    fun criteria(value: RoomSearchCriteria) { _state.update { it.copy(criteria = value) }; requeryIfNeeded() }
-
-    /**
-     * 本家側に渡す条件が変わったら、少し待ってから 1 ページ目から取り直す。端末側だけの条件（語・除外・並び替えなど）なら通信しない。
-     * 取り直すまでの間は前の一覧に新しい条件を掛けて表示する。
-     */
-    private fun requeryIfNeeded() {
-        requery?.cancel()
-        if (!_state.value.initialized || _state.value.siteQueries == windowQueries) return
-        // まだ一度も取得しておらず、取得中でもなければ、最初の取得（refresh）に任せる。
-        if (windowQueries == null && job?.isActive != true) return
-        requery = viewModelScope.launch {
-            delay(REQUERY_DELAY_MS)
-            load(heads(), false)
-        }
-    }
+    /** 条件はすべて端末で判定するので、変えても通信しない。 */
+    fun criteria(value: RoomSearchCriteria) = _state.update { it.copy(criteria = value) }
 
     /** 条件をすべて既定に戻し、戻す前の入力を返す。もともと既定なら何もせず null。 */
     fun resetCriteria(): SearchDraft? {
@@ -121,29 +107,26 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
         val draft = SearchDraft(s.criteria, s.minAgeInput, s.maxAgeInput)
         if (draft == SearchDraft(RoomSearchCriteria(), "", "")) return null
         _state.update { it.copy(criteria = RoomSearchCriteria(), minAgeInput = "", maxAgeInput = "") }
-        requeryIfNeeded()
         return draft
     }
 
     fun restoreCriteria(draft: SearchDraft) {
         _state.update { it.copy(criteria = draft.criteria, minAgeInput = draft.minAgeInput, maxAgeInput = draft.maxAgeInput) }
-        requeryIfNeeded()
     }
     fun minAge(value: String) {
         val input = value.filter(Char::isDigit).take(2)
         _state.update { it.copy(minAgeInput = input, criteria = it.criteria.copy(minAge = input.toIntOrNull())) }
-        requeryIfNeeded()
     }
     fun maxAge(value: String) {
         val input = value.filter(Char::isDigit).take(2)
         _state.update { it.copy(maxAgeInput = input, criteria = it.criteria.copy(maxAge = input.toIntOrNull())) }
-        requeryIfNeeded()
     }
     fun genre(value: Genre) {
         if (value == _state.value.genre) return
-        job?.cancel(); requery?.cancel()
-        windows = emptyList(); windowQueries = null
+        job?.cancel()
+        window = RoomPageWindow()
         _state.update { SearchUiState(automatic = it.automatic, genre = value, criteria = it.criteria, minAgeInput = it.minAgeInput, maxAgeInput = it.maxAgeInput) }
+        seedShared()
         rememberGenre(value.key)
     }
     /** 同じジャンルの取得済みページは再利用し、別ジャンルへの適用は通信を取消・結果を破棄する。 */
@@ -151,60 +134,47 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
         val genre = requireNotNull(Genres[value.genreKey])
         require(value.criteria.isValid)
         val sameGenre = genre == _state.value.genre
-        if (!sameGenre) { job?.cancel(); requery?.cancel(); windows = emptyList(); windowQueries = null }
+        if (!sameGenre) { job?.cancel(); window = RoomPageWindow() }
         _state.update {
-            val scoped = if (genre == it.genre) it else SearchUiState(genre = genre, automatic = it.automatic)
+            val scoped = if (sameGenre) it else SearchUiState(genre = genre, automatic = it.automatic)
             scoped.copy(criteria = value.criteria, minAgeInput = value.criteria.minAge?.toString().orEmpty(),
                 maxAgeInput = value.criteria.maxAge?.toString().orEmpty())
         }
-        if (sameGenre) requeryIfNeeded()
+        if (!sameGenre) seedShared()
         rememberGenre(genre.key)
     }
-    fun refresh() { if (_state.value.initialized) load(heads(), _state.value.page > 0) }
+    fun refresh() { if (_state.value.initialized) load(1, _state.value.page > 0) }
     /** まだ読んでいないページを 1 つ読む。 */
     fun more() {
         if (!_state.value.canLoadMore) return
-        val next = windows.withIndex().firstNotNullOfOrNull { (i, w) ->
-            (if (w.pages.isEmpty()) 1 else (2..w.lastPage).firstOrNull { it !in w.pages })?.let { i to it }
-        } ?: return
-        load(listOf(next), false)
+        val next = if (window.pages.isEmpty()) 1 else (2..window.lastPage).firstOrNull { it !in window.pages } ?: return
+        load(next, false)
     }
-    /** 各一覧の 1 ページ目。 */
-    private fun heads() = _state.value.siteQueries.indices.map { it to 1 }
     fun automatic(enabled: Boolean) = _state.update { it.copy(automatic = enabled) }
     fun clearNewRooms() = _state.update { it.copy(newRoomIds = emptySet()) }
     fun clearPreferenceError() = _state.update { it.copy(preferenceError = null) }
-    fun stopRefresh() { job?.cancel(); requery?.cancel(); _state.update { it.copy(loading = false) } }
+    fun stopRefresh() { job?.cancel(); _state.update { it.copy(loading = false) } }
 
     /**
      * 画面が前面にある間だけ実行。取消はHTTP取得にも伝わる。
      * 最初の周は 1 ページ目から最後のページまで順に読み、その後は直近 1 時間の部屋が載る前のページを周ごとに読み直し、
      * 後ろのページは周ごとに 1 つずつ回る（[RoomPageSchedule]）。
      * 新しい周は前の周の始まりから設定の間隔（[RefreshPacing.searchHeadMs]）が経つまで始めない。
-     * 一覧が 2 つ（共通検索欄の語を名前と募集文で探す）なら、待たずに読める方から、同じなら交互に取る。
      */
     suspend fun monitor() {
-        val schedules = mutableMapOf<RoomQuery, RoomPageSchedule>()
-        var turn = 0
+        var genre: Genre? = null
+        var schedule = schedule()
         try {
             while (currentCoroutineContext().isActive && _state.value.automatic) {
                 if (!_state.value.initialized) { state.first { it.initialized }; continue }
                 job?.join()
-                val queries = _state.value.siteQueries
-                schedules.keys.retainAll(queries.toSet())
-                val current = if (queries == windowQueries) windows else queries.map { RoomPageWindow() }
-                fun scheduleOf(i: Int) = schedules.getOrPut(queries[i]) { schedule() }
-                val index = queries.indices.map { (turn + it) % queries.size }.minBy { scheduleOf(it).waitMs(current[it]) }
-                val wait = scheduleOf(index).waitMs(current[index])
-                // 新しい周の始まりを待つ間に条件が変わることがあるので、待った後に選び直す。
+                if (_state.value.genre != genre) { genre = _state.value.genre; schedule = schedule() }
+                val wait = schedule.waitMs(window)
+                // 新しい周の始まりを待つ間にジャンルが変わることがあるので、待った後に選び直す。
                 if (wait > 0) { delay(wait); continue }
-                turn = index + 1
-                // 条件が変わった直後は 1 ページ目を取るので、実際に取ったページで巡回位置を進める。
-                val (fetched, page) = fetchPage(index, scheduleOf(index).next(current[index]), force = false)
-                if (_state.value.error == null) {
-                    val window = windowQueries?.indexOf(fetched)?.let { windows.getOrNull(it) } ?: RoomPageWindow()
-                    schedules.getOrPut(fetched) { schedule() }.completed(page, window)
-                }
+                val page = schedule.next(window)
+                fetchPage(page, force = false)
+                if (_state.value.error == null && _state.value.genre == genre) schedule.completed(page, window)
                 // ページ同士は通信の最小間隔で順に取る（間隔は ShaloveClient も守る）。
                 delay(if (_state.value.error != null) RoomPageSchedule.ERROR_INTERVAL_MS else pacing().sanitized().minIntervalMs)
             }
@@ -213,60 +183,60 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
 
     private fun schedule() = RoomPageSchedule(clock) { pacing().sanitized().searchHeadMs }
 
-    /** [targets]（一覧の番号とページ）を順に取る。失敗したらそこで止める。 */
-    private fun load(targets: List<Pair<Int, Int>>, force: Boolean) {
+    private fun load(page: Int, force: Boolean) {
         job?.cancel()
-        job = viewModelScope.launch {
-            for ((index, page) in targets) {
-                fetchPage(index, page, force)
-                if (_state.value.error != null) break
-            }
-        }
+        job = viewModelScope.launch { fetchPage(page, force) }
     }
-    /** [index] 番目の一覧の [page] を取る。実際に取った一覧（1 ページ目）とページを返す。 */
-    private suspend fun fetchPage(index: Int, page: Int, force: Boolean): Pair<RoomQuery, Int> = fetchMutex.withLock {
-        val queries = _state.value.siteQueries
-        // 条件が変わった直後は、新しい絞り込みの 1 ページ目から取り直す（ページ数は 1 ページ目で分かる）。
-        val fresh = queries != windowQueries
-        val i = if (fresh) 0 else index.coerceIn(queries.indices)
-        val base = queries[i]
-        val target = if (fresh) 1 else page
+    /** いまのジャンルの一覧の [page] を取る。 */
+    private suspend fun fetchPage(page: Int, force: Boolean): Unit = fetchMutex.withLock {
+        val genre = _state.value.genre
+        // 条件はすべて端末で判定するので、本家にはジャンル全体の一覧を取りに行く。
+        val query = RoomQuery(genre, page = page)
         _state.update { it.copy(loading = true, error = null) }
         try {
-            // AND/OR・除外・並び替えは取得済み一覧に適用。入力ごとに通信しない。
-            val query = base.copy(page = target)
             val result = repository.fetch(query, force)
             currentCoroutineContext().ensureActive()
-            // 取得中にジャンルや本家側の条件が変わったら、古い条件の結果は捨てる。
-            if (_state.value.siteQueries != queries) {
-                _state.update { it.copy(loading = false) }
-                requeryIfNeeded()
-                return@withLock base to target
+            // 取得中にジャンルが変わったら、古いジャンルの結果は捨てる。
+            if (_state.value.genre == genre) {
+                val observation = repository.observation(query)?.takeIf { it.query == query }
+                absorb(query, observation?.page ?: result, observation?.revision, observation?.confirmedAt)
             }
-            val observation = repository.observation(query)?.takeIf { it.query == query }
-            if (fresh) { windows = queries.map { RoomPageWindow() }; windowQueries = queries }
-            // 初めて読んだページの部屋は、前からあった部屋なので新着にしない。新着は読んだことのあるページの取り直しで数える。
-            val firstSight = target !in windows[i].pages
-            val previous = _state.value.rooms.map(::roomIdentity).toSet()
-            windows = windows.toMutableList().also { it[i] = it[i].observe(observation?.page ?: result, observation?.revision) }
-            val rooms = mergedRooms()
-            val ids = rooms.map(::roomIdentity).toSet()
-            _state.update { it.copy(rooms = rooms, listQueries = queries,
-                page = windows.sumOf { w -> w.pages.size }, lastPage = windows.sumOf { w -> w.lastPage }, loading = false, errorOnMore = false,
-                newRoomIds = ((if (fresh) emptySet() else it.newRoomIds) + if (fresh || firstSight) emptySet() else ids - previous).intersect(ids),
-                pageTimes = ((if (fresh) emptyMap() else it.pageTimes) + (observation?.let { mapOf(query to it.confirmedAt) } ?: emptyMap()))
-                    .filterKeys { q -> windows.getOrNull(queries.indexOf(q.firstPage))?.let { w -> q.page <= w.lastPage } == true }) }
+            _state.update { it.copy(loading = false, errorOnMore = false) }
         } catch (e: CancellationException) { throw e }
-        catch (e: Exception) { _state.update { it.copy(loading = false, error = describeError(e), errorOnMore = target > 1 || i > 0) } }
-        base to target
+        catch (e: Exception) { _state.update { it.copy(loading = false, error = describeError(e), errorOnMore = page > 1) } }
     }
 
-    /** 一覧が 1 つなら本家の並び。2 つなら重複を除き、部屋番号の新しい順に並べる。 */
-    private fun mergedRooms(): List<Room> = windows.singleOrNull()?.rooms
-        ?: windows.flatMap { it.rooms }.distinctBy(::roomIdentity).sortedByDescending { it.id }
+    /** 他の機能（レーダーなど）が読んだ、いまのジャンルの一覧のページを取り込む。 */
+    private fun seedShared() {
+        val source = repository as? ObservedRoomListSource ?: return
+        absorbShared(source.observations.value.values)
+    }
+    private fun absorbShared(observed: Collection<ObservedRoomPage>) {
+        val genre = _state.value.genre
+        val oldest = now() - SHARED_MAX_AGE_MS
+        observed.filter { it.query == RoomQuery(genre, page = it.query.page) && it.confirmedAt >= oldest }
+            .sortedBy { it.revision }
+            .forEach { absorb(it.query, it.page, it.revision, it.confirmedAt) }
+    }
+
+    /** 読んだページを一覧に反映する。同じ観測を 2 度反映しない（[RoomPageWindow.observe]）。 */
+    private fun absorb(query: RoomQuery, page: RoomListPage, revision: Long?, confirmedAt: Long?) {
+        // 初めて読んだページの部屋は、前からあった部屋なので新着にしない。新着は読んだことのあるページの取り直しで数える。
+        val firstSight = page.page !in window.pages
+        val previous = window.rooms.map(::roomIdentity).toSet()
+        val next = window.observe(page, revision)
+        if (next === window) return
+        window = next
+        val rooms = next.rooms
+        val ids = rooms.map(::roomIdentity).toSet()
+        _state.update { it.copy(rooms = rooms, page = next.pages.size, lastPage = next.lastPage,
+            newRoomIds = (it.newRoomIds + if (firstSight) emptySet() else ids - previous).intersect(ids),
+            pageTimes = (it.pageTimes + (confirmedAt?.let { at -> mapOf(query to at) } ?: emptyMap()))
+                .filterKeys { q -> q.page <= next.lastPage }) }
+    }
 
     companion object {
-        /** 条件の変更から取り直すまでの待ち（ミリ秒）。年齢の入力などが続く間は取り直さない。 */
-        const val REQUERY_DELAY_MS = 600L
+        /** 他の機能が読んだページを取り込むのは、確認からこの時間（ミリ秒）以内のものだけ。古い一覧で閉じた部屋を出さない。 */
+        const val SHARED_MAX_AGE_MS = 5 * 60_000L
     }
 }

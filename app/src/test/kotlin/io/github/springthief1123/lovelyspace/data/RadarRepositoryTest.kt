@@ -623,4 +623,41 @@ class RadarRepositoryTest {
             assertEquals(untried, nextLists.calls.first().genre.key)
         } finally { db.close() }
     }
+    @Test fun enablingAPlanShowsMatchesFromPagesOtherFeaturesJustReadAndUsesThemAsTheBaseline() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            searches.save(SearchPreset("a", "合成条件", "zenkoku", RoomSearchCriteria()))
+            val later = room.copy(id = 43, name = "後ろの合成")
+            val lists = Lists().apply { clock = 1_000_000; lastPage = 2; roomsByPage = mapOf(1 to listOf(room), 2 to listOf(later)) }
+            val radar = RadarRepository(db.presets(), lists, searches, RoomPreferenceRepository(db), backgroundScope) { 1_000_000 }
+            radar.state.first { it.loaded }
+            // 見つける画面が全ページを読んだ直後に計画を有効にすると、読み直さずに全ページの一致を出す。
+            val zenkoku = Genres["zenkoku"]!!
+            lists.fetch(RoomQuery(zenkoku), false); lists.fetch(RoomQuery(zenkoku, page = 2), false)
+            radar.setPlan("a", true)
+            assertEquals(listOf(42L, 43L), radar.state.value.results["a"]?.rooms?.map { it.id })
+            assertEquals(2, radar.state.value.results["a"]?.pagesRead)
+            assertEquals(2, lists.calls.size)
+            // 共有の一覧を比較基準にするので、次に読んだページで増えた一致だけを知らせる。
+            val arrival = room.copy(id = 44, name = "新しい合成")
+            lists.roomsByPage = mapOf(1 to listOf(room, arrival), 2 to listOf(later))
+            radar.scan()
+            assertEquals(listOf(44L), radar.state.value.events.single().rooms.map { it.id })
+            assertEquals(setOf(42L, 43L, 44L), radar.state.value.results["a"]?.rooms?.map { it.id }?.toSet())
+        } finally { db.close() }
+    }
+    @Test fun sharedPagesOlderThanTheLimitAreNotUsedForANewPlan() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            searches.save(SearchPreset("a", "合成条件", "zenkoku", RoomSearchCriteria()))
+            val lists = Lists().apply { clock = 1_000_000; rooms = listOf(room) }
+            val radar = RadarRepository(db.presets(), lists, searches, RoomPreferenceRepository(db), backgroundScope) { 1_000_000 + 5 * 60_000L + 1 }
+            radar.state.first { it.loaded }
+            lists.fetch(RoomQuery(Genres["zenkoku"]!!), false)
+            radar.setPlan("a", true)
+            assertNull(radar.state.value.results["a"])
+        } finally { db.close() }
+    }
 }
