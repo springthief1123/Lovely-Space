@@ -1,9 +1,12 @@
 package io.github.springthief1123.lovelyspace.ui.main
 
 import io.github.springthief1123.lovelyspace.core.*
+import io.github.springthief1123.lovelyspace.data.ObservedRoomListSource
+import io.github.springthief1123.lovelyspace.data.ObservedRoomPage
 import io.github.springthief1123.lovelyspace.data.RoomListSource
 import io.github.springthief1123.lovelyspace.data.SearchPreset
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.*
 import org.junit.Assert.*
 import org.junit.Test
@@ -144,6 +147,68 @@ class SearchViewModelTest {
             assertEquals(listOf(false, true, false), forced)
         } finally { Dispatchers.resetMain() }
     }
+    @Test fun pressingRefreshRepeatedlyRefetchesWhileLoadingAndFoldsExtraPressesIntoOne() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val releases = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+            var automaticCalls = 0
+            var manualCalls = 0
+            val vm = SearchViewModel(object : RoomListSource {
+                override suspend fun fetch(query: RoomQuery, force: Boolean): RoomListPage { automaticCalls++; return page(query.genre.key, 1, listOf(room(1))).copy(lastPage = 1) }
+                override suspend fun fetchNow(query: RoomQuery): RoomListPage {
+                    manualCalls++
+                    releases.receive()
+                    // 1 ページだけの一覧にして、取り直しで消えた部屋が残らないようにする。
+                    return page(query.genre.key, 1, listOf(room(1), room(manualCalls + 1L))).copy(lastPage = 1)
+                }
+            })
+            vm.refresh(); runCurrent()
+            assertEquals(1, automaticCalls)
+            // 最初の読み込みは押した取り直しではないので、更新ボタンは回さない。
+            assertFalse(vm.state.value.refreshing)
+            // 押すと、本家の「最新更新」と同じく取り直す。読み込み中でも押せる。
+            vm.refresh(); runCurrent()
+            assertEquals(1, manualCalls)
+            assertTrue(vm.state.value.loading)
+            assertTrue(vm.state.value.refreshing)
+            // 取り直し中に何度押しても、終わった後の 1 回にまとめる。
+            repeat(3) { vm.refresh() }; runCurrent()
+            assertEquals(1, manualCalls)
+            releases.send(Unit); runCurrent()
+            assertEquals(2, manualCalls)
+            assertTrue(vm.state.value.loading)
+            // まとめた 1 回が終わるまで回し続け、済んだ回数はまとめて 1 回と数える。
+            assertTrue(vm.state.value.refreshing)
+            assertEquals(0, vm.state.value.refreshedCount)
+            releases.send(Unit); runCurrent()
+            assertEquals(2, manualCalls)
+            assertFalse(vm.state.value.loading)
+            assertFalse(vm.state.value.refreshing)
+            assertEquals(1, vm.state.value.refreshedCount)
+            assertEquals(setOf(1L, 3L), vm.state.value.rooms.map { it.id }.toSet())
+            // 終わった後に押せば、また取り直す。
+            vm.refresh(); runCurrent()
+            assertEquals(3, manualCalls)
+            vm.stopRefresh(); runCurrent()
+            assertFalse(vm.state.value.loading)
+            assertFalse(vm.state.value.refreshing)
+            assertEquals(1, vm.state.value.refreshedCount)
+        } finally { Dispatchers.resetMain() }
+    }
+    @Test fun aFailedRefreshStopsSpinningWithoutCountingAsDone() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val vm = SearchViewModel(object : RoomListSource {
+                override suspend fun fetch(query: RoomQuery, force: Boolean): RoomListPage = page(query.genre.key, 1, listOf(room(1)))
+                override suspend fun fetchNow(query: RoomQuery): RoomListPage = throw IOException("合成の通信エラー")
+            })
+            vm.refresh(); runCurrent()
+            vm.refresh(); runCurrent()
+            assertFalse(vm.state.value.refreshing)
+            assertEquals(0, vm.state.value.refreshedCount)
+            assertNotNull(vm.state.value.error)
+        } finally { Dispatchers.resetMain() }
+    }
     @Test fun genreChangeCancelsPreviousRequestAndClearsItsScope() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {
@@ -214,84 +279,82 @@ class SearchViewModelTest {
         } finally { Dispatchers.resetMain() }
     }
 
-    @Test fun siteConditionsAreSentToTheSiteAndRestartTheListFromItsFirstPage() = runTest {
+    @Test fun everyConditionIsJudgedOnTheDeviceAcrossAllPagesWithoutRefetching() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {
             val queries = mutableListOf<RoomQuery>()
             val vm = SearchViewModel(RoomListSource { query, _ ->
                 queries += query
-                val rooms = if (query.sex == Gender.FEMALE) listOf(room(9).copy(gender = Gender.FEMALE))
-                    else listOf(room(query.page.toLong()), room(10L + query.page))
+                val rooms = if (query.page == 1) listOf(room(1).copy(name = "ゲーム好き"), room(2).copy(gender = Gender.FEMALE))
+                    else listOf(room(3).copy(message = "げーむしよ", status = RoomStatus.FULL, action = RoomAction.PEEK))
                 page(query.genre.key, query.page, rooms)
             })
             vm.refresh(); runCurrent()
             vm.more(); runCurrent()
-            assertEquals(4, vm.state.value.rooms.size)
-            // 本家で探せない語（英字は大文字・小文字の扱いが違う）は本家に渡さず、取得済みに掛けるだけ。
-            vm.criteria(RoomSearchCriteria(text = "abc"))
-            advanceTimeBy(SearchViewModel.REQUERY_DELAY_MS + 1); runCurrent()
+            assertEquals(listOf(RoomQuery(Genres.default), RoomQuery(Genres.default, page = 2)), queries)
+            // 語・性別・待機は本家に渡さず、取得済みの全ページにその場で掛ける。ひらがな・カタカナも同じに扱う。
+            vm.criteria(RoomSearchCriteria(text = "ゲーム"))
+            assertEquals(listOf(1L, 3L), vm.state.value.results.map { it.id })
+            vm.criteria(RoomSearchCriteria(text = "ゲーム", waitingOnly = true))
+            assertEquals(listOf(1L), vm.state.value.results.map { it.id })
+            vm.criteria(RoomSearchCriteria(gender = Gender.FEMALE))
+            assertEquals(listOf(2L), vm.state.value.results.map { it.id })
+            advanceTimeBy(60_000); runCurrent()
             assertEquals(2, queries.size)
-            // 共通検索欄の語は、本家の名前検索と募集文検索の 2 つの一覧で探し、合わせて出す。
-            vm.criteria(RoomSearchCriteria(text = "合成"))
-            advanceTimeBy(SearchViewModel.REQUERY_DELAY_MS + 1); runCurrent()
-            assertEquals(listOf(RoomQuery(Genres.default, name = "合成"), RoomQuery(Genres.default, message = "合成")), queries.takeLast(2))
-            assertEquals(listOf(11L, 1L), vm.state.value.rooms.map { it.id })
-            assertEquals(2, vm.state.value.page)
-            assertTrue(vm.state.value.newRoomIds.isEmpty())
-            queries.clear()
-            // 性別は本家で絞る。入力が続く間は待ち、新しい絞り込みの 1 ページ目から一覧を作り直す。
-            vm.criteria(RoomSearchCriteria(gender = Gender.FEMALE))
+        } finally { Dispatchers.resetMain() }
+    }
+
+    @Test fun pagesReadByOtherFeaturesAreShownAtOnceUnlessTheyAreOld() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val wall = 1_000_000L
+            val flow = MutableStateFlow(mapOf(
+                RoomQuery(Genres.default) to ObservedRoomPage(RoomQuery(Genres.default), page(Genres.default.key, 1, listOf(room(1))), wall - 1_000, 1),
+                // 他のジャンル・本家側で絞った一覧・古い確認は取り込まない。
+                RoomQuery(Genres["talk"]!!) to ObservedRoomPage(RoomQuery(Genres["talk"]!!), page("talk", 1, listOf(room(7, "talk"))), wall, 2),
+                RoomQuery(Genres.default, sex = Gender.FEMALE) to ObservedRoomPage(RoomQuery(Genres.default, sex = Gender.FEMALE), page(Genres.default.key, 1, listOf(room(8))), wall, 3),
+                RoomQuery(Genres.default, page = 2) to ObservedRoomPage(RoomQuery(Genres.default, page = 2), page(Genres.default.key, 2, listOf(room(9))), wall - SearchViewModel.SHARED_MAX_AGE_MS - 1, 4),
+            ))
+            var calls = 0
+            val source = object : ObservedRoomListSource {
+                override val observations = flow
+                override fun observation(query: RoomQuery) = flow.value[query]
+                override suspend fun fetch(query: RoomQuery, force: Boolean): RoomListPage { calls++; return page(query.genre.key, query.page, emptyList()) }
+            }
+            val vm = SearchViewModel(source, now = { wall })
             runCurrent()
-            assertTrue(queries.isEmpty())
-            advanceTimeBy(SearchViewModel.REQUERY_DELAY_MS + 1); runCurrent()
-            assertEquals(RoomQuery(Genres.default, sex = Gender.FEMALE), queries.last())
-            assertEquals(listOf(9L), vm.state.value.rooms.map { it.id })
-            assertEquals(1, vm.state.value.page)
-            assertTrue(vm.state.value.newRoomIds.isEmpty())
-        } finally { Dispatchers.resetMain() }
-    }
-
-    @Test fun changingSiteConditionsCancelsTheOldRequestInsteadOfShowingIt() = runTest {
-        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
-        try {
-            val gate = CompletableDeferred<Unit>()
-            val queries = mutableListOf<RoomQuery>()
-            val vm = SearchViewModel(RoomListSource { query, _ ->
-                queries += query
-                if (query.waitingOnly == null) gate.await()
-                page(query.genre.key, 1, listOf(room(if (query.waitingOnly == null) 1L else 2L)))
-            })
-            vm.refresh(); runCurrent()
-            vm.criteria(RoomSearchCriteria(waitingOnly = true))
-            advanceTimeBy(SearchViewModel.REQUERY_DELAY_MS + 1); runCurrent()
-            gate.complete(Unit); runCurrent()
-            assertEquals(RoomQuery(Genres.default, waitingOnly = true), queries.last())
-            assertEquals(listOf(2L), vm.state.value.rooms.map { it.id })
-            assertFalse(vm.state.value.loading)
-        } finally { Dispatchers.resetMain() }
-    }
-
-    @Test fun listFromOldSiteConditionsIsMarkedUntilTheNewConditionsLoad() = runTest {
-        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
-        try {
-            var fail = true
-            val vm = SearchViewModel(RoomListSource { query, _ ->
-                if (query.sex == null && fail) throw IOException("合成の通信エラー")
-                page(query.genre.key, 1, listOf(room(if (query.sex == null) 1L else 2L)))
-            })
-            vm.criteria(RoomSearchCriteria(gender = Gender.FEMALE))
-            vm.refresh(); runCurrent()
-            assertFalse(vm.state.value.awaitingNewConditions)
-            // 女性 → 指定なしへ広げると、取り直すまでは前の条件で取った部屋しか無い。
-            vm.criteria(RoomSearchCriteria())
-            assertTrue(vm.state.value.awaitingNewConditions)
-            advanceTimeBy(SearchViewModel.REQUERY_DELAY_MS + 1); runCurrent()
-            assertNotNull(vm.state.value.error)
-            assertTrue(vm.state.value.awaitingNewConditions)
-            fail = false
-            vm.refresh(); runCurrent()
-            assertFalse(vm.state.value.awaitingNewConditions)
             assertEquals(listOf(1L), vm.state.value.rooms.map { it.id })
+            // レーダーなどが後から読んだページも、この画面で取り直さずに出す。
+            val second = ObservedRoomPage(RoomQuery(Genres.default, page = 2), page(Genres.default.key, 2, listOf(room(4))), wall, 5)
+            flow.value = flow.value + (second.query to second)
+            runCurrent()
+            assertEquals(listOf(1L, 4L), vm.state.value.rooms.map { it.id })
+            assertEquals(2, vm.state.value.page)
+            assertEquals(0, calls)
+            // 開き直したジャンルも、共有の一覧があればすぐ出す。
+            vm.genre(Genres["talk"]!!)
+            assertEquals(listOf(7L), vm.state.value.rooms.map { it.id })
+        } finally { Dispatchers.resetMain() }
+    }
+
+    @Test fun readingMoreFetchesTheFirstPageWhenOnlyALaterPageCameFromOtherFeatures() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val second = ObservedRoomPage(RoomQuery(Genres.default, page = 2), page(Genres.default.key, 2, listOf(room(4))), 1_000_000L, 1)
+            val flow = MutableStateFlow(mapOf(second.query to second))
+            val calls = mutableListOf<Int>()
+            val source = object : ObservedRoomListSource {
+                override val observations = flow
+                override fun observation(query: RoomQuery) = flow.value[query]
+                override suspend fun fetch(query: RoomQuery, force: Boolean): RoomListPage { calls += query.page; return page(query.genre.key, query.page, listOf(room(1))) }
+            }
+            val vm = SearchViewModel(source, now = { 1_000_000L })
+            runCurrent()
+            assertTrue(vm.state.value.canLoadMore)
+            // 取り込んだのが 2 ページ目だけなら、続きの読み込みは未読の 1 ページ目を取る。
+            vm.more(); runCurrent()
+            assertEquals(listOf(1), calls)
+            assertEquals(setOf(1L, 4L), vm.state.value.rooms.map { it.id }.toSet())
         } finally { Dispatchers.resetMain() }
     }
 }

@@ -6,6 +6,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material.icons.outlined.SyncDisabled
@@ -25,6 +26,10 @@ import androidx.compose.runtime.*
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
@@ -94,16 +99,18 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         onNotice = { message -> scope.launch { snackbar.showSnackbar(message, withDismissAction = true) } },
     )
     // 引っ張って更新したときだけインジケーターを出す。自動取得のたびには出さない。
+    // 押した取り直しは state.refreshing で分かる。最初の読み込み（まだ 1 ページも無いとき）だけは loading で見る。
     var userRefreshing by remember { mutableStateOf(false) }
-    LaunchedEffect(state.loading) { if (!state.loading) userRefreshing = false }
+    LaunchedEffect(state.loading, state.refreshing) { if (!state.loading && !state.refreshing) userRefreshing = false }
     val newCount = visibleResults.count { roomIdentity(it) in state.newRoomIds }
     QuietPage {
     val pullState = rememberPullToRefreshState()
-    val pullRefreshing = userRefreshing && state.loading
+    val pullRefreshing = userRefreshing && (state.refreshing || state.loading)
     val indicatorTop = lovelyMainContentTopPadding()
     PullToRefreshBox(
         isRefreshing = pullRefreshing,
-        onRefresh = { if (state.initialized && !state.loading) { userRefreshing = true; vm.refresh() } },
+        // 本家の「最新更新」と同じく、読み込み中でも引けば取り直す（間隔は ShaloveClient が 1 秒空ける）。
+        onRefresh = { if (state.initialized) { userRefreshing = true; vm.refresh() } },
         modifier = Modifier.fillMaxSize(),
         state = pullState,
         // 上部のガラスのバーに隠れないよう、一覧の先頭の位置に出す。
@@ -122,19 +129,13 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         item {
             SearchStatusRow(
                 text = searchStatusText(state.page, state.lastPage, visibleResults.size, state.loading || !state.initialized,
-                    state.pageTimes.values.minOrNull()?.let { io.github.springthief1123.lovelyspace.data.formatObservationTime(it) },
-                    state.awaitingNewConditions),
+                    state.pageTimes.values.minOrNull()?.let { io.github.springthief1123.lovelyspace.data.formatObservationTime(it) }),
                 automatic = state.automatic,
-                loading = state.loading,
+                refreshing = state.refreshing || (state.page == 0 && state.loading),
+                refreshedCount = state.refreshedCount,
                 onAutomaticChange = vm::automatic,
                 onRefresh = { vm.refresh() },
-                refreshEnabled = state.initialized && !state.loading,
-            )
-        }
-        if (state.awaitingNewConditions) item {
-            QuietNotice(
-                if (state.error != null) "変えた条件で読み込めませんでした。表示中の一覧は前の条件で取った部屋だけで、条件に合う部屋がほかにもある可能性があります。"
-                else "変えた条件で読み込み直しています。表示中の一覧は前の条件で取った部屋だけです。",
+                refreshEnabled = state.initialized,
             )
         }
         if (!validAges) item {
@@ -167,7 +168,6 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
             SearchEmpty(
                 text = when {
                     state.results.isNotEmpty() -> "条件に合う部屋はすべて非表示です。"
-                    state.awaitingNewConditions -> "変えた条件の一覧はまだ読み込めていません。"
                     canReadNext && state.automatic -> "条件に合う部屋はまだ見つかっていません。"
                     canReadNext -> "読み込んだ${state.page}ページには、条件に合う部屋はありません。"
                     else -> "条件に合う部屋はありません。"
@@ -214,8 +214,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         anchor = searchAnchor,
         state = state,
         vm = vm,
-        statusText = searchStatusText(state.page, state.lastPage, visibleResults.size, state.loading || !state.initialized, null,
-            state.awaitingNewConditions),
+        statusText = searchStatusText(state.page, state.lastPage, visibleResults.size, state.loading || !state.initialized, null),
         onDismiss = { searchOpen = false },
         onReset = resetSearch,
     )
@@ -225,7 +224,8 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
 private fun SearchStatusRow(
     text: String,
     automatic: Boolean,
-    loading: Boolean,
+    refreshing: Boolean,
+    refreshedCount: Int,
     onAutomaticChange: (Boolean) -> Unit,
     onRefresh: () -> Unit,
     refreshEnabled: Boolean,
@@ -238,13 +238,58 @@ private fun SearchStatusRow(
                 contentDescription = if (automatic) "自動更新を一時停止" else "自動更新を再開",
                 tint = if (automatic) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (loading) {
-            Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) }
-        } else {
-            IconButton(onClick = onRefresh, enabled = refreshEnabled) { Icon(Icons.Outlined.Refresh, "今すぐ更新") }
+        RefreshButton(refreshing, refreshedCount, onRefresh, refreshEnabled)
+    }
+}
+
+/**
+ * 「今すぐ更新」（本家の「最新更新」）。取り直し中も押せるよう、ボタンは残したまま周りに回転する輪を重ねる。
+ * 輪は利用者が押した取り直しの間だけ回し、自動の取得では回さない。通信がすぐ終わっても一瞬で消えないよう最低 [MIN_SPIN_MS] は回し、
+ * 終わったらチェックの印を [DONE_MS] 出して、更新が済んだことを伝える（読み上げにも伝える）。
+ */
+@Composable
+private fun RefreshButton(refreshing: Boolean, refreshedCount: Int, onRefresh: () -> Unit, enabled: Boolean) {
+    var spinning by remember { mutableStateOf(refreshing) }
+    var spinStartedAt by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(refreshing) {
+        if (refreshing) {
+            if (!spinning) spinStartedAt = System.currentTimeMillis()
+            spinning = true
+        } else if (spinning) {
+            kotlinx.coroutines.delay((spinStartedAt + MIN_SPIN_MS - System.currentTimeMillis()).coerceAtLeast(0))
+            spinning = false
+        }
+    }
+    // 回数が増えたときだけ印を出す。ジャンルを変えて 0 に戻ったときは出さない。
+    var seenCount by remember { mutableIntStateOf(refreshedCount) }
+    var done by remember { mutableStateOf(false) }
+    LaunchedEffect(refreshedCount, spinning) {
+        if (refreshedCount > seenCount && !spinning) {
+            seenCount = refreshedCount
+            done = true
+            kotlinx.coroutines.delay(DONE_MS)
+            done = false
+        } else if (refreshedCount < seenCount) seenCount = refreshedCount
+    }
+    val description = when {
+        spinning -> "更新中。押すともう一度取り直します"
+        done -> "更新しました。押すともう一度取り直します"
+        else -> "今すぐ更新"
+    }
+    IconButton(onClick = { done = false; onRefresh() }, enabled = enabled,
+        modifier = Modifier.semantics { contentDescription = description; liveRegion = LiveRegionMode.Polite }) {
+        Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
+            if (spinning) CircularProgressIndicator(Modifier.matchParentSize(), strokeWidth = 2.dp)
+            if (done) Icon(Icons.Outlined.Check, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+            else Icon(Icons.Outlined.Refresh, null, Modifier.size(20.dp))
         }
     }
 }
+
+/** 押した取り直しの輪を回し続ける最短の時間（ミリ秒）。通信がすぐ終わっても回ったことが分かるように。 */
+private const val MIN_SPIN_MS = 600L
+/** 取り直しが済んだ印を出す時間（ミリ秒）。 */
+private const val DONE_MS = 1_500L
 
 /** 一覧に合う部屋が無いとき。条件を指定していれば、その場でリセットできるようにする。 */
 @Composable
@@ -256,12 +301,8 @@ private fun SearchEmpty(text: String, onReset: (() -> Unit)?) {
 }
 
 /** 一覧の状態を1行にまとめる。例: 「41件・3/5ページ・12:04 確認」。 */
-internal fun searchStatusText(page: Int, lastPage: Int, shown: Int, loading: Boolean, oldestCheck: String?,
-    awaitingNewConditions: Boolean = false): String = when {
+internal fun searchStatusText(page: Int, lastPage: Int, shown: Int, loading: Boolean, oldestCheck: String?): String = when {
     page == 0 && loading -> "一覧を読み込んでいます"
-    // 前の条件の一覧の件数・ページ数を、変えた条件の結果のように見せない。
-    awaitingNewConditions && loading -> "変えた条件で読み込んでいます"
-    awaitingNewConditions -> "前の条件の一覧（${shown}件）"
     page == 0 -> "下に引いて一覧を取得"
     else -> listOfNotNull("${shown}件", "${page}/${lastPage}ページ", oldestCheck?.let { "$it 確認" }).joinToString("・")
 }

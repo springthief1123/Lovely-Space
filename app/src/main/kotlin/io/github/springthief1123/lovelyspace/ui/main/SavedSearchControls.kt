@@ -81,7 +81,7 @@ internal fun SavedSearchControls(search: SearchUiState, onApply: (SearchPreset) 
                 TextButton(onClick = vm::reload) { Text("もう一度読み込む") }
             }
         }
-        // 呼び出すと本家側の条件が変わる場合は一覧を取り直すので、「通信しない」とは書かない。
+        // 別のジャンルの条件を呼び出すとそのジャンルの一覧を取りに行くので、「通信しない」とは書かない。
         Text(if (state.presets.isEmpty()) "ジャンルと条件を端末に保存できます。"
             else "押すと適用、長押しで名前の変更・上書き・削除。",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

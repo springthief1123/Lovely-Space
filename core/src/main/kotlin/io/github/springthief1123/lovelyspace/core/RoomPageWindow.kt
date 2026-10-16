@@ -50,6 +50,16 @@ data class RoomPageWindow(
             pages[p]?.any { it.status != RoomStatus.FULL && it.elapsed.let { e -> e == null || e <= age } } ?: true
         } ?: 1
 
+    /** 部屋（[roomIdentity]）ごとの、載っているページ。複数のページにあれば [rooms] と同じく新しく読んだページ、消えた部屋は消えたページ。 */
+    val roomPages: Map<String, Int> get() {
+        val result = mutableMapOf<String, Int>()
+        pages.keys.sortedByDescending { revisions[it] }.forEach { page ->
+            pages[page].orEmpty().forEach { result.putIfAbsent(roomIdentity(it), page) }
+        }
+        carried.forEach { (id, c) -> result.putIfAbsent(id, c.page) }
+        return result
+    }
+
     val rooms: List<Room> get() {
         val newest = linkedMapOf<String, Room>()
         pages.keys.sortedByDescending { revisions[it] }.forEach { page ->

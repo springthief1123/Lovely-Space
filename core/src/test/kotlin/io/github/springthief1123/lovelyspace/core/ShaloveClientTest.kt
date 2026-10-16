@@ -5,9 +5,11 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
 import okhttp3.Call
 import okhttp3.EventListener
@@ -76,20 +78,46 @@ class ShaloveClientTest {
     }
 
     @Test
-    fun aPageTheUserOpenedGoesBeforeQueuedListFetchesWithTheSameSpacing() = runBlocking {
+    fun aPageTheUserOpenedGoesBeforeQueuedListFetchesWithTheSameSpacing() = runTest {
         repeat(4) { server.enqueue(MockResponse().setBody("ok")) }
-        val gated = ShaloveClient(pacing = { RefreshPacing(minIntervalMs = 3_000) }, clock = { now }, sleep = { ms -> sleeps += ms; now += ms; kotlinx.coroutines.delay(100) })
+        val sentAt = java.util.Collections.synchronizedList(mutableListOf<Long>())
+        val http = OkHttpClient.Builder().addInterceptor { chain -> sentAt += testScheduler.currentTime; chain.proceed(chain.request()) }.build()
+        val gated = ShaloveClient(http = http, pacing = { RefreshPacing(minIntervalMs = 3_000) }, clock = { testScheduler.currentTime }, sleep = { delay(it) })
         gated.get(server.url("/a").toString())
-        // b が間隔を待っている間に、一覧の取得 d と利用者の操作 c が順番待ちに並ぶ（d が先）。
+        // 一覧の取得 b・d が間隔を待っている間に、利用者の操作 c が来る。c は待っている b・d を追い越す。
         val b = async { gated.get(server.url("/b").toString()) }
-        kotlinx.coroutines.delay(20)
+        advanceTimeBy(20)
         val d = async { gated.get(server.url("/d").toString()) }
-        kotlinx.coroutines.delay(20)
+        advanceTimeBy(20)
         val c = async { gated.get(server.url("/c").toString(), operation = true) }
         awaitAll(b, c, d)
-        assertEquals(listOf("/a", "/b", "/c", "/d"), (1..4).map { server.takeRequest().path })
+        val paths = (1..4).map { server.takeRequest().path }
+        assertEquals(listOf("/a", "/c"), paths.take(2))
+        assertEquals(setOf("/b", "/d"), paths.drop(2).toSet())
         // 順番を入れ替えても、間隔は毎回空けている。
-        assertEquals(listOf(3_000L, 3_000L, 3_000L), sleeps)
+        assertEquals(listOf(3_000L, 3_000L, 3_000L), sentAt.zipWithNext { x, y -> y - x })
+    }
+
+    @Test
+    fun aRefreshTheUserPressedSkipsTheCacheAndWaitsOnlyTheOneSecondFloor() = runTest {
+        val calls = IntArray(1)
+        val sleeps = mutableListOf<Long>()
+        val client = ShaloveClient(
+            http = countingHttp(calls),
+            pacing = { RefreshPacing(minIntervalMs = 3_000) },
+            clock = { now },
+            sleep = { ms -> sleeps += ms; now += ms },
+        )
+        val query = RoomQuery(genre = Genres.default)
+        client.fetchRoomList(query)
+        // 押すたびにキャッシュを使わず取り直す。前の通信からは設定の 3 秒ではなく下限の 1 秒だけ空ける。
+        client.fetchRoomList(query, manual = true)
+        client.fetchRoomList(query, manual = true)
+        assertEquals(3, calls[0])
+        assertEquals(listOf(900L, 900L), sleeps)
+        // 押した後の自動の取得は、設定どおり 3 秒空ける。
+        client.fetchRoomList(query.copy(page = 2))
+        assertEquals(listOf(900L, 900L, 2_900L), sleeps)
     }
 
     @Test
@@ -154,21 +182,23 @@ class ShaloveClientTest {
 
     /** 本家へ出ずに一覧の HTML を返し、通信回数を数えるクライアント。通信には 100ms かかる想定。 */
     private fun countingListClient(calls: IntArray, pacing: () -> RefreshPacing = { RefreshPacing() }) = ShaloveClient(
-        http = OkHttpClient.Builder().addInterceptor { chain ->
-            calls[0]++
-            now += 100
-            Response.Builder()
-                .request(chain.request())
-                .protocol(Protocol.HTTP_1_1)
-                .code(200)
-                .message("OK")
-                .body("<html></html>".toResponseBody("text/html; charset=Shift_JIS".toMediaType()))
-                .build()
-        }.build(),
+        http = countingHttp(calls),
         pacing = pacing,
         clock = { now },
         sleep = { ms -> now += ms },
     )
+
+    private fun countingHttp(calls: IntArray) = OkHttpClient.Builder().addInterceptor { chain ->
+        calls[0]++
+        now += 100
+        Response.Builder()
+            .request(chain.request())
+            .protocol(Protocol.HTTP_1_1)
+            .code(200)
+            .message("OK")
+            .body("<html></html>".toResponseBody("text/html; charset=Shift_JIS".toMediaType()))
+            .build()
+    }.build()
 
     @Test
     fun concurrentListFetchesHitTheSiteOnce() = runTest {

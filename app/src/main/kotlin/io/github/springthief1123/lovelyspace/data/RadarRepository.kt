@@ -22,7 +22,17 @@ data class RadarEvent(val at: Long, val text: String, val id: String = java.util
     val kind: RadarEventKind = RadarEventKind.LEGACY, val origin: RadarEventOrigin? = null, val read: Boolean = false,
     /** 背景の巡回で記録し、まだ端末通知に出していない。通知を出し終えるまで保存しておき、途中で止まっても次の実行で出す。 */
     val pendingNotice: Boolean = false)
-data class RadarResult(val presetId: String, val at: Long, val page: Int, val lastPage: Int, val rooms: List<Room>, val genreKey: String, val criteria: RoomSearchCriteria)
+/**
+ * 計画の一致。[rooms] は最後に読んだページ（[page]）だけでなく、手元にあるそのジャンルの一覧の全ページ（[pagesRead] ページ）に条件を掛けたもの。
+ * 見つける画面・レーダーのどれが読んだページでも使う。
+ */
+data class RadarResult(val presetId: String, val at: Long, val page: Int, val lastPage: Int, val rooms: List<Room>, val genreKey: String, val criteria: RoomSearchCriteria,
+    val pagesRead: Int = 1,
+    /** 一致した部屋（[roomIdentity]）ごとの、載っていたページ。部屋の詳細の確認はそのページを取り直す。 */
+    val roomPages: Map<String, Int> = emptyMap()) {
+    /** [room] が載っていたページ。分からなければ最後に読んだページ。 */
+    fun pageOf(room: Room): Int = roomPages[roomIdentity(room)] ?: page
+}
 private data class ScheduledRadarQuery(val plans: List<SearchPreset>, val candidates: List<CandidateRule>)
 data class RadarState(
     val plans: Set<String> = emptySet(), val targets: List<TrackedRoom> = emptyList(),
@@ -106,7 +116,12 @@ class RadarRepository(
                         // ロック待ち中に更新された定義・一覧を、古いFlowの値で戻さない。
                         val saved = searches.presets.first()
                         val observations = lists.observations.value
-                        reconcilePlans(saved)
+                        // 条件を変えた計画は、共有の一覧からすぐ一致を出し直す。
+                        val edited = reconcilePlans(saved).let { changed -> saved.filter { it.id in changed && it.id in _state.value.plans } }
+                        if (edited.isNotEmpty()) {
+                            val hidden = hiddenRooms()
+                            _state.update { state -> edited.fold(state) { acc, preset -> seedPlan(preset, hidden, acc) } }
+                        }
                         observations.values.sortedBy { it.revision }.forEach { observation ->
                             if ((seen[observation.query] ?: 0) >= observation.revision) return@forEach
                             process(observation, emptyList())
@@ -121,20 +136,27 @@ class RadarRepository(
         }
     }
     suspend fun setPlan(id: String, enabled: Boolean) {
-        if (enabled) require(searches.presets.first().any { it.id == id }) { "保存した条件が見つかりません。" }
+        val preset = searches.presets.first().firstOrNull { it.id == id }
+        if (enabled) require(preset != null) { "保存した条件が見つかりません。" }
+        val hidden = hiddenRooms()
         edit {
             resetPlan(id)
             it.copy(plans = if (enabled) it.plans + id else it.plans - id, nextPages = it.nextPages - id,
                 backgroundPlans = if (enabled) it.backgroundPlans else it.backgroundPlans - id)
+                .let { state -> if (enabled && preset != null) seedPlan(preset, hidden, state) else state }
         }
     }
     /** 計画をアプリを閉じていても巡回するか。オンにすると計画そのものも有効にする。 */
     suspend fun setPlanBackground(id: String, enabled: Boolean) {
-        if (enabled) require(searches.presets.first().any { it.id == id }) { "保存した条件が見つかりません。" }
+        val preset = searches.presets.first().firstOrNull { it.id == id }
+        if (enabled) require(preset != null) { "保存した条件が見つかりません。" }
+        val hidden = hiddenRooms()
         edit { state ->
-            if (enabled && id !in state.plans) resetPlan(id)
+            val starting = enabled && id !in state.plans
+            if (starting) resetPlan(id)
             state.copy(plans = if (enabled) state.plans + id else state.plans,
                 backgroundPlans = if (enabled) state.backgroundPlans + id else state.backgroundPlans - id)
+                .let { if (starting && preset != null) seedPlan(preset, hidden, it) else it }
         }
     }
     suspend fun setBackgroundInterval(minutes: Int) {
@@ -184,13 +206,15 @@ class RadarRepository(
         lapStartedAt.remove("plan/$id")
         cursors.keys.removeAll { it.startsWith("plan/$id/") }
     }
-    private fun reconcilePlans(saved: List<SearchPreset>) {
+    /** 保存した条件の変更・削除を反映する。条件が変わった（または消えた）計画の ID を返す。 */
+    private fun reconcilePlans(saved: List<SearchPreset>): Set<String> {
         val keys = saved.associate { it.id to planKey(it) }
         val changed = planKeys.keys.filter { keys[it] != planKeys[it] }.toSet()
         changed.forEach(::resetPlan)
         planKeys.clear(); planKeys.putAll(keys)
         _state.update { it.copy(plans = it.plans.intersect(keys.keys), backgroundPlans = it.backgroundPlans.intersect(keys.keys), scopes = it.scopes - changed,
             results = it.results - changed, nextPages = it.nextPages - changed) }
+        return changed
     }
     suspend fun track(room: Room, sourceQuery: RoomQuery? = null) = edit {
         require(room.name != null) { "プロフィールを確認できる部屋を選んでください。" }
@@ -472,6 +496,11 @@ class RadarRepository(
         }
         val scopes = current.scopes.toMutableMap()
         val results = current.results.toMutableMap()
+        val genreList = o.query == RoomQuery(o.query.genre, page = o.query.page)
+        val livePages = if (freshTracking && genreList)
+            current.livePages + (o.query.genre.key to (current.livePages[o.query.genre.key] ?: RoomPageWindow()).observe(o.page, o.revision)) else current.livePages
+        // 計画の一致は、手元にあるジャンルの一覧の全ページから出す（このページだけでなく）。新しい一致の記録はページごとに比べる。
+        val window = livePages[o.query.genre.key]?.takeIf { it.pages[o.page.page] != null } ?: RoomPageWindow().observe(o.page, o.revision)
         presets.filter { it.genreKey == o.query.genre.key }.forEach { preset ->
             // フィルタ済みの通信結果を無条件一覧の巡回基準には使わない。
             if (o.query != RoomQuery(o.query.genre, page = o.query.page)) return@forEach
@@ -480,23 +509,25 @@ class RadarRepository(
             if ((evaluatedPlans[key] ?: 0) >= o.revision) return@forEach
             evaluatedPlans[key] = o.revision
             val matches = searchRooms(o.page.rooms.filterNot { room -> hidden.any { it.appliesTo(room) } }, preset.criteria)
-            val identities = matches.map { "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" }.toSet()
+            val identities = matches.map(::matchIdentity).toSet()
             val known = knownMatches.getOrPut(scopeKey) { mutableSetOf() }
             val previous = baselines[key]
             if (previous != null) {
                 val added = identities - previous - known
                 if (added.isNotEmpty()) events += RadarEvent(o.confirmedAt, "${preset.label}：${o.page.page}ページで新しい一致を${added.size}件確認",
-                    rooms = matches.filter { "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" in added }.take(20), page = o.page.page, sourceQuery = o.query, kind = RadarEventKind.SEARCH_MATCH,
+                    rooms = matches.filter { matchIdentity(it) in added }.take(20), page = o.page.page, sourceQuery = o.query, kind = RadarEventKind.SEARCH_MATCH,
                     origin = RadarEventOrigin(RadarOriginType.PLAN, preset.id, preset.label, radarPlanDescription(preset)), pendingNotice = notice)
             }
             known.addAll(identities)
             baselines[key] = identities
             baselineAt[key] = now()
-            results[preset.id] = RadarResult(preset.id, o.confirmedAt, o.page.page, o.page.lastPage, matches, preset.genreKey, preset.criteria)
-            scopes[preset.id] = "${formatObservationTime(o.confirmedAt)} · ${o.page.page}/${o.page.lastPage}ページ · 一致${matches.size}件"
+            val all = searchRooms(window.rooms.filterNot { room -> hidden.any { it.appliesTo(room) } }, preset.criteria)
+            results[preset.id] = RadarResult(preset.id, o.confirmedAt, o.page.page, window.lastPage, all, preset.genreKey, preset.criteria, window.pages.size,
+                window.roomPages.filterKeys { key -> all.any { roomIdentity(it) == key } })
+            scopes[preset.id] = planScope(o.confirmedAt, window, all.size)
         }
         val candidateResults = current.candidateResults.toMutableMap()
-        if (o.query == RoomQuery(o.query.genre, page = o.query.page)) {
+        if (genreList) {
             candidates.filter { it.enabled && it.genreKey == o.query.genre.key }.forEach { rule ->
                 val matches = o.page.rooms.distinctBy(::roomIdentity).filter { room -> rule.matches(room) && hidden.none { it.appliesTo(room) } }
                 val identities = matches.map { "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" }.toSet()
@@ -516,9 +547,40 @@ class RadarRepository(
                 candidateResults[rule.id] = CandidateResult(rule.key, o.confirmedAt, o.page.page, o.page.lastPage, matches)
             }
         }
-        val livePages = if (freshTracking && o.query == RoomQuery(o.query.genre, page = o.query.page))
-            current.livePages + (o.query.genre.key to (current.livePages[o.query.genre.key] ?: RoomPageWindow()).observe(o.page, o.revision)) else current.livePages
         _state.update { current.copy(automatic = it.automatic, livePages = livePages, targets = targets, events = (events + current.events).take(100), scopes = scopes, results = results, candidateResults = candidateResults) }
+    }
+    private fun matchIdentity(room: Room) = "${roomIdentity(room)}/${room.name}/${room.gender}/${room.age}"
+    private fun planScope(at: Long, window: RoomPageWindow, matches: Int) =
+        "${formatObservationTime(at)} · ${window.pages.size}/${window.lastPage}ページ分 · 一致${matches}件"
+    private suspend fun hiddenRooms() = preferences.preferences.first().filter { it.hidden }
+
+    /**
+     * 計画を有効にした・条件を変えたときに、見つける画面などが直近（[SHARED_MAX_AGE_MS] 以内）に読んだそのジャンルの一覧から、
+     * 一致と比較基準をすぐ作る。読み直すまで待たずに一致が出て、次にそのページを読んだときから新しい一致を知らせる。
+     * 共有の一覧が無ければ何もしない（これまでどおり最初の周で作る）。
+     */
+    private fun seedPlan(preset: SearchPreset, hidden: List<RoomPreference>, state: RadarState): RadarState {
+        val genre = Genres[preset.genreKey] ?: return state
+        val oldest = now() - SHARED_MAX_AGE_MS
+        val pages = lists.observations.value.values
+            .filter { it.query == RoomQuery(genre, page = it.query.page) && it.confirmedAt >= oldest }
+            .sortedBy { it.revision }
+        if (pages.isEmpty()) return state
+        val scopeKey = planKey(preset)
+        fun matchesOf(rooms: List<Room>) = searchRooms(rooms.filterNot { room -> hidden.any { it.appliesTo(room) } }, preset.criteria)
+        val window = pages.fold(RoomPageWindow()) { w, o -> w.observe(o.page, o.revision) }
+        pages.filter { window.pages[it.query.page] != null }.forEach { o ->
+            val key = "$scopeKey/${o.query.page}"
+            val identities = matchesOf(o.page.rooms).map(::matchIdentity).toSet()
+            baselines[key] = identities
+            baselineAt[key] = now()
+            knownMatches.getOrPut(scopeKey) { mutableSetOf() }.addAll(identities)
+            evaluatedPlans[key] = o.revision
+        }
+        val latest = pages.maxBy { it.confirmedAt }
+        val all = matchesOf(window.rooms)
+        return state.copy(results = state.results + (preset.id to RadarResult(preset.id, latest.confirmedAt, latest.query.page, window.lastPage, all,
+            preset.genreKey, preset.criteria, window.pages.size, window.roomPages.filterKeys { key -> all.any { roomIdentity(it) == key } })), scopes = state.scopes + (preset.id to planScope(latest.confirmedAt, window, all.size)))
     }
     /** 読んだページの次に読むページ。前のページを優先する位置（[PageCursor]）は [cursors] に覚える。 */
     private fun advance(key: String, o: ObservedRoomPage): Int {
@@ -596,6 +658,8 @@ class RadarRepository(
         const val BASELINE_TTL_MS = 6 * 60 * 60 * 1000L
         /** 計画ごとに覚えておく、一度一致した部屋の数の上限。 */
         const val MAX_KNOWN = 300
+        /** 計画を有効にしたときに使う共有の一覧は、確認からこの時間（ミリ秒）以内のものだけ。古い一覧で一致を出さない。 */
+        const val SHARED_MAX_AGE_MS = 5 * 60_000L
     }
 }
 
