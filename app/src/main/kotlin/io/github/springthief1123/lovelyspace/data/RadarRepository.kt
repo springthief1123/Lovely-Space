@@ -43,6 +43,8 @@ data class RadarState(
     val nextPages: Map<String, Int> = emptyMap(),
     val candidateRules: List<CandidateRule> = emptyList(),
     val candidateResults: Map<String, CandidateResult> = emptyMap(),
+    /** 「今すぐ新着を確認」（[RadarRepository.scanNow]）を待っている・取り直している。 */
+    val scanNowPending: Boolean = false,
     val nextCandidatePages: Map<String, Int> = emptyMap(),
     val lastScan: RadarScanReport? = null,
     val lastConfirmedAt: Long? = null,
@@ -169,7 +171,9 @@ class RadarRepository(
         it.candidateRules.forEach { rule -> resetCandidate(rule.id) }
         it.copy(plans = emptySet(), backgroundPlans = emptySet(), nextPages = emptyMap(), candidateRules = it.candidateRules.map { rule -> rule.copy(enabled = false) }, nextCandidatePages = emptyMap())
     }
-    suspend fun saveCandidate(rule: CandidateRule) = edit { state ->
+    suspend fun saveCandidate(rule: CandidateRule) {
+        val hidden = hiddenRooms()
+        edit { state ->
         require(rule.id.isNotBlank() && rule.label.isNotBlank() && rule.label.length <= 80 && rule.term.isNotBlank() && rule.term.length <= 160 && Genres[rule.genreKey] != null) { "候補条件の入力を確認してください。" }
         require(state.candidateRules.size < 20 || state.candidateRules.any { it.id == rule.id }) { "候補監視は20件までです。" }
         val value = rule.copy(label = rule.label.trim(), term = rule.term.trim())
@@ -179,11 +183,18 @@ class RadarRepository(
         state.copy(candidateRules = state.candidateRules.filterNot { it.id == value.id } + value,
             candidateResults = if (changed) state.candidateResults - value.id else state.candidateResults,
             nextCandidatePages = if (changed) state.nextCandidatePages - value.id else state.nextCandidatePages)
+            .let { if (changed && value.enabled) seedCandidate(value, hidden, it) else it }
+        }
     }
-    suspend fun setCandidateEnabled(id: String, enabled: Boolean) = edit { state ->
-        require(state.candidateRules.any { it.id == id }) { "候補条件が見つかりません。" }
-        resetCandidate(id)
-        state.copy(candidateRules = state.candidateRules.map { if (it.id == id) it.copy(enabled = enabled) else it }, nextCandidatePages = state.nextCandidatePages - id)
+    suspend fun setCandidateEnabled(id: String, enabled: Boolean) {
+        val hidden = hiddenRooms()
+        edit { state ->
+            val rule = state.candidateRules.firstOrNull { it.id == id }
+            require(rule != null) { "候補条件が見つかりません。" }
+            resetCandidate(id)
+            state.copy(candidateRules = state.candidateRules.map { if (it.id == id) it.copy(enabled = enabled) else it }, nextCandidatePages = state.nextCandidatePages - id)
+                .let { if (enabled) seedCandidate(rule.copy(enabled = true), hidden, it) else it }
+        }
     }
     suspend fun removeCandidate(id: String) = edit { state ->
         resetCandidate(id)
@@ -330,11 +341,43 @@ class RadarRepository(
      * [lapIntervalMs] が 0 より大きいと、1 ページ目に戻った計画・候補条件は、前の周の始まりからその時間が経つまで今回は取らない。
      */
     suspend fun scan(latestFirst: Boolean = false, force: Boolean = true, maxPages: Int = Int.MAX_VALUE, backgroundOnly: Boolean = false,
-        lapIntervalMs: Long = 0): List<RadarEvent> {
+        lapIntervalMs: Long = 0): List<RadarEvent> = runScan(latestFirst, force, maxPages, backgroundOnly, lapIntervalMs) ?: emptyList()
+
+    /** 「今すぐ新着を確認」がもう一度押された（進行中の [scanNow] が終わった後にもう 1 回取る）。 */
+    private val scanNowRequested = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val scanNowActive = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /**
+     * 「今すぐ新着を確認」（本家の「最新更新」と同じ）。各計画・候補条件の 1 ページ目と追跡先を取り直す。
+     * 巡回中でも押せて、いまの巡回が終わったらすぐ取る。押すたびに取り直し、本家への間隔は前の通信から 1 秒
+     * （[RoomListSource.fetchNow]）。取り直し中に押された分は、終わった後の 1 回にまとめる。
+     */
+    suspend fun scanNow() {
+        scanNowRequested.set(true)
+        do {
+            if (!scanNowActive.compareAndSet(false, true)) return
+            _state.update { it.copy(scanNowPending = true) }
+            try {
+                while (scanNowRequested.get()) {
+                    // 自動の巡回が先に始めていたら、終わるのを待ってから取る。待つ間に押された分もこの 1 回にまとめる。
+                    _state.first { !it.running }
+                    scanNowRequested.set(false)
+                    if (runScan(latestFirst = true, force = true, manual = true) == null) scanNowRequested.set(true)
+                }
+            } finally {
+                scanNowActive.set(false)
+                _state.update { it.copy(scanNowPending = false) }
+            }
+        } while (scanNowRequested.get())
+    }
+
+    /** [scan] の本体。ほかの巡回が進行中で始められなければ null。 */
+    private suspend fun runScan(latestFirst: Boolean = false, force: Boolean = true, maxPages: Int = Int.MAX_VALUE, backgroundOnly: Boolean = false,
+        lapIntervalMs: Long = 0, manual: Boolean = false): List<RadarEvent>? {
         fun plansOf(state: RadarState) = if (backgroundOnly) state.activeBackgroundPlans else state.plans
         val previousEvents = mutex.withLock {
             check(_state.value.loaded) { "読み込み中です。" }
-            if (_state.value.running) return emptyList()
+            if (_state.value.running) return null
             _state.update { it.copy(running = true, error = null, lastScan = null) }
             _state.value.events.map { it.id }.toSet()
         }
@@ -375,7 +418,7 @@ class RadarRepository(
                 requests.mapValues { (query, plans) -> ScheduledRadarQuery(plans.toList(), candidates.filter { it.genreKey == query.genre.key && (if (latestFirst) 1 else candidateNext[it.key] ?: 1) == query.page }) }
             }
             val before = mutableMapOf<RoomQuery, Long>()
-            sync.sync(scheduled.keys, maxPages, force,
+            sync.sync(scheduled.keys, maxPages, force, manual,
                 shouldFetch = { query ->
                     val request = scheduled.getValue(query)
                     val stillNeeded = mutex.withLock {
@@ -544,11 +587,44 @@ class RadarRepository(
                 }
                 known.addAll(identities)
                 candidateBaselines[key] = identities
-                candidateResults[rule.id] = CandidateResult(rule.key, o.confirmedAt, o.page.page, o.page.lastPage, matches)
+                // 結果は、計画と同じく手元にあるジャンルの一覧の全ページから出す。
+                candidateResults[rule.id] = candidateResult(rule, o.confirmedAt, o.page.page, window, hidden)
             }
         }
         _state.update { current.copy(automatic = it.automatic, livePages = livePages, targets = targets, events = (events + current.events).take(100), scopes = scopes, results = results, candidateResults = candidateResults) }
     }
+    private fun candidateResult(rule: CandidateRule, at: Long, page: Int, window: RoomPageWindow, hidden: List<RoomPreference>): CandidateResult {
+        val all = window.rooms.distinctBy(::roomIdentity).filter { room -> rule.matches(room) && hidden.none { it.appliesTo(room) } }
+        return CandidateResult(rule.key, at, page, window.lastPage, all, window.pages.size,
+            window.roomPages.filterKeys { key -> all.any { roomIdentity(it) == key } })
+    }
+
+    /** 候補条件を有効にした・変えたときに、直近に読んだ共有の一覧から一致と比較基準をすぐ作る（[seedPlan] と同じ）。 */
+    private fun seedCandidate(rule: CandidateRule, hidden: List<RoomPreference>, state: RadarState): RadarState {
+        val genre = Genres[rule.genreKey] ?: return state
+        val pages = sharedPages(genre)
+        if (pages.isEmpty()) return state
+        val window = pages.fold(RoomPageWindow()) { w, o -> w.observe(o.page, o.revision) }
+        pages.filter { window.pages[it.query.page] != null }.forEach { o ->
+            val key = "${rule.key}/${o.query.page}"
+            val identities = o.page.rooms.filter { room -> rule.matches(room) && hidden.none { it.appliesTo(room) } }
+                .map { "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" }.toSet()
+            candidateBaselines[key] = identities
+            candidateKnown.getOrPut(rule.key) { mutableSetOf() }.addAll(identities)
+            evaluatedCandidates[key] = o.revision
+        }
+        val latest = pages.maxBy { it.confirmedAt }
+        return state.copy(candidateResults = state.candidateResults + (rule.id to candidateResult(rule, latest.confirmedAt, latest.query.page, window, hidden)))
+    }
+
+    /** 見つける画面などが直近（[SHARED_MAX_AGE_MS] 以内）に読んだ、[genre] のジャンル全体の一覧のページ。古い順。 */
+    private fun sharedPages(genre: Genre): List<ObservedRoomPage> {
+        val oldest = now() - SHARED_MAX_AGE_MS
+        return lists.observations.value.values
+            .filter { it.query == RoomQuery(genre, page = it.query.page) && it.confirmedAt >= oldest }
+            .sortedBy { it.revision }
+    }
+
     private fun matchIdentity(room: Room) = "${roomIdentity(room)}/${room.name}/${room.gender}/${room.age}"
     private fun planScope(at: Long, window: RoomPageWindow, matches: Int) =
         "${formatObservationTime(at)} · ${window.pages.size}/${window.lastPage}ページ分 · 一致${matches}件"
@@ -561,10 +637,7 @@ class RadarRepository(
      */
     private fun seedPlan(preset: SearchPreset, hidden: List<RoomPreference>, state: RadarState): RadarState {
         val genre = Genres[preset.genreKey] ?: return state
-        val oldest = now() - SHARED_MAX_AGE_MS
-        val pages = lists.observations.value.values
-            .filter { it.query == RoomQuery(genre, page = it.query.page) && it.confirmedAt >= oldest }
-            .sortedBy { it.revision }
+        val pages = sharedPages(genre)
         if (pages.isEmpty()) return state
         val scopeKey = planKey(preset)
         fun matchesOf(rooms: List<Room>) = searchRooms(rooms.filterNot { room -> hidden.any { it.appliesTo(room) } }, preset.criteria)

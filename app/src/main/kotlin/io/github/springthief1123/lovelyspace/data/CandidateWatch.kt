@@ -1,6 +1,7 @@
 package io.github.springthief1123.lovelyspace.data
 
 import io.github.springthief1123.lovelyspace.core.Room
+import io.github.springthief1123.lovelyspace.core.roomIdentity
 import java.util.UUID
 
 enum class CandidateMode { EXACT_NAME, DISPLAY_TEXT }
@@ -17,4 +18,12 @@ data class CandidateRule(val id: String = UUID.randomUUID().toString(), val labe
     val key: String get() = "$id/$genreKey/$mode/${term.trim()}"
 }
 
-data class CandidateResult(val ruleKey: String, val at: Long, val page: Int, val lastPage: Int, val rooms: List<Room>)
+/**
+ * 候補条件の一致。[rooms] は最後に読んだページ（[page]）だけでなく、手元にあるそのジャンルの一覧の全ページ（[pagesRead] ページ）から探したもの。
+ * [roomPages] は一致した部屋（[roomIdentity]）ごとの、載っていたページ。
+ */
+data class CandidateResult(val ruleKey: String, val at: Long, val page: Int, val lastPage: Int, val rooms: List<Room>,
+    val pagesRead: Int = 1, val roomPages: Map<String, Int> = emptyMap()) {
+    /** [room] が載っていたページ。分からなければ最後に読んだページ。 */
+    fun pageOf(room: Room): Int = roomPages[roomIdentity(room)] ?: page
+}

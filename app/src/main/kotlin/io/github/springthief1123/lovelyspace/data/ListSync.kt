@@ -26,11 +26,13 @@ class ListSync(private val lists: RoomListSource) {
     /**
      * [requests] を重複を除いた順に取得する。[shouldFetch] が false を返したページは取得しない。
      * 取得のたびに [onResult] を呼び、次のページへ進む前に各機能が結果を反映できるようにする。
+     * [manual] は利用者が押した取り直し（[RoomListSource.fetchNow]。前の通信から 1 秒空けて毎回取り直す）。
      */
     suspend fun sync(
         requests: Iterable<RoomQuery>,
         maxPages: Int = Int.MAX_VALUE,
         force: Boolean = false,
+        manual: Boolean = false,
         shouldFetch: suspend (RoomQuery) -> Boolean = { true },
         onResult: suspend (RoomQuery, ListSyncOutcome) -> Unit = { _, _ -> },
     ): Map<RoomQuery, ListSyncOutcome> {
@@ -46,7 +48,7 @@ class ListSync(private val lists: RoomListSource) {
                 !shouldFetch(query) -> ListSyncOutcome.Skipped
                 else -> {
                     fetched++
-                    try { ListSyncOutcome.Fetched(lists.fetch(query, force)) }
+                    try { ListSyncOutcome.Fetched(if (manual) lists.fetchNow(query) else lists.fetch(query, force)) }
                     catch (e: CancellationException) { throw e }
                     catch (e: Exception) { ListSyncOutcome.Failed(e) }
                 }

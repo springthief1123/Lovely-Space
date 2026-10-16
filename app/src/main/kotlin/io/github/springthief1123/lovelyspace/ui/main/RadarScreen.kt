@@ -80,13 +80,16 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
             finally { working = false }
         }
     }
+    /** 本家の「最新更新」と同じく、巡回中・確認中でも押すたびに取り直す（まとめ方と間隔は [RadarRepository.scanNow]）。 */
     fun scan() {
-        scanJob?.cancel()
-        scanJob = scope.launch {
-            try { app.radar.scan(latestFirst = true) }
+        val active = scanJob?.isActive == true
+        val job = scope.launch {
+            try { app.radar.scanNow() }
             catch (e: kotlinx.coroutines.CancellationException) { throw e }
             catch (e: Exception) { fail("レーダーの状態を確認できませんでした。もう一度お試しください。", again = { scan() }) }
         }
+        // 画面を離れたときに止めるのは、実際に取り直している最初の呼び出し。
+        if (!active) scanJob = job
     }
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(preferencesVm) {
@@ -194,9 +197,9 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                         enabled = rule.enabled,
                         switchEnabled = state.loaded && !working,
                         onEnabled = { enabled -> action { app.radar.setCandidateEnabled(rule.id, enabled) } },
-                        status = if (found == null) "まだ確認していません" else "${formatObservationTime(found.at)}・${found.page}/${found.lastPage}ページ",
+                        status = if (found == null) "まだ確認していません" else "${formatObservationTime(found.at)}・${found.pagesRead}/${found.lastPage}ページ分",
                         matches = found?.rooms?.size,
-                        onMatches = { found?.let { result = RadarRoomsDisplay("確認した候補", it.at, { _ -> it.page }, "${it.page}/${it.lastPage}ページの一覧情報", it.rooms) } },
+                        onMatches = { found?.let { result = RadarRoomsDisplay("確認した候補", it.at, it::pageOf, "${it.pagesRead}/${it.lastPage}ページ分の一覧情報", it.rooms) } },
                         menuLabel = "候補条件の操作",
                         menu = listOf(
                             QuietMenuItem("条件を編集", enabled = state.loaded && !working && !state.running) { error = null; candidateDraft = rule },

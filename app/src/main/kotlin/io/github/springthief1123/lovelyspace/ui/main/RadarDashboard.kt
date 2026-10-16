@@ -48,8 +48,15 @@ internal fun RadarDashboard(state: RadarState, plans: Int, working: Boolean, onS
             }
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            FilledTonalButton(onClick = onScan, enabled = state.loaded && !state.running && !working && plans + candidates + targets > 0,
-                modifier = Modifier.weight(1f)) { Text(if (state.running) "巡回中…" else "今すぐ新着を確認") }
+            // 巡回中・確認中でも押せる（本家の「最新更新」と同じく押すたびに取り直す）。
+            FilledTonalButton(onClick = onScan, enabled = state.loaded && !working && plans + candidates + targets > 0,
+                modifier = Modifier.weight(1f)) {
+                Text(when {
+                    state.scanNowPending -> "新着を確認中…"
+                    state.running -> "巡回中…（押すと新着を確認）"
+                    else -> "今すぐ新着を確認"
+                })
+            }
             QuietOverflowMenu(listOf(
                 QuietMenuItem(if (expanded) "確認範囲を閉じる" else "確認範囲と使い方") { expanded = !expanded },
                 QuietMenuItem("計画・候補監視をすべて停止", enabled = state.loaded && !working && plans + candidates > 0, destructive = true, onClick = onPause),
