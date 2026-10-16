@@ -126,6 +126,43 @@ class SearchViewModelTest {
             assertEquals(listOf(false, true, false), forced)
         } finally { Dispatchers.resetMain() }
     }
+    @Test fun pressingRefreshRepeatedlyRefetchesWhileLoadingAndFoldsExtraPressesIntoOne() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val releases = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+            var automaticCalls = 0
+            var manualCalls = 0
+            val vm = SearchViewModel(object : RoomListSource {
+                override suspend fun fetch(query: RoomQuery, force: Boolean): RoomListPage { automaticCalls++; return page(query.genre.key, 1, listOf(room(1))) }
+                override suspend fun fetchNow(query: RoomQuery): RoomListPage {
+                    manualCalls++
+                    releases.receive()
+                    return page(query.genre.key, 1, listOf(room(1), room(manualCalls + 1L)))
+                }
+            })
+            vm.refresh(); runCurrent()
+            assertEquals(1, automaticCalls)
+            // 押すと、本家の「最新更新」と同じく取り直す。読み込み中でも押せる。
+            vm.refresh(); runCurrent()
+            assertEquals(1, manualCalls)
+            assertTrue(vm.state.value.loading)
+            // 取り直し中に何度押しても、終わった後の 1 回にまとめる。
+            repeat(3) { vm.refresh() }; runCurrent()
+            assertEquals(1, manualCalls)
+            releases.send(Unit); runCurrent()
+            assertEquals(2, manualCalls)
+            assertTrue(vm.state.value.loading)
+            releases.send(Unit); runCurrent()
+            assertEquals(2, manualCalls)
+            assertFalse(vm.state.value.loading)
+            assertEquals(setOf(1L, 3L), vm.state.value.rooms.map { it.id }.toSet())
+            // 終わった後に押せば、また取り直す。
+            vm.refresh(); runCurrent()
+            assertEquals(3, manualCalls)
+            vm.stopRefresh(); runCurrent()
+            assertFalse(vm.state.value.loading)
+        } finally { Dispatchers.resetMain() }
+    }
     @Test fun genreChangeCancelsPreviousRequestAndClearsItsScope() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {

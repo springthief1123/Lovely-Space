@@ -52,38 +52,44 @@ class ShaloveClient(
     private val gate = Mutex()
     /** 順番を待っている、利用者の操作による通信の数。一覧の取得はこれが 0 になるまで譲る。 */
     private val waitingOperations = java.util.concurrent.atomic.AtomicInteger()
-    private val listGate = Mutex()
+    /** 一覧の URL ごとの順番。同じ URL は 1 本ずつ取り、別の URL（利用者が押した 1 ページ目と巡回中の後ろのページなど）は待たせない。 */
+    private val listGates = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
     private var lastRequestAt: Long? = null
     private class CachedList(val page: RoomListPage, val fetchedAt: Long, val generation: Long)
 
-    /** [listGate] の外からも読むので同期付きにする。書き込みは [listGate] の中だけ。 */
+    /** URL ごとの順番の外からも読むので同期付きにする。書き込みはその URL の順番の中だけ。 */
     private val listCache: MutableMap<String, CachedList> = java.util.Collections.synchronizedMap(mutableMapOf())
-    private var generation = 0L
+    private val generation = java.util.concurrent.atomic.AtomicLong()
     /** 絞り込みごと（1 ページ目の URL）のページャのリンク。2 ページ目以降は本家が出した URL をそのまま使う。 */
     private val pagerLinks: MutableMap<String, Map<Int, String>> = java.util.Collections.synchronizedMap(mutableMapOf())
 
     /**
-     * 一覧を取得する。キャッシュの確認から保存までを [listGate] の中で行うので、
+     * 一覧を取得する。キャッシュの確認から保存までを URL ごとの順番の中で行うので、
      * 同じ URL を同時に呼んでも本家へのアクセスは 1 回になる。
      * [forceRefresh] でも、呼び出した時点より後に別の呼び出しが取得し終えていればその結果を使う。
+     *
+     * [manual] は利用者が更新ボタンを押した取り直し（本家の「最新更新」と同じ）。キャッシュを使わず、巡回の取得より先に通し、
+     * 前の通信からの間隔は設定の最小間隔ではなく下限の [RefreshPacing.FLOOR_MIN_INTERVAL_MS]（1 秒）にする。
+     * 押すたびに取り直せるが、1 秒に 1 回より速くはならない（1 秒に 5 回以上の再読み込みで本家に止められたことがあるため。Yuya の決定、2026-10-16）。
      */
-    suspend fun fetchRoomList(query: RoomQuery, forceRefresh: Boolean = false): RoomListPage {
+    suspend fun fetchRoomList(query: RoomQuery, forceRefresh: Boolean = false, manual: Boolean = false): RoomListPage {
         val url = query.toUrl()
         val seen = listCache[url]?.generation
-        return listGate.withLock {
+        return listGates.computeIfAbsent(url) { Mutex() }.withLock {
             listCache[url]?.let { entry ->
                 val fresh = clock() - entry.fetchedAt < pacing().sanitized().listCacheTtlMs
-                if ((!forceRefresh && fresh) || entry.generation != seen) return@withLock entry.page
+                if ((!forceRefresh && !manual && fresh) || entry.generation != seen) return@withLock entry.page
             }
             val firstUrl = query.firstPage.toUrl()
             // 本家のリンクでも、今の条件・ページと食い違うもの（別の性別など）は使わず、自前で組み立てた URL で取る。
             val requestUrl = pagerLinks[firstUrl]?.get(query.page)?.takeIf { isListUrl(it, query.genre) && query.matchesPagerUrl(it) } ?: url
-            val html = get(requestUrl)
+            val html = if (manual) gated(operation = true, minIntervalMs = RefreshPacing.FLOOR_MIN_INTERVAL_MS) { request(requestUrl) }
+                else get(requestUrl)
             val page = RoomListParser.parse(html, query.genre.key, query.page, requestUrl)
             val links = page.pageUrls.filterValues { isListUrl(it, query.genre) }
             // 1 ページ目のページャがいちばん新しい全体像なので、そのときは置き換える。
-            pagerLinks[firstUrl] = if (query.page == 1) links else pagerLinks[firstUrl].orEmpty() + links
-            listCache[url] = CachedList(page, clock(), ++generation)
+            synchronized(pagerLinks) { pagerLinks[firstUrl] = if (query.page == 1) links else pagerLinks[firstUrl].orEmpty() + links }
+            listCache[url] = CachedList(page, clock(), generation.incrementAndGet())
             page
         }
     }
@@ -98,9 +104,10 @@ class ShaloveClient(
      * レート制限付きの GET。レスポンス本文をサイトの文字コードで文字列にして返す。
      * [operation] は利用者が開いた画面の読み込み（部屋・公開ルームなど）で、順番待ちの一覧の取得より先に通す。
      */
-    suspend fun get(url: String, operation: Boolean = false): String = gated(operation) {
+    suspend fun get(url: String, operation: Boolean = false): String = gated(operation) { request(url) }
+
+    private suspend fun request(url: String): String =
         http.newCall(Request.Builder().url(url).header("User-Agent", USER_AGENT).build()).awaitBody()
-    }
 
     /** ヘッダー待ち・本文読み取り中のどちらでも、画面側の取消をHTTP通信へ伝える。 */
     private suspend fun Call.awaitBody(): String = suspendCancellableCoroutine { cont ->
@@ -125,15 +132,21 @@ class ShaloveClient(
     /**
      * ページの読み込みやフォーム送信など、人の操作 1 回に当たる通信。前の通信から [RefreshPacing.minIntervalMs] 以上空ける。
      * [operation]（利用者の操作による通信）は、一覧の取得（巡回・自動更新など）が順番を待っていても先に通す。
-     * 間隔はどちらも同じように空けるので、本家へのアクセスの頻度は変わらない。
+     * 間隔はどちらも同じように空けるので、本家へのアクセスの頻度は変わらない。一覧の取得は間隔を待つ間に順番を手放すので、
+     * 後から来た利用者の操作も、待っている一覧の取得を追い越せる。
+     * [minIntervalMs] は前の通信から空ける間隔。省略すると設定の最小間隔。どちらでも 1 秒より短くはしない。
      */
-    private suspend fun <T> gated(operation: Boolean = false, block: suspend () -> T): T {
-        acquire(operation)
+    private suspend fun <T> gated(operation: Boolean = false, minIntervalMs: Long? = null, block: suspend () -> T): T {
+        while (true) {
+            acquire(operation)
+            val interval = maxOf(minIntervalMs ?: pacing().sanitized().minIntervalMs, RefreshPacing.FLOOR_MIN_INTERVAL_MS)
+            val wait = lastRequestAt?.let { it + interval - clock() } ?: 0
+            if (wait <= 0) break
+            if (operation) { sleep(wait); break }
+            gate.unlock()
+            sleep(wait)
+        }
         try {
-            lastRequestAt?.let { last ->
-                val wait = last + pacing().sanitized().minIntervalMs - clock()
-                if (wait > 0) sleep(wait)
-            }
             lastRequestAt = clock()
             return withContext(Dispatchers.IO) { block() }
         } finally {

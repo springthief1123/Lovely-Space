@@ -11,6 +11,8 @@ import kotlinx.coroutines.sync.withLock
 fun interface RoomListSource {
     suspend fun fetch(query: RoomQuery, force: Boolean): RoomListPage
     fun observation(query: RoomQuery): ObservedRoomPage? = null
+    /** 利用者が更新ボタンを押した取り直し（本家の「最新更新」）。押すたびに取り直すが、前の通信から 1 秒は空ける（[ShaloveClient.fetchRoomList] の manual）。 */
+    suspend fun fetchNow(query: RoomQuery): RoomListPage = fetch(query, true)
 }
 
 data class ObservedRoomPage(val query: RoomQuery, val page: RoomListPage, val confirmedAt: Long, val revision: Long)
@@ -29,9 +31,13 @@ class RoomListRepository(private val client: ShaloveClient) : ObservedRoomListSo
     /** 一覧の取得を試みた回数（失敗・キャッシュ再利用も含む）。背景の 1 回の実行で取得したページ数の上限を、機能をまたいで守るのに使う。 */
     val fetchAttempts: Long get() = attempts.get()
     override fun observation(query: RoomQuery) = _observations.value[query]
-    override suspend fun fetch(query: RoomQuery, force: Boolean): RoomListPage {
+    override suspend fun fetch(query: RoomQuery, force: Boolean): RoomListPage = record(query) { client.fetchRoomList(query, forceRefresh = force) }
+
+    override suspend fun fetchNow(query: RoomQuery): RoomListPage = record(query) { client.fetchRoomList(query, manual = true) }
+
+    private suspend fun record(query: RoomQuery, load: suspend () -> RoomListPage): RoomListPage {
         attempts.incrementAndGet()
-        val result = client.fetchRoomList(query, forceRefresh = force)
+        val result = load()
         currentCoroutineContext().ensureActive()
         mutex.withLock {
             val previous = observation(query)

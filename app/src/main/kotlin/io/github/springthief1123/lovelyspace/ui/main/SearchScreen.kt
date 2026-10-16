@@ -104,7 +104,8 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
     val indicatorTop = lovelyMainContentTopPadding()
     PullToRefreshBox(
         isRefreshing = pullRefreshing,
-        onRefresh = { if (state.initialized && !state.loading) { userRefreshing = true; vm.refresh() } },
+        // 本家の「最新更新」と同じく、読み込み中でも引けば取り直す（間隔は ShaloveClient が 1 秒空ける）。
+        onRefresh = { if (state.initialized) { userRefreshing = true; vm.refresh() } },
         modifier = Modifier.fillMaxSize(),
         state = pullState,
         // 上部のガラスのバーに隠れないよう、一覧の先頭の位置に出す。
@@ -128,7 +129,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
                 loading = state.loading,
                 onAutomaticChange = vm::automatic,
                 onRefresh = { vm.refresh() },
-                refreshEnabled = state.initialized && !state.loading,
+                refreshEnabled = state.initialized,
             )
         }
         if (newCount > 0) item {
@@ -231,10 +232,12 @@ private fun SearchStatusRow(
                 contentDescription = if (automatic) "自動更新を一時停止" else "自動更新を再開",
                 tint = if (automatic) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (loading) {
-            Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) }
-        } else {
-            IconButton(onClick = onRefresh, enabled = refreshEnabled) { Icon(Icons.Outlined.Refresh, "今すぐ更新") }
+        // 読み込み中も押せるよう、ボタンは残したまま周りに読み込みの輪を重ねる。
+        IconButton(onClick = onRefresh, enabled = refreshEnabled) {
+            Box(contentAlignment = Alignment.Center) {
+                if (loading) CircularProgressIndicator(Modifier.size(32.dp), strokeWidth = 2.dp)
+                Icon(Icons.Outlined.Refresh, if (loading) "読み込み中。押すと今すぐ取り直す" else "今すぐ更新", Modifier.size(if (loading) 18.dp else 24.dp))
+            }
         }
     }
 }

@@ -20,8 +20,6 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
 /** 「条件をリセット」の前の入力。「元に戻す」で戻す。年齢は入力途中の文字もそのまま持つ。 */
 data class SearchDraft(val criteria: RoomSearchCriteria, val minAgeInput: String, val maxAgeInput: String)
@@ -71,7 +69,12 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
     private var job: Job? = null
     /** いまのジャンルの一覧の取得済みページ。 */
     private var window = RoomPageWindow()
-    private val fetchMutex = Mutex()
+    /** 利用者が押した取り直し（[refresh]）。巡回や続きの読み込みを待たせずに並行して走る。 */
+    private var refreshJob: Job? = null
+    /** 取り直し中にもう一度押された。終わったらもう 1 回だけ取り直す（何度押されても 1 回にまとめる）。 */
+    private var refreshAgain = false
+    /** 進行中の取得の数。0 でなければ読み込み中と表示する。 */
+    private var inFlight = 0
     init {
         if (repository is ObservedRoomListSource) viewModelScope.launch {
             repository.observations.collect { observed -> if (_state.value.initialized) absorbShared(observed.values) }
@@ -82,7 +85,7 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
             catch (e: Exception) { _state.update { it.copy(preferenceError = describeError(e)) }; Genres.default }
             _state.update { it.copy(genre = genre, initialized = true) }
             seedShared()
-            refresh()
+            load(1, _state.value.page > 0)
             rememberGenre(genre.key)
         }
     }
@@ -123,7 +126,7 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
     }
     fun genre(value: Genre) {
         if (value == _state.value.genre) return
-        job?.cancel()
+        cancelFetches()
         window = RoomPageWindow()
         _state.update { SearchUiState(automatic = it.automatic, genre = value, criteria = it.criteria, minAgeInput = it.minAgeInput, maxAgeInput = it.maxAgeInput) }
         seedShared()
@@ -134,7 +137,7 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
         val genre = requireNotNull(Genres[value.genreKey])
         require(value.criteria.isValid)
         val sameGenre = genre == _state.value.genre
-        if (!sameGenre) { job?.cancel(); window = RoomPageWindow() }
+        if (!sameGenre) { cancelFetches(); window = RoomPageWindow() }
         _state.update {
             val scoped = if (sameGenre) it else SearchUiState(genre = genre, automatic = it.automatic)
             scoped.copy(criteria = value.criteria, minAgeInput = value.criteria.minAge?.toString().orEmpty(),
@@ -143,7 +146,21 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
         if (!sameGenre) seedShared()
         rememberGenre(genre.key)
     }
-    fun refresh() { if (_state.value.initialized) load(1, _state.value.page > 0) }
+    /**
+     * 利用者が押した更新（本家の「最新更新」）。1 ページ目を取り直す。読み込み中でも押せて、押すたびに取り直す。
+     * 本家への間隔は [RoomListSource.fetchNow] が守る（前の通信から 1 秒）。取り直し中に押された分は、終わった後の 1 回にまとめる。
+     */
+    fun refresh() {
+        if (!_state.value.initialized) return
+        if (_state.value.page == 0) { load(1, false); return }
+        if (refreshJob?.isActive == true) { refreshAgain = true; return }
+        refreshJob = viewModelScope.launch {
+            do {
+                refreshAgain = false
+                fetchPage(1, force = true, manual = true)
+            } while (refreshAgain && isActive)
+        }
+    }
     /** まだ読んでいないページを 1 つ読む。 */
     fun more() {
         if (!_state.value.canLoadMore) return
@@ -153,7 +170,8 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
     fun automatic(enabled: Boolean) = _state.update { it.copy(automatic = enabled) }
     fun clearNewRooms() = _state.update { it.copy(newRoomIds = emptySet()) }
     fun clearPreferenceError() = _state.update { it.copy(preferenceError = null) }
-    fun stopRefresh() { job?.cancel(); _state.update { it.copy(loading = false) } }
+    fun stopRefresh() { cancelFetches(); _state.update { it.copy(loading = false) } }
+    private fun cancelFetches() { job?.cancel(); refreshJob?.cancel(); refreshAgain = false }
 
     /**
      * 画面が前面にある間だけ実行。取消はHTTP取得にも伝わる。
@@ -188,22 +206,27 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
         job = viewModelScope.launch { fetchPage(page, force) }
     }
     /** いまのジャンルの一覧の [page] を取る。 */
-    private suspend fun fetchPage(page: Int, force: Boolean): Unit = fetchMutex.withLock {
+    private suspend fun fetchPage(page: Int, force: Boolean, manual: Boolean = false) {
         val genre = _state.value.genre
         // 条件はすべて端末で判定するので、本家にはジャンル全体の一覧を取りに行く。
         val query = RoomQuery(genre, page = page)
+        inFlight++
         _state.update { it.copy(loading = true, error = null) }
         try {
-            val result = repository.fetch(query, force)
+            val result = if (manual) repository.fetchNow(query) else repository.fetch(query, force)
             currentCoroutineContext().ensureActive()
             // 取得中にジャンルが変わったら、古いジャンルの結果は捨てる。
             if (_state.value.genre == genre) {
                 val observation = repository.observation(query)?.takeIf { it.query == query }
                 absorb(query, observation?.page ?: result, observation?.revision, observation?.confirmedAt)
             }
-            _state.update { it.copy(loading = false, errorOnMore = false) }
+            _state.update { it.copy(errorOnMore = false) }
         } catch (e: CancellationException) { throw e }
-        catch (e: Exception) { _state.update { it.copy(loading = false, error = describeError(e), errorOnMore = page > 1) } }
+        catch (e: Exception) { _state.update { it.copy(error = describeError(e), errorOnMore = page > 1) } }
+        finally {
+            inFlight--
+            _state.update { it.copy(loading = inFlight > 0) }
+        }
     }
 
     /** 他の機能（レーダーなど）が読んだ、いまのジャンルの一覧のページを取り込む。 */
