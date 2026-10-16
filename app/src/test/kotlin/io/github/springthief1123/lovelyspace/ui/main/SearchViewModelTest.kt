@@ -34,6 +34,27 @@ class SearchViewModelTest {
         } finally { Dispatchers.resetMain() }
     }
 
+    @Test fun keywordScopeMovesTheWordAndResetsWithTheCriteria() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val vm = SearchViewModel(RoomListSource { query, _ -> page(query.genre.key, 1, listOf(room(1))) })
+            vm.refresh(); runCurrent()
+            vm.keyword("合成")
+            assertEquals(RoomSearchCriteria(text = "合成"), vm.state.value.criteria)
+            vm.keywordScope(KeywordScope.NAME)
+            assertEquals(RoomSearchCriteria(name = "合成"), vm.state.value.criteria)
+            vm.keyword("別")
+            assertEquals(RoomSearchCriteria(name = "別"), vm.state.value.criteria)
+            val draft = vm.resetCriteria()!!
+            assertEquals(KeywordScope.ALL, vm.state.value.keywordScope)
+            vm.restoreCriteria(draft)
+            assertEquals(KeywordScope.NAME, vm.state.value.keywordScope)
+            vm.clearHiddenKeywords()
+            assertEquals(RoomSearchCriteria(name = "別"), vm.state.value.criteria)
+            vm.stopRefresh()
+        } finally { Dispatchers.resetMain() }
+    }
+
     @Test fun resettingCriteriaCanBeUndoneWithoutNetwork() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {

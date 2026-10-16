@@ -96,12 +96,17 @@ fun LovelyAppShell(
                 if (resumeBar != null) Box(Modifier.align(Alignment.BottomStart).navigationBarsPadding()
                     .padding(start = 16.dp, end = if (showCreateFab) 92.dp else 16.dp, bottom = navigationHeight + 12.dp)) { resumeBar() }
                 // 「トップへ戻る」はボトムナビの上の中央に浮かせる。外枠に置くので後ろの一覧がぼける。
+                // 消えるアニメーションの間も文言を保つため、最後に出した内容を覚えておく。
                 val scrollToTop = shellState.scrollToTop
+                val lastScrollToTop = remember { arrayOfNulls<ShellScrollToTop>(1) }
+                if (scrollToTop != null) lastScrollToTop[0] = scrollToTop
                 AnimatedVisibility(scrollToTop != null, enter = fadeIn() + scaleIn(initialScale = 0.9f),
                     exit = fadeOut() + scaleOut(targetScale = 0.9f),
                     modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
                         .padding(bottom = navigationHeight + 12.dp + if (resumeBar != null) 72.dp else 0.dp)) {
-                    LovelyGlassPillButton("トップへ戻る", Icons.Outlined.ArrowUpward, onClick = { scrollToTop?.invoke() })
+                    val newCount = lastScrollToTop[0]?.newCount ?: 0
+                    LovelyGlassPillButton(if (newCount > 0) "新着 ${newCount}件" else "トップへ戻る", Icons.Outlined.ArrowUpward,
+                        onClick = { scrollToTop?.onClick?.invoke() })
                 }
                 AnimatedVisibility(showCreateFab, enter = fadeIn() + scaleIn(initialScale = 0.9f),
                     exit = fadeOut() + scaleOut(targetScale = 0.9f),

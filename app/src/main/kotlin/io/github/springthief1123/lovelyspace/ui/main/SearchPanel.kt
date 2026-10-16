@@ -74,10 +74,10 @@ internal fun SearchPanel(
             .clip(shape)
             .background(scheme.surfaceContainerLow)
             .border(BorderStroke(1.dp, scheme.outlineVariant), shape)
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        SearchField(state.criteria.text) { vm.criteria(state.criteria.copy(text = it)) }
+        SearchField(state.criteria.keyword(state.keywordScope), state.keywordScope.placeholder, vm::keyword)
         QuickFilterRow(
             criteria = state.criteria,
             advancedCount = advancedFilterCount(state.criteria),
@@ -86,7 +86,7 @@ internal fun SearchPanel(
             onToggleDetails = { onExpandedChange(!expanded) },
         )
         AnimatedVisibility(expanded, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SearchDetails(state, vm)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = onReset) { Text("条件をリセット") }
@@ -154,7 +154,7 @@ internal fun SearchPopover(
                     Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    SearchField(state.criteria.text) { vm.criteria(state.criteria.copy(text = it)) }
+                    SearchField(state.criteria.keyword(state.keywordScope), state.keywordScope.placeholder, vm::keyword)
                     QuickFilterRow(state.criteria, advancedFilterCount(state.criteria), expanded = true, onChange = vm::criteria, onToggleDetails = null)
                     SearchDetails(state, vm)
                     TextButton(onClick = onReset) { Text("条件をリセット") }
@@ -172,8 +172,8 @@ internal fun SearchPopover(
 }
 
 @Composable
-internal fun SearchField(text: String, onChange: (String) -> Unit) {
-    OutlinedTextField(text, onChange, placeholder = { Text("名前・待機メッセージを検索") },
+internal fun SearchField(text: String, placeholder: String, onChange: (String) -> Unit) {
+    OutlinedTextField(text, onChange, placeholder = { Text(placeholder) },
         leadingIcon = { Icon(Icons.Outlined.Search, null) },
         trailingIcon = if (text.isNotEmpty()) ({ IconButton(onClick = { onChange("") }) { Icon(Icons.Outlined.Close, "検索語を消す") } }) else null,
         // 下に並ぶ入力欄・チップと同じ角丸（以前は検索欄だけ 18dp）。
@@ -225,18 +225,20 @@ private fun QuickFilterRow(
     }
 }
 
-/** 保存した条件と、チップ以外の詳しい条件。 */
+/**
+ * 保存した条件と、チップ以外の詳しい条件。語は上の検索欄 1 つで入れ、ここでは探す場所と一致のしかただけを選ぶ。
+ * 開いても一覧が隠れすぎないよう、選択肢は見出しと同じ行に並べる。
+ */
 @Composable
 private fun SearchDetails(state: SearchUiState, vm: SearchViewModel) {
     val c = state.criteria
     val validAges = state.validAges
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SavedSearchControls(state, vm::applyPreset)
-        OutlinedTextField(c.name, { vm.criteria(c.copy(name = it)) }, label = { Text("名前のキーワード") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(c.message, { vm.criteria(c.copy(message = it)) }, label = { Text("待機メッセージのキーワード") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        ChoiceRow("語句の一致", c.keywordMode, listOf(KeywordMode.ALL to "すべて", KeywordMode.ANY to "いずれか")) { vm.criteria(c.copy(keywordMode = it)) }
-        Text("複数の語句はスペースで区切ります。名前とメッセージの条件は両方を満たす部屋を表示します。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        OutlinedTextField(c.excluded, { vm.criteria(c.copy(excluded = it)) }, label = { Text("除外する語句") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        ChoiceRow("探す場所", state.keywordScope, KeywordScope.entries.map { it to it.label }, vm::keywordScope)
+        ChoiceRow("複数の語", c.keywordMode, listOf(KeywordMode.ALL to "すべて含む", KeywordMode.ANY to "どれかを含む")) { vm.criteria(c.copy(keywordMode = it)) }
+        HiddenKeywords(hiddenKeywords(c, state.keywordScope), vm::clearHiddenKeywords)
+        OutlinedTextField(c.excluded, { vm.criteria(c.copy(excluded = it)) }, label = { Text("除外する語（スペース区切り）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         QuietFieldPair(first = { fieldModifier ->
             OutlinedTextField(state.minAgeInput, vm::minAge,
                 label = { Text("最低年齢") }, singleLine = true, isError = !validAges,
@@ -246,7 +248,8 @@ private fun SearchDetails(state: SearchUiState, vm: SearchViewModel) {
                 label = { Text("最高年齢") }, singleLine = true, isError = !validAges,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = fieldModifier)
         })
-        if (!validAges) Text("年齢は18〜99で、最高年齢が最低年齢以上になる範囲を指定してください。", color = MaterialTheme.colorScheme.error)
+        if (!validAges) Text("年齢は18〜99で、最高年齢が最低年齢以上になる範囲を指定してください。", color = MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.bodySmall)
         QuietCheckboxRow(c.includeUnknownAge, { vm.criteria(c.copy(includeUnknownAge = it)) }, "年齢が秘密の部屋も含める")
         // 検索の未指定は「すべて」。プロフィール側の秘密とは別の意味。
         AreaFilter(c.area) { vm.criteria(c.copy(area = it)) }
@@ -254,13 +257,24 @@ private fun SearchDetails(state: SearchUiState, vm: SearchViewModel) {
     }
 }
 
+/** 検索欄に出していない欄の語（以前に名前・待機メッセージを別々に指定して保存した条件など）。黙って絞り込まないよう示し、外せるようにする。 */
+@Composable
+private fun HiddenKeywords(words: List<Pair<KeywordScope, String>>, onClear: () -> Unit) {
+    if (words.isEmpty()) return
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("ほかに " + words.joinToString("・") { (scope, word) -> "${scope.label}「$word」" } + " でも絞り込んでいます",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+        TextButton(onClick = onClear) { Text("外す") }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun <T> ChoiceRow(title: String, selected: T, options: List<Pair<T, String>>, onSelect: (T) -> Unit) {
-    Column {
-        Text(title, style = MaterialTheme.typography.labelMedium)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(title, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(end = 10.dp))
         // FlowRowでフォント拡大時にも選択肢を折り返す。
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             options.forEach { (value, label) -> QuietFilterChip(selected = value == selected, onClick = { onSelect(value) }, label = label) }
         }
     }
