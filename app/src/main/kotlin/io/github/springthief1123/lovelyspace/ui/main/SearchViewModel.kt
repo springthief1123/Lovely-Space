@@ -89,6 +89,10 @@ data class SearchUiState(
     val newRoomIds: Set<String> = emptySet(),
     /** 検索欄の語を探す場所。 */
     val keywordScope: KeywordScope = KeywordScope.ALL,
+    /** 利用者が押した取り直し（[SearchViewModel.refresh]）の途中。自動の取得（[loading]）とは別に、更新ボタンの回転に使う。 */
+    val refreshing: Boolean = false,
+    /** 押した取り直しが成功した回数。増えたら画面で「更新しました」を出す。 */
+    val refreshedCount: Int = 0,
 ) {
     val validAges: Boolean get() = (minAgeInput.isEmpty() || minAgeInput.toIntOrNull()?.let { it in 18..99 } == true) &&
         (maxAgeInput.isEmpty() || maxAgeInput.toIntOrNull()?.let { it in 18..99 } == true) && criteria.isValid
@@ -214,11 +218,15 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
         if (!_state.value.initialized) return
         if (_state.value.page == 0) { load(1, false); return }
         if (refreshJob?.isActive == true) { refreshAgain = true; return }
+        _state.update { it.copy(refreshing = true) }
         refreshJob = viewModelScope.launch {
-            do {
-                refreshAgain = false
-                fetchPage(1, force = true, manual = true)
-            } while (refreshAgain && isActive)
+            try {
+                do {
+                    refreshAgain = false
+                    fetchPage(1, force = true, manual = true)
+                } while (refreshAgain && isActive)
+                _state.update { if (it.error == null) it.copy(refreshedCount = it.refreshedCount + 1) else it }
+            } finally { _state.update { it.copy(refreshing = false) } }
         }
     }
     /** まだ読んでいないページを 1 つ読む。 */
@@ -231,7 +239,7 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
     fun automatic(enabled: Boolean) = _state.update { it.copy(automatic = enabled) }
     fun clearNewRooms() = _state.update { it.copy(newRoomIds = emptySet()) }
     fun clearPreferenceError() = _state.update { it.copy(preferenceError = null) }
-    fun stopRefresh() { cancelFetches(); _state.update { it.copy(loading = false) } }
+    fun stopRefresh() { cancelFetches(); _state.update { it.copy(loading = false, refreshing = false) } }
     private fun cancelFetches() { job?.cancel(); refreshJob?.cancel(); refreshAgain = false }
 
     /**

@@ -6,6 +6,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material.icons.outlined.SyncDisabled
@@ -25,6 +26,10 @@ import androidx.compose.runtime.*
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
@@ -94,12 +99,13 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         onNotice = { message -> scope.launch { snackbar.showSnackbar(message, withDismissAction = true) } },
     )
     // 引っ張って更新したときだけインジケーターを出す。自動取得のたびには出さない。
+    // 押した取り直しは state.refreshing で分かる。最初の読み込み（まだ 1 ページも無いとき）だけは loading で見る。
     var userRefreshing by remember { mutableStateOf(false) }
-    LaunchedEffect(state.loading) { if (!state.loading) userRefreshing = false }
+    LaunchedEffect(state.loading, state.refreshing) { if (!state.loading && !state.refreshing) userRefreshing = false }
     val newCount = visibleResults.count { roomIdentity(it) in state.newRoomIds }
     QuietPage {
     val pullState = rememberPullToRefreshState()
-    val pullRefreshing = userRefreshing && state.loading
+    val pullRefreshing = userRefreshing && (state.refreshing || state.loading)
     val indicatorTop = lovelyMainContentTopPadding()
     PullToRefreshBox(
         isRefreshing = pullRefreshing,
@@ -125,7 +131,8 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
                 text = searchStatusText(state.page, state.lastPage, visibleResults.size, state.loading || !state.initialized,
                     state.pageTimes.values.minOrNull()?.let { io.github.springthief1123.lovelyspace.data.formatObservationTime(it) }),
                 automatic = state.automatic,
-                loading = state.loading,
+                refreshing = state.refreshing || (state.page == 0 && state.loading),
+                refreshedCount = state.refreshedCount,
                 onAutomaticChange = vm::automatic,
                 onRefresh = { vm.refresh() },
                 refreshEnabled = state.initialized,
@@ -217,7 +224,8 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
 private fun SearchStatusRow(
     text: String,
     automatic: Boolean,
-    loading: Boolean,
+    refreshing: Boolean,
+    refreshedCount: Int,
     onAutomaticChange: (Boolean) -> Unit,
     onRefresh: () -> Unit,
     refreshEnabled: Boolean,
@@ -230,15 +238,58 @@ private fun SearchStatusRow(
                 contentDescription = if (automatic) "自動更新を一時停止" else "自動更新を再開",
                 tint = if (automatic) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        // 読み込み中も押せるよう、ボタンは残したまま周りに読み込みの輪を重ねる。
-        IconButton(onClick = onRefresh, enabled = refreshEnabled) {
-            Box(contentAlignment = Alignment.Center) {
-                if (loading) CircularProgressIndicator(Modifier.size(32.dp), strokeWidth = 2.dp)
-                Icon(Icons.Outlined.Refresh, if (loading) "読み込み中。押すと今すぐ取り直す" else "今すぐ更新", Modifier.size(if (loading) 18.dp else 24.dp))
-            }
+        RefreshButton(refreshing, refreshedCount, onRefresh, refreshEnabled)
+    }
+}
+
+/**
+ * 「今すぐ更新」（本家の「最新更新」）。取り直し中も押せるよう、ボタンは残したまま周りに回転する輪を重ねる。
+ * 輪は利用者が押した取り直しの間だけ回し、自動の取得では回さない。通信がすぐ終わっても一瞬で消えないよう最低 [MIN_SPIN_MS] は回し、
+ * 終わったらチェックの印を [DONE_MS] 出して、更新が済んだことを伝える（読み上げにも伝える）。
+ */
+@Composable
+private fun RefreshButton(refreshing: Boolean, refreshedCount: Int, onRefresh: () -> Unit, enabled: Boolean) {
+    var spinning by remember { mutableStateOf(refreshing) }
+    var spinStartedAt by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(refreshing) {
+        if (refreshing) {
+            if (!spinning) spinStartedAt = System.currentTimeMillis()
+            spinning = true
+        } else if (spinning) {
+            kotlinx.coroutines.delay((spinStartedAt + MIN_SPIN_MS - System.currentTimeMillis()).coerceAtLeast(0))
+            spinning = false
+        }
+    }
+    // 回数が増えたときだけ印を出す。ジャンルを変えて 0 に戻ったときは出さない。
+    var seenCount by remember { mutableIntStateOf(refreshedCount) }
+    var done by remember { mutableStateOf(false) }
+    LaunchedEffect(refreshedCount, spinning) {
+        if (refreshedCount > seenCount && !spinning) {
+            seenCount = refreshedCount
+            done = true
+            kotlinx.coroutines.delay(DONE_MS)
+            done = false
+        } else if (refreshedCount < seenCount) seenCount = refreshedCount
+    }
+    val description = when {
+        spinning -> "更新中。押すともう一度取り直します"
+        done -> "更新しました。押すともう一度取り直します"
+        else -> "今すぐ更新"
+    }
+    IconButton(onClick = { done = false; onRefresh() }, enabled = enabled,
+        modifier = Modifier.semantics { contentDescription = description; liveRegion = LiveRegionMode.Polite }) {
+        Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
+            if (spinning) CircularProgressIndicator(Modifier.matchParentSize(), strokeWidth = 2.dp)
+            if (done) Icon(Icons.Outlined.Check, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+            else Icon(Icons.Outlined.Refresh, null, Modifier.size(20.dp))
         }
     }
 }
+
+/** 押した取り直しの輪を回し続ける最短の時間（ミリ秒）。通信がすぐ終わっても回ったことが分かるように。 */
+private const val MIN_SPIN_MS = 600L
+/** 取り直しが済んだ印を出す時間（ミリ秒）。 */
+private const val DONE_MS = 1_500L
 
 /** 一覧に合う部屋が無いとき。条件を指定していれば、その場でリセットできるようにする。 */
 @Composable
