@@ -18,6 +18,7 @@ import io.github.springthief1123.lovelyspace.ui.components.QuietPage
 import io.github.springthief1123.lovelyspace.ui.components.QuietNotice
 import io.github.springthief1123.lovelyspace.ui.components.QuietFieldPair
 import io.github.springthief1123.lovelyspace.data.SearchPreset
+import io.github.springthief1123.lovelyspace.data.toRoom
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
@@ -58,7 +59,12 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
     val state by vm.state.collectAsStateWithLifecycle()
     val preferences by preferencesVm.state.collectAsStateWithLifecycle()
     LaunchedEffect(state.rooms) { preferencesVm.observe(state.rooms) }
-    val visibleResults = state.results.filterNot(preferences::isHidden)
+    // おすすめ順は、保存・非表示にした部屋と今の一覧から好みを学んで並べる。足りなければ一覧順のまま。
+    val recommendation = remember(state.criteria.sort, preferences.preferences, state.rooms) {
+        if (state.criteria.sort != RoomSort.RECOMMENDED) null
+        else PreferenceModel.train(preferences.favorites.map { it.toRoom() }, preferences.hidden.map { it.toRoom() }, state.rooms)
+    }
+    val visibleResults = state.results.filterNot(preferences::isHidden).let { rooms -> recommendation?.rank(rooms) ?: rooms }
     io.github.springthief1123.lovelyspace.ui.components.ForegroundPolling(state.automatic, state.genre.key, vm::stopRefresh) { vm.monitor() }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -139,6 +145,9 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         }
         if (!validAges) item {
             QuietNotice("年齢の条件が正しくないため、年齢では絞り込んでいません。")
+        }
+        if (c.sort == RoomSort.RECOMMENDED && recommendation == null && !preferences.loading) item {
+            QuietNotice("保存した部屋が${PreferenceModel.MIN_LIKED}件以上になると、好みに近い順に並びます。今は一覧順です。")
         }
         state.preferenceError?.let { error -> item {
             QuietNotice("設定を保存できませんでした：$error", error = true, onDismiss = vm::clearPreferenceError)
