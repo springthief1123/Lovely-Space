@@ -639,12 +639,16 @@ class RadarRepositoryTest {
             assertEquals(listOf(42L, 43L), radar.state.value.results["a"]?.rooms?.map { it.id })
             assertEquals(2, radar.state.value.results["a"]?.pagesRead)
             assertEquals(2, lists.calls.size)
+            // 部屋の詳細の確認は、その部屋が載っていたページを取り直す。
+            assertEquals(1, radar.state.value.results["a"]?.pageOf(room))
+            assertEquals(2, radar.state.value.results["a"]?.pageOf(later))
             // 共有の一覧を比較基準にするので、次に読んだページで増えた一致だけを知らせる。
             val arrival = room.copy(id = 44, name = "新しい合成")
             lists.roomsByPage = mapOf(1 to listOf(room, arrival), 2 to listOf(later))
             radar.scan()
             assertEquals(listOf(44L), radar.state.value.events.single().rooms.map { it.id })
             assertEquals(setOf(42L, 43L, 44L), radar.state.value.results["a"]?.rooms?.map { it.id }?.toSet())
+            assertEquals(2, radar.state.value.results["a"]?.pageOf(later))
         } finally { db.close() }
     }
     @Test fun sharedPagesOlderThanTheLimitAreNotUsedForANewPlan() = runTest {

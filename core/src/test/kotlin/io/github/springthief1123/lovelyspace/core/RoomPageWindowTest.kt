@@ -21,6 +21,14 @@ class RoomPageWindowTest {
         assertTrue(window.observe(page(1, listOf(room(4)))).rooms.any { it.id == 2L })
         assertFalse(window.observe(page(2, listOf(room(3)))).observe(page(1, listOf(room(4)))).rooms.any { it.id == 2L })
     }
+    @Test fun eachRoomKnowsThePageItWasLastSeenOn() {
+        // 1 は 1 ページ目から 2 ページ目へ移った。2 は 1 ページ目から消えたので、消えたページのまま残る。
+        val window = RoomPageWindow().observe(page(1, listOf(room(1), room(2))))
+            .observe(page(2, listOf(room(3), room(1))))
+            .observe(page(1, listOf(room(4))))
+        val pages = window.roomPages
+        assertEquals(mapOf(1L to 2, 2L to 1, 3L to 2, 4L to 1), window.rooms.associate { it.id to pages.getValue(roomIdentity(it)) })
+    }
     @Test fun roomsThatMoveToAnotherPageBetweenReadsStayInTheList() {
         // 前のページの部屋が閉じて 3 が 1 ページ目へ繰り上がった。1 ページ目を読んだ後に 2 ページ目を読むと、3 はどちらにも無い。
         val window = RoomPageWindow().observe(page(1, listOf(room(1), room(2))))

@@ -27,7 +27,12 @@ data class RadarEvent(val at: Long, val text: String, val id: String = java.util
  * 見つける画面・レーダーのどれが読んだページでも使う。
  */
 data class RadarResult(val presetId: String, val at: Long, val page: Int, val lastPage: Int, val rooms: List<Room>, val genreKey: String, val criteria: RoomSearchCriteria,
-    val pagesRead: Int = 1)
+    val pagesRead: Int = 1,
+    /** 一致した部屋（[roomIdentity]）ごとの、載っていたページ。部屋の詳細の確認はそのページを取り直す。 */
+    val roomPages: Map<String, Int> = emptyMap()) {
+    /** [room] が載っていたページ。分からなければ最後に読んだページ。 */
+    fun pageOf(room: Room): Int = roomPages[roomIdentity(room)] ?: page
+}
 private data class ScheduledRadarQuery(val plans: List<SearchPreset>, val candidates: List<CandidateRule>)
 data class RadarState(
     val plans: Set<String> = emptySet(), val targets: List<TrackedRoom> = emptyList(),
@@ -517,7 +522,8 @@ class RadarRepository(
             baselines[key] = identities
             baselineAt[key] = now()
             val all = searchRooms(window.rooms.filterNot { room -> hidden.any { it.appliesTo(room) } }, preset.criteria)
-            results[preset.id] = RadarResult(preset.id, o.confirmedAt, o.page.page, window.lastPage, all, preset.genreKey, preset.criteria, window.pages.size)
+            results[preset.id] = RadarResult(preset.id, o.confirmedAt, o.page.page, window.lastPage, all, preset.genreKey, preset.criteria, window.pages.size,
+                window.roomPages.filterKeys { key -> all.any { roomIdentity(it) == key } })
             scopes[preset.id] = planScope(o.confirmedAt, window, all.size)
         }
         val candidateResults = current.candidateResults.toMutableMap()
@@ -574,7 +580,7 @@ class RadarRepository(
         val latest = pages.maxBy { it.confirmedAt }
         val all = matchesOf(window.rooms)
         return state.copy(results = state.results + (preset.id to RadarResult(preset.id, latest.confirmedAt, latest.query.page, window.lastPage, all,
-            preset.genreKey, preset.criteria, window.pages.size)), scopes = state.scopes + (preset.id to planScope(latest.confirmedAt, window, all.size)))
+            preset.genreKey, preset.criteria, window.pages.size, window.roomPages.filterKeys { key -> all.any { roomIdentity(it) == key } })), scopes = state.scopes + (preset.id to planScope(latest.confirmedAt, window, all.size)))
     }
     /** 読んだページの次に読むページ。前のページを優先する位置（[PageCursor]）は [cursors] に覚える。 */
     private fun advance(key: String, o: ObservedRoomPage): Int {

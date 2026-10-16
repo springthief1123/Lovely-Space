@@ -224,7 +224,8 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
     /** まだ読んでいないページを 1 つ読む。 */
     fun more() {
         if (!_state.value.canLoadMore) return
-        val next = if (window.pages.isEmpty()) 1 else (2..window.lastPage).firstOrNull { it !in window.pages } ?: return
+        // 他の機能から取り込んだページだけがあるときは、1 ページ目が未読のこともある。
+        val next = (1..maxOf(window.lastPage, 1)).firstOrNull { it !in window.pages } ?: return
         load(next, false)
     }
     fun automatic(enabled: Boolean) = _state.update { it.copy(automatic = enabled) }

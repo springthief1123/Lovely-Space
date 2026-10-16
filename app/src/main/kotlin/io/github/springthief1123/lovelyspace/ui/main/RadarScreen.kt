@@ -28,7 +28,8 @@ import io.github.springthief1123.lovelyspace.ui.theme.*
 import kotlinx.coroutines.launch
 
 /** 一致の一覧のシート。[scope] は見出しの下に出す範囲（「3/5ページの一覧情報」など）、[page] は部屋の詳細に渡すページ。 */
-private data class RadarRoomsDisplay(val title: String, val at: Long, val page: Int, val scope: String, val rooms: List<Room>)
+/** [pageOf] は部屋ごとの、載っていたページ。計画の一致は全ページから出すので部屋ごとに違う。 */
+private data class RadarRoomsDisplay(val title: String, val at: Long, val pageOf: (Room) -> Int, val scope: String, val rooms: List<Room>)
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -165,7 +166,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                         onEnabled = { enabled -> action { app.radar.setPlan(preset.id, enabled) } },
                         status = if (found == null) "まだ確認していません" else state.scopes[preset.id].orEmpty(),
                         matches = found?.rooms?.size,
-                        onMatches = { found?.let { result = RadarRoomsDisplay("確認した一致", it.at, it.page, "${it.pagesRead}/${it.lastPage}ページ分の一覧情報", it.rooms) } },
+                        onMatches = { found?.let { result = RadarRoomsDisplay("確認した一致", it.at, it::pageOf, "${it.pagesRead}/${it.lastPage}ページ分の一覧情報", it.rooms) } },
                         menuLabel = "計画の操作",
                         menu = listOf(
                             QuietMenuItem("計画を編集", enabled = !state.running && !working && !savedState.working) { savedVm.clearEditError(); editing = preset },
@@ -195,7 +196,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                         onEnabled = { enabled -> action { app.radar.setCandidateEnabled(rule.id, enabled) } },
                         status = if (found == null) "まだ確認していません" else "${formatObservationTime(found.at)}・${found.page}/${found.lastPage}ページ",
                         matches = found?.rooms?.size,
-                        onMatches = { found?.let { result = RadarRoomsDisplay("確認した候補", it.at, it.page, "${it.page}/${it.lastPage}ページの一覧情報", it.rooms) } },
+                        onMatches = { found?.let { result = RadarRoomsDisplay("確認した候補", it.at, { _ -> it.page }, "${it.page}/${it.lastPage}ページの一覧情報", it.rooms) } },
                         menuLabel = "候補条件の操作",
                         menu = listOf(
                             QuietMenuItem("条件を編集", enabled = state.loaded && !working && !state.running) { error = null; candidateDraft = rule },
@@ -335,7 +336,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                     QuietPanel {
                         Text(room.name ?: "会話中の部屋", style = MaterialTheme.typography.titleSmall)
                         Text(room.message, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                        TextButton(onClick = { result = null; selected = RadarRoomSnapshot(room, found.at, found.page) }) { Text("部屋の詳細を確認") }
+                        TextButton(onClick = { result = null; selected = RadarRoomSnapshot(room, found.at, found.pageOf(room)) }) { Text("部屋の詳細を確認") }
                     }
                 }
             }

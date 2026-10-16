@@ -311,4 +311,25 @@ class SearchViewModelTest {
             assertEquals(listOf(7L), vm.state.value.rooms.map { it.id })
         } finally { Dispatchers.resetMain() }
     }
+
+    @Test fun readingMoreFetchesTheFirstPageWhenOnlyALaterPageCameFromOtherFeatures() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val second = ObservedRoomPage(RoomQuery(Genres.default, page = 2), page(Genres.default.key, 2, listOf(room(4))), 1_000_000L, 1)
+            val flow = MutableStateFlow(mapOf(second.query to second))
+            val calls = mutableListOf<Int>()
+            val source = object : ObservedRoomListSource {
+                override val observations = flow
+                override fun observation(query: RoomQuery) = flow.value[query]
+                override suspend fun fetch(query: RoomQuery, force: Boolean): RoomListPage { calls += query.page; return page(query.genre.key, query.page, listOf(room(1))) }
+            }
+            val vm = SearchViewModel(source, now = { 1_000_000L })
+            runCurrent()
+            assertTrue(vm.state.value.canLoadMore)
+            // 取り込んだのが 2 ページ目だけなら、続きの読み込みは未読の 1 ページ目を取る。
+            vm.more(); runCurrent()
+            assertEquals(listOf(1), calls)
+            assertEquals(setOf(1L, 4L), vm.state.value.rooms.map { it.id }.toSet())
+        } finally { Dispatchers.resetMain() }
+    }
 }
