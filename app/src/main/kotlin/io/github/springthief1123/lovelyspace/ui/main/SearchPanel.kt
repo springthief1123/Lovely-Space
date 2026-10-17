@@ -253,7 +253,8 @@ private fun SearchDetails(state: SearchUiState, vm: SearchViewModel) {
         QuietCheckboxRow(c.includeUnknownAge, { vm.criteria(c.copy(includeUnknownAge = it)) }, "年齢が秘密の部屋も含める")
         // 検索の未指定は「すべて」。プロフィール側の秘密とは別の意味。
         AreaFilter(c.area) { vm.criteria(c.copy(area = it)) }
-        ChoiceRow("並び順", c.sort, listOf(RoomSort.SITE to "一覧順", RoomSort.NAME to "名前", RoomSort.AGE to "年齢", RoomSort.ELAPSED to "経過")) { vm.criteria(c.copy(sort = it)) }
+        // おすすめ順は保存・非表示にした部屋から学んだ好みで並べる（PreferenceModel）。
+        ChoiceRow("並び順", c.sort, listOf(RoomSort.SITE to "一覧順", RoomSort.RECOMMENDED to "おすすめ", RoomSort.NAME to "名前", RoomSort.AGE to "年齢", RoomSort.ELAPSED to "経過")) { vm.criteria(c.copy(sort = it)) }
     }
 }
 
