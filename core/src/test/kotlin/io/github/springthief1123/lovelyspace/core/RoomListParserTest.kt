@@ -127,6 +127,14 @@ class RoomListParserTest {
         val empty = """<nobr><span class="wait">待機中</span> 0</nobr><nobr><span class="fill">満室</span> 0</nobr>"""
         assertTrue(RoomListParser.isReadable(RoomListParser.parse(empty, "kanto")))
     }
+
+    @Test
+    fun anUnreadablePageIsDescribedByItsTitleOrTheStartOfItsText() {
+        assertEquals("アクセスが集中しています", RoomListParser.describePage("<html><head><title>アクセスが集中しています</title></head><body>本文</body></html>"))
+        assertEquals("しばらくお待ちください", RoomListParser.describePage("<html><body><p>しばらくお待ちください</p></body></html>"))
+        assertEquals("あ".repeat(40) + "…", RoomListParser.describePage("<p>${"あ".repeat(50)}</p>"))
+        assertNull(RoomListParser.describePage(""))
+    }
 }
 
 internal fun fixture(name: String): String =

@@ -88,7 +88,7 @@ class ShaloveClient(
             val page = RoomListParser.parse(html, query.genre.key, query.page, requestUrl)
             // 一覧として読めない応答（連続で取り直したときなど）は、0 件の一覧として扱わずに取得の失敗にする。
             // キャッシュもページャも更新しないので、手元の一覧は前回のまま残る。
-            if (!RoomListParser.isReadable(page)) throw RoomListUnavailableException()
+            if (!RoomListParser.isReadable(page)) throw RoomListUnavailableException(RoomListParser.describePage(html))
             val links = page.pageUrls.filterValues { isListUrl(it, query.genre) }
             // 1 ページ目のページャがいちばん新しい全体像なので、そのときは置き換える。
             synchronized(pagerLinks) { pagerLinks[firstUrl] = if (query.page == 1) links else pagerLinks[firstUrl].orEmpty() + links }
@@ -363,8 +363,13 @@ class ShaloveClient(
 }
 
 /** [url] はログに残っても困らないよう、部屋の pwd を伏せた形で持つ。 */
-/** 本家から返ったページが部屋の一覧として読めなかった。 */
-class RoomListUnavailableException : IOException("部屋の一覧を読み取れませんでした。少し待ってから更新してください")
+/**
+ * 本家から返ったページが部屋の一覧として読めなかった。[page] は返ったページの題名か本文の先頭（[RoomListParser.describePage]）で、
+ * 本家が何を返したのかを利用者が確かめられるように文に添える。
+ */
+class RoomListUnavailableException(val page: String? = null) : IOException(
+    "部屋の一覧を読み取れませんでした。少し待ってから更新してください" + (page?.let { "（本家の表示：$it）" } ?: ""),
+)
 
 class HttpStatusException(val code: Int, url: String) : IOException("HTTP $code: ${redact(url)}") {
     val url: String = redact(url)

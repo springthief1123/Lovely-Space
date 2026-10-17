@@ -43,6 +43,17 @@ object RoomListParser {
         return page.page > 1 || waiting + full == 0
     }
 
+    /**
+     * 読めなかったページが何だったのかを短く表す。題名があれば題名、無ければ本文の先頭 [DESCRIBE_LENGTH] 文字。どちらも無ければ null。
+     * 一覧ではないページ（混雑・制限の案内など）を想定しているので、部屋の行や募集文は入らない。
+     */
+    fun describePage(html: String): String? {
+        val doc = Jsoup.parse(html)
+        val text = doc.title().trim().ifEmpty { doc.body()?.text()?.trim().orEmpty() }.stripInvisible()
+        if (text.isEmpty()) return null
+        return if (text.length > DESCRIBE_LENGTH) text.take(DESCRIBE_LENGTH) + "…" else text
+    }
+
     private fun parseRooms(doc: Document, genreKey: String): List<Room> =
         doc.select("table.rooms tr.roomcol").mapNotNull { parseRow(it, genreKey) }
 
@@ -155,6 +166,7 @@ object RoomListParser {
         return counts
     }
 
+    private const val DESCRIBE_LENGTH = 40
     private val TOTAL_ROOMS = Regex("""総部屋数\s*(\d+)""")
     private val PAGE_ID = Regex("""/pageID/(\d+)/""")
     private val LIST_PATH = Regex("""^(?:https?://[^/]+)?/g/[a-z]+/""")

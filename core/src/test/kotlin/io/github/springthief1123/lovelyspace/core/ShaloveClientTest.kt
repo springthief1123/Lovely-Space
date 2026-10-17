@@ -122,7 +122,7 @@ class ShaloveClientTest {
 
     @Test
     fun aResponseThatIsNotARoomListFailsAndKeepsThePreviousList() = runTest {
-        val bodies = ArrayDeque(listOf(fixture("genre_kanto_page1.html"), "<html><body><p>しばらくお待ちください</p></body></html>"))
+        val bodies = ArrayDeque(listOf(fixture("genre_kanto_page1.html"), "<html><head><meta charset=\"utf-8\"></head><body><p>しばらくお待ちください</p></body></html>"))
         val client = ShaloveClient(
             http = OkHttpClient.Builder().addInterceptor { chain ->
                 Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("OK")
@@ -136,6 +136,7 @@ class ShaloveClientTest {
         // 連打した取り直しで一覧ではないページが返っても、0 件の一覧にはせず失敗にする。
         val failure = runCatching { client.fetchRoomList(query, manual = true) }.exceptionOrNull()
         assertTrue(failure is RoomListUnavailableException)
+        assertEquals("しばらくお待ちください", (failure as RoomListUnavailableException).page)
         // 前回の一覧はキャッシュに残る。
         assertEquals(first, client.fetchRoomList(query))
     }
