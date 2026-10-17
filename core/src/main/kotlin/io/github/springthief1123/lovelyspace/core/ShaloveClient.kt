@@ -143,18 +143,24 @@ class ShaloveClient(
     private suspend fun <T> gated(operation: Boolean = false, minIntervalMs: Long? = null, block: suspend () -> T): T {
         while (true) {
             acquire(operation)
-            val interval = minIntervalMs ?: pacing().sanitized().minIntervalMs
-            val wait = lastRequestAt?.let { it + interval - clock() } ?: 0
-            if (wait <= 0) break
-            if (operation) { sleep(wait); break }
-            gate.unlock()
-            sleep(wait)
-        }
-        try {
-            lastRequestAt = clock()
-            return withContext(Dispatchers.IO) { block() }
-        } finally {
-            gate.unlock()
+            var holdsGate = true
+            try {
+                val interval = minIntervalMs ?: pacing().sanitized().minIntervalMs
+                val wait = lastRequestAt?.let { it + interval - clock() } ?: 0
+                if (wait > 0 && !operation) {
+                    // 一覧の待機中はゲートを手放し、後から来た利用者の操作を優先する。
+                    gate.unlock()
+                    holdsGate = false
+                    sleep(wait)
+                    continue
+                }
+                // 利用者の操作はゲート内で待つ。途中でキャンセルされても finally で必ず解放する。
+                if (wait > 0) sleep(wait)
+                lastRequestAt = clock()
+                return withContext(Dispatchers.IO) { block() }
+            } finally {
+                if (holdsGate) gate.unlock()
+            }
         }
     }
 
