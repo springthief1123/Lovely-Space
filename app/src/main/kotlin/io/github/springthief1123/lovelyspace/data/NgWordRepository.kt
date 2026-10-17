@@ -52,10 +52,19 @@ class NgWordRepository(private val db: PresetDatabase, scope: CoroutineScope = C
 
     val sets: Flow<List<NgWordSet>> = flow { initialize(); emitAll(dao.sets()) }.map { values -> values.map { it.toNgWordSet() } }
 
-    /** 見つける・レーダーで使う判定。語のそろえは保存が変わったときだけ行う。読み込むまでは何も外さない。 */
-    val filter: StateFlow<NgWordFilter> = sets.map { NgWordFilter.of(it) }.flowOn(Dispatchers.Default)
+    /** 保存から作った判定。読み込むまでは null。語のそろえは保存が変わったときだけ行う。 */
+    private val loaded: StateFlow<NgWordFilter?> = sets.map<List<NgWordSet>, NgWordFilter?> { NgWordFilter.of(it) }.flowOn(Dispatchers.Default)
         .catch { emit(NgWordFilter.NONE) }
-        .stateIn(scope, SharingStarted.Eagerly, NgWordFilter.NONE)
+        .stateIn(scope, SharingStarted.Eagerly, null)
+
+    /** 見つける画面で使う判定。読み込むまでは何も外さない（画面はすぐ出す）。 */
+    val filter: StateFlow<NgWordFilter> = loaded.map { it ?: NgWordFilter.NONE }.stateIn(scope, SharingStarted.Eagerly, NgWordFilter.NONE)
+
+    /**
+     * 保存を読み終えてからの判定。レーダーはこれを待ってから巡回する（読み込み前の「何も外さない」で、
+     * NG に当たる部屋を新着として知らせないため）。
+     */
+    val readyFilter: Flow<NgWordFilter> = loaded.filterNotNull()
 
     suspend fun initialize() = seedLock.withLock {
         val presets = db.presets()

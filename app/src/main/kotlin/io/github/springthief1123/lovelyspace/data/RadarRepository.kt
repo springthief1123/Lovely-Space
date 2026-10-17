@@ -100,9 +100,8 @@ class RadarRepository(
     private val cursors = mutableMapOf<String, PageCursor>()
     private val evaluatedCandidates = mutableMapOf<String, Long>()
     private var observationJob: Job? = null
-    /** いま効いている NG ワードの判定。[reload] の購読で更新する。 */
+    /** いま効いている NG ワードの判定。[reload] で最初の値を待ってから読み込み済みにし、その後は購読で更新する。 */
     @Volatile private var ng: NgWordFilter = NgWordFilter.NONE
-    private var ngLoaded = false
     init { reload() }
     fun reload() {
         if (_state.value.running) return
@@ -116,22 +115,23 @@ class RadarRepository(
                     seen.clear(); baselines.clear(); baselineAt.clear(); knownMatches.clear(); nextPages.clear(); planKeys.clear(); candidateBaselines.clear(); candidateKnown.clear(); candidateNext.clear(); evaluatedPlans.clear(); evaluatedCandidates.clear(); lapStartedAt.clear(); cursors.clear()
                     backgroundTriedAt.clear()
                     saved?.let(::restoreBaselines)
+                    // 背景の巡回は loaded を待って始まるので、NG ワードを読み終えるまで読み込み済みにしない。
+                    ng = ngWords.first()
                     _state.update { it.copy(loaded = true, scopes = emptyMap(), results = emptyMap(), nextPages = emptyMap(), candidateResults = emptyMap(), nextCandidatePages = emptyMap(), lastScan = null, lastConfirmedAt = null, livePages = emptyMap()) }
                 }
                 combine(lists.observations, searches.presets, ngWords) { _, _, filter -> filter }.collect { filter ->
                     mutex.withLock {
                         // NG ワードが変わったら、有効な計画の一致と比較基準を作り直す。比較基準を捨てずに一致だけ変えると、
-                        // NG を外して出てきた前からある部屋を新着として知らせてしまう。起動直後の読み込みは前回と同じなので作り直さない。
+                        // NG を外して出てきた前からある部屋を新着として知らせてしまう。
                         if (filter !== ng) {
                             ng = filter
-                            if (ngLoaded) {
-                                val active = searches.presets.first().filter { it.id in _state.value.plans }
-                                val hidden = hiddenRooms()
-                                active.forEach { preset -> planKey(preset).let { key -> baselines.keys.removeAll { it.startsWith("$key/") } } }
-                                _state.update { state -> active.fold(state) { acc, preset -> seedPlan(preset, hidden, acc) } }
-                            }
+                            val active = searches.presets.first().filter { it.id in _state.value.plans }
+                            val hidden = hiddenRooms()
+                            active.forEach { preset -> planKey(preset).let { key -> baselines.keys.removeAll { it.startsWith("$key/") } } }
+                            _state.update { state -> active.fold(state) { acc, preset ->
+                                seedPlan(preset, hidden, acc).takeIf { it !== acc } ?: refilterPlan(preset, hidden, acc)
+                            } }
                         }
-                        ngLoaded = true
                         // ロック待ち中に更新された定義・一覧を、古いFlowの値で戻さない。
                         val saved = searches.presets.first()
                         val observations = lists.observations.value
@@ -655,6 +655,18 @@ class RadarRepository(
     private fun planScope(at: Long, window: RoomPageWindow, matches: Int) =
         "${formatObservationTime(at)} · ${window.pages.size}/${window.lastPage}ページ分 · 一致${matches}件"
     private suspend fun hiddenRooms() = preferences.preferences.first().filter { it.hidden }
+    /**
+     * 直近の共有の一覧が無く [seedPlan] で作り直せないときに、手元の全ページ（livePages）から計画の一致だけを出し直す。
+     * 手元にも無ければ、前の NG ワードで出した一致を残さないよう消す（次に読んだページで作り直す）。
+     */
+    private fun refilterPlan(preset: SearchPreset, hidden: List<RoomPreference>, state: RadarState): RadarState {
+        val old = state.results[preset.id] ?: return state
+        val window = state.livePages[preset.genreKey]
+            ?: return state.copy(results = state.results - preset.id, scopes = state.scopes - preset.id)
+        val all = planMatches(window.rooms, preset, hidden)
+        return state.copy(results = state.results + (preset.id to old.copy(rooms = all,
+            roomPages = window.roomPages.filterKeys { key -> all.any { roomIdentity(it) == key } })))
+    }
     /** 計画の一致。非表示にした部屋と NG ワードに当たる部屋を外してから、保存した条件で絞る。 */
     private fun planMatches(rooms: List<Room>, preset: SearchPreset, hidden: List<RoomPreference>): List<Room> {
         val filter = ng

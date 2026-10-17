@@ -227,6 +227,28 @@ class RadarRepositoryTest {
             assertEquals(listOf(42L, 43L), radar.state.value.candidateResults["c"]?.rooms?.map { it.id }?.sorted())
         } finally { db.close() }
     }
+    @Test fun radarWaitsForSavedNgWordsBeforeLoadingAndRefiltersWithoutRecentSharedPages() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            searches.save(SearchPreset("a", "合成", "zenkoku", RoomSearchCriteria()))
+            val ngRoom = room.copy(id = 43, message = "合成 PayPay")
+            var clock = 1_000_000L
+            val lists = Lists().apply { rooms = listOf(room, ngRoom); this.clock = clock }
+            val saved = MutableStateFlow<NgWordFilter?>(null)
+            val radar = RadarRepository(db.presets(), lists, searches, RoomPreferenceRepository(db), backgroundScope, ngWords = saved.filterNotNull()) { clock }
+            // 背景の巡回は loaded を待つので、保存した NG ワードを読むまでは読み込み済みにしない。
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { kotlinx.coroutines.delay(300) }
+            assertFalse(radar.state.value.loaded)
+            saved.value = NgWordFilter.of(NgWordSet.BUILT_IN)
+            radar.state.first { it.loaded }; radar.setPlan("a", true); radar.scan()
+            assertEquals(listOf(42L), radar.state.value.results["a"]?.rooms?.map { it.id })
+            // 共有の一覧が古くなった後で NG ワードを変えても、手元の全ページから一致を出し直す。
+            clock += 10 * 60_000L
+            saved.value = NgWordFilter.NONE
+            radar.state.first { it.results["a"]?.rooms?.size == 2 }
+        } finally { db.close() }
+    }
     @Test fun pausingAllPlansDuringFetchSkipsRemainingPlanPagesAndKeepsTheDefinitions() = runTest {
         val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
         try {

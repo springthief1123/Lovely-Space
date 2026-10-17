@@ -78,7 +78,7 @@ class LovelySpaceApp : Application() {
     val searchPresets: SearchPresetRepository by lazy { SearchPresetRepository(database) }
     val radar: io.github.springthief1123.lovelyspace.data.RadarRepository by lazy {
         io.github.springthief1123.lovelyspace.data.RadarRepository(database.presets(), roomLists, searchPresets, roomPreferences,
-            ngWords = ngWords.filter)
+            ngWords = ngWords.readyFilter)
     }
     val roomPreferences: RoomPreferenceRepository by lazy { RoomPreferenceRepository(database) }
     /** NG ワードのセット。見つける・レーダーで、ON のセットに当たる部屋を最初から外す。 */
