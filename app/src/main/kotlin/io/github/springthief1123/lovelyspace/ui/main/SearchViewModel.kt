@@ -212,7 +212,7 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
     }
     /**
      * 利用者が押した更新（本家の「最新更新」）。1 ページ目を取り直す。読み込み中でも押せて、押すたびに取り直す。
-     * 本家への間隔は [RoomListSource.fetchNow] が守る（前の通信から 1 秒）。取り直し中に押された分は、終わった後の 1 回にまとめる。
+     * 本家のブラウザと同じく間隔は空けない（[RoomListSource.fetchNow]）。取り直し中に押された分は、終わった後の 1 回にまとめる。
      */
     fun refresh() {
         if (!_state.value.initialized) return

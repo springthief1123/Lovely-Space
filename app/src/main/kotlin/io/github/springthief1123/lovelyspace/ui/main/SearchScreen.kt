@@ -109,7 +109,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
     val indicatorTop = lovelyMainContentTopPadding()
     PullToRefreshBox(
         isRefreshing = pullRefreshing,
-        // 本家の「最新更新」と同じく、読み込み中でも引けば取り直す（間隔は ShaloveClient が 1 秒空ける）。
+        // 本家の「最新更新」と同じく、読み込み中でも引けば取り直す（通信は ShaloveClient が 1 本ずつ通す）。
         onRefresh = { if (state.initialized) { userRefreshing = true; vm.refresh() } },
         modifier = Modifier.fillMaxSize(),
         state = pullState,

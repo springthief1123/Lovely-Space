@@ -26,7 +26,7 @@ class ListSync(private val lists: RoomListSource) {
     /**
      * [requests] を重複を除いた順に取得する。[shouldFetch] が false を返したページは取得しない。
      * 取得のたびに [onResult] を呼び、次のページへ進む前に各機能が結果を反映できるようにする。
-     * [manual] は利用者が押した取り直し（[RoomListSource.fetchNow]。前の通信から 1 秒空けて毎回取り直す）。
+     * [manual] は利用者が押した取り直し（[RoomListSource.fetchNow]。前の通信から間隔を空けず毎回取り直す）。
      */
     suspend fun sync(
         requests: Iterable<RoomQuery>,

@@ -99,7 +99,7 @@ class ShaloveClientTest {
     }
 
     @Test
-    fun aRefreshTheUserPressedSkipsTheCacheAndWaitsOnlyTheOneSecondFloor() = runTest {
+    fun aRefreshTheUserPressedSkipsTheCacheAndDoesNotWait() = runTest {
         val calls = IntArray(1)
         val sleeps = mutableListOf<Long>()
         val client = ShaloveClient(
@@ -110,14 +110,14 @@ class ShaloveClientTest {
         )
         val query = RoomQuery(genre = Genres.default)
         client.fetchRoomList(query)
-        // 押すたびにキャッシュを使わず取り直す。前の通信からは設定の 3 秒ではなく下限の 1 秒だけ空ける。
+        // 押すたびにキャッシュを使わず取り直す。本家のブラウザと同じく、前の通信から間隔を空けない。
         client.fetchRoomList(query, manual = true)
         client.fetchRoomList(query, manual = true)
         assertEquals(3, calls[0])
-        assertEquals(listOf(900L, 900L), sleeps)
+        assertEquals(emptyList<Long>(), sleeps)
         // 押した後の自動の取得は、設定どおり 3 秒空ける。
         client.fetchRoomList(query.copy(page = 2))
-        assertEquals(listOf(900L, 900L, 2_900L), sleeps)
+        assertEquals(listOf(2_900L), sleeps)
     }
 
     @Test

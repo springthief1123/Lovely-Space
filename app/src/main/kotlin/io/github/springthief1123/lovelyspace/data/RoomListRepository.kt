@@ -11,7 +11,7 @@ import kotlinx.coroutines.sync.withLock
 fun interface RoomListSource {
     suspend fun fetch(query: RoomQuery, force: Boolean): RoomListPage
     fun observation(query: RoomQuery): ObservedRoomPage? = null
-    /** 利用者が更新ボタンを押した取り直し（本家の「最新更新」）。押すたびに取り直すが、前の通信から 1 秒は空ける（[ShaloveClient.fetchRoomList] の manual）。 */
+    /** 利用者が更新ボタンを押した取り直し（本家の「最新更新」）。押すたびに、前の通信から間隔を空けずに取り直す（[ShaloveClient.fetchRoomList] の manual）。 */
     suspend fun fetchNow(query: RoomQuery): RoomListPage = fetch(query, true)
 }
 
