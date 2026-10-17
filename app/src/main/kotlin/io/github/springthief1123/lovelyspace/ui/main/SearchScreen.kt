@@ -16,6 +16,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import io.github.springthief1123.lovelyspace.ui.components.QuietPage
+import io.github.springthief1123.lovelyspace.data.NgLoadState
 import io.github.springthief1123.lovelyspace.ui.components.QuietNotice
 import io.github.springthief1123.lovelyspace.ui.components.QuietFieldPair
 import io.github.springthief1123.lovelyspace.data.SearchPreset
@@ -77,6 +78,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
     val genre = state.genre
     // NG ワードは条件で絞った後に外す。「今だけ外す」は保存せず、画面を離れると元に戻る。
     val ngFilter by app.ngWords.filter.collectAsStateWithLifecycle()
+    val ngLoad by app.ngWords.state.collectAsStateWithLifecycle()
     var ngSuspended by remember { mutableStateOf(false) }
     val ng = if (ngSuspended) NgWordFilter.NONE else ngFilter
     var computed by remember { mutableStateOf<SearchResults?>(null) }
@@ -92,7 +94,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
     // 非表示にした部屋は、NG ワードで外した数にも数えない。
     val ngExcluded = remember(shown.excluded, preferences) { shown.excluded.filterNot { preferences.isHidden(it.room) } }
     var ngSheetOpen by remember { mutableStateOf(false) }
-    val ngSummary = NgSummary(ngFilter.setCount, ngSuspended, onManage = onOpenNgWords)
+    val ngSummary = NgSummary(ngFilter.setCount, ngSuspended, onManage = onOpenNgWords, failed = ngLoad is NgLoadState.Failed)
     // おすすめ順は、保存・非表示にした部屋と今の一覧から好みを学んで並べる。足りなければ一覧順のまま。
     // 学習と並べ替えは全ページの部屋の文字を数えるので、スクロールやスワイプが詰まらないよう裏で行う。
     // 入力が変わったら前の計算は取り消す（LaunchedEffect のキー）。
@@ -195,6 +197,10 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         if (ngSuspended || ngExcluded.isNotEmpty()) item {
             NgStatusRow(ngExcluded.size, ngSuspended, onShow = { ngSheetOpen = true }, onResume = { ngSuspended = false })
         }
+        (ngLoad as? NgLoadState.Failed)?.let { failed -> item {
+            QuietNotice("NGワードを読み込めませんでした。除外せずに表示しています：${failed.message}", error = true,
+                actionLabel = "もう一度読み込む", onAction = app.ngWords::retry)
+        } }
         if (!validAges) item {
             QuietNotice("年齢の条件が正しくないため、年齢では絞り込んでいません。")
         }

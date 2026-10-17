@@ -66,6 +66,25 @@ class NgWordRepositoryTest {
         } finally { db.close(); context.deleteDatabase(name) }
     }
 
+    @Test fun searchSideReportsLoadFailureAndRecoversOnRetry() = runTest {
+        val name = "ng-${UUID.randomUUID()}.db"
+        val db = open(name)
+        try {
+            val sql = db.openHelper.writableDatabase
+            // 表が読めない状態を作る。失敗は「セットなし」と区別して知らせ、判定は何も外さない。
+            sql.execSQL("ALTER TABLE ng_word_sets RENAME TO ng_word_sets_away")
+            val repo = NgWordRepository(db, backgroundScope)
+            assertTrue(repo.state.first { it !is NgLoadState.Loading } is NgLoadState.Failed)
+            assertSame(NgWordFilter.NONE, repo.filter.value)
+
+            sql.execSQL("ALTER TABLE ng_word_sets_away RENAME TO ng_word_sets")
+            repo.retry()
+            val ready = repo.state.first { it is NgLoadState.Ready } as NgLoadState.Ready
+            assertEquals(2, ready.filter.setCount)
+            assertTrue(repo.filter.first { it.setCount == 2 }.matches(room.copy(message = "PayPayで")))
+        } finally { db.close(); context.deleteDatabase(name) }
+    }
+
     @Test fun v4DataSurvivesAddingNgWordSets() = runTest {
         val name = "ng-migration-${UUID.randomUUID()}.db"
         val file = context.getDatabasePath(name)

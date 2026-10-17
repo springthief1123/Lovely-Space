@@ -19,20 +19,21 @@ import io.github.springthief1123.lovelyspace.ui.components.QuietSheet
 import io.github.springthief1123.lovelyspace.ui.components.QuietSheetHeader
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
 
-/** 見つける画面に出す NG ワードの状態。[activeSets] は効いているセットの数、[suspended] は「今だけ外す」中か。 */
-internal data class NgSummary(val activeSets: Int, val suspended: Boolean, val onManage: () -> Unit)
+/** 見つける画面に出す NG ワードの状態。[activeSets] は効いているセットの数、[suspended] は「今だけ外す」中か、[failed] は読み込めなかったか。 */
+internal data class NgSummary(val activeSets: Int, val suspended: Boolean, val onManage: () -> Unit, val failed: Boolean = false)
 
 /** 詳しい条件の「除外する語」の下に置く 1 行。常に効く NG ワードがいくつ効いているかと、管理への入口。 */
 @Composable
 internal fun NgSummaryRow(ng: NgSummary) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(ngSummaryText(ng.activeSets, ng.suspended), style = MaterialTheme.typography.bodySmall,
+        Text(ngSummaryText(ng.activeSets, ng.suspended, ng.failed), style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
         TextButton(onClick = ng.onManage) { Text("NGワードを管理") }
     }
 }
 
-internal fun ngSummaryText(activeSets: Int, suspended: Boolean): String = when {
+internal fun ngSummaryText(activeSets: Int, suspended: Boolean, failed: Boolean = false): String = when {
+    failed -> "NGワードを読み込めなかったため、今は除外していません。"
     suspended -> "NGワードを今だけ外しています。"
     activeSets == 0 -> "NGワードは使っていません。"
     else -> "ほかに、NGワード ${activeSets}セットに当たる部屋をいつも除外しています。"

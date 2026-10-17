@@ -41,6 +41,13 @@ interface NgWordDao {
     @Query("DELETE FROM ng_word_sets WHERE id = :id") suspend fun delete(id: String)
 }
 
+/** NG ワードの読み込みの状態。[Ready] のセットが 0 件なのは正常（何も外さない）、[Failed] は読めなかった。 */
+sealed interface NgLoadState {
+    data object Loading : NgLoadState
+    data class Ready(val filter: NgWordFilter) : NgLoadState
+    data class Failed(val message: String) : NgLoadState
+}
+
 /**
  * NG ワードのセットの保存と、ON のセットから作った判定（[filter]）。最初からのセットは 1 度だけ入れ、
  * 全部消しても入れ直さない（[PresetRepository.initialize] の取り込みと同じ考え方）。
@@ -58,10 +65,24 @@ class NgWordRepository(private val db: PresetDatabase, scope: CoroutineScope = C
      */
     val readyFilter: Flow<NgWordFilter> = sets.map { NgWordFilter.of(it) }.flowOn(Dispatchers.Default)
 
-    /** 見つける画面で使う判定。読み込むまでは何も外さず、画面はすぐ出す。 */
-    val filter: StateFlow<NgWordFilter> = readyFilter
-        .catch { emit(NgWordFilter.NONE) }
+    private val attempt = MutableStateFlow(0)
+
+    /** 見つける画面で使う読み込みの状態。失敗と「セットなし」を分け、[retry] で読み直せる。 */
+    val state: StateFlow<NgLoadState> = attempt
+        .flatMapLatest {
+            readyFilter.map<NgWordFilter, NgLoadState> { NgLoadState.Ready(it) }
+                .onStart { emit(NgLoadState.Loading) }
+                .catch { emit(NgLoadState.Failed(it.message ?: it.javaClass.simpleName)) }
+        }
+        .stateIn(scope, SharingStarted.Eagerly, NgLoadState.Loading)
+
+    /** 見つける画面で使う判定。読み込むまで・読めなかったときは何も外さず、画面はすぐ出す（読めないことは [state] で知らせる）。 */
+    val filter: StateFlow<NgWordFilter> = state
+        .map { (it as? NgLoadState.Ready)?.filter ?: NgWordFilter.NONE }
         .stateIn(scope, SharingStarted.Eagerly, NgWordFilter.NONE)
+
+    /** 読み込みに失敗したあと、もう一度読む。 */
+    fun retry() = attempt.update { it + 1 }
 
     suspend fun initialize() = seedLock.withLock {
         val presets = db.presets()
