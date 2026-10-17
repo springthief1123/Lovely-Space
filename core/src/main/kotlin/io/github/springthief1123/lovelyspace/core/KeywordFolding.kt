@@ -12,14 +12,17 @@ import java.util.Locale
  * - 長音・波線・ハイフンの類（すべて「ー」にする。「まったり〜」と「まったりー」を同じにする）
  */
 object KeywordFolding {
-    fun fold(text: String): String =
-        Normalizer.normalize(text, Normalizer.Form.NFKC).lowercase(Locale.ROOT).map { c ->
-            when {
-                c in KATAKANA -> c - KANA_OFFSET
-                c in DASHES -> 'ー'
-                else -> c
-            }
-        }.joinToString("")
+    fun fold(text: String): String {
+        // 一覧の全ページの部屋ごとに呼ぶので、文字ごとの List を作らずに 1 つの StringBuilder で組み立てる。
+        val normalized = Normalizer.normalize(text, Normalizer.Form.NFKC).lowercase(Locale.ROOT)
+        val out = StringBuilder(normalized.length)
+        for (c in normalized) out.append(when {
+            c in KATAKANA -> c - KANA_OFFSET
+            DASHES.indexOf(c) >= 0 -> 'ー'
+            else -> c
+        })
+        return out.toString()
+    }
 
     private val KATAKANA = 'ァ'..'ヶ'
     private const val KANA_OFFSET = 0x60

@@ -248,7 +248,7 @@ private fun SearchDetails(state: SearchUiState, vm: SearchViewModel) {
                 label = { Text("最高年齢") }, singleLine = true, isError = !validAges,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = fieldModifier)
         })
-        if (!validAges) Text("年齢は18〜99で、最高年齢が最低年齢以上になる範囲を指定してください。", color = MaterialTheme.colorScheme.error,
+        if (!validAges) Text(AGE_RANGE_ERROR, color = MaterialTheme.colorScheme.error,
             style = MaterialTheme.typography.bodySmall)
         QuietCheckboxRow(c.includeUnknownAge, { vm.criteria(c.copy(includeUnknownAge = it)) }, "年齢が秘密の部屋も含める")
         // 検索の未指定は「すべて」。プロフィール側の秘密とは別の意味。
@@ -260,7 +260,7 @@ private fun SearchDetails(state: SearchUiState, vm: SearchViewModel) {
 
 /** 検索欄に出していない欄の語（以前に名前・待機メッセージを別々に指定して保存した条件など）。黙って絞り込まないよう示し、外せるようにする。 */
 @Composable
-private fun HiddenKeywords(words: List<Pair<KeywordScope, String>>, onClear: () -> Unit) {
+internal fun HiddenKeywords(words: List<Pair<KeywordScope, String>>, onClear: () -> Unit) {
     if (words.isEmpty()) return
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text("ほかに " + words.joinToString("・") { (scope, word) -> "${scope.label}「$word」" } + " でも絞り込んでいます",

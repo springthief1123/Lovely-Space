@@ -33,6 +33,7 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
@@ -66,17 +67,33 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
     val state by vm.state.collectAsStateWithLifecycle()
     val preferences by preferencesVm.state.collectAsStateWithLifecycle()
     LaunchedEffect(state.rooms) { preferencesVm.observe(state.rooms) }
-    val filteredResults = remember(state.results, preferences) { state.results.filterNot(preferences::isHidden) }
+    // 絞り込みと非表示の除外は、一覧か条件か保存・非表示が変わったときだけやり直す。
+    // 読み込み中の印などで画面を組み立て直すたびに全ページを絞り直すと、スクロールが引っかかる。
+    // 全ページの絞り込みは部屋ごとに文字をそろえるので、自動更新で一覧が届くたびにメインスレッドで行うとスクロールが詰まる。
+    // 自動更新で一覧だけが変わったときは、裏で計算し終わるまで前の結果を出す。画面を開いたときと、
+    // ジャンル・条件を変えたときは、前のジャンル・条件の結果を出さないよう、その場で計算する（SearchResults.resolve）。
+    val effectiveCriteria = state.effectiveCriteria
+    val rooms = state.rooms
+    val genre = state.genre
+    var computed by remember { mutableStateOf<SearchResults?>(null) }
+    val shown = computed.resolve(genre, rooms, effectiveCriteria)
+    if (shown !== computed) SideEffect { computed = shown }
+    LaunchedEffect(genre, rooms, effectiveCriteria) {
+        if (!shown.isFor(genre, rooms, effectiveCriteria)) {
+            computed = withContext(Dispatchers.Default) { SearchResults.of(genre, rooms, effectiveCriteria) }
+        }
+    }
+    val results = shown.results
+    val filteredResults = remember(results, preferences) { results.filterNot(preferences::isHidden) }
     // おすすめ順は、保存・非表示にした部屋と今の一覧から好みを学んで並べる。足りなければ一覧順のまま。
     // 学習と並べ替えは全ページの部屋の文字を数えるので、スクロールやスワイプが詰まらないよう裏で行う。
     // 入力が変わったら前の計算は取り消す（LaunchedEffect のキー）。
     val recommending = state.criteria.sort == RoomSort.RECOMMENDED
     var recommended by remember { mutableStateOf<Recommended?>(null) }
-    LaunchedEffect(recommending, filteredResults, preferences.preferences, state.rooms) {
+    LaunchedEffect(recommending, filteredResults, preferences.preferences, rooms) {
         if (!recommending) { recommended = null; return@LaunchedEffect }
         val favorites = preferences.favorites
         val hidden = preferences.hidden
-        val rooms = state.rooms
         recommended = withContext(Dispatchers.Default) {
             val model = PreferenceModel.train(favorites.map { it.toRoom() }, hidden.map { it.toRoom() }, rooms)
             Recommended(filteredResults, model?.rank(filteredResults), trained = model != null)
@@ -131,7 +148,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
     // 押した取り直しは state.refreshing で分かる。最初の読み込み（まだ 1 ページも無いとき）だけは loading で見る。
     var userRefreshing by remember { mutableStateOf(false) }
     LaunchedEffect(state.loading, state.refreshing) { if (!state.loading && !state.refreshing) userRefreshing = false }
-    val newCount = visibleResults.count { roomIdentity(it) in state.newRoomIds }
+    val newCount = remember(visibleResults, state.newRoomIds) { visibleResults.count { roomIdentity(it) in state.newRoomIds } }
     QuietPage {
     val pullState = rememberPullToRefreshState()
     val pullRefreshing = userRefreshing && (state.refreshing || state.loading)
@@ -192,14 +209,14 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
                 actionsEnabled = preferences.canEdit(room),
                 onFavoriteClick = { preferencesVm.toggleFavorite(room) },
                 onHideClick = { preferencesVm.hide(room) },
-                menuItems = quickActions(room, null),
+                menuItems = remember(room, quickActions) { quickActions(room, null) },
             )
         }
         val canReadNext = state.page in 1 until state.lastPage && state.error == null
         if (state.page > 0 && visibleResults.isEmpty() && !state.loading) item {
             SearchEmpty(
                 text = when {
-                    state.results.isNotEmpty() -> "条件に合う部屋はすべて非表示です。"
+                    results.isNotEmpty() -> "条件に合う部屋はすべて非表示です。"
                     canReadNext && state.automatic -> "条件に合う部屋はまだ見つかっていません。"
                     canReadNext -> "読み込んだ${state.page}ページには、条件に合う部屋はありません。"
                     else -> "条件に合う部屋はありません。"
@@ -263,9 +280,11 @@ private fun SearchStatusRow(
     refreshEnabled: Boolean,
 ) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f))
-        IconButton(onClick = { onAutomaticChange(!automatic) }) {
+        // 自動更新の状態をアイコンの形と色だけに頼らない。止めているときは文でも示し、ボタンの読み上げにも状態を付ける。
+        Text(if (automatic) text else "$text・自動更新を停止中", style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+        IconButton(onClick = { onAutomaticChange(!automatic) },
+            modifier = Modifier.semantics { stateDescription = if (automatic) "自動更新中" else "自動更新を停止中" }) {
             Icon(if (automatic) Icons.Outlined.Sync else Icons.Outlined.SyncDisabled,
                 contentDescription = if (automatic) "自動更新を一時停止" else "自動更新を再開",
                 tint = if (automatic) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)

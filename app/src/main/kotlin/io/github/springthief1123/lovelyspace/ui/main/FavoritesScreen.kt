@@ -176,7 +176,7 @@ fun FavoritesScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onA
     deleting?.let { value ->
         QuietConfirmDialog(title = "保存した条件を削除しますか？", text = value.label,
             confirmLabel = "削除", onConfirm = { savedVm.delete(value.id) { deleting = null } }, onDismiss = { deleting = null },
-            destructive = true, enabled = !savedState.working, dismissLabel = "キャンセル", error = savedState.editError)
+            destructive = true, enabled = !savedState.working, error = savedState.editError)
     }
 }
 

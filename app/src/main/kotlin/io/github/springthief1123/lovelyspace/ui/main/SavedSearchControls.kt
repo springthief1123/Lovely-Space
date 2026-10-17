@@ -95,12 +95,12 @@ internal fun SavedSearchControls(search: SearchUiState, onApply: (SearchPreset) 
         QuietConfirmDialog(title = "保存した条件を更新しますか？",
             text = "「${value.label}」を現在のジャンル（${Genres[value.genreKey]?.label}）と条件で上書きします。",
             confirmLabel = "更新", onConfirm = { vm.save(value) { replacing = null } }, onDismiss = { replacing = null },
-            enabled = !state.working, dismissLabel = "キャンセル", error = state.editError)
+            enabled = !state.working, error = state.editError)
     }
     deleting?.let { value ->
         QuietConfirmDialog(title = "保存した条件を削除しますか？", text = value.label,
             confirmLabel = "削除", onConfirm = { vm.delete(value.id) { deleting = null } }, onDismiss = { deleting = null },
-            destructive = true, enabled = !state.working, dismissLabel = "キャンセル", error = state.editError)
+            destructive = true, enabled = !state.working, error = state.editError)
     }
 }
 

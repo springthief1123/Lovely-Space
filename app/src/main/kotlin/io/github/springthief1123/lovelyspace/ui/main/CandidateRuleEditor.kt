@@ -37,7 +37,7 @@ internal fun CandidateRuleEditor(value: CandidateRule, working: Boolean, error: 
             Button(enabled = !working && label.isNotBlank() && term.isNotBlank(), onClick = {
                 onSave(value.copy(label = label, genreKey = genre, term = term, mode = mode))
             }, modifier = Modifier.fillMaxWidth()) { Text(if (working) "保存中…" else "条件を保存") }
-            TextButton(enabled = !working, onClick = onDismiss) { Text("キャンセル") }
+            TextButton(enabled = !working, onClick = onDismiss) { Text("やめる") }
         }
     }
 }
