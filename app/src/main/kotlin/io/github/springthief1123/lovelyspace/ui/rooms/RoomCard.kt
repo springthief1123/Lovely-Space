@@ -10,6 +10,8 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.outlined.Female
@@ -31,12 +33,14 @@ import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -73,6 +77,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -97,6 +102,7 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.sign
 import kotlin.time.Duration
 
 /** 部屋カードの待機メッセージの最大行数。表示設定から MainActivity で与える。 */
@@ -136,6 +142,37 @@ internal fun roomCardCommitThreshold(cardWidthPx: Float, revealWidthPx: Float): 
 /** 背後の「保存」「非表示」の表示の出具合（0〜1）。操作幅まで動かすと出切る。 */
 internal fun roomCardSwipeLabelProgress(offsetPx: Float, revealWidthPx: Float): Float =
     if (revealWidthPx <= 0f) 0f else (abs(offsetPx) / revealWidthPx).coerceIn(0f, 1f)
+
+internal enum class RoomCardSwipeAxis { UNDECIDED, HORIZONTAL, VERTICAL }
+
+/**
+ * 指の動きを左右のスワイプとみなすか、一覧の縦スクロールに譲るかを決める。
+ * 横の移動が触れの遊びを超え、かつ縦の移動の [SWIPE_HORIZONTAL_DOMINANCE] 倍以上（水平から約27°以内）のときだけ左右のスワイプにする。
+ * 斜めの動きは縦が遊びを超えた時点でスクロールに譲り、一覧を流すつもりの指でカードが動かないようにする。
+ */
+internal fun resolveRoomCardSwipeAxis(dx: Float, dy: Float, touchSlopPx: Float): RoomCardSwipeAxis {
+    val ax = abs(dx)
+    val ay = abs(dy)
+    return when {
+        ax >= touchSlopPx && ax >= ay * SWIPE_HORIZONTAL_DOMINANCE -> RoomCardSwipeAxis.HORIZONTAL
+        ay >= touchSlopPx -> RoomCardSwipeAxis.VERTICAL
+        else -> RoomCardSwipeAxis.UNDECIDED
+    }
+}
+
+/**
+ * 操作を始めたときにカードがどちら側に開いているとみなすか（1 保存側・-1 非表示側・0 閉じている）。
+ * 閉じる途中や確定後に戻る途中のカードは、止まる先で決める。動いている途中の位置で決めると、
+ * 戻りきる前に反対側へ払い直したときに 0 で止められ、操作が取り消されたように見えるため。
+ */
+internal fun roomCardGestureStartSide(offsetPx: Float, settling: Boolean, settleTargetPx: Float): Float {
+    val resting = if (settling) settleTargetPx else offsetPx
+    return when {
+        resting > 0.5f -> 1f
+        resting < -0.5f -> -1f
+        else -> 0f
+    }
+}
 
 private enum class SwipeSide { NONE, FAVORITE, HIDDEN }
 
@@ -206,6 +243,8 @@ fun RoomCard(
     var settleJob by remember(room.id, room.genreKey) { mutableStateOf<Job?>(null) }
     var settleTarget by remember(room.id, room.genreKey) { mutableFloatStateOf(0f) }
     var dragging by remember(room.id, room.genreKey) { mutableStateOf(false) }
+    // 確定後に戻り終わるまで、背後の文言を確定前（保存／保存を解除など）のままにする。
+    var commitLabels by remember(room.id, room.genreKey) { mutableStateOf<Pair<Boolean, Boolean>?>(null) }
     // 開いた状態から始めた操作では反対側へ通り抜けさせない（戻しすぎ防止）。
     var gestureStartSide by remember(room.id, room.genreKey) { mutableFloatStateOf(0f) }
     // 開いた時点の縦位置。ここから一定以上動いたらスクロールとみなして閉じる。
@@ -222,12 +261,15 @@ fun RoomCard(
     val scrollCloseDistancePx = with(density) { SCROLL_CLOSE_DISTANCE.toPx() }
     val commitThresholdPx = roomCardCommitThreshold(cardWidthPx, revealWidthPx)
 
-    suspend fun animateOffsetTo(target: Float) {
+    suspend fun animateOffsetTo(
+        target: Float,
+        // 跳ね返りのない減衰で落ち着かせ、戻りすぎ・行きすぎに見えないようにする。
+        animationSpec: AnimationSpec<Float> = spring(dampingRatio = 1f, stiffness = SETTLE_STIFFNESS),
+    ) {
         animate(
             initialValue = offsetPx,
             targetValue = target,
-            // 跳ね返りのない減衰で落ち着かせ、戻りすぎ・行きすぎに見えないようにする。
-            animationSpec = spring(dampingRatio = 1f, stiffness = SETTLE_STIFFNESS),
+            animationSpec = animationSpec,
         ) { value, _ ->
             offsetPx = value
         }
@@ -280,11 +322,22 @@ fun RoomCard(
         settleJob?.cancel()
         settleTarget = 0f
         coordinator.closed(swipeToken)
+        commitLabels = isFavorite to isHidden
+        commitArmed = true
         settleJob = scope.launch {
-            animateOffsetTo(target)
-            action()
-            commitArmed = false
-            animateOffsetTo(0f)
+            var acted = false
+            try {
+                // 端へ短く払い切ってすぐ戻す。ばねで落ち着かせると端で止まって見える時間が長くなるため、時間を決めて動かす。
+                animateOffsetTo(target, tween(COMMIT_OUT_MILLIS, easing = LinearOutSlowInEasing))
+                action()
+                acted = true
+                commitArmed = false
+                animateOffsetTo(0f, tween(COMMIT_RETURN_MILLIS, easing = FastOutSlowInEasing))
+            } finally {
+                // 戻る途中で掴み直されたり一覧から外れたりしても、確定した操作は取り消さない。
+                if (!acted) action()
+                commitLabels = null
+            }
         }
     }
 
@@ -313,6 +366,40 @@ fun RoomCard(
         // 指を戻して確定域を抜ければそのまま取り消せる。
         offsetPx = next
         commitArmed = nowArmed
+    }
+
+    val swipeEnabled = favoriteEnabled || hiddenEnabled
+    // 指の操作は pointerInput(Unit) の中で続けて扱うので、途中で保存中などに変わっても操作を打ち切らないよう最新の値を読む。
+    val currentSwipeEnabled by rememberUpdatedState(swipeEnabled)
+    val onSwipeStarted by rememberUpdatedState {
+        val settling = settleJob?.isActive == true
+        settleJob?.cancel()
+        dragging = true
+        coordinator.open(swipeToken)
+        gestureStartSide = roomCardGestureStartSide(offsetPx, settling, settleTarget)
+        dragPositionPx = offsetPx
+        commitArmed = cardWidthPx > 0f && abs(dragPositionPx) >= commitThresholdPx
+    }
+    val onSwipeStopped by rememberUpdatedState { velocity: Float ->
+        dragging = false
+        val release = resolveRoomCardSwipeRelease(
+            offsetPx = dragPositionPx,
+            velocityPx = velocity,
+            revealThresholdPx = roomCardRevealThreshold(revealWidthPx, startedOpen = gestureStartSide != 0f),
+            commitThresholdPx = commitThresholdPx,
+            velocityThresholdPx = velocityThresholdPx,
+            favoriteEnabled = favoriteEnabled,
+            hiddenEnabled = hiddenEnabled,
+            flickMinOffsetPx = flickMinOffsetPx,
+        )
+        commitArmed = false
+        when (release) {
+            RoomCardSwipeRelease.CLOSED -> launchSettle(0f)
+            RoomCardSwipeRelease.REVEAL_FAVORITE -> launchSettle(revealWidthPx)
+            RoomCardSwipeRelease.REVEAL_HIDDEN -> launchSettle(-revealWidthPx)
+            RoomCardSwipeRelease.COMMIT_FAVORITE -> commitFullSwipe(SwipeSide.FAVORITE)
+            RoomCardSwipeRelease.COMMIT_HIDDEN -> commitFullSwipe(SwipeSide.HIDDEN)
+        }
     }
 
     // 指の動きのたびにカード全体を組み立て直さないよう、どちら側が出ているかが変わったときだけ読み直す。
@@ -348,8 +435,8 @@ fun RoomCard(
             SwipeActionBackground(
                 side = side,
                 armed = commitArmed,
-                isFavorite = isFavorite,
-                isHidden = isHidden,
+                isFavorite = commitLabels?.first ?: isFavorite,
+                isHidden = commitLabels?.second ?: isHidden,
                 enabled = side != SwipeSide.NONE,
                 labelProgress = { roomCardSwipeLabelProgress(offsetPx, revealWidthPx) },
                 onClick = { invokeMenuAction(side) },
@@ -359,44 +446,51 @@ fun RoomCard(
                 Modifier
                     .fillMaxWidth()
                     .offset { IntOffset(offsetPx.roundToInt(), 0) }
-                    .draggable(
-                        state = dragState,
-                        orientation = Orientation.Horizontal,
-                        enabled = favoriteEnabled || hiddenEnabled,
-                        onDragStarted = {
-                            settleJob?.cancel()
-                            dragging = true
-                            coordinator.open(swipeToken)
-                            gestureStartSide = when {
-                                offsetPx > 0.5f -> 1f
-                                offsetPx < -0.5f -> -1f
-                                else -> 0f
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            if (!currentSwipeEnabled) return@awaitEachGesture
+                            val slop = viewConfiguration.touchSlop
+                            val velocityTracker = VelocityTracker()
+                            velocityTracker.addPosition(down.uptimeMillis, down.position)
+                            var total = Offset.Zero
+                            // 縦横が決まるまでは何も消費せず、タップ・長押し・一覧のスクロールに任せる。
+                            while (true) {
+                                val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id }
+                                    ?: return@awaitEachGesture
+                                if (!change.pressed || change.isConsumed) return@awaitEachGesture
+                                velocityTracker.addPosition(change.uptimeMillis, change.position)
+                                total += change.positionChange()
+                                val axis = resolveRoomCardSwipeAxis(total.x, total.y, slop)
+                                if (axis == RoomCardSwipeAxis.VERTICAL) return@awaitEachGesture
+                                if (axis == RoomCardSwipeAxis.HORIZONTAL) {
+                                    change.consume()
+                                    break
+                                }
                             }
-                            dragPositionPx = offsetPx
-                            commitArmed = cardWidthPx > 0f && abs(dragPositionPx) >= commitThresholdPx
-                        },
-                        onDragStopped = { velocity ->
-                            dragging = false
-                            val release = resolveRoomCardSwipeRelease(
-                                offsetPx = dragPositionPx,
-                                velocityPx = velocity,
-                                revealThresholdPx = roomCardRevealThreshold(revealWidthPx, startedOpen = gestureStartSide != 0f),
-                                commitThresholdPx = commitThresholdPx,
-                                velocityThresholdPx = velocityThresholdPx,
-                                favoriteEnabled = favoriteEnabled,
-                                hiddenEnabled = hiddenEnabled,
-                                flickMinOffsetPx = flickMinOffsetPx,
-                            )
-                            commitArmed = false
-                            when (release) {
-                                RoomCardSwipeRelease.CLOSED -> launchSettle(0f)
-                                RoomCardSwipeRelease.REVEAL_FAVORITE -> launchSettle(revealWidthPx)
-                                RoomCardSwipeRelease.REVEAL_HIDDEN -> launchSettle(-revealWidthPx)
-                                RoomCardSwipeRelease.COMMIT_FAVORITE -> commitFullSwipe(SwipeSide.FAVORITE)
-                                RoomCardSwipeRelease.COMMIT_HIDDEN -> commitFullSwipe(SwipeSide.HIDDEN)
+                            onSwipeStarted()
+                            // 遊びを超えた分だけ動かし始める（触れた位置からカードが跳ばないように）。
+                            dragState.dispatchRawDelta(total.x - sign(total.x) * slop)
+                            var velocity = 0f
+                            try {
+                                while (true) {
+                                    val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                                    // 他の操作に取られたら、その位置で離したのと同じに扱う。
+                                    if (change.isConsumed) break
+                                    velocityTracker.addPosition(change.uptimeMillis, change.position)
+                                    if (!change.pressed) {
+                                        velocity = velocityTracker.calculateVelocity().x
+                                        break
+                                    }
+                                    val dx = change.positionChange().x
+                                    change.consume()
+                                    if (dx != 0f) dragState.dispatchRawDelta(dx)
+                                }
+                            } finally {
+                                onSwipeStopped(velocity)
                             }
-                        },
-                    ),
+                        }
+                    },
             ) {
                 RoomCardSurface(
                     room = room,
@@ -731,6 +825,11 @@ private val SWIPE_VELOCITY_THRESHOLD = 1100.dp
 private const val OPEN_FROM_CLOSED_FRACTION = 0.35f
 private const val CLOSE_FROM_OPEN_FRACTION = 0.7f
 private val SWIPE_FLICK_MIN_OFFSET = 24.dp
+// 横の移動が縦の何倍以上なら左右のスワイプとみなすか（2 で水平から約27°以内）。
+private const val SWIPE_HORIZONTAL_DOMINANCE = 2f
+// 確定したカードを端へ払い切る時間と、そこから戻す時間。
+private const val COMMIT_OUT_MILLIS = 110
+private const val COMMIT_RETURN_MILLIS = 200
 private val SCROLL_CLOSE_DISTANCE = 12.dp
 private const val SETTLE_STIFFNESS = 380f
 private const val MAX_REVEAL_FRACTION = 0.42f
