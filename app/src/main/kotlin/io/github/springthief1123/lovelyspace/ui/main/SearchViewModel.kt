@@ -221,11 +221,13 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
         _state.update { it.copy(refreshing = true) }
         refreshJob = viewModelScope.launch {
             try {
+                var updated = false
                 do {
                     refreshAgain = false
-                    fetchPage(1, force = true, manual = true)
+                    if (fetchPage(1, force = true, manual = true)) updated = true
                 } while (refreshAgain && isActive)
-                _state.update { if (it.error == null) it.copy(refreshedCount = it.refreshedCount + 1) else it }
+                // 一覧を 1 度も取り込めなかったとき（本家が部屋の表を出さなかったときなど）は、済んだ印を出さない。
+                _state.update { if (updated && it.error == null) it.copy(refreshedCount = it.refreshedCount + 1) else it }
             } finally { _state.update { it.copy(refreshing = false) } }
         }
     }
@@ -259,8 +261,8 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
                 // 新しい周の始まりを待つ間にジャンルが変わることがあるので、待った後に選び直す。
                 if (wait > 0) { delay(wait); continue }
                 val page = schedule.next(window)
-                fetchPage(page, force = false)
-                if (_state.value.error == null && _state.value.genre == genre) schedule.completed(page, window)
+                val fetched = fetchPage(page, force = false)
+                if (fetched && _state.value.error == null && _state.value.genre == genre) schedule.completed(page, window)
                 // ページ同士は通信の最小間隔で順に取る（間隔は ShaloveClient も守る）。
                 delay(if (_state.value.error != null) RoomPageSchedule.ERROR_INTERVAL_MS else pacing().sanitized().minIntervalMs)
             }
@@ -273,8 +275,12 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
         job?.cancel()
         job = viewModelScope.launch { fetchPage(page, force) }
     }
-    /** いまのジャンルの一覧の [page] を取る。 */
-    private suspend fun fetchPage(page: Int, force: Boolean, manual: Boolean = false) {
+    /**
+     * いまのジャンルの一覧の [page] を取る。取り込めたら true。
+     * 本家が部屋の表を出さずにページを返したとき（[RoomListUnavailableException]。更新を続けて押したときに起きる）は、
+     * 本家のブラウザでもう一度押すのと同じく、案内は出さずに手元の一覧のまま次の取り直しを待つ。
+     */
+    private suspend fun fetchPage(page: Int, force: Boolean, manual: Boolean = false): Boolean {
         val genre = _state.value.genre
         // 条件はすべて端末で判定するので、本家にはジャンル全体の一覧を取りに行く。
         val query = RoomQuery(genre, page = page)
@@ -289,8 +295,10 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
                 absorb(query, observation?.page ?: result, observation?.revision, observation?.confirmedAt)
             }
             _state.update { it.copy(errorOnMore = false) }
+            return true
         } catch (e: CancellationException) { throw e }
-        catch (e: Exception) { _state.update { it.copy(error = describeError(e), errorOnMore = page > 1) } }
+        catch (_: RoomListUnavailableException) { return false }
+        catch (e: Exception) { _state.update { it.copy(error = describeError(e), errorOnMore = page > 1) }; return false }
         finally {
             inFlight--
             _state.update { it.copy(loading = inFlight > 0) }

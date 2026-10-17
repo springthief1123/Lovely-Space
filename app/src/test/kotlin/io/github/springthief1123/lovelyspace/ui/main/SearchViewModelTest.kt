@@ -209,6 +209,22 @@ class SearchViewModelTest {
             assertNotNull(vm.state.value.error)
         } finally { Dispatchers.resetMain() }
     }
+    @Test fun aPageWithoutTheRoomTableKeepsTheListWithoutAnErrorOrDoneMark() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val vm = SearchViewModel(object : RoomListSource {
+                override suspend fun fetch(query: RoomQuery, force: Boolean): RoomListPage = page(query.genre.key, 1, listOf(room(1)))
+                override suspend fun fetchNow(query: RoomQuery): RoomListPage = throw RoomListUnavailableException("合成")
+            })
+            vm.refresh(); runCurrent()
+            vm.refresh(); runCurrent()
+            // 本家で押し直すのと同じく、案内は出さずに手元の一覧のまま。取り直せていないので済んだ印も出さない。
+            assertFalse(vm.state.value.refreshing)
+            assertEquals(0, vm.state.value.refreshedCount)
+            assertNull(vm.state.value.error)
+            assertEquals(listOf(1L), vm.state.value.rooms.map { it.id })
+        } finally { Dispatchers.resetMain() }
+    }
     @Test fun genreChangeCancelsPreviousRequestAndClearsItsScope() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {
