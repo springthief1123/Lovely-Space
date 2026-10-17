@@ -69,13 +69,20 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
     // 絞り込みと非表示の除外は、一覧か条件か保存・非表示が変わったときだけやり直す。
     // 読み込み中の印などで画面を組み立て直すたびに全ページを絞り直すと、スクロールが引っかかる。
     // 全ページの絞り込みは部屋ごとに文字をそろえるので、自動更新で一覧が届くたびにメインスレッドで行うとスクロールが詰まる。
-    // 画面を開いたときだけはその場で計算し（空の一覧がちらつかないよう）、そのあとは裏で計算して終わったら差し替える。
+    // 自動更新で一覧だけが変わったときは、裏で計算し終わるまで前の結果を出す。画面を開いたときと、
+    // ジャンル・条件を変えたときは、前のジャンル・条件の結果を出さないよう、その場で計算する（SearchResults.resolve）。
     val effectiveCriteria = state.effectiveCriteria
     val rooms = state.rooms
-    var results by remember { mutableStateOf(state.results) }
-    LaunchedEffect(rooms, effectiveCriteria) {
-        results = withContext(Dispatchers.Default) { searchRooms(rooms, effectiveCriteria) }
+    val genre = state.genre
+    var computed by remember { mutableStateOf<SearchResults?>(null) }
+    val shown = computed.resolve(genre, rooms, effectiveCriteria)
+    if (shown !== computed) SideEffect { computed = shown }
+    LaunchedEffect(genre, rooms, effectiveCriteria) {
+        if (!shown.isFor(genre, rooms, effectiveCriteria)) {
+            computed = withContext(Dispatchers.Default) { SearchResults.of(genre, rooms, effectiveCriteria) }
+        }
     }
+    val results = shown.results
     val visibleResults = remember(results, preferences) { results.filterNot(preferences::isHidden) }
     io.github.springthief1123.lovelyspace.ui.components.ForegroundPolling(state.automatic, state.genre.key, vm::stopRefresh) { vm.monitor() }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
