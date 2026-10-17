@@ -116,27 +116,26 @@ data class ChatUiState(
      * 作成者の操作が済んだ後の状態。[page] は応答の部屋の画面（読めなければ null）。
      * [clearedLines] は発言クリア後の応答ページに実際に残っていたログ。
      */
-    fun afterOwnerAction(action: OwnerAction, page: ChatPage?, clearedLines: List<UiLine> = emptyList()): ChatUiState {
+    fun afterOwnerAction(
+        action: OwnerAction,
+        page: ChatPage?,
+        clearedLines: List<UiLine> = emptyList(),
+        participantRevisionAtStart: Long = participantRevision,
+    ): ChatUiState {
         // 転送・認証切れ・エラーページなど、部屋画面として確認できない応答を成功扱いしない。
         // 特にクリアや公開設定を楽観的に反映すると、サーバーの状態と表示が食い違う。
         if (page == null) return copy(ownerAction = null, ownerNotice = action.failure)
-        // 受信が止まっていても、作成者操作の応答にある最新の在室状態をすべての操作で反映する。
+        // 応答を待つ間に新しい入退室の通知を受信していたら、その新しい観測を古い操作応答で上書きしない。
+        val sameParticipantRevision = participantRevision == participantRevisionAtStart
         val done = copy(
             ownerAction = null,
-            isFilled = page.state.isFilledRoom,
-            canBanGuest = page.canBanGuest,
+            isFilled = if (sameParticipantRevision) page.state.isFilledRoom else isFilled,
+            canBanGuest = if (sameParticipantRevision) page.canBanGuest else canBanGuest,
         )
         return when (action) {
-            OwnerAction.BAN_GUEST -> done.copy(
-                canBanGuest = page.canBanGuest,
-                isFilled = page.state.isFilledRoom,
-            )
+            OwnerAction.BAN_GUEST -> done
             // クリア中は新着取得を止め、応答ページをサーバー確認済みの境界として表示を置き換える。
-            OwnerAction.CLEAR_LOG -> done.copy(
-                lines = clearedLines,
-                isFilled = page.state.isFilledRoom,
-                canBanGuest = page.canBanGuest,
-            )
+            OwnerAction.CLEAR_LOG -> done.copy(lines = clearedLines)
             OwnerAction.CHANGE_MESSAGE -> done.copy(waitingMessage = page.waitingMessage ?: waitingMessage, ownerNotice = "待機メッセージを変更しました")
             OwnerAction.MAKE_PRIVATE, OwnerAction.MAKE_PUBLIC -> {
                 val wanted = action == OwnerAction.MAKE_PUBLIC
@@ -424,7 +423,7 @@ class ChatController(
                 } else {
                     emptyList()
                 }
-                _state.update { it.afterOwnerAction(action, page, clearedLines) }
+                _state.update { it.afterOwnerAction(action, page, clearedLines, s.participantRevision) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
