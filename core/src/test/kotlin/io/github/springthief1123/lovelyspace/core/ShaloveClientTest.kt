@@ -94,6 +94,26 @@ class ShaloveClientTest {
     }
 
     @Test
+    fun banIsNotSentIfParticipantChangedWhileWaitingForGate() = runTest {
+        val calls = IntArray(1)
+        var sameParticipant = true
+        val client = ShaloveClient(
+            http = OkHttpClient.Builder().addInterceptor { chain ->
+                calls[0]++
+                Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                    .code(200).message("OK").body("ok".toResponseBody()).build()
+            }.build(),
+            clock = { now },
+            sleep = { ms -> now += ms; sameParticipant = false },
+        )
+        client.get("https://chat.shalove.net/synthetic")
+        val room = ChatRoomRef("chat.shalove.net", 42, "test-pwd", "kanto")
+
+        assertEquals(null, client.banGuest(room) { sameParticipant })
+        assertEquals("対象が入れ替わったら BAN の HTTP POST は送らない", 1, calls[0])
+    }
+
+    @Test
     fun decodesShiftJisWhenNoCharsetIsDeclared() = runTest {
         server.enqueue(MockResponse().setBody(Buffer().write("待機中".toByteArray(SITE_CHARSET))).setHeader("Content-Type", "text/html"))
         assertEquals("待機中", client.get(server.url("/").toString()))
