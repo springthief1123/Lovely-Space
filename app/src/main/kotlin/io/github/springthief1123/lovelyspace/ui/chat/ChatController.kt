@@ -116,22 +116,27 @@ data class ChatUiState(
      * 作成者の操作が済んだ後の状態。[page] は応答の部屋の画面（読めなければ null）。
      * [clearedLines] は発言クリア後の応答ページに実際に残っていたログ。
      */
-    fun afterOwnerAction(action: OwnerAction, page: ChatPage?, clearedLines: List<UiLine> = emptyList()): ChatUiState {
-        val done = copy(ownerAction = null)
+    fun afterOwnerAction(
+        action: OwnerAction,
+        page: ChatPage?,
+        clearedLines: List<UiLine> = emptyList(),
+        participantRevisionAtStart: Long = participantRevision,
+    ): ChatUiState {
         // 転送・認証切れ・エラーページなど、部屋画面として確認できない応答を成功扱いしない。
         // 特にクリアや公開設定を楽観的に反映すると、サーバーの状態と表示が食い違う。
-        if (page == null) return done.copy(ownerNotice = action.failure)
+        if (page == null) return copy(ownerAction = null, ownerNotice = action.failure)
+        // 通常の操作では新しい入退室通知を優先する。発言クリアは poll を止めてから送るため、
+        // 読み出し位置を再同期する応答ページの在室状態を必ず採用する。
+        val usePageOccupancy = action == OwnerAction.CLEAR_LOG || participantRevision == participantRevisionAtStart
+        val done = copy(
+            ownerAction = null,
+            isFilled = if (usePageOccupancy) page.state.isFilledRoom else isFilled,
+            canBanGuest = if (usePageOccupancy) page.canBanGuest else canBanGuest,
+        )
         return when (action) {
-            OwnerAction.BAN_GUEST -> done.copy(
-                canBanGuest = page.canBanGuest,
-                isFilled = page.state.isFilledRoom,
-            )
+            OwnerAction.BAN_GUEST -> done
             // クリア中は新着取得を止め、応答ページをサーバー確認済みの境界として表示を置き換える。
-            OwnerAction.CLEAR_LOG -> done.copy(
-                lines = clearedLines,
-                isFilled = page.state.isFilledRoom,
-                canBanGuest = page.canBanGuest,
-            )
+            OwnerAction.CLEAR_LOG -> done.copy(lines = clearedLines)
             OwnerAction.CHANGE_MESSAGE -> done.copy(waitingMessage = page.waitingMessage ?: waitingMessage, ownerNotice = "待機メッセージを変更しました")
             OwnerAction.MAKE_PRIVATE, OwnerAction.MAKE_PUBLIC -> {
                 val wanted = action == OwnerAction.MAKE_PUBLIC
@@ -372,7 +377,14 @@ class ChatController(
         }
     }
 
-    fun banGuest() = runOwnerAction(OwnerAction.BAN_GUEST) { client.banGuest(room) }
+    /** 確認した相手の世代を引き継ぎ、ページ通信の順番待ち中に入退室が起きたら送信しない。 */
+    fun banGuest(expectedRevision: Long) = runOwnerAction(OwnerAction.BAN_GUEST) {
+        client.banGuest(room) {
+            val current = _state.value
+            current.participantRevision == expectedRevision && current.canBanGuest &&
+                current.endMessage == null && !current.left && !current.isLeaving
+        }
+    }
     fun clearLog() = runOwnerAction(OwnerAction.CLEAR_LOG, pauseUpdates = true) { client.clearLog(room) }
     fun setPublic(public: Boolean) =
         runOwnerAction(if (public) OwnerAction.MAKE_PUBLIC else OwnerAction.MAKE_PRIVATE) { client.setPublic(room, public) }
@@ -412,7 +424,7 @@ class ChatController(
                 } else {
                     emptyList()
                 }
-                _state.update { it.afterOwnerAction(action, page, clearedLines) }
+                _state.update { it.afterOwnerAction(action, page, clearedLines, s.participantRevision) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

@@ -143,18 +143,24 @@ class ShaloveClient(
     private suspend fun <T> gated(operation: Boolean = false, minIntervalMs: Long? = null, block: suspend () -> T): T {
         while (true) {
             acquire(operation)
-            val interval = minIntervalMs ?: pacing().sanitized().minIntervalMs
-            val wait = lastRequestAt?.let { it + interval - clock() } ?: 0
-            if (wait <= 0) break
-            if (operation) { sleep(wait); break }
-            gate.unlock()
-            sleep(wait)
-        }
-        try {
-            lastRequestAt = clock()
-            return withContext(Dispatchers.IO) { block() }
-        } finally {
-            gate.unlock()
+            var holdsGate = true
+            try {
+                val interval = minIntervalMs ?: pacing().sanitized().minIntervalMs
+                val wait = lastRequestAt?.let { it + interval - clock() } ?: 0
+                if (wait > 0 && !operation) {
+                    // 一覧の待機中はゲートを手放し、後から来た利用者の操作を優先する。
+                    gate.unlock()
+                    holdsGate = false
+                    sleep(wait)
+                    continue
+                }
+                // 利用者の操作はゲート内で待つ。途中でキャンセルされても finally で必ず解放する。
+                if (wait > 0) sleep(wait)
+                lastRequestAt = clock()
+                return withContext(Dispatchers.IO) { block() }
+            } finally {
+                if (holdsGate) gate.unlock()
+            }
         }
     }
 
@@ -220,18 +226,24 @@ class ShaloveClient(
             noRedirectHttp.newCall(request).execute().use { res ->
                 val location = res.header("Location")
                 if (res.isRedirect && location != null) {
-                    val target = res.request.url.resolve(location)
-                    val pwd = target?.queryParameter("pwd")
-                    val roomId = target?.queryParameter("room_id")?.toLongOrNull()
-                    if (target != null && target.encodedPath.endsWith("/2shot.php") && pwd != null && roomId != null) {
-                        return@use EntryResult.Entered(ChatRoomRef(target.host, roomId, pwd, form.genreKey))
-                    }
-                    return@use EntryResult.Rejected("入室できませんでした")
+                    val room = res.request.url.resolve(location)?.toEnteredRoom(form)
+                    return@use room?.let(EntryResult::Entered) ?: EntryResult.Rejected("入室できませんでした")
                 }
                 if (!res.isSuccessful) throw HttpStatusException(res.code, url)
                 EntryResult.Rejected(EntryFormParser.errorMessage(decodeBody(res)))
             }
         }
+    }
+
+    /**
+     * 入室成功の転送先は、元の部屋の HTTPS URL だけを受け入れる。
+     * 別ホストや別 ID への転送に含まれる pwd を本人用トークンとして扱わない。
+     */
+    private fun HttpUrl.toEnteredRoom(form: EntryForm): ChatRoomRef? {
+        if (scheme != "https" || host != form.host || encodedPath != "/2shot.php") return null
+        val roomId = queryParameter("room_id")?.toLongOrNull()?.takeIf { it == form.roomId } ?: return null
+        val pwd = queryParameter("pwd")?.takeIf { it.isNotBlank() } ?: return null
+        return ChatRoomRef(host, roomId, pwd, form.genreKey)
     }
 
     /** 待機画面・チャット画面を開き、初期状態（直近のログ・読み出し位置など）を得る。 */
@@ -268,7 +280,8 @@ class ShaloveClient(
     // 応答が部屋の画面なら読んで返す（操作が反映されたかの確認に使う）。転送や部屋以外の画面なら null。
 
     /** 相手を退室させる（本家の「相手を退室」）。 */
-    suspend fun banGuest(room: ChatRoomRef): ChatPage? = postRoomForm(room, "shotact" to "ban").asRoomPage(room)
+    suspend fun banGuest(room: ChatRoomRef, canSend: () -> Boolean = { true }): ChatPage? =
+        postRoomForm(room, "shotact" to "ban", canSend = canSend).asRoomPage(room)
 
     /** 発言をクリアする（本家の「発言クリア」）。 */
     suspend fun clearLog(room: ChatRoomRef): ChatPage? = postRoomForm(room, "clearchatlog" to "1").asRoomPage(room)
@@ -291,7 +304,11 @@ class ShaloveClient(
      * `2shot.php` へ部屋の hidden 項目と [fields] を送る。成功した応答の本文を返す（転送なら null）。
      * `2shot.php` は UTF-8 のページなので、フォームも UTF-8 で送る。
      */
-    private suspend fun postRoomForm(room: ChatRoomRef, vararg fields: Pair<String, String>): String? {
+    private suspend fun postRoomForm(
+        room: ChatRoomRef,
+        vararg fields: Pair<String, String>,
+        canSend: () -> Boolean = { true },
+    ): String? {
         val url = "https://${room.host}/2shot.php"
         val body = FormBody.Builder(Charsets.UTF_8)
             .add("room_id", room.roomId.toString())
@@ -300,6 +317,8 @@ class ShaloveClient(
             .apply { fields.forEach { (name, value) -> add(name, value) } }
             .build()
         return gated(operation = true) {
+            // 通信ゲートの順番待ちが終わった直後に、対象の入れ替わりを確認する。
+            if (!canSend()) return@gated null
             val request = Request.Builder().url(url).post(body)
                 .header("User-Agent", USER_AGENT)
                 .header("Referer", room.pageUrl)

@@ -1,5 +1,9 @@
 package io.github.springthief1123.lovelyspace.core
 
+import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
+import io.github.springthief1123.lovelyspace.core.chat.EntryForm
+import io.github.springthief1123.lovelyspace.core.chat.EntryProfile
+import io.github.springthief1123.lovelyspace.core.chat.EntryResult
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.CompletableDeferred
@@ -49,6 +53,102 @@ class ShaloveClientTest {
     fun tearDown() = server.shutdown()
 
     @Test
+    fun cancellingAnOperationDuringRateLimitWaitReleasesGate() = runBlocking {
+        val calls = IntArray(1)
+        val operationWaiting = CompletableDeferred<Unit>()
+        val holdOperation = CompletableDeferred<Unit>()
+        var firstWait = true
+        val gated = ShaloveClient(
+            http = OkHttpClient.Builder().addInterceptor { chain ->
+                calls[0]++
+                Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                    .code(200).message("OK").body("ok".toResponseBody()).build()
+            }.build(),
+            clock = { now },
+            sleep = { ms ->
+                if (firstWait) {
+                    firstWait = false
+                    operationWaiting.complete(Unit)
+                    // 実時間を待たず、キャンセルされるまで通信ゲートの内側で停止する。
+                    holdOperation.await()
+                } else {
+                    now += ms
+                }
+            },
+        )
+        gated.get("https://chat.shalove.net/first")
+        val cancelled = async { gated.get("https://chat.shalove.net/cancelled", operation = true) }
+        withTimeout(5_000) { operationWaiting.await() }
+        cancelled.cancelAndJoin()
+
+        // キャンセル後も別の取得が送信でき、3 秒の間隔を守る。
+        withTimeout(5_000) { gated.get("https://chat.shalove.net/next") }
+        assertEquals(2, calls[0])
+        assertEquals(1_003_000L, now)
+    }
+
+    @Test
+    fun acceptsOnlyTheSameRoomAndHostOnEntryRedirect() = runTest {
+        val locations = ArrayDeque(listOf(
+            "/2shot.php?room_id=42&pwd=test-token",
+            "https://example.com/2shot.php?room_id=42&pwd=test-token",
+            "http://chat.shalove.net/2shot.php?room_id=42&pwd=test-token",
+            "/sub/2shot.php?room_id=42&pwd=test-token",
+            "/2shot.php?room_id=43&pwd=test-token",
+            "/2shot.php?room_id=42&pwd=",
+        ))
+        val client = ShaloveClient(
+            http = OkHttpClient.Builder().addInterceptor { chain ->
+                Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                    .code(302).message("Found")
+                    .header("Location", locations.removeFirst())
+                    .body("".toResponseBody()).build()
+            }.build(),
+            clock = { now },
+            sleep = { ms -> now += ms },
+        )
+        val form = EntryForm(
+            host = "chat.shalove.net",
+            roomId = 42,
+            genreKey = "kanto",
+            pwd = "entry-token",
+            hostDescription = "",
+            waitingMessage = "",
+            requiresCaptcha = false,
+            defaultName = "",
+        )
+        val profile = EntryProfile(name = "テスト", sex = 1, years = 30)
+
+        assertEquals(
+            EntryResult.Entered(ChatRoomRef("chat.shalove.net", 42, "test-token", "kanto")),
+            client.enter(form, profile),
+        )
+        repeat(5) {
+            assertEquals(EntryResult.Rejected("入室できませんでした"), client.enter(form, profile))
+        }
+    }
+
+    @Test
+    fun banIsNotSentIfParticipantChangedWhileWaitingForGate() = runTest {
+        val calls = IntArray(1)
+        var sameParticipant = true
+        val client = ShaloveClient(
+            http = OkHttpClient.Builder().addInterceptor { chain ->
+                calls[0]++
+                Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                    .code(200).message("OK").body("ok".toResponseBody()).build()
+            }.build(),
+            clock = { now },
+            sleep = { ms -> now += ms; sameParticipant = false },
+        )
+        client.get("https://chat.shalove.net/synthetic")
+        val room = ChatRoomRef("chat.shalove.net", 42, "test-pwd", "kanto")
+
+        assertEquals(null, client.banGuest(room) { sameParticipant })
+        assertEquals("対象が入れ替わったら BAN の HTTP POST は送らない", 1, calls[0])
+    }
+
+    @Test
     fun decodesShiftJisWhenNoCharsetIsDeclared() = runTest {
         server.enqueue(MockResponse().setBody(Buffer().write("待機中".toByteArray(SITE_CHARSET))).setHeader("Content-Type", "text/html"))
         assertEquals("待機中", client.get(server.url("/").toString()))
@@ -78,6 +178,7 @@ class ShaloveClientTest {
     }
 
     @Test
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     fun aPageTheUserOpenedGoesBeforeQueuedListFetchesWithTheSameSpacing() = runTest {
         repeat(4) { server.enqueue(MockResponse().setBody("ok")) }
         val sentAt = java.util.Collections.synchronizedList(mutableListOf<Long>())

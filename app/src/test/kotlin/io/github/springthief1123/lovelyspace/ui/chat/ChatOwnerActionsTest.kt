@@ -91,6 +91,48 @@ class ChatOwnerActionsTest {
         assertEquals("新しい合成の待機文", changed.waitingMessage)
     }
 
+    @Test fun allOwnerActionsTakeOccupancyFromServerResponse() {
+        val stale = owner.copy(isFilled = true, canBanGuest = true, ownerAction = OwnerAction.CHANGE_MESSAGE)
+        for (action in OwnerAction.entries) {
+            val after = stale.afterOwnerAction(action, page(filled = false, canBan = false))
+            assertFalse("$action: 応答後は待機に戻る", after.isFilled)
+            assertFalse("$action: 古い相手への操作を残さない", after.canBanGuest)
+        }
+    }
+
+    @Test fun ownerResponseDoesNotOverwriteNewerParticipantUpdates() {
+        val latest = owner.copy(isFilled = true, canBanGuest = true, participantRevision = 4)
+        for (action in OwnerAction.entries.filterNot { it == OwnerAction.CLEAR_LOG }) {
+            // 通常の操作開始時は revision 3。応答待ちに新しい参加者が入り revision 4 へ進んだ。
+            val after = latest.afterOwnerAction(
+                action,
+                page(filled = false, canBan = false),
+                participantRevisionAtStart = 3,
+            )
+            assertTrue("$action: 新しい入室状態を保持", after.isFilled)
+            assertTrue("$action: 新しい退室操作の可否を保持", after.canBanGuest)
+        }
+    }
+
+    @Test fun clearLogUsesConfirmedOccupancyAfterPollStops() {
+        // クリア開始後、poll 停止までに入退室が届き、開始時の世代と異なっていても
+        // クリア後の応答が読み出し位置と在室状態の新しい基準になる。
+        val before = owner.copy(
+            isFilled = true,
+            canBanGuest = true,
+            participantRevision = 4,
+            ownerAction = OwnerAction.CLEAR_LOG,
+        )
+        val after = before.afterOwnerAction(
+            OwnerAction.CLEAR_LOG,
+            page(filled = false, canBan = false),
+            participantRevisionAtStart = 3,
+        )
+        assertFalse("クリア後の応答で待機状態に戻る", after.isFilled)
+        assertFalse("古い相手の退室ボタンを残さない", after.canBanGuest)
+        assertNull(after.ownerAction)
+    }
+
     @Test fun makingPrivateThatSiteRefusedIsReported() {
         val refused = owner.afterOwnerAction(OwnerAction.MAKE_PRIVATE, page(isPublic = true))
         assertTrue(refused.isPublic)

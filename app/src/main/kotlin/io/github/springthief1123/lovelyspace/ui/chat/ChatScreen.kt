@@ -152,13 +152,14 @@ fun ChatScreen(room: ChatRoomRef, vm: ChatController, onBrowse: () -> Unit, onEx
             action = action,
             partnerName = state.partnerName,
             onConfirm = {
+                val revision = confirmBanRevision
                 val stillSameParticipant = action != OwnerAction.BAN_GUEST ||
-                    (confirmBanRevision == state.participantRevision && state.canBanGuest)
+                    (revision == state.participantRevision && state.canBanGuest)
                 confirmOwnerAction = null
                 confirmBanRevision = null
                 if (stillSameParticipant) {
                     when (action) {
-                        OwnerAction.BAN_GUEST -> vm.banGuest()
+                        OwnerAction.BAN_GUEST -> revision?.let(vm::banGuest)
                         OwnerAction.CLEAR_LOG -> vm.clearLog()
                         OwnerAction.MAKE_PRIVATE -> vm.setPublic(false)
                         OwnerAction.MAKE_PUBLIC -> vm.setPublic(true)
