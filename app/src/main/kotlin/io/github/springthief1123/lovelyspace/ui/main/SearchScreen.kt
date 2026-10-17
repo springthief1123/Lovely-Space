@@ -147,7 +147,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
             QuietNotice("年齢の条件が正しくないため、年齢では絞り込んでいません。")
         }
         if (c.sort == RoomSort.RECOMMENDED && recommendation == null && !preferences.loading) item {
-            QuietNotice("保存した部屋が${PreferenceModel.MIN_LIKED}件以上になると、好みに近い順に並びます。今は一覧順です。")
+            QuietNotice("保存した部屋（非表示にしたものを除く）が${PreferenceModel.MIN_LIKED}件以上になると、好みに近い順に並びます。今は一覧順です。")
         }
         state.preferenceError?.let { error -> item {
             QuietNotice("設定を保存できませんでした：$error", error = true, onDismiss = vm::clearPreferenceError)
