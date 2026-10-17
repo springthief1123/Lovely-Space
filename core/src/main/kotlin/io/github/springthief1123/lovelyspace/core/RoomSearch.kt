@@ -25,36 +25,58 @@ data class RoomSearchCriteria(
         (maxAge == null || maxAge in 18..99) && (minAge == null || maxAge == null || minAge <= maxAge)
 
     /** [room] がこの条件に合うか。語は表記の揺れ（[KeywordFolding]）と [synonyms] の言い換えを吸収して比べる。 */
-    fun matches(room: Room, synonyms: SynonymDictionary = SynonymDictionary.BUILT_IN): Boolean {
-        if (!isValid) return false
-        if (gender != null && room.gender != gender) return false
+    fun matches(room: Room, synonyms: SynonymDictionary = SynonymDictionary.BUILT_IN): Boolean = RoomMatcher(this, synonyms).matches(room)
+}
+
+/**
+ * [RoomSearchCriteria] の判定を、検索語のそろえ（[KeywordFolding.fold]）と言い換えの展開を先に 1 回だけ済ませて行う。
+ * 一覧の全ページを絞るたびに、部屋ごとに検索語をそろえ直さないため。
+ */
+private class RoomMatcher(private val c: RoomSearchCriteria, synonyms: SynonymDictionary) {
+    private val nameTerms = terms(c.name, synonyms)
+    private val messageTerms = terms(c.message, synonyms)
+    private val textTerms = terms(c.text, synonyms)
+    private val excludedTerms = terms(c.excluded, synonyms)
+
+    fun matches(room: Room): Boolean {
+        if (!c.isValid) return false
+        if (c.gender != null && room.gender != c.gender) return false
         if (room.age == null) {
-            if (!includeUnknownAge) return false
-        } else if ((minAge != null && room.age < minAge) || (maxAge != null && room.age > maxAge)) return false
-        if (area != null && room.area != area) return false
-        if (waitingOnly != null && !room.isFull != waitingOnly) return false
-        if (publicOnly != null && room.isPublic != publicOnly) return false
-        if (!keywordsMatch(room.name.orEmpty(), name, synonyms) || !keywordsMatch(room.message, message, synonyms)) return false
+            if (!c.includeUnknownAge) return false
+        } else if ((c.minAge != null && room.age < c.minAge) || (c.maxAge != null && room.age > c.maxAge)) return false
+        if (c.area != null && room.area != c.area) return false
+        if (c.waitingOnly != null && !room.isFull != c.waitingOnly) return false
+        if (c.publicOnly != null && room.isPublic != c.publicOnly) return false
+        if (!keywordsMatch(room.name.orEmpty(), nameTerms) || !keywordsMatch(room.message, messageTerms)) return false
+        // 名前と募集文をまとめた文は、共通検索欄か除外する語があるときだけそろえる。
+        if (textTerms.isEmpty() && excludedTerms.isEmpty()) return true
         val allText = KeywordFolding.fold("${room.name.orEmpty()} ${room.message}")
-        if (!keywordsMatch(allText, this.text, synonyms)) return false
-        return words(excluded).none { term -> synonyms.variants(term).any(allText::contains) }
+        if (!keywordsMatch(allText, textTerms, folded = true)) return false
+        return excludedTerms.none { variants -> variants.any(allText::contains) }
     }
 
-    private fun keywordsMatch(text: String, query: String, synonyms: SynonymDictionary): Boolean {
-        val terms = words(query)
+    private fun keywordsMatch(text: String, terms: List<Set<String>>, folded: Boolean = false): Boolean {
         if (terms.isEmpty()) return true
-        val folded = KeywordFolding.fold(text)
-        val hit = { term: String -> synonyms.variants(term).any(folded::contains) }
-        return if (keywordMode == KeywordMode.ALL) terms.all(hit) else terms.any(hit)
+        val target = if (folded) text else KeywordFolding.fold(text)
+        val hit = { variants: Set<String> -> variants.any(target::contains) }
+        return if (c.keywordMode == KeywordMode.ALL) terms.all(hit) else terms.any(hit)
     }
-    private fun words(text: String) = KeywordFolding.fold(text).split(Regex("[\\s　]+")).filter(String::isNotEmpty)
+
+    /** 語ごとの、同じ意味として扱う語（[KeywordFolding.fold] 済み）。 */
+    private fun terms(text: String, synonyms: SynonymDictionary): List<Set<String>> =
+        KeywordFolding.fold(text).split(SPACES).filter(String::isNotEmpty).map(synonyms::variants)
+
+    companion object {
+        private val SPACES = Regex("[\\s　]+")
+    }
 }
 
 /** hostと部屋IDで重複を除く。ジャンルを横断しても別サーバーの同じ番号は別の部屋。 */
 fun roomIdentity(room: Room): String = "${Genres[room.genreKey]?.host ?: room.genreKey}/${room.id}"
 
 fun searchRooms(rooms: List<Room>, criteria: RoomSearchCriteria, synonyms: SynonymDictionary = SynonymDictionary.BUILT_IN): List<Room> {
-    val matches = rooms.distinctBy(::roomIdentity).filter { criteria.matches(it, synonyms) }
+    val matcher = RoomMatcher(criteria, synonyms)
+    val matches = rooms.distinctBy(::roomIdentity).filter(matcher::matches)
     return when (criteria.sort) {
         RoomSort.SITE -> matches
         RoomSort.NAME -> matches.sortedWith(compareBy(nullsLast()) { it.name?.lowercase(Locale.ROOT) })

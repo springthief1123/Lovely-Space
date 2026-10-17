@@ -23,7 +23,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -66,8 +68,14 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
     LaunchedEffect(state.rooms) { preferencesVm.observe(state.rooms) }
     // 絞り込みと非表示の除外は、一覧か条件か保存・非表示が変わったときだけやり直す。
     // 読み込み中の印などで画面を組み立て直すたびに全ページを絞り直すと、スクロールが引っかかる。
+    // 全ページの絞り込みは部屋ごとに文字をそろえるので、自動更新で一覧が届くたびにメインスレッドで行うとスクロールが詰まる。
+    // 画面を開いたときだけはその場で計算し（空の一覧がちらつかないよう）、そのあとは裏で計算して終わったら差し替える。
     val effectiveCriteria = state.effectiveCriteria
-    val results = remember(state.rooms, effectiveCriteria) { state.results }
+    val rooms = state.rooms
+    var results by remember { mutableStateOf(state.results) }
+    LaunchedEffect(rooms, effectiveCriteria) {
+        results = withContext(Dispatchers.Default) { searchRooms(rooms, effectiveCriteria) }
+    }
     val visibleResults = remember(results, preferences) { results.filterNot(preferences::isHidden) }
     io.github.springthief1123.lovelyspace.ui.components.ForegroundPolling(state.automatic, state.genre.key, vm::stopRefresh) { vm.monitor() }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()

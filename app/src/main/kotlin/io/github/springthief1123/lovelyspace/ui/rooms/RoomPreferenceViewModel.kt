@@ -26,8 +26,14 @@ data class RoomPreferenceUiState(
     val favorites: List<RoomPreference> get() = preferences.filter { it.favorite }
     val hidden: List<RoomPreference> get() = preferences.filter { it.hidden }
 
+    /** 部屋の番号ごとの記録。一覧の全カードが保存・非表示を調べるので、毎回すべての記録を探さない。 */
+    private val byRoomId: Map<Long, List<RoomPreference>> by lazy { preferences.groupBy { it.roomId } }
+
     fun activePreference(room: Room): RoomPreference? =
-        preferences.firstOrNull { it.appliesTo(room) }
+        byRoomId[room.id]?.firstOrNull { it.appliesTo(room) }
+
+    /** [room] と同じ番号の記録があるか（別の部屋の記録かどうかは問わない）。 */
+    fun hasRecord(room: Room): Boolean = room.id in byRoomId
 
     fun isFavorite(room: Room): Boolean = activePreference(room)?.favorite == true
     fun isHidden(room: Room): Boolean = activePreference(room)?.hidden == true
@@ -69,10 +75,13 @@ class RoomPreferenceViewModel(private val store: RoomPreferenceStore) : ViewMode
     }
 
     fun observe(rooms: List<Room>) {
-        if (rooms.isEmpty()) return
+        // 自動更新のたびに全ページの部屋を渡されるので、記録のある部屋だけを保存先で確かめる。読み込み前はすべて渡す。
+        val current = _state.value
+        val targets = if (current.loading) rooms else rooms.filter(current::hasRecord)
+        if (targets.isEmpty()) return
         viewModelScope.launch {
             try {
-                store.observe(rooms)
+                store.observe(targets)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

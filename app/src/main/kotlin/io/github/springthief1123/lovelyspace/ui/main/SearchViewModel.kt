@@ -333,9 +333,10 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
     private fun absorb(query: RoomQuery, page: RoomListPage, revision: Long?, confirmedAt: Long?) {
         // 初めて読んだページの部屋は、前からあった部屋なので新着にしない。新着は読んだことのあるページの取り直しで数える。
         val firstSight = page.page !in window.pages
-        val previous = window.rooms.map(::roomIdentity).toSet()
         val next = window.observe(page, revision)
         if (next === window) return
+        // window.rooms は呼ぶたびに全ページを並べ直すので、前の一覧は画面に渡した一覧から取る。
+        val previous = _state.value.rooms.mapTo(HashSet(), ::roomIdentity)
         window = next
         val rooms = next.rooms
         val ids = rooms.map(::roomIdentity).toSet()
