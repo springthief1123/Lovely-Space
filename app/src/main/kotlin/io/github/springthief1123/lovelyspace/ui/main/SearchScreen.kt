@@ -64,7 +64,11 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
     val state by vm.state.collectAsStateWithLifecycle()
     val preferences by preferencesVm.state.collectAsStateWithLifecycle()
     LaunchedEffect(state.rooms) { preferencesVm.observe(state.rooms) }
-    val visibleResults = state.results.filterNot(preferences::isHidden)
+    // 絞り込みと非表示の除外は、一覧か条件か保存・非表示が変わったときだけやり直す。
+    // 読み込み中の印などで画面を組み立て直すたびに全ページを絞り直すと、スクロールが引っかかる。
+    val effectiveCriteria = state.effectiveCriteria
+    val results = remember(state.rooms, effectiveCriteria) { state.results }
+    val visibleResults = remember(results, preferences) { results.filterNot(preferences::isHidden) }
     io.github.springthief1123.lovelyspace.ui.components.ForegroundPolling(state.automatic, state.genre.key, vm::stopRefresh) { vm.monitor() }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -103,7 +107,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
     // 押した取り直しは state.refreshing で分かる。最初の読み込み（まだ 1 ページも無いとき）だけは loading で見る。
     var userRefreshing by remember { mutableStateOf(false) }
     LaunchedEffect(state.loading, state.refreshing) { if (!state.loading && !state.refreshing) userRefreshing = false }
-    val newCount = visibleResults.count { roomIdentity(it) in state.newRoomIds }
+    val newCount = remember(visibleResults, state.newRoomIds) { visibleResults.count { roomIdentity(it) in state.newRoomIds } }
     QuietPage {
     val pullState = rememberPullToRefreshState()
     val pullRefreshing = userRefreshing && (state.refreshing || state.loading)
@@ -161,14 +165,14 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
                 actionsEnabled = preferences.canEdit(room),
                 onFavoriteClick = { preferencesVm.toggleFavorite(room) },
                 onHideClick = { preferencesVm.hide(room) },
-                menuItems = quickActions(room, null),
+                menuItems = remember(room, quickActions) { quickActions(room, null) },
             )
         }
         val canReadNext = state.page in 1 until state.lastPage && state.error == null
         if (state.page > 0 && visibleResults.isEmpty() && !state.loading) item {
             SearchEmpty(
                 text = when {
-                    state.results.isNotEmpty() -> "条件に合う部屋はすべて非表示です。"
+                    results.isNotEmpty() -> "条件に合う部屋はすべて非表示です。"
                     canReadNext && state.automatic -> "条件に合う部屋はまだ見つかっていません。"
                     canReadNext -> "読み込んだ${state.page}ページには、条件に合う部屋はありません。"
                     else -> "条件に合う部屋はありません。"

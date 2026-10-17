@@ -17,6 +17,7 @@ import androidx.compose.material.icons.outlined.Male
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -314,11 +315,15 @@ fun RoomCard(
         commitArmed = nowArmed
     }
 
-    val side = when {
-        offsetPx > 0.5f -> SwipeSide.FAVORITE
-        offsetPx < -0.5f -> SwipeSide.HIDDEN
-        else -> SwipeSide.NONE
-    }
+    // 指の動きのたびにカード全体を組み立て直さないよう、どちら側が出ているかが変わったときだけ読み直す。
+    // 位置そのものは offset と graphicsLayer が配置・描画のときに読む。
+    val side by remember(room.id, room.genreKey) { derivedStateOf {
+        when {
+            offsetPx > 0.5f -> SwipeSide.FAVORITE
+            offsetPx < -0.5f -> SwipeSide.HIDDEN
+            else -> SwipeSide.NONE
+        }
+    } }
 
     Box(
         modifier
@@ -330,11 +335,11 @@ fun RoomCard(
                 .fillMaxWidth()
                 .onSizeChanged { cardWidthPx = it.width.toFloat() }
                 .onGloballyPositioned { coordinates ->
-                    // 一覧をスクロールしたら開いているカードを閉じる。
-                    val y = coordinates.positionInRoot().y
+                    // 一覧をスクロールしたら開いているカードを閉じる。閉じているカードでは位置を求めない（スクロール中に毎回呼ばれるため）。
                     if (dragging || settleTarget == 0f) {
-                        openedRootY = null
+                        if (openedRootY != null) openedRootY = null
                     } else {
+                        val y = coordinates.positionInRoot().y
                         val anchor = openedRootY ?: y.also { openedRootY = it }
                         if (abs(y - anchor) > scrollCloseDistancePx) launchSettle(0f)
                     }

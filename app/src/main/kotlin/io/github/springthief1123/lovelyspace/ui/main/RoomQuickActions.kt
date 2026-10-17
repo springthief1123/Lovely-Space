@@ -10,6 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
@@ -39,8 +40,12 @@ internal fun rememberRoomQuickActions(
     val radar by app.radar.state.collectAsStateWithLifecycle()
     val waitlist by app.waitlist.entries.collectAsStateWithLifecycle()
     val requestNotifications = rememberNotificationPermissionRequest()
-    val tracked = radar.targets.mapTo(HashSet()) { roomIdentity(it.room) }
-    val waiting = waitlist.filter { it.status == WaitlistStatus.WATCHING }.mapTo(HashSet()) { it.key }
+    // 一覧の各カードがメニューの項目を毎回作り直さないよう、追跡・順番待ち・レーダーの読み込みが変わったときだけ作り直す。
+    val tracked = remember(radar.targets) { radar.targets.mapTo(HashSet()) { roomIdentity(it.room) } }
+    val waiting = remember(waitlist) { waitlist.filter { it.status == WaitlistStatus.WATCHING }.mapTo(HashSet()) { it.key } }
+    val loaded = radar.loaded
+    val currentNotice by rememberUpdatedState(onNotice)
+    val currentRequestNotifications by rememberUpdatedState(requestNotifications)
     var confirmUntrack by remember { mutableStateOf<Room?>(null) }
 
     fun save(failure: String, block: suspend () -> String) {
@@ -49,7 +54,7 @@ internal fun rememberRoomQuickActions(
             catch (e: CancellationException) { throw e }
             catch (e: IllegalArgumentException) { e.message ?: failure }
             catch (e: Exception) { failure }
-            onNotice(message)
+            currentNotice(message)
         }
     }
 
@@ -58,7 +63,7 @@ internal fun rememberRoomQuickActions(
             title = "追跡を解除しますか？",
             onDismissRequest = { confirmUntrack = null },
             confirmLabel = "追跡を解除",
-            confirmEnabled = radar.loaded,
+            confirmEnabled = loaded,
             destructive = true,
             dismissLabel = "戻る",
             onConfirm = {
@@ -68,13 +73,13 @@ internal fun rememberRoomQuickActions(
         ) { Text("追跡と自分用メモを削除します。変化の履歴は残ります。") }
     }
 
-    return { room, sourceQuery ->
+    return remember(tracked, waiting, loaded) { { room, sourceQuery ->
         val key = roomIdentity(room)
         buildList {
             if (key in tracked) {
-                add(RoomMenuItem("追跡を解除…", Icons.Outlined.TrackChanges, enabled = radar.loaded) { confirmUntrack = room })
+                add(RoomMenuItem("追跡を解除…", Icons.Outlined.TrackChanges, enabled = loaded) { confirmUntrack = room })
             } else {
-                add(RoomMenuItem("この部屋を追跡", Icons.Outlined.TrackChanges, enabled = radar.loaded && room.name != null) {
+                add(RoomMenuItem("この部屋を追跡", Icons.Outlined.TrackChanges, enabled = loaded && room.name != null) {
                     save("追跡設定を保存できませんでした。") { app.radar.track(room, sourceQuery); "レーダーに追加しました" }
                 })
             }
@@ -85,7 +90,7 @@ internal fun rememberRoomQuickActions(
                 })
             } else if (room.status == RoomStatus.FULL) {
                 add(RoomMenuItem("空いたら知らせる", Icons.Outlined.NotificationAdd) {
-                    requestNotifications()
+                    currentRequestNotifications()
                     save("順番待ちを保存できませんでした。") {
                         app.waitlist.register(room, sourceQuery)
                         "順番待ちに登録しました。空いたら通知します（${WaitlistRepository.DEFAULT_HOURS}時間まで）"
@@ -93,5 +98,5 @@ internal fun rememberRoomQuickActions(
                 })
             }
         }
-    }
+    } }
 }
