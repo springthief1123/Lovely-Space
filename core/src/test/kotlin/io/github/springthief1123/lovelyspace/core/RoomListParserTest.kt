@@ -129,11 +129,13 @@ class RoomListParserTest {
     }
 
     @Test
-    fun anUnreadablePageIsDescribedByItsTitleOrTheStartOfItsText() {
-        assertEquals("アクセスが集中しています", RoomListParser.describePage("<html><head><title>アクセスが集中しています</title></head><body>本文</body></html>"))
-        assertEquals("しばらくお待ちください", RoomListParser.describePage("<html><body><p>しばらくお待ちください</p></body></html>"))
-        assertEquals("あ".repeat(40) + "…", RoomListParser.describePage("<p>${"あ".repeat(50)}</p>"))
-        assertNull(RoomListParser.describePage(""))
+    fun anUnreadablePageIsDescribedByItsTitleAndShape() {
+        val title = "<html><head><title>アクセスが集中しています</title></head><body>本文</body></html>"
+        assertEquals("「アクセスが集中しています」・表 0・行 0・待機中 なし・満室 なし・${title.length} 文字", RoomListParser.describePage(title))
+        val text = "<p>${"あ".repeat(50)}</p>"
+        assertTrue(RoomListParser.describePage(text).startsWith("「${"あ".repeat(40)}…」"))
+        val header = """<table class="rooms"></table><nobr><span class="wait">待機中</span> 12</nobr><nobr><span class="fill">満室</span> 3</nobr>"""
+        assertTrue(RoomListParser.describePage(header).contains("表 1・行 0・待機中 12・満室 3"))
     }
 }
 

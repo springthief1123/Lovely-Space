@@ -44,14 +44,22 @@ object RoomListParser {
     }
 
     /**
-     * 読めなかったページが何だったのかを短く表す。題名があれば題名、無ければ本文の先頭 [DESCRIBE_LENGTH] 文字。どちらも無ければ null。
-     * 一覧ではないページ（混雑・制限の案内など）を想定しているので、部屋の行や募集文は入らない。
+     * 読めなかったページが何だったのかを短く表す。題名（無ければ本文の先頭 [DESCRIBE_LENGTH] 文字）と、
+     * 一覧の表・行・見出しの数・本文の長さ。本家が一覧の形のまま部屋を出さなかったのか、別のページを返したのかを見分けるため。
+     * 部屋の行や募集文の中身は入れない。
      */
-    fun describePage(html: String): String? {
+    fun describePage(html: String): String {
         val doc = Jsoup.parse(html)
         val text = doc.title().trim().ifEmpty { doc.body()?.text()?.trim().orEmpty() }.stripInvisible()
-        if (text.isEmpty()) return null
-        return if (text.length > DESCRIBE_LENGTH) text.take(DESCRIBE_LENGTH) + "…" else text
+        val head = if (text.length > DESCRIBE_LENGTH) text.take(DESCRIBE_LENGTH) + "…" else text
+        return listOf(
+            "「$head」",
+            "表 ${doc.select("table.rooms").size}",
+            "行 ${doc.select("tr.roomcol").size}",
+            "待機中 ${headerCount(doc, "wait") ?: "なし"}",
+            "満室 ${headerCount(doc, "fill") ?: "なし"}",
+            "${html.length} 文字",
+        ).joinToString("・")
     }
 
     private fun parseRooms(doc: Document, genreKey: String): List<Room> =

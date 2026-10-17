@@ -136,7 +136,7 @@ class ShaloveClientTest {
         // 連打した取り直しで一覧ではないページが返っても、0 件の一覧にはせず失敗にする。
         val failure = runCatching { client.fetchRoomList(query, manual = true) }.exceptionOrNull()
         assertTrue(failure is RoomListUnavailableException)
-        assertEquals("しばらくお待ちください", (failure as RoomListUnavailableException).page)
+        assertTrue((failure as RoomListUnavailableException).page!!.startsWith("「しばらくお待ちください」・表 0・行 0"))
         // 前回の一覧はキャッシュに残る。
         assertEquals(first, client.fetchRoomList(query))
     }

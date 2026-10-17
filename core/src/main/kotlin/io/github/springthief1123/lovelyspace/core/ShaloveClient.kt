@@ -364,7 +364,7 @@ class ShaloveClient(
 
 /** [url] はログに残っても困らないよう、部屋の pwd を伏せた形で持つ。 */
 /**
- * 本家から返ったページが部屋の一覧として読めなかった。[page] は返ったページの題名か本文の先頭（[RoomListParser.describePage]）で、
+ * 本家から返ったページが部屋の一覧として読めなかった。[page] は返ったページの題名と形（[RoomListParser.describePage]）で、
  * 本家が何を返したのかを利用者が確かめられるように文に添える。
  */
 class RoomListUnavailableException(val page: String? = null) : IOException(
