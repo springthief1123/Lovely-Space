@@ -274,7 +274,8 @@ class ShaloveClient(
     // 応答が部屋の画面なら読んで返す（操作が反映されたかの確認に使う）。転送や部屋以外の画面なら null。
 
     /** 相手を退室させる（本家の「相手を退室」）。 */
-    suspend fun banGuest(room: ChatRoomRef): ChatPage? = postRoomForm(room, "shotact" to "ban").asRoomPage(room)
+    suspend fun banGuest(room: ChatRoomRef, canSend: () -> Boolean = { true }): ChatPage? =
+        postRoomForm(room, "shotact" to "ban", canSend = canSend).asRoomPage(room)
 
     /** 発言をクリアする（本家の「発言クリア」）。 */
     suspend fun clearLog(room: ChatRoomRef): ChatPage? = postRoomForm(room, "clearchatlog" to "1").asRoomPage(room)
@@ -297,7 +298,11 @@ class ShaloveClient(
      * `2shot.php` へ部屋の hidden 項目と [fields] を送る。成功した応答の本文を返す（転送なら null）。
      * `2shot.php` は UTF-8 のページなので、フォームも UTF-8 で送る。
      */
-    private suspend fun postRoomForm(room: ChatRoomRef, vararg fields: Pair<String, String>): String? {
+    private suspend fun postRoomForm(
+        room: ChatRoomRef,
+        vararg fields: Pair<String, String>,
+        canSend: () -> Boolean = { true },
+    ): String? {
         val url = "https://${room.host}/2shot.php"
         val body = FormBody.Builder(Charsets.UTF_8)
             .add("room_id", room.roomId.toString())
@@ -306,6 +311,8 @@ class ShaloveClient(
             .apply { fields.forEach { (name, value) -> add(name, value) } }
             .build()
         return gated(operation = true) {
+            // 通信ゲートの順番待ちが終わった直後に、対象の入れ替わりを確認する。
+            if (!canSend()) return@gated null
             val request = Request.Builder().url(url).post(body)
                 .header("User-Agent", USER_AGENT)
                 .header("Referer", room.pageUrl)
