@@ -112,6 +112,21 @@ class RoomListParserTest {
         assertEquals(2.minutes + 3.seconds, RoomListParser.parseElapsed("02:03"))
         assertNull(RoomListParser.parseElapsed("abc"))
     }
+
+    @Test
+    fun aPageThatIsNotARoomListIsNotReadable() {
+        assertTrue(RoomListParser.isReadable(page))
+        // 一覧ではない応答（見出しも行も無い）。
+        assertFalse(RoomListParser.isReadable(RoomListParser.parse("<html><body><p>しばらくお待ちください</p></body></html>", "kanto")))
+        // 見出しでは部屋があるのに、1 ページ目に行が 1 件も無い。
+        val header = """<nobr><span class="wait">待機中</span> 12</nobr><nobr><span class="fill">満室</span> 3</nobr>"""
+        assertFalse(RoomListParser.isReadable(RoomListParser.parse(header, "kanto")))
+        // 最後より後ろのページは見出しがあれば空でよい。
+        assertTrue(RoomListParser.isReadable(RoomListParser.parse(header, "kanto", page = 5)))
+        // 部屋が 1 件も無いジャンルは空の一覧として読める。
+        val empty = """<nobr><span class="wait">待機中</span> 0</nobr><nobr><span class="fill">満室</span> 0</nobr>"""
+        assertTrue(RoomListParser.isReadable(RoomListParser.parse(empty, "kanto")))
+    }
 }
 
 internal fun fixture(name: String): String =

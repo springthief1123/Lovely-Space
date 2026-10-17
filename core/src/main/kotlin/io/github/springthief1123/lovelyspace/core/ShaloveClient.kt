@@ -86,6 +86,9 @@ class ShaloveClient(
             val html = if (manual) gated(operation = true, minIntervalMs = RefreshPacing.FLOOR_MIN_INTERVAL_MS) { request(requestUrl) }
                 else get(requestUrl)
             val page = RoomListParser.parse(html, query.genre.key, query.page, requestUrl)
+            // 一覧として読めない応答（連続で取り直したときなど）は、0 件の一覧として扱わずに取得の失敗にする。
+            // キャッシュもページャも更新しないので、手元の一覧は前回のまま残る。
+            if (!RoomListParser.isReadable(page)) throw RoomListUnavailableException()
             val links = page.pageUrls.filterValues { isListUrl(it, query.genre) }
             // 1 ページ目のページャがいちばん新しい全体像なので、そのときは置き換える。
             synchronized(pagerLinks) { pagerLinks[firstUrl] = if (query.page == 1) links else pagerLinks[firstUrl].orEmpty() + links }
@@ -359,6 +362,9 @@ class ShaloveClient(
 }
 
 /** [url] はログに残っても困らないよう、部屋の pwd を伏せた形で持つ。 */
+/** 本家から返ったページが部屋の一覧として読めなかった。 */
+class RoomListUnavailableException : IOException("部屋の一覧を読み取れませんでした。少し待ってから更新してください")
+
 class HttpStatusException(val code: Int, url: String) : IOException("HTTP $code: ${redact(url)}") {
     val url: String = redact(url)
 

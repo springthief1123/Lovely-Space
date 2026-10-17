@@ -121,6 +121,26 @@ class ShaloveClientTest {
     }
 
     @Test
+    fun aResponseThatIsNotARoomListFailsAndKeepsThePreviousList() = runTest {
+        val bodies = ArrayDeque(listOf(fixture("genre_kanto_page1.html"), "<html><body><p>しばらくお待ちください</p></body></html>"))
+        val client = ShaloveClient(
+            http = OkHttpClient.Builder().addInterceptor { chain ->
+                Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("OK")
+                    .body(bodies.removeFirst().toResponseBody("text/html; charset=UTF-8".toMediaType())).build()
+            }.build(),
+            clock = { now },
+            sleep = { ms -> now += ms },
+        )
+        val query = RoomQuery(Genres["kanto"]!!)
+        val first = client.fetchRoomList(query)
+        // 連打した取り直しで一覧ではないページが返っても、0 件の一覧にはせず失敗にする。
+        val failure = runCatching { client.fetchRoomList(query, manual = true) }.exceptionOrNull()
+        assertTrue(failure is RoomListUnavailableException)
+        // 前回の一覧はキャッシュに残る。
+        assertEquals(first, client.fetchRoomList(query))
+    }
+
+    @Test
     fun noWaitWhenEnoughTimeHasPassed() = runTest {
         repeat(2) { server.enqueue(MockResponse().setBody("ok")) }
         client.get(server.url("/a").toString())
@@ -136,7 +156,7 @@ class ShaloveClientTest {
 
     @Test
     fun cancellingListWhileReadingBodyCancelsHttpAndAllowsNextGenre() {
-        assertListCancellation(MockResponse().setBody("<html></html>").throttleBody(1, 1, TimeUnit.SECONDS), waitForBody = true)
+        assertListCancellation(MockResponse().setBody(EMPTY_LIST).throttleBody(1, 1, TimeUnit.SECONDS), waitForBody = true)
     }
 
     /** 実際のOkHttp Callとローカルサーバーで、取消・一覧ロック・キャッシュ・間隔をまとめて確認。 */
@@ -155,7 +175,7 @@ class ShaloveClientTest {
             .build()
         val client = ShaloveClient(http = http, clock = { now }, sleep = { ms -> sleeps += ms; now += ms })
         server.enqueue(firstResponse)
-        repeat(2) { server.enqueue(MockResponse().setBody("<html></html>")) }
+        repeat(2) { server.enqueue(MockResponse().setBody(EMPTY_LIST)) }
         val original = RoomQuery(Genres.default)
         val obsolete = async { client.fetchRoomList(original) }
         assertNotNull(withContext(Dispatchers.IO) { server.takeRequest(5, TimeUnit.SECONDS) })
@@ -196,7 +216,7 @@ class ShaloveClientTest {
             .protocol(Protocol.HTTP_1_1)
             .code(200)
             .message("OK")
-            .body("<html></html>".toResponseBody("text/html; charset=Shift_JIS".toMediaType()))
+            .body(EMPTY_LIST.toResponseBody("text/html; charset=Shift_JIS".toMediaType()))
             .build()
     }.build()
 
@@ -274,7 +294,8 @@ class ShaloveClientTest {
                     <a href="https://example.com/g/kanto/pageID/3/">別のホスト</a>
                     <a href="https://chat.shalove.net/g/kanto/vsex/1/vwait/1/pageID/3/">別の性別</a>
                     <a href="https://chat.shalove.net/g/talk/pageID/4/">別のジャンル</a>
-                """ else "<html></html>"
+                    $EMPTY_LIST
+                """ else EMPTY_LIST
                 Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("OK")
                     .body(body.toResponseBody("text/html; charset=Shift_JIS".toMediaType())).build()
             }.build(),
@@ -296,3 +317,6 @@ class ShaloveClientTest {
         )
     }
 }
+
+/** 部屋が 1 件も無いジャンルの一覧（見出しの数が 0）。 */
+private const val EMPTY_LIST = """<html><body><nobr><span class="wait">待機中</span> 0</nobr><nobr><span class="fill">満室</span> 0</nobr></body></html>"""

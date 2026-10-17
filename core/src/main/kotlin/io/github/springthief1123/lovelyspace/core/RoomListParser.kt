@@ -31,6 +31,18 @@ object RoomListParser {
         )
     }
 
+    /**
+     * 部屋の一覧として読めたか。部屋が 1 件でもあれば読めている。0 件なら、見出しの「待機中」「満室」があり、
+     * 1 ページ目ではその数も 0 のときだけ本当に空の一覧とみなす（最後より後ろのページは見出しがあれば空でよい）。
+     * 見出しが無いページ（一覧ではない応答）や、見出しでは部屋があるのに行が無い 1 ページ目は読めていない。
+     */
+    fun isReadable(page: RoomListPage): Boolean {
+        if (page.rooms.isNotEmpty()) return true
+        val waiting = page.waitingCount ?: return false
+        val full = page.fullCount ?: return false
+        return page.page > 1 || waiting + full == 0
+    }
+
     private fun parseRooms(doc: Document, genreKey: String): List<Room> =
         doc.select("table.rooms tr.roomcol").mapNotNull { parseRow(it, genreKey) }
 
