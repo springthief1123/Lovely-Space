@@ -53,6 +53,30 @@ class ShaloveClientTest {
     fun tearDown() = server.shutdown()
 
     @Test
+    fun cancellingAnOperationDuringRateLimitWaitReleasesGate() = runTest {
+        val calls = IntArray(1)
+        val gated = ShaloveClient(
+            http = OkHttpClient.Builder().addInterceptor { chain ->
+                calls[0]++
+                Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                    .code(200).message("OK").body("ok".toResponseBody()).build()
+            }.build(),
+            clock = { testScheduler.currentTime },
+            sleep = { delay(it) },
+        )
+        gated.get("https://chat.shalove.net/first")
+        // 2 番目の利用者操作をゲートの待機中に中止する。
+        val cancelled = async { gated.get("https://chat.shalove.net/cancelled", operation = true) }
+        advanceTimeBy(100)
+        cancelled.cancelAndJoin()
+
+        // 後続の自動取得がデッドロックせず、既定の 3 秒を守って送信できる。
+        withTimeout(10_000) { gated.get("https://chat.shalove.net/next") }
+        assertEquals(2, calls[0])
+        assertEquals(3_000L, testScheduler.currentTime)
+    }
+
+    @Test
     fun acceptsOnlyTheSameRoomAndHostOnEntryRedirect() = runTest {
         val locations = ArrayDeque(listOf(
             "/2shot.php?room_id=42&pwd=test-token",
