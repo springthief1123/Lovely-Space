@@ -102,8 +102,8 @@ class ChatOwnerActionsTest {
 
     @Test fun ownerResponseDoesNotOverwriteNewerParticipantUpdates() {
         val latest = owner.copy(isFilled = true, canBanGuest = true, participantRevision = 4)
-        for (action in OwnerAction.entries) {
-            // 操作開始時は revision 3。応答を待つ間に新しい参加者が入り revision 4 へ進んだ。
+        for (action in OwnerAction.entries.filterNot { it == OwnerAction.CLEAR_LOG }) {
+            // 通常の操作開始時は revision 3。応答待ちに新しい参加者が入り revision 4 へ進んだ。
             val after = latest.afterOwnerAction(
                 action,
                 page(filled = false, canBan = false),
@@ -112,6 +112,25 @@ class ChatOwnerActionsTest {
             assertTrue("$action: 新しい入室状態を保持", after.isFilled)
             assertTrue("$action: 新しい退室操作の可否を保持", after.canBanGuest)
         }
+    }
+
+    @Test fun clearLogUsesConfirmedOccupancyAfterPollStops() {
+        // クリア開始後、poll 停止までに入退室が届き、開始時の世代と異なっていても
+        // クリア後の応答が読み出し位置と在室状態の新しい基準になる。
+        val before = owner.copy(
+            isFilled = true,
+            canBanGuest = true,
+            participantRevision = 4,
+            ownerAction = OwnerAction.CLEAR_LOG,
+        )
+        val after = before.afterOwnerAction(
+            OwnerAction.CLEAR_LOG,
+            page(filled = false, canBan = false),
+            participantRevisionAtStart = 3,
+        )
+        assertFalse("クリア後の応答で待機状態に戻る", after.isFilled)
+        assertFalse("古い相手の退室ボタンを残さない", after.canBanGuest)
+        assertNull(after.ownerAction)
     }
 
     @Test fun makingPrivateThatSiteRefusedIsReported() {
