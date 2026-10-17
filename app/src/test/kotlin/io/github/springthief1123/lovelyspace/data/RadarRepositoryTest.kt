@@ -104,7 +104,7 @@ class RadarRepositoryTest {
     private suspend fun PresetDao.stateFlowless(): org.json.JSONObject =
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
             repeat(100) {
-                val value = state("radar_v1")?.let(org.json.JSONObject::new)
+                val value = state("radar_v1")?.let { org.json.JSONObject(it) }
                 if (value != null && value.getJSONArray("plans").length() == 0) return@withContext value
                 Thread.sleep(20)
             }
