@@ -1,6 +1,7 @@
 package io.github.springthief1123.lovelyspace.core
 
 import kotlin.math.ln
+import kotlin.time.Duration
 
 /**
  * 利用者が保存した部屋と非表示にした部屋から好みを学び、部屋を好みに近い順に並べる小さな分類器（おすすめ順）。
@@ -24,10 +25,16 @@ class PreferenceModel private constructor(
         return grams.sumOf { weights[it] ?: unseen } / grams.size
     }
 
-    /** [rooms] を好みに近い順に並べる。同じ値なら元の順（本家の順）のまま。 */
-    fun rank(rooms: List<Room>): List<Room> {
+    /**
+     * [rooms] を好みに近い順に並べる。ただし直近 [recentAge] に立った待機中の部屋（巡回が優先するのと同じ境目）を先にし、
+     * その中を好みの順に、古い部屋と満室の部屋はその後ろで好みの順にする。好みに近くても何時間も前の部屋が上に来ないようにするため。
+     * 経過時間の分からない部屋は新しい側に含める。同じ値なら元の順（本家の順）のまま。
+     */
+    fun rank(rooms: List<Room>, recentAge: Duration = RECENT_ROOM_AGE): List<Room> {
         val scores = rooms.associate { roomIdentity(it) to score(it) }
-        return rooms.sortedByDescending { scores.getValue(roomIdentity(it)) }
+        val (recent, older) = rooms.partition { !it.isFull && it.elapsed.let { e -> e == null || e <= recentAge } }
+        return recent.sortedByDescending { scores.getValue(roomIdentity(it)) } +
+            older.sortedByDescending { scores.getValue(roomIdentity(it)) }
     }
 
     companion object {

@@ -2,6 +2,7 @@ package io.github.springthief1123.lovelyspace.core
 
 import org.junit.Assert.*
 import org.junit.Test
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 
 class PreferenceModelTest {
@@ -59,5 +60,20 @@ class PreferenceModelTest {
         val a = room("")
         val b = room("")
         assertEquals(listOf(a, b), model.rank(listOf(a, b)))
+    }
+
+    @Test
+    fun recentWaitingRoomsComeBeforeOldOrFullOnes() {
+        val model = PreferenceModel.train(liked, disliked, emptyList())!!
+        val oldCalm = room("のんびり雑談").copy(elapsed = 7.hours)
+        val fullCalm = room("のんびり雑談").copy(status = RoomStatus.FULL, action = RoomAction.PEEK, elapsed = 5.minutes)
+        val newPlain = room("映画の話").copy(elapsed = 10.minutes)
+        val newCalm = room("のんびりお話").copy(elapsed = 30.minutes)
+        val unknownAge = room("映画").copy(elapsed = null)
+        // 直近 1 時間の待機中（経過の分からない部屋を含む）を先に好みの順、古い部屋と満室はその後ろで好みの順。
+        val ranked = model.rank(listOf(oldCalm, fullCalm, newPlain, newCalm, unknownAge))
+        assertEquals(setOf(newCalm, newPlain, unknownAge), ranked.take(3).toSet())
+        assertEquals(newCalm, ranked.first())
+        assertEquals(setOf(oldCalm, fullCalm), ranked.drop(3).toSet())
     }
 }
