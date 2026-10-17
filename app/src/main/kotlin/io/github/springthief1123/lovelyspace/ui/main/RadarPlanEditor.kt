@@ -31,9 +31,9 @@ internal fun RadarPlanEditor(value: SearchPreset, working: Boolean, error: Strin
     var maxAge by rememberSaveable(value.id) { mutableStateOf(value.criteria.maxAge?.toString().orEmpty()) }
     val preset = draft ?: return
     val c = preset.criteria
-    val validAges = (minAge.isBlank() || (minAge.toIntOrNull() ?: 0) in 18..99) &&
-        (maxAge.isBlank() || (maxAge.toIntOrNull() ?: 0) in 18..99) &&
-        (minAge.isBlank() || maxAge.isBlank() || minAge.toInt() <= maxAge.toInt())
+    // 語は「見つける」と同じく検索欄 1 つに入れ、探す場所を選ぶ。保存済みの条件は語が入っている欄から始める。
+    var scope by rememberSaveable(value.id) { mutableStateOf(keywordScopeOf(value.criteria)) }
+    val validAges = validAgeInputs(minAge, maxAge)
     fun criteria(next: RoomSearchCriteria) { draft = preset.copy(criteria = next) }
     QuietSheet(onDismissRequest = { if (!working) onDismiss() }) {
         Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = LovelySpacing.screenHorizontal).padding(top = 8.dp, bottom = 24.dp),
@@ -42,12 +42,13 @@ internal fun RadarPlanEditor(value: SearchPreset, working: Boolean, error: Strin
             OutlinedTextField(preset.label, { draft = preset.copy(label = it) }, enabled = !working,
                 label = { Text("計画名") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             RadarDropdown("ジャンル", preset.genreKey, Genres.all.map { it.key to it.label }, !working) { draft = preset.copy(genreKey = it) }
-            OutlinedTextField(c.text, { criteria(c.copy(text = it)) }, enabled = !working, label = { Text("名前と待機メッセージの検索語") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(c.name, { criteria(c.copy(name = it)) }, enabled = !working, label = { Text("名前のキーワード") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(c.message, { criteria(c.copy(message = it)) }, enabled = !working, label = { Text("待機メッセージのキーワード") }, modifier = Modifier.fillMaxWidth())
-            RadarChoice("語句の一致", c.keywordMode, listOf(KeywordMode.ALL to "すべて", KeywordMode.ANY to "いずれか"), !working) { criteria(c.copy(keywordMode = it)) }
-            Text("複数の語句はスペースで区切ります。", style = MaterialTheme.typography.bodySmall)
-            OutlinedTextField(c.excluded, { criteria(c.copy(excluded = it)) }, enabled = !working, label = { Text("除外する語句") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(c.keyword(scope), { criteria(c.withKeyword(scope, it)) }, enabled = !working, label = { Text("検索語（スペース区切り）") },
+                placeholder = { Text(scope.placeholder) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            RadarChoice("探す場所", scope, KeywordScope.entries.map { it to it.label }, !working) { next -> criteria(c.moveKeyword(scope, next)); scope = next }
+            RadarChoice("複数の語", c.keywordMode, listOf(KeywordMode.ALL to "すべて含む", KeywordMode.ANY to "どれかを含む"), !working) { criteria(c.copy(keywordMode = it)) }
+            HiddenKeywords(hiddenKeywords(c, scope)) { criteria(c.onlyKeyword(scope)) }
+            OutlinedTextField(c.excluded, { criteria(c.copy(excluded = it)) }, enabled = !working, label = { Text("除外する語（スペース区切り）") },
+                singleLine = true, modifier = Modifier.fillMaxWidth())
             RadarChoice("性別", c.gender, listOf(null to "すべて", Gender.FEMALE to "女性", Gender.MALE to "男性"), !working) { criteria(c.copy(gender = it)) }
             QuietFieldPair(first = { fieldModifier ->
                 OutlinedTextField(minAge, { minAge = it.filter(Char::isDigit).take(2) }, enabled = !working,
@@ -58,7 +59,7 @@ internal fun RadarPlanEditor(value: SearchPreset, working: Boolean, error: Strin
                     label = { Text("最高年齢") }, singleLine = true, isError = !validAges,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = fieldModifier)
             })
-            if (!validAges) Text("年齢は18〜99で、最低年齢が最高年齢以下になるよう指定してください。", color = MaterialTheme.colorScheme.error)
+            if (!validAges) Text(AGE_RANGE_ERROR, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             QuietCheckboxRow(c.includeUnknownAge, { criteria(c.copy(includeUnknownAge = it)) }, "年齢が秘密の部屋も含める", enabled = !working)
             RadarDropdown("地域", c.area.orEmpty(), listOf("" to "すべて") + Prefectures.names.map { it to it }, !working) { criteria(c.copy(area = it.ifBlank { null })) }
             RadarChoice("利用状況", c.waitingOnly, listOf(null to "すべて", true to "待機中", false to "満室"), !working) { criteria(c.copy(waitingOnly = it)) }
@@ -68,7 +69,7 @@ internal fun RadarPlanEditor(value: SearchPreset, working: Boolean, error: Strin
             Button(enabled = !working && preset.label.isNotBlank() && validAges, onClick = {
                 onSave(preset.copy(criteria = c.copy(minAge = minAge.toIntOrNull(), maxAge = maxAge.toIntOrNull())))
             }, modifier = Modifier.fillMaxWidth()) { Text(if (working) "保存中…" else "計画を保存") }
-            TextButton(enabled = !working, onClick = onDismiss) { Text("キャンセル") }
+            TextButton(enabled = !working, onClick = onDismiss) { Text("やめる") }
         }
     }
 }

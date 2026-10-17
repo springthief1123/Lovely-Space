@@ -71,7 +71,7 @@ class QuietDialogsTest {
             }
         }
         compose.onNodeWithText("合成の中身").assertIsDisplayed()
-        compose.onNodeWithText("キャンセル").assertDoesNotExist()
+        compose.onNodeWithText("やめる").assertDoesNotExist()
         compose.onNodeWithText("合成の保存").assertIsEnabled().performClick()
         compose.runOnIdle { assertEquals(1, saved) }
     }

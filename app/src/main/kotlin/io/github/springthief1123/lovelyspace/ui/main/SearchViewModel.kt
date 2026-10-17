@@ -66,6 +66,18 @@ internal fun keywordScopeOf(c: RoomSearchCriteria): KeywordScope = when {
     else -> KeywordScope.ALL
 }
 
+/** [scope] 以外の欄の語を外した条件。検索欄に出していない語（[hiddenKeywords]）を「外す」ときに使う。 */
+internal fun RoomSearchCriteria.onlyKeyword(scope: KeywordScope): RoomSearchCriteria =
+    KeywordScope.entries.filter { it != scope }.fold(this) { c, other -> c.withKeyword(other, "") }
+
+/** 年齢の範囲が正しくないときの案内。見つけると巡回計画で同じ文にする。 */
+internal const val AGE_RANGE_ERROR = "年齢は18〜99で、最高年齢が最低年齢以上になる範囲を指定してください。"
+
+/** 年齢の入力（空欄は指定なし）が 18〜99 で、最低年齢が最高年齢以下か。 */
+internal fun validAgeInputs(min: String, max: String): Boolean =
+    (min.isEmpty() || min.toIntOrNull() != null) && (max.isEmpty() || max.toIntOrNull() != null) &&
+        RoomSearchCriteria(minAge = min.toIntOrNull(), maxAge = max.toIntOrNull()).isValid
+
 /** 検索欄に出していない欄に残っている語（以前の版で保存した条件など）。欄の名前と語の組。 */
 internal fun hiddenKeywords(c: RoomSearchCriteria, scope: KeywordScope): List<Pair<KeywordScope, String>> =
     KeywordScope.entries.filter { it != scope }.map { it to c.keyword(it) }.filter { (_, word) -> word.isNotBlank() }
@@ -162,9 +174,7 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
     fun keywordScope(value: KeywordScope) =
         _state.update { it.copy(criteria = it.criteria.moveKeyword(it.keywordScope, value), keywordScope = value) }
     /** 検索欄に出していない欄の語を消す。 */
-    fun clearHiddenKeywords() = criteria(_state.value.let { s ->
-        KeywordScope.entries.filter { it != s.keywordScope }.fold(s.criteria) { c, scope -> c.withKeyword(scope, "") }
-    })
+    fun clearHiddenKeywords() = criteria(_state.value.let { s -> s.criteria.onlyKeyword(s.keywordScope) })
 
     /** 条件をすべて既定に戻し、戻す前の入力を返す。もともと既定なら何もせず null。 */
     fun resetCriteria(): SearchDraft? {

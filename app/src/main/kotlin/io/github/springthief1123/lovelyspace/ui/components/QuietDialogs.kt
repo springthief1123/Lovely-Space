@@ -46,7 +46,7 @@ fun QuietDialog(
     onConfirm: () -> Unit,
     confirmEnabled: Boolean = true,
     destructive: Boolean = false,
-    dismissLabel: String? = "キャンセル",
+    dismissLabel: String? = "やめる",
     onDismiss: () -> Unit = onDismissRequest,
     dismissEnabled: Boolean = true,
     error: String? = null,

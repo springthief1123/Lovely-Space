@@ -210,6 +210,8 @@ internal fun LockChallenge(
             style = MaterialTheme.typography.bodyMedium,
             color = if (error != null || lockedOut) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
+            // 待つよう求める案内は 2 行になることがある。常に 2 行分の高さを取り、キーパッドやパターンが上下に動かないようにする。
+            minLines = 2,
         )
         Spacer(Modifier.height(28.dp))
         when (method) {

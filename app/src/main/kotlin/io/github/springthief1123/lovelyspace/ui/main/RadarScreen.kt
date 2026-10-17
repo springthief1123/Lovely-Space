@@ -318,7 +318,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
     if (pauseConfirm) QuietConfirmDialog(title = "計画・候補監視をすべて停止しますか？",
         text = "計画・候補条件と確認済みの結果は残します。実行中の通信は完了させ、以降の計画・候補ページは取得しません。背景の巡回も止めます。部屋の追跡設定は保持します。",
         confirmLabel = "すべて停止", onConfirm = { action { app.radar.pauseAllPlans(); pauseConfirm = false } },
-        onDismiss = { pauseConfirm = false }, enabled = !working, dismissLabel = "キャンセル", error = error)
+        onDismiss = { pauseConfirm = false }, enabled = !working, error = error)
     candidateDraft?.let { value ->
         CandidateRuleEditor(value, working, error, onDismiss = { candidateDraft = null },
             onSave = { action { app.radar.saveCandidate(it); candidateDraft = null } })
@@ -326,7 +326,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
     deletingCandidate?.let { rule ->
         QuietConfirmDialog(title = "候補条件を削除しますか？", text = rule.label,
             confirmLabel = "削除", onConfirm = { action { app.radar.removeCandidate(rule.id); deletingCandidate = null } },
-            onDismiss = { deletingCandidate = null }, destructive = true, enabled = !working, dismissLabel = "キャンセル", error = error)
+            onDismiss = { deletingCandidate = null }, destructive = true, enabled = !working, error = error)
     }
     result?.let { found ->
         QuietSheet(onDismissRequest = { result = null }) {

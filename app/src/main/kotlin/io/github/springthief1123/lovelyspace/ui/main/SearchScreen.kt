@@ -30,6 +30,7 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
@@ -231,9 +232,11 @@ private fun SearchStatusRow(
     refreshEnabled: Boolean,
 ) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f))
-        IconButton(onClick = { onAutomaticChange(!automatic) }) {
+        // 自動更新の状態をアイコンの形と色だけに頼らない。止めているときは文でも示し、ボタンの読み上げにも状態を付ける。
+        Text(if (automatic) text else "$text・自動更新を停止中", style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+        IconButton(onClick = { onAutomaticChange(!automatic) },
+            modifier = Modifier.semantics { stateDescription = if (automatic) "自動更新中" else "自動更新を停止中" }) {
             Icon(if (automatic) Icons.Outlined.Sync else Icons.Outlined.SyncDisabled,
                 contentDescription = if (automatic) "自動更新を一時停止" else "自動更新を再開",
                 tint = if (automatic) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
