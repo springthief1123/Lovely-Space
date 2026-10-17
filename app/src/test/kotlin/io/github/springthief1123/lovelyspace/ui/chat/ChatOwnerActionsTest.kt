@@ -91,6 +91,15 @@ class ChatOwnerActionsTest {
         assertEquals("新しい合成の待機文", changed.waitingMessage)
     }
 
+    @Test fun allOwnerActionsTakeOccupancyFromServerResponse() {
+        val stale = owner.copy(isFilled = true, canBanGuest = true, ownerAction = OwnerAction.CHANGE_MESSAGE)
+        for (action in OwnerAction.entries) {
+            val after = stale.afterOwnerAction(action, page(filled = false, canBan = false))
+            assertFalse("$action: 応答後は待機に戻る", after.isFilled)
+            assertFalse("$action: 古い相手への操作を残さない", after.canBanGuest)
+        }
+    }
+
     @Test fun makingPrivateThatSiteRefusedIsReported() {
         val refused = owner.afterOwnerAction(OwnerAction.MAKE_PRIVATE, page(isPublic = true))
         assertTrue(refused.isPublic)
