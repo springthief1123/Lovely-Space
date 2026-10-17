@@ -70,7 +70,9 @@ class WaitlistRepositoryTest {
         assertTrue("同じです" in n.text)
     }
 
-    @Test fun whileTheAppIsOpenWaitingRoomsAreCheckedAtTheChosenIntervalAndFailuresBackOff() = runTest {
+    @Test
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun whileTheAppIsOpenWaitingRoomsAreCheckedAtTheChosenIntervalAndFailuresBackOff() = runTest {
         val lists = Lists().apply { pages = mapOf(1 to listOf(full)) }
         val waitlist = WaitlistRepository(Memory(), lists, {}, backgroundScope) { 0L }
         waitlist.register(full, RoomQuery(zenkoku))
