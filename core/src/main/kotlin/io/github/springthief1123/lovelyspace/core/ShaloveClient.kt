@@ -1,6 +1,8 @@
 package io.github.springthief1123.lovelyspace.core
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
@@ -85,7 +87,7 @@ class ShaloveClient(
             val requestUrl = pagerLinks[firstUrl]?.get(query.page)?.takeIf { isListUrl(it, query.genre) && query.matchesPagerUrl(it) } ?: url
             val html = if (manual) gated(operation = true, minIntervalMs = 0) { request(requestUrl) }
                 else get(requestUrl)
-            val page = RoomListParser.parse(html, query.genre.key, query.page, requestUrl)
+            val page = parsing { RoomListParser.parse(html, query.genre.key, query.page, requestUrl) }
             // 一覧として読めない応答（連続で取り直したときなど）は、0 件の一覧として扱わずに取得の失敗にする。
             // キャッシュもページャも更新しないので、手元の一覧は前回のまま残る。
             if (!RoomListParser.isReadable(page)) throw RoomListUnavailableException(RoomListParser.describePage(html))
@@ -164,6 +166,9 @@ class ShaloveClient(
         }
     }
 
+    /** 本家の HTML の解析。呼び出し元が画面のメインスレッドでも、解析は別のスレッドで行う。 */
+    private suspend fun <T> parsing(block: () -> T): T = withContext(Dispatchers.Default) { block() }
+
     private suspend fun acquire(operation: Boolean) {
         if (operation) {
             waitingOperations.incrementAndGet()
@@ -218,20 +223,32 @@ class ShaloveClient(
             }
             .build()
         val url = "https://${form.host}/PreEnterRoom"
-        return gated(operation = true) {
-            val request = Request.Builder().url(url).post(body)
-                .header("User-Agent", USER_AGENT)
-                .header("Referer", "$url?room_id=${form.roomId}&genre_key=${form.genreKey}")
-                .build()
-            noRedirectHttp.newCall(request).execute().use { res ->
-                val location = res.header("Location")
-                if (res.isRedirect && location != null) {
-                    val room = res.request.url.resolve(location)?.toEnteredRoom(form)
-                    return@use room?.let(EntryResult::Entered) ?: EntryResult.Rejected("入室できませんでした")
-                }
-                if (!res.isSuccessful) throw HttpStatusException(res.code, url)
-                EntryResult.Rejected(EntryFormParser.errorMessage(decodeBody(res)))
+        // 入室の POST は送り始めると取り消せず（同期の execute()）、本家では入室が済む。画面を閉じて取り消されたときに
+        // 結果を捨てると、作成者からは黙ったままの相手が入って見えるので、入れていたら退室を送って本家に残さない。
+        var sent: EntryResult? = null
+        try {
+            return gated(operation = true) { enterRequest(form, url, body).also { sent = it } }
+        } catch (e: CancellationException) {
+            (sent as? EntryResult.Entered)?.let { entered ->
+                withContext(NonCancellable) { runCatching { leave(entered.room) } }
             }
+            throw e
+        }
+    }
+
+    private fun enterRequest(form: EntryForm, url: String, body: FormBody): EntryResult {
+        val request = Request.Builder().url(url).post(body)
+            .header("User-Agent", USER_AGENT)
+            .header("Referer", "$url?room_id=${form.roomId}&genre_key=${form.genreKey}")
+            .build()
+        return noRedirectHttp.newCall(request).execute().use { res ->
+            val location = res.header("Location")
+            if (res.isRedirect && location != null) {
+                val room = res.request.url.resolve(location)?.toEnteredRoom(form)
+                return@use room?.let(EntryResult::Entered) ?: EntryResult.Rejected("入室できませんでした")
+            }
+            if (!res.isSuccessful) throw HttpStatusException(res.code, url)
+            EntryResult.Rejected(EntryFormParser.errorMessage(decodeBody(res)))
         }
     }
 
@@ -247,12 +264,16 @@ class ShaloveClient(
     }
 
     /** 待機画面・チャット画面を開き、初期状態（直近のログ・読み出し位置など）を得る。 */
-    suspend fun openChat(room: ChatRoomRef): ChatPage = ChatPageParser.parse(get(room.pageUrl, operation = true), room)
+    suspend fun openChat(room: ChatRoomRef): ChatPage {
+        val html = get(room.pageUrl, operation = true)
+        return parsing { ChatPageParser.parse(html, room) }
+    }
 
     /** 公開閲覧は入室・発言・退室を送信しない。ページ通信と同じ制限を共有する。 */
     suspend fun openPublicRoom(host: String, genreKey: String, roomId: Long): io.github.springthief1123.lovelyspace.core.chat.PublicRoomPage {
         val url = SitePages.publicRoom(host, genreKey, roomId)
-        return io.github.springthief1123.lovelyspace.core.chat.PublicRoomParser.parse(get(url, operation = true), url)
+        val html = get(url, operation = true)
+        return parsing { io.github.springthief1123.lovelyspace.core.chat.PublicRoomParser.parse(html, url) }
     }
 
     /**
@@ -297,8 +318,8 @@ class ShaloveClient(
     suspend fun setPublic(room: ChatRoomRef, public: Boolean): ChatPage? =
         postRoomForm(room, "set_is_public" to if (public) "1" else "0").asRoomPage(room)
 
-    private fun String?.asRoomPage(room: ChatRoomRef): ChatPage? =
-        this?.let { runCatching { ChatPageParser.parse(it, room) }.getOrNull() }
+    private suspend fun String?.asRoomPage(room: ChatRoomRef): ChatPage? =
+        this?.let { html -> parsing { runCatching { ChatPageParser.parse(html, room) }.getOrNull() } }
 
     /**
      * `2shot.php` へ部屋の hidden 項目と [fields] を送る。成功した応答の本文を返す（転送なら null）。

@@ -124,13 +124,16 @@ class RadarRepository(
                             val hidden = hiddenRooms()
                             _state.update { state -> edited.fold(state) { acc, preset -> seedPlan(preset, hidden, acc) } }
                         }
+                        var processed = false
                         observations.values.sortedBy { it.revision }.forEach { observation ->
                             if ((seen[observation.query] ?: 0) >= observation.revision) return@forEach
                             process(observation, emptyList())
+                            processed = true
                             seen[observation.query] = observation.revision
                             _state.update { state -> state.copy(lastConfirmedAt = maxOf(state.lastConfirmedAt ?: observation.confirmedAt, observation.confirmedAt)) }
                         }
-                        persist()
+                        // 一覧の取得のたびに全体を書かない。反映するものが無ければ保存もしない（変わっていなければ persist も書かない）。
+                        if (processed || edited.isNotEmpty()) persist()
                     }
                 }
             } catch (e: CancellationException) { throw e }
@@ -670,6 +673,8 @@ class RadarRepository(
         return (cursors[key] ?: PageCursor()).after(o.page.page, window).also { cursors[key] = it }.next
     }
     private fun planKey(preset: SearchPreset): String = "${preset.id}/${preset.genreKey}/${preset.criteria}"
+    /** 最後に保存できた内容。同じ内容なら DB へ書き直さない（一覧の取得ごとに数百 KB を書くのを避ける）。 */
+    private var persisted: String? = null
     private suspend fun persist() {
         val s = _state.value
         val json = JSONObject().put("plans", JSONArray(s.plans.toList())).put("targetSort", s.targetSort.name)
@@ -695,7 +700,10 @@ class RadarRepository(
                 put(key, JSONObject().put("at", at).put("ids", JSONArray(ids.toList().takeLast(MAX_KNOWN))))
             } })
         })
-        dao.put(LocalState(KEY, json.toString()))
+        val value = json.toString()
+        if (value == persisted) return
+        dao.put(LocalState(KEY, value))
+        persisted = value
     }
     private fun restoreBaselines(value: String) {
         JSONObject(value).optJSONObject("backgroundTried")?.let { tried -> tried.keys().forEach { key -> backgroundTriedAt[key] = tried.getLong(key) } }

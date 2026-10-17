@@ -126,7 +126,9 @@ class RoomPreferenceRepository(private val db: PresetDatabase) : RoomPreferenceS
             rooms.forEach { room ->
                 val existing = dao.preference(roomHost(room), room.id) ?: return@forEach
                 val next = if (existing.sameIdentity(room)) existing.refreshed(room) else existing.copy(stale = true)
-                if (next != existing) dao.put(next)
+                // 経過時間（「◯分前」）は取得のたびに変わる。それだけの違いで書き直すと、取得のたびに
+                // 保存の一覧が流れ直して画面が計算し直すので、ほかの項目が変わったときだけ書く（経過時間もそのとき更新する）。
+                if (next.copy(snapshotElapsedSeconds = existing.snapshotElapsedSeconds) != existing) dao.put(next)
             }
         }
     }

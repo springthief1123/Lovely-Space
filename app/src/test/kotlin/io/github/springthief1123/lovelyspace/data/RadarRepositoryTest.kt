@@ -64,6 +64,27 @@ class RadarRepositoryTest {
             assertTrue(restored.state.value.results.isEmpty())
         } finally { db.close() }
     }
+    @Test fun readingTheSameListAgainDoesNotRewriteTheSavedState() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            var puts = 0
+            val dao = object : PresetDao by db.presets() {
+                override suspend fun put(value: LocalState) { puts++; db.presets().put(value) }
+            }
+            val searches = SearchPresetRepository(db)
+            searches.save(SearchPreset("a", "合成条件", "zenkoku", RoomSearchCriteria()))
+            val lists = Lists().apply { rooms = listOf(room) }
+            val radar = RadarRepository(dao, lists, searches, RoomPreferenceRepository(db), backgroundScope)
+            radar.state.first { it.loaded }; radar.setPlan("a", true); radar.scan()
+            val afterFirst = puts
+            // 同じ一覧を読み直しただけ（新しい一致・履歴なし）なら、保存した内容は変わらないので書き直さない。
+            repeat(3) { radar.scan() }
+            assertEquals(afterFirst, puts)
+            // 新しい一致が出れば保存する。
+            lists.rooms = listOf(room, room.copy(id = 43, name = "追加の合成")); radar.scan()
+            assertTrue(puts > afterFirst)
+        } finally { db.close() }
+    }
     @Test fun failingTransactionCannotUndoAutomaticPollingStop() = runTest {
         val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
         try {
