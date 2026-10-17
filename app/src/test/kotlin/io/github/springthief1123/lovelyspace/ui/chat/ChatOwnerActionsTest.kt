@@ -100,6 +100,20 @@ class ChatOwnerActionsTest {
         }
     }
 
+    @Test fun ownerResponseDoesNotOverwriteNewerParticipantUpdates() {
+        val latest = owner.copy(isFilled = true, canBanGuest = true, participantRevision = 4)
+        for (action in OwnerAction.entries) {
+            // 操作開始時は revision 3。応答を待つ間に新しい参加者が入り revision 4 へ進んだ。
+            val after = latest.afterOwnerAction(
+                action,
+                page(filled = false, canBan = false),
+                participantRevisionAtStart = 3,
+            )
+            assertTrue("$action: 新しい入室状態を保持", after.isFilled)
+            assertTrue("$action: 新しい退室操作の可否を保持", after.canBanGuest)
+        }
+    }
+
     @Test fun makingPrivateThatSiteRefusedIsReported() {
         val refused = owner.afterOwnerAction(OwnerAction.MAKE_PRIVATE, page(isPublic = true))
         assertTrue(refused.isPublic)
