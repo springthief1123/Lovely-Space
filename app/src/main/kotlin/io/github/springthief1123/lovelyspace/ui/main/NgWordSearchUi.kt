@@ -51,6 +51,7 @@ internal fun NgStatusRow(count: Int, suspended: Boolean, onShow: () -> Unit, onR
 }
 
 /** NG ワードで外した部屋の一覧。誤って外れた部屋に気づけるよう、当たった語を添える。 */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun NgExcludedSheet(
     excluded: List<NgExcluded>,
