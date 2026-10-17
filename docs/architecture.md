@@ -82,6 +82,15 @@ AppNavHost / LovelyAppShell
 
 アプリで名前・年齢・地域・待機メッセージを入力（プリセットから選べる）→ 本家の `/PreMakeRoom` を WebView で開き、スクリプトでフォームを埋める → 利用者がロボット確認と作成ボタンを押す → `2shot.php` への遷移を捕まえて会話画面へ。
 
+## オンデバイスAIによる判断補助（提案・採用未定）
+
+将来の意味検索・通知補助・状況要約については [on-device-ai.md](on-device-ai.md) と [Issue #101](https://github.com/springthief1123/Lovely-Space/issues/101) で比較検討する。**現状のアーキテクチャにAIを必須要件として組み込むものではない。**
+
+- AIは `app` 側の任意の推論アダプターとして分離し、`core` の通信・HTML解析・状態判定にAI SDK依存を持ち込まない。
+- 評価に使うのは `RoomListRepository` / `RadarRepository` の既存の確定観測結果のみ。新たな本家通信を行わず、通信間隔・キャッシュ・背景のWorkManager規則を変えない。
+- 空き・入室・退室の通知発火、人物の同一性、入室操作は従来の確定的なロジックと利用者操作に委ねる。AIの故障・非対応時も従来の機能を維持する。
+- 最初の候補は前面表示中の意味検索。実装・モデル・端末内データ保持は実機評価と Issue #101 の意思決定後に確定する。
+
 ## テスト
 
 - core: `core/src/test`。本家の HTML・JS 応答は `core/src/test/resources/fixtures` の合成データ（構造は本物と同じ、名前や本文は架空）。通信は MockWebServer。
