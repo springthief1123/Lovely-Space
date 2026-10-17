@@ -23,8 +23,10 @@ import kotlinx.coroutines.launch
 fun PublicRoomScreen(host: String, genreKey: String, roomId: Long, onBack: () -> Unit) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val vm: PublicRoomViewModel = viewModel(factory = viewModelFactory {
-        initializer { PublicRoomViewModel { app.client.openPublicRoom(host, genreKey, roomId) } }
+        initializer { PublicRoomViewModel { manual -> app.client.openPublicRoom(host, genreKey, roomId, manual) } }
     })
+    // 画面の切り替えの動きが終わる（RESUMED になる）のを待たずに読み始める。
+    LaunchedEffect(vm) { vm.open() }
     val state by vm.state.collectAsStateWithLifecycle()
     ForegroundPolling(state.automatic, vm, vm::stopRefresh) { vm.monitor { app.pacing.value.sanitized().publicRoomMs } }
     val snackbar = remember { SnackbarHostState() }

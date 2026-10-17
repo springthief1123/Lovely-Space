@@ -23,25 +23,46 @@ data class PublicRoomUiState(
     val roles: RoomRoles = RoomRoles(),
 )
 
-class PublicRoomViewModel(private val fetch: suspend () -> PublicRoomPage) : ViewModel() {
+/**
+ * [fetch] の引数は利用者が押した読み込みか（「覗く」で開いた最初の読み込み・「再読み込み」）。押した読み込みは間隔を空けずに取る。
+ * [clock] は前回の読み込みからの経過時間の計測用（ミリ秒）。
+ */
+class PublicRoomViewModel(
+    private val clock: () -> Long = { System.nanoTime() / 1_000_000 },
+    private val fetch: suspend (manual: Boolean) -> PublicRoomPage,
+) : ViewModel() {
     private val _state = MutableStateFlow(PublicRoomUiState())
     val state = _state.asStateFlow()
     private val mutex = Mutex()
     private var nextId = 0L
     private var refreshJob: Job? = null
-    fun refresh() { if (!_state.value.loading && refreshJob?.isActive != true) refreshJob = viewModelScope.launch { read() } }
+    /** 前回の読み込みが終わった時刻。自動の読み直しはここから間隔を数える。 */
+    private var readAt: Long? = null
+    /**
+     * 画面を開いたらすぐ読み込む。画面の切り替えの動きが終わるのを待たない。
+     * 一度読み込んだ後（画面の回転など）は何もしない。
+     */
+    fun open() { if (readAt == null && refreshJob == null) refreshJob = viewModelScope.launch { read(manual = true) } }
+    fun refresh() { if (!_state.value.loading && refreshJob?.isActive != true) refreshJob = viewModelScope.launch { read(manual = true) } }
     fun stopRefresh() { refreshJob?.cancel() }
-    /** 閲覧中、[interval]（設定の間隔、ミリ秒）ごとに読み直す。読めなかったときは間を空けてから試す。 */
+    /**
+     * 閲覧中、[interval]（設定の間隔、ミリ秒）ごとに読み直す。読めなかったときは間を空けてから試す。
+     * 間隔は前回の読み込みから数えるので、開いた直後の読み込みの後や、戻ってきたときにすぐ二重には読まない。
+     */
     suspend fun monitor(interval: () -> Long = { RefreshPacing.DEFAULT_PUBLIC_ROOM_MS }) {
+        // 開いた直後の読み込みが終わるのを待ってから数え始める。
+        refreshJob?.takeIf { it.isActive }?.join()
         while (currentCoroutineContext().isActive && _state.value.automatic) {
-            read()
-            delay(if (_state.value.error != null) maxOf(interval(), RoomPageSchedule.ERROR_INTERVAL_MS) else interval())
+            val gap = if (_state.value.error != null) maxOf(interval(), RoomPageSchedule.ERROR_INTERVAL_MS) else interval()
+            val wait = readAt?.let { it + gap - clock() } ?: 0
+            if (wait > 0) { delay(wait); continue }
+            read(manual = false)
         }
     }
-    private suspend fun read() = mutex.withLock {
+    private suspend fun read(manual: Boolean) = mutex.withLock {
         _state.update { it.copy(loading = true) }
         try {
-            val page = fetch()
+            val page = fetch(manual)
             currentCoroutineContext().ensureActive()
             // 同文・同時刻の発言も行数分保持し、更新後も既存のスクロール位置を維持する。
             val existing = _state.value.lines.groupBy { it.line }.mapValues { it.value.asReversed().toMutableList() }
@@ -56,6 +77,6 @@ class PublicRoomViewModel(private val fetch: suspend () -> PublicRoomPage) : Vie
         catch (e: PublicRoomUnavailableException) {
             _state.update { it.copy(lines = emptyList(), opened = false, automatic = false, error = e.message) }
         } catch (e: Exception) { _state.update { it.copy(error = describeError(e)) } }
-        finally { _state.update { it.copy(loading = false) } }
+        finally { readAt = clock(); _state.update { it.copy(loading = false) } }
     }
 }
