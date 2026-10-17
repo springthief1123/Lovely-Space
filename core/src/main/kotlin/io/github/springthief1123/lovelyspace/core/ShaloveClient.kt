@@ -220,18 +220,24 @@ class ShaloveClient(
             noRedirectHttp.newCall(request).execute().use { res ->
                 val location = res.header("Location")
                 if (res.isRedirect && location != null) {
-                    val target = res.request.url.resolve(location)
-                    val pwd = target?.queryParameter("pwd")
-                    val roomId = target?.queryParameter("room_id")?.toLongOrNull()
-                    if (target != null && target.encodedPath.endsWith("/2shot.php") && pwd != null && roomId != null) {
-                        return@use EntryResult.Entered(ChatRoomRef(target.host, roomId, pwd, form.genreKey))
-                    }
-                    return@use EntryResult.Rejected("入室できませんでした")
+                    val room = res.request.url.resolve(location)?.toEnteredRoom(form)
+                    return@use room?.let(EntryResult::Entered) ?: EntryResult.Rejected("入室できませんでした")
                 }
                 if (!res.isSuccessful) throw HttpStatusException(res.code, url)
                 EntryResult.Rejected(EntryFormParser.errorMessage(decodeBody(res)))
             }
         }
+    }
+
+    /**
+     * 入室成功の転送先は、元の部屋の HTTPS URL だけを受け入れる。
+     * 別ホストや別 ID への転送に含まれる pwd を本人用トークンとして扱わない。
+     */
+    private fun HttpUrl.toEnteredRoom(form: EntryForm): ChatRoomRef? {
+        if (scheme != "https" || host != form.host || encodedPath != "/2shot.php") return null
+        val roomId = queryParameter("room_id")?.toLongOrNull()?.takeIf { it == form.roomId } ?: return null
+        val pwd = queryParameter("pwd")?.takeIf { it.isNotBlank() } ?: return null
+        return ChatRoomRef(host, roomId, pwd, form.genreKey)
     }
 
     /** 待機画面・チャット画面を開き、初期状態（直近のログ・読み出し位置など）を得る。 */
