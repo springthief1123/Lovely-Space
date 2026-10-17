@@ -109,7 +109,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
     val indicatorTop = lovelyMainContentTopPadding()
     PullToRefreshBox(
         isRefreshing = pullRefreshing,
-        // 本家の「最新更新」と同じく、読み込み中でも引けば取り直す（間隔は ShaloveClient が 1 秒空ける）。
+        // 本家の「最新更新」と同じく、読み込み中でも引けば取り直す（通信は ShaloveClient が 1 本ずつ通す）。
         onRefresh = { if (state.initialized) { userRefreshing = true; vm.refresh() } },
         modifier = Modifier.fillMaxSize(),
         state = pullState,
@@ -250,8 +250,9 @@ private fun SearchStatusRow(
 @Composable
 private fun RefreshButton(refreshing: Boolean, refreshedCount: Int, onRefresh: () -> Unit, enabled: Boolean) {
     var spinning by remember { mutableStateOf(refreshing) }
+    // 押したとき・取り直しが始まったときから数えて、最低 [MIN_SPIN_MS] は回す。連打中は押すたびに延びるので、輪は途切れずに回り続ける。
     var spinStartedAt by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(refreshing) {
+    LaunchedEffect(refreshing, spinStartedAt) {
         if (refreshing) {
             if (!spinning) spinStartedAt = System.currentTimeMillis()
             spinning = true
@@ -260,23 +261,23 @@ private fun RefreshButton(refreshing: Boolean, refreshedCount: Int, onRefresh: (
             spinning = false
         }
     }
-    // 回数が増えたときだけ印を出す。ジャンルを変えて 0 に戻ったときは出さない。
+    // 回数が増えて輪が止まったときだけ印を出す。ジャンルを変えて 0 に戻ったときは出さない。
+    // 印を出している途中で押されたり次の取り直しが済んだりしても、必ず消してから次を出す（出たままにしない）。
     var seenCount by remember { mutableIntStateOf(refreshedCount) }
     var done by remember { mutableStateOf(false) }
     LaunchedEffect(refreshedCount, spinning) {
-        if (refreshedCount > seenCount && !spinning) {
-            seenCount = refreshedCount
-            done = true
-            kotlinx.coroutines.delay(DONE_MS)
-            done = false
-        } else if (refreshedCount < seenCount) seenCount = refreshedCount
+        if (refreshedCount < seenCount) seenCount = refreshedCount
+        if (spinning || refreshedCount == seenCount) return@LaunchedEffect
+        seenCount = refreshedCount
+        done = true
+        try { kotlinx.coroutines.delay(DONE_MS) } finally { done = false }
     }
     val description = when {
         spinning -> "更新中。押すともう一度取り直します"
         done -> "更新しました。押すともう一度取り直します"
         else -> "今すぐ更新"
     }
-    IconButton(onClick = { done = false; onRefresh() }, enabled = enabled,
+    IconButton(onClick = { done = false; spinStartedAt = System.currentTimeMillis(); spinning = true; onRefresh() }, enabled = enabled,
         modifier = Modifier.semantics { contentDescription = description; liveRegion = LiveRegionMode.Polite }) {
         Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
             if (spinning) CircularProgressIndicator(Modifier.matchParentSize(), strokeWidth = 2.dp)

@@ -31,6 +31,37 @@ object RoomListParser {
         )
     }
 
+    /**
+     * 部屋の一覧として読めたか。部屋が 1 件でもあれば読めている。0 件なら、見出しの「待機中」「満室」があり、
+     * 1 ページ目ではその数も 0 のときだけ本当に空の一覧とみなす（最後より後ろのページは見出しがあれば空でよい）。
+     * 見出しが無いページ（一覧ではない応答）や、見出しでは部屋があるのに行が無い 1 ページ目は読めていない。
+     */
+    fun isReadable(page: RoomListPage): Boolean {
+        if (page.rooms.isNotEmpty()) return true
+        val waiting = page.waitingCount ?: return false
+        val full = page.fullCount ?: return false
+        return page.page > 1 || waiting + full == 0
+    }
+
+    /**
+     * 読めなかったページが何だったのかを短く表す。題名（無ければ本文の先頭 [DESCRIBE_LENGTH] 文字）と、
+     * 一覧の表・行・見出しの数・本文の長さ。本家が一覧の形のまま部屋を出さなかったのか、別のページを返したのかを見分けるため。
+     * 部屋の行や募集文の中身は入れない。
+     */
+    fun describePage(html: String): String {
+        val doc = Jsoup.parse(html)
+        val text = doc.title().trim().ifEmpty { doc.body()?.text()?.trim().orEmpty() }.stripInvisible()
+        val head = if (text.length > DESCRIBE_LENGTH) text.take(DESCRIBE_LENGTH) + "…" else text
+        return listOf(
+            "「$head」",
+            "表 ${doc.select("table.rooms").size}",
+            "行 ${doc.select("tr.roomcol").size}",
+            "待機中 ${headerCount(doc, "wait") ?: "なし"}",
+            "満室 ${headerCount(doc, "fill") ?: "なし"}",
+            "${html.length} 文字",
+        ).joinToString("・")
+    }
+
     private fun parseRooms(doc: Document, genreKey: String): List<Room> =
         doc.select("table.rooms tr.roomcol").mapNotNull { parseRow(it, genreKey) }
 
@@ -143,6 +174,7 @@ object RoomListParser {
         return counts
     }
 
+    private const val DESCRIBE_LENGTH = 40
     private val TOTAL_ROOMS = Regex("""総部屋数\s*(\d+)""")
     private val PAGE_ID = Regex("""/pageID/(\d+)/""")
     private val LIST_PATH = Regex("""^(?:https?://[^/]+)?/g/[a-z]+/""")

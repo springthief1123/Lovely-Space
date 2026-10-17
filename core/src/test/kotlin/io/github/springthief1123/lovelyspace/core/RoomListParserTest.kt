@@ -112,6 +112,31 @@ class RoomListParserTest {
         assertEquals(2.minutes + 3.seconds, RoomListParser.parseElapsed("02:03"))
         assertNull(RoomListParser.parseElapsed("abc"))
     }
+
+    @Test
+    fun aPageThatIsNotARoomListIsNotReadable() {
+        assertTrue(RoomListParser.isReadable(page))
+        // 一覧ではない応答（見出しも行も無い）。
+        assertFalse(RoomListParser.isReadable(RoomListParser.parse("<html><body><p>しばらくお待ちください</p></body></html>", "kanto")))
+        // 見出しでは部屋があるのに、1 ページ目に行が 1 件も無い。
+        val header = """<nobr><span class="wait">待機中</span> 12</nobr><nobr><span class="fill">満室</span> 3</nobr>"""
+        assertFalse(RoomListParser.isReadable(RoomListParser.parse(header, "kanto")))
+        // 最後より後ろのページは見出しがあれば空でよい。
+        assertTrue(RoomListParser.isReadable(RoomListParser.parse(header, "kanto", page = 5)))
+        // 部屋が 1 件も無いジャンルは空の一覧として読める。
+        val empty = """<nobr><span class="wait">待機中</span> 0</nobr><nobr><span class="fill">満室</span> 0</nobr>"""
+        assertTrue(RoomListParser.isReadable(RoomListParser.parse(empty, "kanto")))
+    }
+
+    @Test
+    fun anUnreadablePageIsDescribedByItsTitleAndShape() {
+        val title = "<html><head><title>アクセスが集中しています</title></head><body>本文</body></html>"
+        assertEquals("「アクセスが集中しています」・表 0・行 0・待機中 なし・満室 なし・${title.length} 文字", RoomListParser.describePage(title))
+        val text = "<p>${"あ".repeat(50)}</p>"
+        assertTrue(RoomListParser.describePage(text).startsWith("「${"あ".repeat(40)}…」"))
+        val header = """<table class="rooms"></table><nobr><span class="wait">待機中</span> 12</nobr><nobr><span class="fill">満室</span> 3</nobr>"""
+        assertTrue(RoomListParser.describePage(header).contains("表 1・行 0・待機中 12・満室 3"))
+    }
 }
 
 internal fun fixture(name: String): String =

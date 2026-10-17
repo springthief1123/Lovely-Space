@@ -34,7 +34,7 @@ import kotlin.coroutines.resumeWithException
  * 本家サイトへのすべての通信をここに集約する。
  *
  * 規約で「通常のブラウザ利用とは異なるアクセスを繰り返す」ツールアクセスが禁止されているため、
- * - リクエスト同士の間隔を [RefreshPacing.minIntervalMs] 以上空ける（1 秒より短くはしない）
+ * - リクエスト同士の間隔を [RefreshPacing.minIntervalMs] 以上空ける（1 秒より短くはしない。利用者が押した一覧の取り直しだけは空けない）
  * - 同じ一覧 URL は [RefreshPacing.listCacheTtlMs] の間は再取得しない
  * をここで強制する。間隔は利用者が設定で選び、通信のたびに [pacing] から読む。
  *
@@ -69,8 +69,8 @@ class ShaloveClient(
      * [forceRefresh] でも、呼び出した時点より後に別の呼び出しが取得し終えていればその結果を使う。
      *
      * [manual] は利用者が更新ボタンを押した取り直し（本家の「最新更新」と同じ）。キャッシュを使わず、巡回の取得より先に通し、
-     * 前の通信からの間隔は設定の最小間隔ではなく下限の [RefreshPacing.FLOOR_MIN_INTERVAL_MS]（1 秒）にする。
-     * 押すたびに取り直せるが、1 秒に 1 回より速くはならない（1 秒に 5 回以上の再読み込みで本家に止められたことがあるため。Yuya の決定、2026-10-16）。
+     * 本家のブラウザで押すのと同じく、前の通信から間隔を空けずに取る（Yuya の決定、2026-10-17）。
+     * 通信は常に 1 本ずつなので、前の通信が終わるまでは待つ。連打は呼び出し側で 1 回にまとめる。
      */
     suspend fun fetchRoomList(query: RoomQuery, forceRefresh: Boolean = false, manual: Boolean = false): RoomListPage {
         val url = query.toUrl()
@@ -83,9 +83,12 @@ class ShaloveClient(
             val firstUrl = query.firstPage.toUrl()
             // 本家のリンクでも、今の条件・ページと食い違うもの（別の性別など）は使わず、自前で組み立てた URL で取る。
             val requestUrl = pagerLinks[firstUrl]?.get(query.page)?.takeIf { isListUrl(it, query.genre) && query.matchesPagerUrl(it) } ?: url
-            val html = if (manual) gated(operation = true, minIntervalMs = RefreshPacing.FLOOR_MIN_INTERVAL_MS) { request(requestUrl) }
+            val html = if (manual) gated(operation = true, minIntervalMs = 0) { request(requestUrl) }
                 else get(requestUrl)
             val page = RoomListParser.parse(html, query.genre.key, query.page, requestUrl)
+            // 一覧として読めない応答（連続で取り直したときなど）は、0 件の一覧として扱わずに取得の失敗にする。
+            // キャッシュもページャも更新しないので、手元の一覧は前回のまま残る。
+            if (!RoomListParser.isReadable(page)) throw RoomListUnavailableException(RoomListParser.describePage(html))
             val links = page.pageUrls.filterValues { isListUrl(it, query.genre) }
             // 1 ページ目のページャがいちばん新しい全体像なので、そのときは置き換える。
             synchronized(pagerLinks) { pagerLinks[firstUrl] = if (query.page == 1) links else pagerLinks[firstUrl].orEmpty() + links }
@@ -134,12 +137,13 @@ class ShaloveClient(
      * [operation]（利用者の操作による通信）は、一覧の取得（巡回・自動更新など）が順番を待っていても先に通す。
      * 間隔はどちらも同じように空けるので、本家へのアクセスの頻度は変わらない。一覧の取得は間隔を待つ間に順番を手放すので、
      * 後から来た利用者の操作も、待っている一覧の取得を追い越せる。
-     * [minIntervalMs] は前の通信から空ける間隔。省略すると設定の最小間隔。どちらでも 1 秒より短くはしない。
+     * [minIntervalMs] は前の通信から空ける間隔。省略すると設定の最小間隔（1 秒より短くはしない）。
+     * 0 にするのは利用者が更新ボタンを押した一覧の取り直しだけ。
      */
     private suspend fun <T> gated(operation: Boolean = false, minIntervalMs: Long? = null, block: suspend () -> T): T {
         while (true) {
             acquire(operation)
-            val interval = maxOf(minIntervalMs ?: pacing().sanitized().minIntervalMs, RefreshPacing.FLOOR_MIN_INTERVAL_MS)
+            val interval = minIntervalMs ?: pacing().sanitized().minIntervalMs
             val wait = lastRequestAt?.let { it + interval - clock() } ?: 0
             if (wait <= 0) break
             if (operation) { sleep(wait); break }
@@ -359,6 +363,14 @@ class ShaloveClient(
 }
 
 /** [url] はログに残っても困らないよう、部屋の pwd を伏せた形で持つ。 */
+/**
+ * 本家から返ったページが部屋の一覧として読めなかった。[page] は返ったページの題名と形（[RoomListParser.describePage]）で、
+ * 本家が何を返したのかを利用者が確かめられるように文に添える。
+ */
+class RoomListUnavailableException(val page: String? = null) : IOException(
+    "部屋の一覧を読み取れませんでした。少し待ってから更新してください" + (page?.let { "（本家の表示：$it）" } ?: ""),
+)
+
 class HttpStatusException(val code: Int, url: String) : IOException("HTTP $code: ${redact(url)}") {
     val url: String = redact(url)
 

@@ -7,6 +7,7 @@ import io.github.springthief1123.lovelyspace.core.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -649,6 +650,71 @@ class RadarRepositoryTest {
             assertEquals(listOf(44L), radar.state.value.events.single().rooms.map { it.id })
             assertEquals(setOf(42L, 43L, 44L), radar.state.value.results["a"]?.rooms?.map { it.id }?.toSet())
             assertEquals(2, radar.state.value.results["a"]?.pageOf(later))
+        } finally { db.close() }
+    }
+    @Test fun candidateMatchesComeFromEveryPageAndAppearAsSoonAsTheRuleIsAdded() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val later = room.copy(id = 43, name = "合成の後ろ")
+            val lists = Lists().apply { clock = 1_000_000; lastPage = 2; roomsByPage = mapOf(1 to listOf(room), 2 to listOf(later)) }
+            val radar = RadarRepository(db.presets(), lists, SearchPresetRepository(db), RoomPreferenceRepository(db), backgroundScope) { 1_000_000 }
+            radar.state.first { it.loaded }
+            // 見つける画面が全ページを読んだ直後に候補条件を足すと、読み直さずに全ページの一致を出す。
+            val zenkoku = Genres["zenkoku"]!!
+            lists.fetch(RoomQuery(zenkoku), false); lists.fetch(RoomQuery(zenkoku, page = 2), false)
+            val rule = CandidateRule("c", "合成の候補", "zenkoku", "合成", CandidateMode.DISPLAY_TEXT)
+            radar.saveCandidate(rule)
+            val seeded = radar.state.value.resultFor(rule)
+            assertEquals(listOf(42L, 43L), seeded?.rooms?.map { it.id })
+            assertEquals(2, seeded?.pagesRead)
+            assertEquals(2, seeded?.pageOf(later))
+            assertEquals(2, lists.calls.size)
+            // 共有の一覧を比較基準にするので、次に読んだページで増えた一致だけを知らせる。
+            val arrival = room.copy(id = 44, name = "新しい合成")
+            lists.roomsByPage = mapOf(1 to listOf(room, arrival), 2 to listOf(later))
+            radar.scan()
+            assertEquals(listOf(44L), radar.state.value.events.single().rooms.map { it.id })
+            assertEquals(setOf(42L, 43L, 44L), radar.state.value.resultFor(rule)?.rooms?.map { it.id }?.toSet())
+        } finally { db.close() }
+    }
+    @Test fun checkingForNewRoomsCanBePressedDuringAScanAndFoldsExtraPressesIntoOne() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            searches.save(SearchPreset("a", "合成条件", "zenkoku", RoomSearchCriteria()))
+            val releases = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+            val entered = kotlinx.coroutines.channels.Channel<RoomQuery>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+            var manual = 0
+            val base = Lists().apply { rooms = listOf(room) }
+            val lists = object : ObservedRoomListSource {
+                override val observations get() = base.observations
+                override fun observation(query: RoomQuery) = base.observation(query)
+                override suspend fun fetch(query: RoomQuery, force: Boolean): RoomListPage {
+                    entered.send(query); releases.receive(); return base.fetch(query, force)
+                }
+                override suspend fun fetchNow(query: RoomQuery): RoomListPage { manual++; return fetch(query, true) }
+            }
+            val radar = RadarRepository(db.presets(), lists, searches, RoomPreferenceRepository(db), backgroundScope)
+            radar.state.first { it.loaded }; radar.setPlan("a", true)
+            // 自動の巡回の途中で何度押しても、巡回が終わった後の 1 回にまとめて 1 ページ目を取り直す。
+            val automatic = launch { radar.scan(force = false) }
+            entered.receive()
+            val presses = List(3) { launch { radar.scanNow() } }
+            radar.state.first { it.scanNowPending }
+            releases.send(Unit); automatic.join()
+            entered.receive()
+            assertEquals(1, manual)
+            // 取り直し中に押された分は、終わった後にもう 1 回取る。
+            val again = launch { radar.scanNow() }
+            testScheduler.runCurrent()
+            releases.send(Unit)
+            entered.receive()
+            releases.send(Unit)
+            (presses + again).joinAll()
+            assertEquals(2, manual)
+            assertEquals(3, base.calls.size)
+            assertFalse(radar.state.value.scanNowPending)
+            assertFalse(radar.state.value.running)
         } finally { db.close() }
     }
     @Test fun sharedPagesOlderThanTheLimitAreNotUsedForANewPlan() = runTest {
