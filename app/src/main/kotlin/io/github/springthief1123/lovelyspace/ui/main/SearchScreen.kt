@@ -19,6 +19,7 @@ import io.github.springthief1123.lovelyspace.ui.components.QuietPage
 import io.github.springthief1123.lovelyspace.ui.components.QuietNotice
 import io.github.springthief1123.lovelyspace.ui.components.QuietFieldPair
 import io.github.springthief1123.lovelyspace.data.SearchPreset
+import io.github.springthief1123.lovelyspace.data.toRoom
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
@@ -83,7 +84,32 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         }
     }
     val results = shown.results
-    val visibleResults = remember(results, preferences) { results.filterNot(preferences::isHidden) }
+    val filteredResults = remember(results, preferences) { results.filterNot(preferences::isHidden) }
+    // おすすめ順は、保存・非表示にした部屋と今の一覧から好みを学んで並べる。足りなければ一覧順のまま。
+    // 学習と並べ替えは全ページの部屋の文字を数えるので、スクロールやスワイプが詰まらないよう裏で行う。
+    // 入力が変わったら前の計算は取り消す（LaunchedEffect のキー）。
+    val recommending = state.criteria.sort == RoomSort.RECOMMENDED
+    var recommended by remember { mutableStateOf<Recommended?>(null) }
+    LaunchedEffect(recommending, filteredResults, preferences.preferences, rooms) {
+        if (!recommending) { recommended = null; return@LaunchedEffect }
+        val favorites = preferences.favorites
+        val hidden = preferences.hidden
+        recommended = withContext(Dispatchers.Default) {
+            val model = PreferenceModel.train(favorites.map { it.toRoom() }, hidden.map { it.toRoom() }, rooms)
+            Recommended(filteredResults, model?.rank(filteredResults), trained = model != null)
+        }
+    }
+    val visibleResults = remember(recommending, filteredResults, recommended) {
+        val r = recommended
+        val ranked = r?.ranked
+        when {
+            !recommending || r == null || ranked == null -> filteredResults
+            r.input === filteredResults -> ranked
+            // 計算し直している間は、今の一覧の部屋を前の並びの順に出す（新しい部屋は後ろ）。並びが一瞬本家の順に戻らないようにする。
+            else -> ranked.withIndex().associate { (i, room) -> roomIdentity(room) to i }
+                .let { order -> filteredResults.sortedBy { order[roomIdentity(it)] ?: Int.MAX_VALUE } }
+        }
+    }
     io.github.springthief1123.lovelyspace.ui.components.ForegroundPolling(state.automatic, state.genre.key, vm::stopRefresh) { vm.monitor() }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -160,6 +186,9 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         }
         if (!validAges) item {
             QuietNotice("年齢の条件が正しくないため、年齢では絞り込んでいません。")
+        }
+        if (recommending && recommended?.trained == false && !preferences.loading) item {
+            QuietNotice("保存した部屋（非表示にしたものを除く）が${PreferenceModel.MIN_LIKED}件以上になると、好みに近い順に並びます。今は一覧順です。")
         }
         state.preferenceError?.let { error -> item {
             QuietNotice("設定を保存できませんでした：$error", error = true, onDismiss = vm::clearPreferenceError)
@@ -348,3 +377,6 @@ internal fun activeFilterCount(c: RoomSearchCriteria): Int = advancedFilterCount
     c.waitingOnly != null,
     c.publicOnly != null,
 ).count { it }
+
+/** おすすめ順の計算結果。[input] は並べた一覧（非表示を除いた絞り込みの結果）、[ranked] は学習できなかったとき null。 */
+private class Recommended(val input: List<Room>, val ranked: List<Room>?, val trained: Boolean)

@@ -3,7 +3,8 @@ package io.github.springthief1123.lovelyspace.core
 import java.util.Locale
 
 enum class KeywordMode { ALL, ANY }
-enum class RoomSort { SITE, NAME, AGE, ELAPSED }
+/** 並び順。[RECOMMENDED]（おすすめ順）は好みの学習（[PreferenceModel]）が要るので、[searchRooms] では本家の順のまま返し、画面が並べ替える。 */
+enum class RoomSort { SITE, NAME, AGE, ELAPSED, RECOMMENDED }
 
 data class RoomSearchCriteria(
     val name: String = "",
@@ -78,7 +79,7 @@ fun searchRooms(rooms: List<Room>, criteria: RoomSearchCriteria, synonyms: Synon
     val matcher = RoomMatcher(criteria, synonyms)
     val matches = rooms.distinctBy(::roomIdentity).filter(matcher::matches)
     return when (criteria.sort) {
-        RoomSort.SITE -> matches
+        RoomSort.SITE, RoomSort.RECOMMENDED -> matches
         RoomSort.NAME -> matches.sortedWith(compareBy(nullsLast()) { it.name?.lowercase(Locale.ROOT) })
         RoomSort.AGE -> matches.sortedWith(compareBy(nullsLast()) { it.age })
         RoomSort.ELAPSED -> matches.sortedWith(compareBy(nullsLast()) { it.elapsed })
