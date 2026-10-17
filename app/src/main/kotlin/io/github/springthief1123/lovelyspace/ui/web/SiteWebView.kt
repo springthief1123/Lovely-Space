@@ -46,7 +46,7 @@ fun SiteWebView(
             WebView(context).apply {
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
-                // The hosted form and CAPTCHA require JavaScript, not local file access.
+                // 本家のフォームとロボット確認には JavaScript が必要だが、端末内ファイルへのアクセスは不要。
                 settings.allowFileAccess = false
                 settings.allowContentAccess = false
                 settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
