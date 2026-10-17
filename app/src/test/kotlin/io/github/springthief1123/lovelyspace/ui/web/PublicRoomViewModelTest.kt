@@ -82,4 +82,47 @@ class PublicRoomViewModelTest {
             assertEquals(1, requests)
         } finally { Dispatchers.resetMain() }
     }
+    @Test fun openingReadsAtOnceAndMonitorWaitsTheIntervalFromThatRead() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val reads = mutableListOf<Pair<Long, Boolean>>()
+            val vm = PublicRoomViewModel(clock = { testScheduler.currentTime }) { manual ->
+                reads += testScheduler.currentTime to manual
+                PublicRoomPage("合成", emptyList(), "")
+            }
+            // 「覗く」で開いたらすぐ、押した読み込みとして読む。
+            vm.open(); runCurrent()
+            assertEquals(listOf(0L to true), reads)
+            vm.open(); runCurrent()
+            assertEquals(1, reads.size)
+            // 画面が前面になって自動の読み直しが始まっても、開いた直後の読み込みから間隔を空ける。
+            val job = backgroundScope.launch { vm.monitor { 5_000 } }
+            runCurrent()
+            assertEquals(1, reads.size)
+            advanceTimeBy(5_001); runCurrent()
+            assertEquals(listOf(0L to true, 5_000L to false), reads)
+            job.cancelAndJoin()
+        } finally { Dispatchers.resetMain() }
+    }
+    @Test fun aCancelledFirstReadIsRetriedAtOnceWhenTheScreenComesBack() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            var requests = 0
+            var hang = true
+            val vm = PublicRoomViewModel(clock = { testScheduler.currentTime }) {
+                requests++
+                if (hang) awaitCancellation()
+                PublicRoomPage("合成", emptyList(), "")
+            }
+            vm.open(); runCurrent()
+            // 読み込み中に画面を離れて、すぐ戻る。
+            vm.stopRefresh(); runCurrent()
+            hang = false
+            val job = backgroundScope.launch { vm.monitor { 20_000 } }
+            runCurrent()
+            assertEquals(2, requests)
+            assertTrue(vm.state.value.opened)
+            job.cancelAndJoin()
+        } finally { Dispatchers.resetMain() }
+    }
 }

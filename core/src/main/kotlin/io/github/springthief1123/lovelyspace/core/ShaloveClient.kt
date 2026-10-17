@@ -34,7 +34,7 @@ import kotlin.coroutines.resumeWithException
  * 本家サイトへのすべての通信をここに集約する。
  *
  * 規約で「通常のブラウザ利用とは異なるアクセスを繰り返す」ツールアクセスが禁止されているため、
- * - リクエスト同士の間隔を [RefreshPacing.minIntervalMs] 以上空ける（1 秒より短くはしない。利用者が押した一覧の取り直しだけは空けない）
+ * - リクエスト同士の間隔を [RefreshPacing.minIntervalMs] 以上空ける（1 秒より短くはしない。利用者が押した一覧の取り直しと公開ルームの読み込みだけは空けない）
  * - 同じ一覧 URL は [RefreshPacing.listCacheTtlMs] の間は再取得しない
  * をここで強制する。間隔は利用者が設定で選び、通信のたびに [pacing] から読む。
  *
@@ -109,11 +109,16 @@ class ShaloveClient(
      */
     suspend fun get(url: String, operation: Boolean = false): String = gated(operation) { request(url) }
 
-    private suspend fun request(url: String): String =
+    private suspend fun request(url: String): String = requestPage(url).body
+
+    /** 本文と、転送された後の URL。 */
+    private class Fetched(val body: String, val finalUrl: String)
+
+    private suspend fun requestPage(url: String): Fetched =
         http.newCall(Request.Builder().url(url).header("User-Agent", USER_AGENT).build()).awaitBody()
 
     /** ヘッダー待ち・本文読み取り中のどちらでも、画面側の取消をHTTP通信へ伝える。 */
-    private suspend fun Call.awaitBody(): String = suspendCancellableCoroutine { cont ->
+    private suspend fun Call.awaitBody(): Fetched = suspendCancellableCoroutine { cont ->
         cont.invokeOnCancellation { cancel() }
         enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
@@ -124,7 +129,7 @@ class ShaloveClient(
                 response.use { res ->
                     val result = runCatching {
                         if (!res.isSuccessful) throw HttpStatusException(res.code, res.request.url.toString())
-                        decodeBody(res)
+                        Fetched(decodeBody(res), res.request.url.toString())
                     }
                     result.fold({ if (cont.isActive) cont.resume(it) }, { if (cont.isActive) cont.resumeWithException(it) })
                 }
@@ -138,7 +143,7 @@ class ShaloveClient(
      * 間隔はどちらも同じように空けるので、本家へのアクセスの頻度は変わらない。一覧の取得は間隔を待つ間に順番を手放すので、
      * 後から来た利用者の操作も、待っている一覧の取得を追い越せる。
      * [minIntervalMs] は前の通信から空ける間隔。省略すると設定の最小間隔（1 秒より短くはしない）。
-     * 0 にするのは利用者が更新ボタンを押した一覧の取り直しだけ。
+     * 0 にするのは利用者が押した読み込み（一覧の更新ボタン、公開ルームの「覗く」「再読み込み」）だけ。
      */
     private suspend fun <T> gated(operation: Boolean = false, minIntervalMs: Long? = null, block: suspend () -> T): T {
         while (true) {
@@ -249,10 +254,20 @@ class ShaloveClient(
     /** 待機画面・チャット画面を開き、初期状態（直近のログ・読み出し位置など）を得る。 */
     suspend fun openChat(room: ChatRoomRef): ChatPage = ChatPageParser.parse(get(room.pageUrl, operation = true), room)
 
-    /** 公開閲覧は入室・発言・退室を送信しない。ページ通信と同じ制限を共有する。 */
-    suspend fun openPublicRoom(host: String, genreKey: String, roomId: Long): io.github.springthief1123.lovelyspace.core.chat.PublicRoomPage {
+    /**
+     * 公開閲覧は入室・発言・退室を送信しない。ページ通信と同じ制限を共有する。
+     * [manual] は利用者が「覗く」「再読み込み」を押した読み込み。本家のブラウザでリンクを押すのと同じく、
+     * 前の通信から間隔を空けずに取る（一覧の取り直しと同じ扱い。通信は常に 1 本ずつ）。開いている間の自動の読み直しは設定どおり空ける。
+     * 会話が枠の中にあるページなら、ブラウザと同じくその枠を 1 回だけ読む。
+     */
+    suspend fun openPublicRoom(host: String, genreKey: String, roomId: Long, manual: Boolean = false): io.github.springthief1123.lovelyspace.core.chat.PublicRoomPage {
         val url = SitePages.publicRoom(host, genreKey, roomId)
-        return io.github.springthief1123.lovelyspace.core.chat.PublicRoomParser.parse(get(url, operation = true), url)
+        val gap = if (manual) 0L else null
+        val page = gated(operation = true, minIntervalMs = gap) { requestPage(url) }
+        val frame = io.github.springthief1123.lovelyspace.core.chat.PublicRoomParser.chatFrameUrl(page.body, page.finalUrl, roomId)
+            ?: return io.github.springthief1123.lovelyspace.core.chat.PublicRoomParser.parse(page.body, url, page.finalUrl)
+        val inner = gated(operation = true, minIntervalMs = gap) { requestPage(frame) }
+        return io.github.springthief1123.lovelyspace.core.chat.PublicRoomParser.parse(inner.body, frame, inner.finalUrl)
     }
 
     /**
