@@ -2,11 +2,13 @@ package io.github.springthief1123.lovelyspace.core.chat
 
 import io.github.springthief1123.lovelyspace.core.HttpStatusException
 import io.github.springthief1123.lovelyspace.core.ShaloveClient
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.FormBody
@@ -149,8 +151,9 @@ class ChatSession internal constructor(
         }
     }
 
-    private fun apply(body: String): ChatUpdate {
-        val update = ChatUpdateParser.parse(body, state, room.pageUrl)
+    private suspend fun apply(body: String): ChatUpdate {
+        // 呼び出し元が画面のメインスレッドでも、解析は別のスレッドで行う。[lock] の中なので state は入れ替わらない。
+        val update = withContext(Dispatchers.Default) { ChatUpdateParser.parse(body, state, room.pageUrl) }
         state = update.state
         return update
     }

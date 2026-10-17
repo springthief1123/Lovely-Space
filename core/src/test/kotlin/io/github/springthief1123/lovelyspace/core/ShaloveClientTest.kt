@@ -10,6 +10,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -126,6 +127,48 @@ class ShaloveClientTest {
         repeat(5) {
             assertEquals(EntryResult.Rejected("入室できませんでした"), client.enter(form, profile))
         }
+    }
+
+    @Test
+    fun anEntryCancelledAfterTheSiteAcceptedItLeavesTheRoom() = runBlocking {
+        val bodies = CopyOnWriteArrayList<String>()
+        val running = CompletableDeferred<kotlinx.coroutines.Job>()
+        val client = ShaloveClient(
+            http = OkHttpClient.Builder().addInterceptor { chain ->
+                val body = Buffer().also { chain.request().body?.writeTo(it) }.readUtf8()
+                bodies += body
+                val response = Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                if (bodies.size == 1) {
+                    // 本家が入室を受け付けた（転送を返す）時点で、利用者が入室画面を閉じた。
+                    runBlocking { running.await() }.cancel()
+                    response.code(302).message("Found").header("Location", "/2shot.php?room_id=42&pwd=test-token")
+                } else {
+                    response.code(200).message("OK")
+                }
+                response.body("".toResponseBody()).build()
+            }.build(),
+            clock = { now },
+            sleep = { ms -> now += ms },
+        )
+        val form = EntryForm(
+            host = "chat.shalove.net",
+            roomId = 42,
+            genreKey = "kanto",
+            pwd = "entry-token",
+            hostDescription = "",
+            waitingMessage = "",
+            requiresCaptcha = false,
+            defaultName = "",
+        )
+        val job = launch(Dispatchers.Default) { client.enter(form, EntryProfile(name = "テスト", sex = 1, years = 30)) }
+        running.complete(job)
+        withTimeout(5_000) { job.join() }
+
+        assertTrue(job.isCancelled)
+        // 入室の結果を捨てる代わりに退室を送り、本家に黙ったままの相手を残さない。
+        assertEquals(2, bodies.size)
+        assertTrue("shotact=bye" in bodies[1])
+        assertTrue("pwd=test-token" in bodies[1])
     }
 
     @Test

@@ -64,6 +64,52 @@ class RadarRepositoryTest {
             assertTrue(restored.state.value.results.isEmpty())
         } finally { db.close() }
     }
+    @Test fun readingTheSameListAgainDoesNotRewriteTheSavedState() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            var puts = 0
+            val dao = object : PresetDao by db.presets() {
+                override suspend fun put(value: LocalState) { puts++; db.presets().put(value) }
+            }
+            val searches = SearchPresetRepository(db)
+            searches.save(SearchPreset("a", "合成条件", "zenkoku", RoomSearchCriteria()))
+            val lists = Lists().apply { rooms = listOf(room) }
+            val radar = RadarRepository(dao, lists, searches, RoomPreferenceRepository(db), backgroundScope)
+            radar.state.first { it.loaded }; radar.setPlan("a", true); radar.scan()
+            val afterFirst = puts
+            // 同じ一覧を読み直しただけ（新しい一致・履歴なし）なら、保存した内容は変わらないので書き直さない。
+            repeat(3) { radar.scan() }
+            assertEquals(afterFirst, puts)
+            // 新しい一致が出れば保存する。
+            lists.rooms = listOf(room, room.copy(id = 43, name = "追加の合成")); radar.scan()
+            assertTrue(puts > afterFirst)
+        } finally { db.close() }
+    }
+    @Test fun deletingTheSavedSearchOfAPlanIsSavedWithoutANewList() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            searches.save(SearchPreset("bg", "合成条件", "zenkoku", RoomSearchCriteria()))
+            val radar = RadarRepository(db.presets(), Lists(), searches, RoomPreferenceRepository(db), backgroundScope)
+            radar.state.first { it.loaded }; radar.setPlanBackground("bg", true)
+            // 一覧を読まなくても、条件の削除で外れた計画は保存し直す（次の起動で背景の計画として戻さない）。
+            searches.delete("bg")
+            radar.state.first { "bg" !in it.plans }
+            val saved = db.presets().stateFlowless()
+            assertEquals(0, saved.getJSONArray("plans").length())
+            assertEquals(0, saved.getJSONArray("backgroundPlans").length())
+        } finally { db.close() }
+    }
+    /** 保存は条件の削除を受けた後に別のスレッドで書かれるので、計画が外れた内容になるまで実時間で少し待って読む。 */
+    private suspend fun PresetDao.stateFlowless(): org.json.JSONObject =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            repeat(100) {
+                val value = state("radar_v1")?.let { org.json.JSONObject(it) }
+                if (value != null && value.getJSONArray("plans").length() == 0) return@withContext value
+                Thread.sleep(20)
+            }
+            org.json.JSONObject(state("radar_v1")!!)
+        }
     @Test fun failingTransactionCannotUndoAutomaticPollingStop() = runTest {
         val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
         try {

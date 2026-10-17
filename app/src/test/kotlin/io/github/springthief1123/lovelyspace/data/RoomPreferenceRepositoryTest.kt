@@ -109,6 +109,26 @@ class RoomPreferenceRepositoryTest {
         }
     }
 
+    @Test fun onlyTheElapsedTimeChangingDoesNotRewriteTheRecord() = runTest {
+        val db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val repo = RoomPreferenceRepository(db)
+            val chatRoom = room(9, "zenkoku", "ミナ")
+            repo.setFavorite(chatRoom, true)
+            val before = repo.preferences.first().single()
+            // 取得のたびに変わる経過時間だけなら、保存の一覧を流し直さない。
+            repo.observe(listOf(chatRoom.copy(elapsed = 8.minutes)))
+            assertEquals(before, repo.preferences.first().single())
+            // ほかの項目が変われば、経過時間もいっしょに更新する。
+            repo.observe(listOf(chatRoom.copy(elapsed = 9.minutes, message = "更新後")))
+            val after = repo.preferences.first().single()
+            assertEquals("更新後", after.snapshotMessage)
+            assertEquals(9.minutes.inWholeSeconds, after.snapshotElapsedSeconds)
+        } finally {
+            db.close()
+        }
+    }
+
     @Test fun undoingAnUnfavoriteRestoresTheSameRecordAndKeepsALaterHide() = runTest {
         val context = ApplicationProvider.getApplicationContext<Application>()
         val name = "room-preferences-${UUID.randomUUID()}.db"
