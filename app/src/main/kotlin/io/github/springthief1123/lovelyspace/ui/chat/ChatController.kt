@@ -117,10 +117,15 @@ data class ChatUiState(
      * [clearedLines] は発言クリア後の応答ページに実際に残っていたログ。
      */
     fun afterOwnerAction(action: OwnerAction, page: ChatPage?, clearedLines: List<UiLine> = emptyList()): ChatUiState {
-        val done = copy(ownerAction = null)
         // 転送・認証切れ・エラーページなど、部屋画面として確認できない応答を成功扱いしない。
         // 特にクリアや公開設定を楽観的に反映すると、サーバーの状態と表示が食い違う。
-        if (page == null) return done.copy(ownerNotice = action.failure)
+        if (page == null) return copy(ownerAction = null, ownerNotice = action.failure)
+        // 受信が止まっていても、作成者操作の応答にある最新の在室状態をすべての操作で反映する。
+        val done = copy(
+            ownerAction = null,
+            isFilled = page.state.isFilledRoom,
+            canBanGuest = page.canBanGuest,
+        )
         return when (action) {
             OwnerAction.BAN_GUEST -> done.copy(
                 canBanGuest = page.canBanGuest,
@@ -372,7 +377,14 @@ class ChatController(
         }
     }
 
-    fun banGuest() = runOwnerAction(OwnerAction.BAN_GUEST) { client.banGuest(room) }
+    /** 確認した相手の世代を引き継ぎ、ページ通信の順番待ち中に入退室が起きたら送信しない。 */
+    fun banGuest(expectedRevision: Long) = runOwnerAction(OwnerAction.BAN_GUEST) {
+        client.banGuest(room) {
+            val current = _state.value
+            current.participantRevision == expectedRevision && current.canBanGuest &&
+                current.endMessage == null && !current.left && !current.isLeaving
+        }
+    }
     fun clearLog() = runOwnerAction(OwnerAction.CLEAR_LOG, pauseUpdates = true) { client.clearLog(room) }
     fun setPublic(public: Boolean) =
         runOwnerAction(if (public) OwnerAction.MAKE_PUBLIC else OwnerAction.MAKE_PRIVATE) { client.setPublic(room, public) }
