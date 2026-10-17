@@ -119,7 +119,11 @@ class RadarRepository(
                         val saved = searches.presets.first()
                         val observations = lists.observations.value
                         // 条件を変えた計画は、共有の一覧からすぐ一致を出し直す。
-                        val edited = reconcilePlans(saved).let { changed -> saved.filter { it.id in changed && it.id in _state.value.plans } }
+                        val plansBefore = _state.value.plans to _state.value.backgroundPlans
+                        val changed = reconcilePlans(saved)
+                        // 削除された条件の計画は、起動直後（照合前）でも計画の一覧から外れる。
+                        val plansRemoved = plansBefore != (_state.value.plans to _state.value.backgroundPlans)
+                        val edited = saved.filter { it.id in changed && it.id in _state.value.plans }
                         if (edited.isNotEmpty()) {
                             val hidden = hiddenRooms()
                             _state.update { state -> edited.fold(state) { acc, preset -> seedPlan(preset, hidden, acc) } }
@@ -133,7 +137,8 @@ class RadarRepository(
                             _state.update { state -> state.copy(lastConfirmedAt = maxOf(state.lastConfirmedAt ?: observation.confirmedAt, observation.confirmedAt)) }
                         }
                         // 一覧の取得のたびに全体を書かない。反映するものが無ければ保存もしない（変わっていなければ persist も書かない）。
-                        if (processed || edited.isNotEmpty()) persist()
+                        // 条件の変更・削除（changed）は、計画の一覧から外れることがあるので保存する。
+                        if (processed || changed.isNotEmpty() || plansRemoved) persist()
                     }
                 }
             } catch (e: CancellationException) { throw e }
