@@ -247,6 +247,18 @@ class RadarRepositoryTest {
             clock += 10 * 60_000L
             saved.value = NgWordFilter.NONE
             radar.state.first { it.results["a"]?.rooms?.size == 2 }
+            // 一致件数の説明も同じ件数に合わせる。
+            assertTrue(radar.state.value.scopes["a"].orEmpty().contains("一致2件"))
+        } finally { db.close() }
+    }
+    @Test fun radarStopsWhenSavedNgWordsCannotBeRead() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val failing = flow<NgWordFilter> { throw java.io.IOException("合成の読み込み失敗") }
+            val radar = RadarRepository(db.presets(), Lists(), SearchPresetRepository(db), RoomPreferenceRepository(db), backgroundScope, ngWords = failing)
+            // 読めない NG ワードを「何も外さない」として巡回を始めない。
+            val state = radar.state.first { it.error != null }
+            assertFalse(state.loaded)
         } finally { db.close() }
     }
     @Test fun pausingAllPlansDuringFetchSkipsRemainingPlanPagesAndKeepsTheDefinitions() = runTest {

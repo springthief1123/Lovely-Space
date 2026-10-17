@@ -665,7 +665,8 @@ class RadarRepository(
             ?: return state.copy(results = state.results - preset.id, scopes = state.scopes - preset.id)
         val all = planMatches(window.rooms, preset, hidden)
         return state.copy(results = state.results + (preset.id to old.copy(rooms = all,
-            roomPages = window.roomPages.filterKeys { key -> all.any { roomIdentity(it) == key } })))
+            roomPages = window.roomPages.filterKeys { key -> all.any { roomIdentity(it) == key } })),
+            scopes = state.scopes + (preset.id to planScope(old.at, window, all.size)))
     }
     /** 計画の一致。非表示にした部屋と NG ワードに当たる部屋を外してから、保存した条件で絞る。 */
     private fun planMatches(rooms: List<Room>, preset: SearchPreset, hidden: List<RoomPreference>): List<Room> {
