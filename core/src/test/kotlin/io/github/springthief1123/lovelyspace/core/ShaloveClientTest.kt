@@ -222,6 +222,53 @@ class ShaloveClientTest {
     }
 
     @Test
+    fun openingAPublicRoomTheUserTappedDoesNotWaitButAutomaticRereadsDo() = runTest {
+        val calls = IntArray(1)
+        val sleeps = mutableListOf<Long>()
+        val client = ShaloveClient(
+            http = OkHttpClient.Builder().addInterceptor { chain ->
+                calls[0]++
+                now += 100
+                Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("OK")
+                    .body((if (chain.request().url.encodedPath == "/PublicRoom") "<div id=\"chatarea\"></div>" else EMPTY_LIST)
+                        .toResponseBody("text/html; charset=Shift_JIS".toMediaType())).build()
+            }.build(),
+            pacing = { RefreshPacing(minIntervalMs = 3_000) },
+            clock = { now },
+            sleep = { ms -> sleeps += ms; now += ms },
+        )
+        client.fetchRoomList(RoomQuery(genre = Genres.default))
+        // 一覧の巡回の直後でも、「覗く」を押した読み込みは本家のブラウザと同じく待たない。
+        client.openPublicRoom("chat.shalove.net", "chah", 5, manual = true)
+        assertEquals(emptyList<Long>(), sleeps)
+        // 開いている間の自動の読み直しは設定どおり空ける。
+        client.openPublicRoom("chat.shalove.net", "chah", 5)
+        assertEquals(listOf(2_900L), sleeps)
+        assertEquals(3, calls[0])
+    }
+
+    @Test
+    fun aPublicRoomInsideAFrameIsReadFromTheFrame() = runTest {
+        val bodies = ArrayDeque(listOf(
+            "<frameset><frame src=\"/PublicRoomLog?room_id=5&genre_key=chah\"></frameset>",
+            "<meta charset=\"utf-8\"><div id=\"chatarea\"><div class=\"hello\"><table><tr><td>合成</td><td>&gt;</td><td>合成の発言<small class=\"choiusu\">(12:34:56)</small></td></tr></table></div></div>",
+        ))
+        val paths = mutableListOf<String>()
+        val client = ShaloveClient(
+            http = OkHttpClient.Builder().addInterceptor { chain ->
+                paths += chain.request().url.encodedPath
+                Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("OK")
+                    .body(bodies.removeFirst().toResponseBody("text/html; charset=UTF-8".toMediaType())).build()
+            }.build(),
+            clock = { now },
+            sleep = { ms -> now += ms },
+        )
+        val page = client.openPublicRoom("chat.shalove.net", "chah", 5, manual = true)
+        assertEquals(listOf("/PublicRoom", "/PublicRoomLog"), paths)
+        assertEquals("合成の発言", page.lines.single().text)
+    }
+
+    @Test
     fun aResponseThatIsNotARoomListFailsAndKeepsThePreviousList() = runTest {
         val bodies = ArrayDeque(listOf(fixture("genre_kanto_page1.html"), "<html><head><meta charset=\"utf-8\"></head><body><p>しばらくお待ちください</p></body></html>"))
         val client = ShaloveClient(
