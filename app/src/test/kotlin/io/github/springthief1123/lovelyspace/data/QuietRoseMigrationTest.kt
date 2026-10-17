@@ -36,7 +36,7 @@ class QuietRoseMigrationTest {
             old.execSQL("INSERT INTO local_state VALUES ('preset_import', 'done')")
             old.version = 3
         }
-        val db = Room.databaseBuilder(context, PresetDatabase::class.java, name).addMigrations(PresetDatabase.MIGRATION_3_4).build()
+        val db = Room.databaseBuilder(context, PresetDatabase::class.java, name).addMigrations(PresetDatabase.MIGRATION_3_4, PresetDatabase.MIGRATION_4_5).build()
         try {
             val preset = db.searchPresets().presets().first().single()
             assertEquals("保持する条件", preset.label)

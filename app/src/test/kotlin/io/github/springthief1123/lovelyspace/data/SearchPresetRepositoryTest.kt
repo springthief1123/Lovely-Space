@@ -22,7 +22,7 @@ class SearchPresetRepositoryTest {
         val context = ApplicationProvider.getApplicationContext<Application>()
         val name = "search-${UUID.randomUUID()}.db"
         fun open() = Room.databaseBuilder(context, PresetDatabase::class.java, name)
-            .addMigrations(PresetDatabase.MIGRATION_1_2, PresetDatabase.MIGRATION_2_3, PresetDatabase.MIGRATION_3_4).build()
+            .addMigrations(PresetDatabase.MIGRATION_1_2, PresetDatabase.MIGRATION_2_3, PresetDatabase.MIGRATION_3_4, PresetDatabase.MIGRATION_4_5).build()
         var db = open()
         try {
             var repo = SearchPresetRepository(db)
@@ -81,7 +81,7 @@ class SearchPresetRepositoryTest {
             old.version = 1
         }
         val db = Room.databaseBuilder(context, PresetDatabase::class.java, name)
-            .addMigrations(PresetDatabase.MIGRATION_1_2, PresetDatabase.MIGRATION_2_3, PresetDatabase.MIGRATION_3_4).build()
+            .addMigrations(PresetDatabase.MIGRATION_1_2, PresetDatabase.MIGRATION_2_3, PresetDatabase.MIGRATION_3_4, PresetDatabase.MIGRATION_4_5).build()
         try {
             // Room自身による移行後スキーマ検証を通し、全フィールドと取り込み済み状態を確認。
             assertEquals(ProfilePreset("profile", "保持する設定", "合成の名前", 2, null, 13, true), db.presets().defaultProfile())

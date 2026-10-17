@@ -71,15 +71,18 @@ class LovelySpaceApp : Application() {
     }
     private val database: PresetDatabase by lazy {
         Room.databaseBuilder(this, PresetDatabase::class.java, "lovely-space.db")
-            .addMigrations(PresetDatabase.MIGRATION_1_2, PresetDatabase.MIGRATION_2_3, PresetDatabase.MIGRATION_3_4)
+            .addMigrations(PresetDatabase.MIGRATION_1_2, PresetDatabase.MIGRATION_2_3, PresetDatabase.MIGRATION_3_4, PresetDatabase.MIGRATION_4_5)
             .build()
     }
     val presets: PresetRepository by lazy { PresetRepository(database, settings) }
     val searchPresets: SearchPresetRepository by lazy { SearchPresetRepository(database) }
     val radar: io.github.springthief1123.lovelyspace.data.RadarRepository by lazy {
-        io.github.springthief1123.lovelyspace.data.RadarRepository(database.presets(), roomLists, searchPresets, roomPreferences)
+        io.github.springthief1123.lovelyspace.data.RadarRepository(database.presets(), roomLists, searchPresets, roomPreferences,
+            ngWords = ngWords.readyFilter)
     }
     val roomPreferences: RoomPreferenceRepository by lazy { RoomPreferenceRepository(database) }
+    /** NG ワードのセット。見つける・レーダーで、ON のセットに当たる部屋を最初から外す。 */
+    val ngWords: io.github.springthief1123.lovelyspace.data.NgWordRepository by lazy { io.github.springthief1123.lovelyspace.data.NgWordRepository(database) }
 
     /** お知らせ（通知ベル）の履歴。端末通知と同じ内容を残す。 */
     val notificationInbox: NotificationInbox by lazy {

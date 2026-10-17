@@ -204,6 +204,63 @@ class RadarRepositoryTest {
             assertTrue(restored.state.value.events.any { "追跡を停止" in it.text })
         } finally { db.close() }
     }
+    @Test fun ngWordsKeepRoomsOutOfPlanMatchesAndTurningThemOffDoesNotNotifyOldRooms() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            searches.save(SearchPreset("a", "合成", "zenkoku", RoomSearchCriteria()))
+            val ngRoom = room.copy(id = 43, message = "合成 PayPay")
+            val lists = Lists().apply { rooms = listOf(room, ngRoom); clock = 1_000_000 }
+            val ng = MutableStateFlow(NgWordFilter.of(NgWordSet.BUILT_IN))
+            val radar = RadarRepository(db.presets(), lists, searches, RoomPreferenceRepository(db), backgroundScope, ngWords = ng) { 1_000_000 }
+            radar.state.first { it.loaded }; radar.setPlan("a", true); radar.scan()
+            assertEquals(listOf(42L), radar.state.value.results["a"]?.rooms?.map { it.id })
+            // NG ワードを切ると、手元の一覧からすぐ一致を出し直す。前からあった部屋は新着として知らせない。
+            ng.value = NgWordFilter.NONE
+            radar.state.first { it.results["a"]?.rooms?.size == 2 }
+            radar.scan()
+            assertTrue(radar.state.value.events.none { it.kind == RadarEventKind.SEARCH_MATCH })
+            // 名前で追う候補には NG ワードを掛けない。
+            ng.value = NgWordFilter.of(NgWordSet.BUILT_IN)
+            radar.saveCandidate(CandidateRule("c", "合成候補", "zenkoku", "合成"))
+            radar.state.first { it.results["a"]?.rooms?.size == 1 }
+            assertEquals(listOf(42L, 43L), radar.state.value.candidateResults["c"]?.rooms?.map { it.id }?.sorted())
+        } finally { db.close() }
+    }
+    @Test fun radarWaitsForSavedNgWordsBeforeLoadingAndRefiltersWithoutRecentSharedPages() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            searches.save(SearchPreset("a", "合成", "zenkoku", RoomSearchCriteria()))
+            val ngRoom = room.copy(id = 43, message = "合成 PayPay")
+            var clock = 1_000_000L
+            val lists = Lists().apply { rooms = listOf(room, ngRoom); this.clock = clock }
+            val saved = MutableStateFlow<NgWordFilter?>(null)
+            val radar = RadarRepository(db.presets(), lists, searches, RoomPreferenceRepository(db), backgroundScope, ngWords = saved.filterNotNull()) { clock }
+            // 背景の巡回は loaded を待つので、保存した NG ワードを読むまでは読み込み済みにしない。
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { kotlinx.coroutines.delay(300) }
+            assertFalse(radar.state.value.loaded)
+            saved.value = NgWordFilter.of(NgWordSet.BUILT_IN)
+            radar.state.first { it.loaded }; radar.setPlan("a", true); radar.scan()
+            assertEquals(listOf(42L), radar.state.value.results["a"]?.rooms?.map { it.id })
+            // 共有の一覧が古くなった後で NG ワードを変えても、手元の全ページから一致を出し直す。
+            clock += 10 * 60_000L
+            saved.value = NgWordFilter.NONE
+            radar.state.first { it.results["a"]?.rooms?.size == 2 }
+            // 一致件数の説明も同じ件数に合わせる。
+            assertTrue(radar.state.value.scopes["a"].orEmpty().contains("一致2件"))
+        } finally { db.close() }
+    }
+    @Test fun radarStopsWhenSavedNgWordsCannotBeRead() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val failing = flow<NgWordFilter> { throw java.io.IOException("合成の読み込み失敗") }
+            val radar = RadarRepository(db.presets(), Lists(), SearchPresetRepository(db), RoomPreferenceRepository(db), backgroundScope, ngWords = failing)
+            // 読めない NG ワードを「何も外さない」として巡回を始めない。
+            val state = radar.state.first { it.error != null }
+            assertFalse(state.loaded)
+        } finally { db.close() }
+    }
     @Test fun pausingAllPlansDuringFetchSkipsRemainingPlanPagesAndKeepsTheDefinitions() = runTest {
         val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
         try {
