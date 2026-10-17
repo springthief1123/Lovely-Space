@@ -104,4 +104,25 @@ class PublicRoomViewModelTest {
             job.cancelAndJoin()
         } finally { Dispatchers.resetMain() }
     }
+    @Test fun aCancelledFirstReadIsRetriedAtOnceWhenTheScreenComesBack() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            var requests = 0
+            var hang = true
+            val vm = PublicRoomViewModel(clock = { testScheduler.currentTime }) {
+                requests++
+                if (hang) awaitCancellation()
+                PublicRoomPage("合成", emptyList(), "")
+            }
+            vm.open(); runCurrent()
+            // 読み込み中に画面を離れて、すぐ戻る。
+            vm.stopRefresh(); runCurrent()
+            hang = false
+            val job = backgroundScope.launch { vm.monitor { 20_000 } }
+            runCurrent()
+            assertEquals(2, requests)
+            assertTrue(vm.state.value.opened)
+            job.cancelAndJoin()
+        } finally { Dispatchers.resetMain() }
+    }
 }

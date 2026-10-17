@@ -77,6 +77,10 @@ class PublicRoomViewModel(
         catch (e: PublicRoomUnavailableException) {
             _state.update { it.copy(lines = emptyList(), opened = false, automatic = false, error = e.message) }
         } catch (e: Exception) { _state.update { it.copy(error = describeError(e)) } }
-        finally { readAt = clock(); _state.update { it.copy(loading = false) } }
+        finally {
+            // 取り消した読み込み（読み込み中に画面を離れたなど）は読んだことにしない。戻ったらすぐ読み直す。
+            if (currentCoroutineContext().isActive) readAt = clock()
+            _state.update { it.copy(loading = false) }
+        }
     }
 }
