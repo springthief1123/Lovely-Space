@@ -264,7 +264,8 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
                 val fetched = fetchPage(page, force = false)
                 if (fetched && _state.value.error == null && _state.value.genre == genre) schedule.completed(page, window)
                 // ページ同士は通信の最小間隔で順に取る（間隔は ShaloveClient も守る）。
-                delay(if (_state.value.error != null) RoomPageSchedule.ERROR_INTERVAL_MS else pacing().sanitized().minIntervalMs)
+                // 取れなかったときは、案内を出さない失敗（部屋の表が無いページ）でも 20 秒空ける。
+                delay(if (!fetched || _state.value.error != null) RoomPageSchedule.ERROR_INTERVAL_MS else pacing().sanitized().minIntervalMs)
             }
         } finally { stopRefresh() }
     }
