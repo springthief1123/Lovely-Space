@@ -1,5 +1,9 @@
 package io.github.springthief1123.lovelyspace.core
 
+import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
+import io.github.springthief1123.lovelyspace.core.chat.EntryForm
+import io.github.springthief1123.lovelyspace.core.chat.EntryProfile
+import io.github.springthief1123.lovelyspace.core.chat.EntryResult
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.CompletableDeferred
@@ -47,6 +51,47 @@ class ShaloveClientTest {
 
     @After
     fun tearDown() = server.shutdown()
+
+    @Test
+    fun acceptsOnlyTheSameRoomAndHostOnEntryRedirect() = runTest {
+        val locations = ArrayDeque(listOf(
+            "/2shot.php?room_id=42&pwd=test-token",
+            "https://example.com/2shot.php?room_id=42&pwd=test-token",
+            "http://chat.shalove.net/2shot.php?room_id=42&pwd=test-token",
+            "/sub/2shot.php?room_id=42&pwd=test-token",
+            "/2shot.php?room_id=43&pwd=test-token",
+            "/2shot.php?room_id=42&pwd=",
+        ))
+        val client = ShaloveClient(
+            http = OkHttpClient.Builder().addInterceptor { chain ->
+                Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                    .code(302).message("Found")
+                    .header("Location", locations.removeFirst())
+                    .body("".toResponseBody()).build()
+            }.build(),
+            clock = { now },
+            sleep = { ms -> now += ms },
+        )
+        val form = EntryForm(
+            host = "chat.shalove.net",
+            roomId = 42,
+            genreKey = "kanto",
+            pwd = "entry-token",
+            hostDescription = "",
+            waitingMessage = "",
+            requiresCaptcha = false,
+            defaultName = "",
+        )
+        val profile = EntryProfile(name = "テスト", sex = 1, years = 30)
+
+        assertEquals(
+            EntryResult.Entered(ChatRoomRef("chat.shalove.net", 42, "test-token", "kanto")),
+            client.enter(form, profile),
+        )
+        repeat(5) {
+            assertEquals(EntryResult.Rejected("入室できませんでした"), client.enter(form, profile))
+        }
+    }
 
     @Test
     fun decodesShiftJisWhenNoCharsetIsDeclared() = runTest {
