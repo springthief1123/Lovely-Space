@@ -178,6 +178,7 @@ class ShaloveClientTest {
     }
 
     @Test
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     fun aPageTheUserOpenedGoesBeforeQueuedListFetchesWithTheSameSpacing() = runTest {
         repeat(4) { server.enqueue(MockResponse().setBody("ok")) }
         val sentAt = java.util.Collections.synchronizedList(mutableListOf<Long>())
