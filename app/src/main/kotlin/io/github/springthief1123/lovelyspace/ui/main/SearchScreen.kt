@@ -58,7 +58,7 @@ import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentTopPaddin
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refreshKey: Int = 0, onGenreChanged: (Genre) -> Unit = {}, preset: SearchPreset? = null, onPresetConsumed: () -> Unit = {}) {
+fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refreshKey: Int = 0, onGenreChanged: (Genre) -> Unit = {}, preset: SearchPreset? = null, onPresetConsumed: () -> Unit = {}, onOpenNgWords: () -> Unit = {}) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val vm: SearchViewModel = viewModel(factory = viewModelFactory { initializer { SearchViewModel(app.roomLists, app.settings, pacing = { app.pacing.value }) } })
     val preferencesVm: RoomPreferenceViewModel = viewModel(
@@ -75,16 +75,24 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
     val effectiveCriteria = state.effectiveCriteria
     val rooms = state.rooms
     val genre = state.genre
+    // NG ワードは条件で絞った後に外す。「今だけ外す」は保存せず、画面を離れると元に戻る。
+    val ngFilter by app.ngWords.filter.collectAsStateWithLifecycle()
+    var ngSuspended by remember { mutableStateOf(false) }
+    val ng = if (ngSuspended) NgWordFilter.NONE else ngFilter
     var computed by remember { mutableStateOf<SearchResults?>(null) }
-    val shown = computed.resolve(genre, rooms, effectiveCriteria)
+    val shown = computed.resolve(genre, rooms, effectiveCriteria, ng)
     if (shown !== computed) SideEffect { computed = shown }
-    LaunchedEffect(genre, rooms, effectiveCriteria) {
-        if (!shown.isFor(genre, rooms, effectiveCriteria)) {
-            computed = withContext(Dispatchers.Default) { SearchResults.of(genre, rooms, effectiveCriteria) }
+    LaunchedEffect(genre, rooms, effectiveCriteria, ng) {
+        if (!shown.isFor(genre, rooms, effectiveCriteria, ng)) {
+            computed = withContext(Dispatchers.Default) { SearchResults.of(genre, rooms, effectiveCriteria, ng) }
         }
     }
     val results = shown.results
     val filteredResults = remember(results, preferences) { results.filterNot(preferences::isHidden) }
+    // 非表示にした部屋は、NG ワードで外した数にも数えない。
+    val ngExcluded = remember(shown.excluded, preferences) { shown.excluded.filterNot { preferences.isHidden(it.room) } }
+    var ngSheetOpen by remember { mutableStateOf(false) }
+    val ngSummary = NgSummary(ngFilter.setCount, ngSuspended, onManage = onOpenNgWords)
     // おすすめ順は、保存・非表示にした部屋と今の一覧から好みを学んで並べる。足りなければ一覧順のまま。
     // 学習と並べ替えは全ページの部屋の文字を数えるので、スクロールやスワイプが詰まらないよう裏で行う。
     // 入力が変わったら前の計算は取り消す（LaunchedEffect のキー）。
@@ -171,7 +179,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
         // ジャンル名が画面の見出しを兼ねる。
         if (state.initialized) item { GenreBar(state.genre, emptyList(), emptyMap(), { vm.genre(it); vm.refresh() }) }
-        item { SearchPanel(state, vm, panelExpanded, onExpandedChange = { panelExpanded = it }, onReset = resetSearch) }
+        item { SearchPanel(state, vm, panelExpanded, onExpandedChange = { panelExpanded = it }, onReset = resetSearch, ng = ngSummary) }
         item {
             SearchStatusRow(
                 text = searchStatusText(state.page, state.lastPage, visibleResults.size, state.loading || !state.initialized,
@@ -183,6 +191,9 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
                 onRefresh = { vm.refresh() },
                 refreshEnabled = state.initialized,
             )
+        }
+        if (ngSuspended || ngExcluded.isNotEmpty()) item {
+            NgStatusRow(ngExcluded.size, ngSuspended, onShow = { ngSheetOpen = true }, onResume = { ngSuspended = false })
         }
         if (!validAges) item {
             QuietNotice("年齢の条件が正しくないため、年齢では絞り込んでいません。")
@@ -217,6 +228,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
             SearchEmpty(
                 text = when {
                     results.isNotEmpty() -> "条件に合う部屋はすべて非表示です。"
+                    ngExcluded.isNotEmpty() -> "条件に合う部屋は、すべて NG ワードで除外しています。"
                     canReadNext && state.automatic -> "条件に合う部屋はまだ見つかっていません。"
                     canReadNext -> "読み込んだ${state.page}ページには、条件に合う部屋はありません。"
                     else -> "条件に合う部屋はありません。"
@@ -266,6 +278,14 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         statusText = searchStatusText(state.page, state.lastPage, visibleResults.size, state.loading || !state.initialized, null),
         onDismiss = { searchOpen = false },
         onReset = resetSearch,
+        ng = ngSummary,
+    )
+    if (ngSheetOpen) NgExcludedSheet(
+        excluded = ngExcluded,
+        onDismiss = { ngSheetOpen = false },
+        onSuspend = { ngSuspended = true; ngSheetOpen = false },
+        onManage = { ngSheetOpen = false; onOpenNgWords() },
+        onOpenRoom = { ngSheetOpen = false; selectedRoom = it },
     )
 }
 

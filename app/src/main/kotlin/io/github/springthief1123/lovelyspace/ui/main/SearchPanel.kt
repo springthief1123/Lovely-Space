@@ -65,6 +65,7 @@ internal fun SearchPanel(
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
     onReset: () -> Unit,
+    ng: NgSummary? = null,
 ) {
     val shape = LovelyShapes.sheet
     val scheme = MaterialTheme.colorScheme
@@ -87,7 +88,7 @@ internal fun SearchPanel(
         )
         AnimatedVisibility(expanded, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SearchDetails(state, vm)
+                SearchDetails(state, vm, ng)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = onReset) { Text("条件をリセット") }
                     TextButton(onClick = { onExpandedChange(false) }) { Text("閉じる") }
@@ -110,6 +111,7 @@ internal fun SearchPopover(
     statusText: String,
     onDismiss: () -> Unit,
     onReset: () -> Unit,
+    ng: NgSummary? = null,
 ) {
     val transition = remember { MutableTransitionState(false) }
     LaunchedEffect(visible) { transition.targetState = visible }
@@ -156,7 +158,7 @@ internal fun SearchPopover(
                 ) {
                     SearchField(state.criteria.keyword(state.keywordScope), state.keywordScope.placeholder, vm::keyword)
                     QuickFilterRow(state.criteria, advancedFilterCount(state.criteria), expanded = true, onChange = vm::criteria, onToggleDetails = null)
-                    SearchDetails(state, vm)
+                    SearchDetails(state, vm, ng?.let { summary -> summary.copy(onManage = { onDismiss(); summary.onManage() }) })
                     TextButton(onClick = onReset) { Text("条件をリセット") }
                 }
                 HorizontalDivider(color = scheme.outlineVariant)
@@ -230,7 +232,7 @@ private fun QuickFilterRow(
  * 開いても一覧が隠れすぎないよう、選択肢は見出しと同じ行に並べる。
  */
 @Composable
-private fun SearchDetails(state: SearchUiState, vm: SearchViewModel) {
+private fun SearchDetails(state: SearchUiState, vm: SearchViewModel, ng: NgSummary?) {
     val c = state.criteria
     val validAges = state.validAges
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -239,6 +241,8 @@ private fun SearchDetails(state: SearchUiState, vm: SearchViewModel) {
         ChoiceRow("複数の語", c.keywordMode, listOf(KeywordMode.ALL to "すべて含む", KeywordMode.ANY to "どれかを含む")) { vm.criteria(c.copy(keywordMode = it)) }
         HiddenKeywords(hiddenKeywords(c, state.keywordScope), vm::clearHiddenKeywords)
         OutlinedTextField(c.excluded, { vm.criteria(c.copy(excluded = it)) }, label = { Text("除外する語（スペース区切り）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        // この検索だけの「除外する語」と、常に効く NG ワードの関係が分かるよう、すぐ下に NG ワードの状態を出す。
+        ng?.let { NgSummaryRow(it) }
         QuietFieldPair(first = { fieldModifier ->
             OutlinedTextField(state.minAgeInput, vm::minAge,
                 label = { Text("最低年齢") }, singleLine = true, isError = !validAges,

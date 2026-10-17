@@ -42,8 +42,10 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
     val preferencesVm: io.github.springthief1123.lovelyspace.ui.rooms.RoomPreferenceViewModel = viewModel(
         factory = viewModelFactory { initializer { io.github.springthief1123.lovelyspace.ui.rooms.RoomPreferenceViewModel(app.roomPreferences) } })
     val preferences by preferencesVm.state.collectAsStateWithLifecycle()
+    val ng by app.ngWords.filter.collectAsStateWithLifecycle()
+    // 計画の一致は NG ワードに当たる部屋を外す（RadarRepository.planMatches と同じ）。名前で追う候補には掛けない。
     val liveRooms = state.livePages.values.flatMap { it.rooms }.distinctBy(::roomIdentity).filter { room ->
-        !preferences.isHidden(room) && (saved.any { it.id in state.plans && it.genreKey == room.genreKey && searchRooms(listOf(room), it.criteria).isNotEmpty() } ||
+        !preferences.isHidden(room) && ((!ng.matches(room) && saved.any { it.id in state.plans && it.genreKey == room.genreKey && searchRooms(listOf(room), it.criteria).isNotEmpty() }) ||
             state.candidateRules.any { it.enabled && it.matches(room) })
     }
     LaunchedEffect(liveRooms) { preferencesVm.observe(liveRooms) }

@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.NotificationsNone
@@ -43,6 +44,7 @@ fun SettingsScreen(
     onOpenRoomList: () -> Unit,
     onOpenRefresh: () -> Unit,
     onOpenHiddenRooms: () -> Unit,
+    onOpenNgWords: () -> Unit,
     onOpenNotifications: () -> Unit,
     onOpenLock: () -> Unit,
     onBack: () -> Unit,
@@ -63,7 +65,7 @@ fun SettingsScreen(
         ) {
             item {
                 Text(
-                    "アプリの表示・部屋一覧・更新の間隔・通知・ロックの設定を、用途ごとに整理しています。",
+                    "アプリの表示・部屋一覧・更新の間隔・NGワード・通知・ロックの設定を、用途ごとに整理しています。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 4.dp, end = 4.dp, bottom = 6.dp),
@@ -99,6 +101,14 @@ fun SettingsScreen(
                     title = "非表示にした部屋",
                     description = "一覧から隠した部屋の確認と解除",
                     onClick = onOpenHiddenRooms,
+                )
+            }
+            item {
+                SettingsCategoryCard(
+                    icon = Icons.Outlined.Block,
+                    title = "NGワード",
+                    description = "名前や待機メッセージに含まれていたら、いつも除外する語",
+                    onClick = onOpenNgWords,
                 )
             }
             item {

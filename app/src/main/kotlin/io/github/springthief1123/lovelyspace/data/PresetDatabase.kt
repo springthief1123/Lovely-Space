@@ -56,8 +56,8 @@ interface PresetDao {
 }
 
 @Database(
-    entities = [ProfilePreset::class, MessagePreset::class, LocalState::class, SearchPreset::class, RoomPreference::class],
-    version = 4,
+    entities = [ProfilePreset::class, MessagePreset::class, LocalState::class, SearchPreset::class, RoomPreference::class, NgWordSetEntity::class],
+    version = 5,
     exportSchema = true,
 )
 @TypeConverters(SearchPresetConverters::class)
@@ -65,6 +65,7 @@ abstract class PresetDatabase : RoomDatabase() {
     abstract fun presets(): PresetDao
     abstract fun searchPresets(): SearchPresetDao
     abstract fun roomPreferences(): RoomPreferenceDao
+    abstract fun ngWords(): NgWordDao
 
     companion object {
         // 既存のプロフィール、募集文、初回取り込み済みの記録はそのまま保持する。
@@ -87,6 +88,19 @@ abstract class PresetDatabase : RoomDatabase() {
         val MIGRATION_3_4 = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `search_presets` ADD COLUMN `criteria_text` TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
+        // NG ワードのセットを足す。既存のテーブルは触らない。最初からのセットは NgWordRepository.initialize が入れる。
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `ng_word_sets` (
+                        `id` TEXT NOT NULL, `label` TEXT NOT NULL, `words` TEXT NOT NULL,
+                        `amounts` INTEGER NOT NULL, `target` TEXT NOT NULL, `enabled` INTEGER NOT NULL,
+                        `builtInKey` TEXT, `position` INTEGER NOT NULL, PRIMARY KEY(`id`)
+                    )
+                """.trimIndent())
             }
         }
 

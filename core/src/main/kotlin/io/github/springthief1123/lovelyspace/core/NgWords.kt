@@ -63,6 +63,8 @@ class NgWordFilter private constructor(private val sets: List<Compiled>) {
     private class Compiled(val label: String, val target: NgTarget, val amounts: Boolean, val terms: List<Pair<String, Set<String>>>)
 
     val isEmpty: Boolean get() = sets.isEmpty()
+    /** 効いている（ON で、語か金額の表記がある）セットの数。 */
+    val setCount: Int get() = sets.size
 
     /** [room] が当たった最初のセットと語。当たらなければ null。 */
     fun matchOf(room: Room): NgMatch? {

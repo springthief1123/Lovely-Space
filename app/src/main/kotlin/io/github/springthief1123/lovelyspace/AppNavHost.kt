@@ -37,6 +37,7 @@ import io.github.springthief1123.lovelyspace.ui.main.SearchPresetSaver
 import io.github.springthief1123.lovelyspace.data.SearchPreset
 import io.github.springthief1123.lovelyspace.ui.settings.DisplaySettingsScreen
 import io.github.springthief1123.lovelyspace.ui.settings.HiddenRoomsScreen
+import io.github.springthief1123.lovelyspace.ui.settings.NgWordsScreen
 import io.github.springthief1123.lovelyspace.ui.settings.NotificationSettingsScreen
 import io.github.springthief1123.lovelyspace.ui.settings.RefreshSettingsScreen
 import io.github.springthief1123.lovelyspace.ui.settings.RoomListSettingsScreen
@@ -122,10 +123,12 @@ fun AppNavHost() {
                         nav.navigate(Routes.public(host, room.genreKey, room.id)) { launchSingleTop = true }
                     },
                     onGenreChanged = { createGenreKey = it.key },
+                    onOpenNgWords = { nav.navigate(Routes.SETTINGS_NG_WORDS) { launchSingleTop = true } },
                 )
             }
             composable(Routes.SEARCH) {
                 SearchScreen(
+                    onOpenNgWords = { nav.navigate(Routes.SETTINGS_NG_WORDS) { launchSingleTop = true } },
                     onEnterRoom = { room ->
                         Genres[room.genreKey]?.host?.let { host ->
                             nav.navigate(Routes.entry(host, room.genreKey, room.id, Routes.SEARCH)) { launchSingleTop = true }
@@ -172,6 +175,7 @@ fun AppNavHost() {
                     onOpenRoomList = { nav.navigate(Routes.SETTINGS_ROOMS) { launchSingleTop = true } },
                     onOpenRefresh = { nav.navigate(Routes.SETTINGS_REFRESH) { launchSingleTop = true } },
                     onOpenHiddenRooms = { nav.navigate(Routes.SETTINGS_HIDDEN) { launchSingleTop = true } },
+                    onOpenNgWords = { nav.navigate(Routes.SETTINGS_NG_WORDS) { launchSingleTop = true } },
                     onOpenNotifications = { nav.navigate(Routes.SETTINGS_NOTIFICATIONS) { launchSingleTop = true } },
                     onOpenLock = { nav.navigate(Routes.SETTINGS_LOCK) { launchSingleTop = true } },
                     onBack = { nav.popBackStack() },
@@ -188,6 +192,9 @@ fun AppNavHost() {
             }
             composable(Routes.SETTINGS_HIDDEN) {
                 HiddenRoomsScreen(onBack = { nav.popBackStack() })
+            }
+            composable(Routes.SETTINGS_NG_WORDS) {
+                NgWordsScreen(onBack = { nav.popBackStack() })
             }
             composable(Routes.SETTINGS_LOCK) {
                 io.github.springthief1123.lovelyspace.lock.AppLockSettingsScreen(onBack = { nav.popBackStack() })
