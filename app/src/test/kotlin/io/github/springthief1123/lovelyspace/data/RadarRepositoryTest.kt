@@ -624,6 +624,21 @@ class RadarRepositoryTest {
             assertEquals(untried, nextLists.calls.first().genre.key)
         } finally { db.close() }
     }
+    @Test fun aPageWithoutTheRoomTableIsCheckedAgainLaterWithoutAnError() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            searches.save(SearchPreset("a", "合成条件", "zenkoku", RoomSearchCriteria()))
+            val lists = Lists().apply { onFetch = { throw RoomListUnavailableException("合成") } }
+            val radar = RadarRepository(db.presets(), lists, searches, RoomPreferenceRepository(db), backgroundScope) { 1_000_000 }
+            radar.state.first { it.loaded }
+            radar.setPlan("a", true)
+            radar.scan(latestFirst = true)
+            // 本家が部屋の表を出さなかっただけなので、失敗の案内は出さずに次の巡回で確認する。
+            assertNull(radar.state.value.error)
+            assertEquals(listOf(RadarCheckStatus.SKIPPED), radar.state.value.lastScan?.pages?.map { it.status })
+        } finally { db.close() }
+    }
     @Test fun enablingAPlanShowsMatchesFromPagesOtherFeaturesJustReadAndUsesThemAsTheBaseline() = runTest {
         val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
         try {

@@ -330,9 +330,14 @@ class RadarRepository(
                     s.candidateRules.any { it.enabled && ready("candidate/${it.id}", s.nextCandidatePages[it.id] ?: 1) })) {
                 scan(latestFirst = false, force = false, lapIntervalMs = lap)
             }
-            delay(if (_state.value.error != null) RoomPageSchedule.ERROR_INTERVAL_MS else pacing().sanitized().minIntervalMs)
+            // 部屋の表が無いページ（案内は出さない失敗）が返ったときも、失敗と同じく 20 秒空ける。
+            val failed = _state.value.error != null || unreadablePage.getAndSet(false)
+            delay(if (failed) RoomPageSchedule.ERROR_INTERVAL_MS else pacing().sanitized().minIntervalMs)
         }
     }
+
+    /** この巡回で、本家が部屋の表を出さずにページを返した（[RoomListUnavailableException]）。[monitor] の次の待ちを延ばす。 */
+    private val unreadablePage = java.util.concurrent.atomic.AtomicBoolean(false)
 
     /**
      * [maxPages] は1回の巡回で取得するページ数の上限（背景実行で使う）。超えたページは次回に回す。
@@ -438,7 +443,11 @@ class RadarRepository(
                 onResult = { query, outcome ->
                     when (outcome) {
                         is ListSyncOutcome.Fetched -> applyFetched(query, scheduled.getValue(query), before[query] ?: 0, force, latestFirst, ::plansOf, notice = backgroundOnly)
-                        is ListSyncOutcome.Failed -> updateCheck(query, RadarCheckStatus.FAILED, message = "一覧を取得できませんでした。次の巡回で同じページを確認します。")
+                        // 更新を続けて押したときなどに本家が部屋の表だけを出さないことがある。ブラウザで押し直すのと同じく、失敗の案内は出さずに次で取り直す。
+                        is ListSyncOutcome.Failed -> if (outcome.error is RoomListUnavailableException) {
+                            unreadablePage.set(true)
+                            updateCheck(query, RadarCheckStatus.SKIPPED, message = "本家が部屋の一覧を出さなかったため、次の巡回で同じページを確認します。")
+                        } else updateCheck(query, RadarCheckStatus.FAILED, message = "一覧を取得できませんでした。次の巡回で同じページを確認します。")
                         ListSyncOutcome.Deferred -> updateCheck(query, RadarCheckStatus.SKIPPED, message = "1回の巡回で取得するページ数の上限に達したため、次の巡回で確認します。")
                         ListSyncOutcome.Skipped -> Unit
                     }
