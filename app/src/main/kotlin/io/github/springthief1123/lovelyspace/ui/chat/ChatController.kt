@@ -125,12 +125,13 @@ data class ChatUiState(
         // 転送・認証切れ・エラーページなど、部屋画面として確認できない応答を成功扱いしない。
         // 特にクリアや公開設定を楽観的に反映すると、サーバーの状態と表示が食い違う。
         if (page == null) return copy(ownerAction = null, ownerNotice = action.failure)
-        // 応答を待つ間に新しい入退室の通知を受信していたら、その新しい観測を古い操作応答で上書きしない。
-        val sameParticipantRevision = participantRevision == participantRevisionAtStart
+        // 通常の操作では新しい入退室通知を優先する。発言クリアは poll を止めてから送るため、
+        // 読み出し位置を再同期する応答ページの在室状態を必ず採用する。
+        val usePageOccupancy = action == OwnerAction.CLEAR_LOG || participantRevision == participantRevisionAtStart
         val done = copy(
             ownerAction = null,
-            isFilled = if (sameParticipantRevision) page.state.isFilledRoom else isFilled,
-            canBanGuest = if (sameParticipantRevision) page.canBanGuest else canBanGuest,
+            isFilled = if (usePageOccupancy) page.state.isFilledRoom else isFilled,
+            canBanGuest = if (usePageOccupancy) page.canBanGuest else canBanGuest,
         )
         return when (action) {
             OwnerAction.BAN_GUEST -> done
