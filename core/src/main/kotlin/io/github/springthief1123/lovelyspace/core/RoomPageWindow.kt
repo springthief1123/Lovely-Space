@@ -10,6 +10,11 @@ import kotlin.time.Duration.Companion.hours
  * 後ろのページへずれるので、読む順番によっては一覧のどこにも無い時間ができる。そこで消えた部屋は [carried] に残し、
  * 別のページで見つかるか、消えた後に次のページも読んだうえで同じページをもう一度読んでも無いと分かるまで一覧に出し続ける
  * （ページが 1 つだけの一覧ではずれないので残さない）。
+ *
+ * 一覧は部屋を立てた順（部屋の ID の大きい順）に並ぶ。読んだページの最初と最後の部屋の ID の間にあるはずの部屋は、
+ * ずれても前後のページへは行かないので、そのページに無ければ閉じた部屋として、残していた部屋（[carried]）からも、
+ * それより前に読んだ別のページからもすぐ外す。同じ秒に立った部屋は ID の順が前後することがあるので、
+ * ページの端から [ID_MARGIN] 以内の部屋は外さず、上の残し方に任せる。
  */
 data class RoomPageWindow(
     val pages: Map<Int, List<Room>> = emptyMap(),
@@ -24,7 +29,13 @@ data class RoomPageWindow(
         // キャッシュを再利用した呼び出しを新たな観測として数えない。
         if (observationRevision != null && nextRevision <= (revisions[page.page] ?: Long.MIN_VALUE)) return this
         val limit = if (nextRevision >= revision) page.lastPage.coerceAtLeast(1) else lastPage
-        val nextPages = (pages + (page.page to page.rooms)).filterKeys { it <= limit }
+        val seen = page.rooms.mapTo(HashSet(), ::roomIdentity)
+        val closed = closedRange(page)
+        // このページの範囲にあるのに載っていない部屋は閉じた。このページより前に読んだページからも外す。
+        fun gone(room: Room) = closed != null && room.id in closed && roomIdentity(room) !in seen
+        val nextPages = (pages.mapValues { (number, rooms) ->
+            if ((revisions[number] ?: Long.MIN_VALUE) < nextRevision) rooms.filterNot(::gone) else rooms
+        } + (page.page to page.rooms)).filterKeys { it <= limit }
         val present = nextPages.values.flatten().map(::roomIdentity).toSet()
         val vanished = if (limit > 1) pages[page.page].orEmpty().filter { roomIdentity(it) !in present } else emptyList()
         return copy(
@@ -35,9 +46,25 @@ data class RoomPageWindow(
             carried = carried.filter { (id, c) ->
                 // 後ろへずれた部屋は次のページにあるので、消えた後に次のページを読むまでは閉じたと決めない。
                 val nextRead = c.page >= limit || (revisions[c.page + 1] ?: Long.MIN_VALUE) > c.revision
-                id !in present && c.page <= limit && !(c.page == page.page && nextRead)
-            } + vanished.associate { roomIdentity(it) to CarriedRoom(page.page, it, nextRevision) },
+                id !in present && c.page <= limit && !(c.page == page.page && nextRead) && !(c.revision < nextRevision && gone(c.room))
+            } + vanished.filterNot(::gone).associate { roomIdentity(it) to CarriedRoom(page.page, it, nextRevision) },
         )
+    }
+
+    /** [page] に載っているはずの部屋の ID の範囲。ページの端の [ID_MARGIN] は含めない。部屋が少なく範囲が無ければ null。 */
+    private fun closedRange(page: RoomListPage): LongRange? {
+        if (page.rooms.size < 2) return null
+        val low = page.rooms.minOf { it.id } + ID_MARGIN
+        val high = page.rooms.maxOf { it.id } - ID_MARGIN
+        return if (low <= high) low..high else null
+    }
+
+    companion object {
+        /**
+         * 一覧は立てた時刻（秒）の順で、同じ秒に立った部屋同士は ID の順が前後する（2026-10-04 の採取で ID の差は 3 以内）。
+         * 本家全体で 1 秒に立つ部屋は数件なので、ページの端からこれだけ離れた ID の部屋だけを、そのページで閉じたと判断する。
+         */
+        const val ID_MARGIN = 60L
     }
 
     /**

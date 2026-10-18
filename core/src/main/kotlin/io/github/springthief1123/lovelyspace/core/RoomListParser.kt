@@ -33,15 +33,20 @@ object RoomListParser {
 
     /**
      * 部屋の一覧として読めたか。部屋が 1 件でもあれば読めている。0 件なら、見出しの「待機中」「満室」があり、
-     * 1 ページ目ではその数も 0 のときだけ本当に空の一覧とみなす（最後より後ろのページは見出しがあれば空でよい）。
-     * 見出しが無いページ（一覧ではない応答）や、見出しでは部屋があるのに行が無い 1 ページ目は読めていない。
+     * その数が前のページまでに収まる（1 ページ目なら 0、最後より後ろのページなら前のページの合計以下）ときだけ本当に空の一覧とみなす。
+     * 見出しが無いページ（一覧ではない応答）や、見出しでは部屋があるのに行が無いページは読めていない。
+     * 本家は部屋の表だけが無いページを返すことがあり（docs/site-protocol.md）、2 ページ目以降でそれを空のページとして取り込むと、
+     * そのページの部屋が消えたことになってしまう。
      */
     fun isReadable(page: RoomListPage): Boolean {
         if (page.rooms.isNotEmpty()) return true
         val waiting = page.waitingCount ?: return false
         val full = page.fullCount ?: return false
-        return page.page > 1 || waiting + full == 0
+        return waiting + full <= (page.page - 1).coerceAtLeast(0) * ROOMS_PER_PAGE
     }
+
+    /** PC 版の一覧の 1 ページの部屋数。 */
+    const val ROOMS_PER_PAGE = 60
 
     /**
      * 読めなかったページが何だったのかを短く表す。題名（無ければ本文の先頭 [DESCRIBE_LENGTH] 文字）と、

@@ -259,8 +259,12 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
      * 最初の周は 1 ページ目から最後のページまで順に読み、その後は直近 1 時間の部屋が載る前のページを周ごとに読み直し、
      * 後ろのページは周ごとに 1 つずつ回る（[RoomPageSchedule]）。
      * 新しい周は前の周の始まりから設定の間隔（[RefreshPacing.searchHeadMs]）が経つまで始めない。
+     * 画面を離れていた間に古くなったページ（[SHARED_MAX_AGE_MS] より前に確認したページ）があれば、1 ページ目から全ページを読み直す。
+     * 後ろのページを周に 1 つずつ回るだけでは、閉じた部屋がしばらく一覧に残るため。
      */
     suspend fun monitor() {
+        val oldest = _state.value.pageTimes.values.minOrNull()
+        if (oldest != null && oldest < now() - SHARED_MAX_AGE_MS) schedule = null
         try {
             while (currentCoroutineContext().isActive && _state.value.automatic) {
                 if (!_state.value.initialized) { state.first { it.initialized }; continue }

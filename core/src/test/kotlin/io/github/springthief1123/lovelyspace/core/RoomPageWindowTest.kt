@@ -21,6 +21,29 @@ class RoomPageWindowTest {
         assertTrue(window.observe(page(1, listOf(room(4)))).rooms.any { it.id == 2L })
         assertFalse(window.observe(page(2, listOf(room(3)))).observe(page(1, listOf(room(4)))).rooms.any { it.id == 2L })
     }
+    @Test fun roomMissingFromTheIdRangeOfAReadPageIsDroppedAtOnce() {
+        // 一覧は ID の大きい順。部屋の ID は本物に近い大きさにし、ページの端から ID_MARGIN より内側に置く。
+        val base = 900_000_000L
+        val a = room(base + 500); val b = room(base + 300); val c = room(base + 100)
+        val window = RoomPageWindow().observe(page(1, listOf(a, b, c)))
+            .observe(page(2, listOf(room(base - 100), room(base - 300))))
+        // 同じ人が部屋を立て直した: b が閉じて、新しい部屋が先頭に出た。b は 1 ページ目の範囲の中なので、次のページを待たずに外す。
+        val rebuilt = window.observe(page(1, listOf(room(base + 700), a, c)))
+        assertEquals(listOf(base + 700, base + 500, base + 100, base - 100, base - 300), rebuilt.rooms.map { it.id })
+        assertTrue(rebuilt.carried.isEmpty())
+        // ページの端の部屋（同じ秒に立った部屋と順が前後しうる）は、すぐには外さず残す。
+        val edge = window.observe(page(1, listOf(room(base + 700), a, b)))
+        assertTrue(edge.rooms.any { it.id == base + 100 })
+        // 前に読んだ別のページに残っている部屋も、新しく読んだページの範囲の中で見つからなければ外す。
+        val stale = RoomPageWindow().observe(page(1, listOf(room(base + 900), room(base + 800))))
+            .observe(page(2, listOf(room(base + 600), room(base + 400), room(base + 200))))
+            .observe(page(1, listOf(room(base + 1000), room(base + 900), room(base + 600), room(base + 200))))
+        assertFalse(stale.rooms.any { it.id == base + 400 })
+        // 後から読んだページのほうが新しいので、それより前の観測で取り直したページの部屋は消さない。
+        val newer = RoomPageWindow().observe(page(2, listOf(room(base + 600), room(base + 400), room(base + 200))), 10)
+            .observe(page(1, listOf(room(base + 1000), room(base + 600), room(base + 200))), 5)
+        assertTrue(newer.rooms.any { it.id == base + 400 })
+    }
     @Test fun eachRoomKnowsThePageItWasLastSeenOn() {
         // 1 は 1 ページ目から 2 ページ目へ移った。2 は 1 ページ目から消えたので、消えたページのまま残る。
         val window = RoomPageWindow().observe(page(1, listOf(room(1), room(2))))

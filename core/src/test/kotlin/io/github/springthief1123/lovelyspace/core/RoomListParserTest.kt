@@ -121,8 +121,13 @@ class RoomListParserTest {
         // 見出しでは部屋があるのに、1 ページ目に行が 1 件も無い。
         val header = """<nobr><span class="wait">待機中</span> 12</nobr><nobr><span class="fill">満室</span> 3</nobr>"""
         assertFalse(RoomListParser.isReadable(RoomListParser.parse(header, "kanto")))
-        // 最後より後ろのページは見出しがあれば空でよい。
-        assertTrue(RoomListParser.isReadable(RoomListParser.parse(header, "kanto", page = 5)))
+        // 最後より後ろのページは、見出しの数が前のページまでに収まれば空でよい。
+        assertTrue(RoomListParser.isReadable(RoomListParser.parse(header, "kanto", page = 2)))
+        // 見出しでは 2 ページ目にも部屋があるのに行が無い（部屋の表だけが無い応答）。空のページとして取り込まない。
+        val many = """<nobr><span class="wait">待機中</span> 1300</nobr><nobr><span class="fill">満室</span> 80</nobr>"""
+        assertFalse(RoomListParser.isReadable(RoomListParser.parse(many, "kanto", page = 2)))
+        assertFalse(RoomListParser.isReadable(RoomListParser.parse(many, "kanto", page = 23)))
+        assertTrue(RoomListParser.isReadable(RoomListParser.parse(many, "kanto", page = 24)))
         // 部屋が 1 件も無いジャンルは空の一覧として読める。
         val empty = """<nobr><span class="wait">待機中</span> 0</nobr><nobr><span class="fill">満室</span> 0</nobr>"""
         assertTrue(RoomListParser.isReadable(RoomListParser.parse(empty, "kanto")))
