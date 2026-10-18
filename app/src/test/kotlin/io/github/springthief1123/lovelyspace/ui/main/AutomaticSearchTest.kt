@@ -61,6 +61,37 @@ class AutomaticSearchTest {
             resumed.cancelAndJoin()
         } finally { Dispatchers.resetMain() }
     }
+    @Test fun resumingAfterPagesGrewOldReadsEveryPageAgain() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val calls = mutableListOf<Int>()
+            var wall = 1_000_000L
+            var revision = 0L
+            val observed = mutableMapOf<RoomQuery, io.github.springthief1123.lovelyspace.data.ObservedRoomPage>()
+            val source = object : RoomListSource {
+                override suspend fun fetch(query: RoomQuery, force: Boolean): RoomListPage {
+                    calls += query.page
+                    val result = page(query.page, listOf(room(query.page.toLong()).copy(elapsed = if (query.page == 1) 5.minutes else 90.minutes)))
+                    observed[query] = io.github.springthief1123.lovelyspace.data.ObservedRoomPage(query, result, wall, ++revision)
+                    return result
+                }
+                override fun observation(query: RoomQuery) = observed[query]
+            }
+            val vm = SearchViewModel(source, clock = { testScheduler.currentTime }, now = { wall })
+            val job = backgroundScope.launch { vm.monitor() }
+            // 0 秒: 1、3 秒: 2、6 秒: 3、9 秒: 1、12 秒: 2。
+            runCurrent(); advanceTimeBy(12_001); runCurrent()
+            assertEquals(listOf(1, 2, 3, 1, 2), calls)
+            job.cancelAndJoin()
+            // 画面を離れている間にページが古くなった。戻ったら、後ろのページも含めて 1 ページ目から全ページを読み直す。
+            wall += SearchViewModel.SHARED_MAX_AGE_MS + 1
+            calls.clear()
+            val resumed = backgroundScope.launch { vm.monitor() }
+            runCurrent(); advanceTimeBy(6_001); runCurrent()
+            assertEquals(listOf(1, 2, 3), calls)
+            resumed.cancelAndJoin()
+        } finally { Dispatchers.resetMain() }
+    }
     @Test fun discoveryUsesRepositoryObservationOrderInsteadOfCacheReadOrder() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {
