@@ -24,24 +24,31 @@ class RoomPageWindowTest {
     @Test fun roomMissingFromTheIdRangeOfAReadPageIsDroppedAtOnce() {
         // 一覧は ID の大きい順。部屋の ID は本物に近い大きさにし、ページの端から ID_MARGIN より内側に置く。
         val base = 900_000_000L
-        val a = room(base + 500); val b = room(base + 300); val c = room(base + 100)
-        val window = RoomPageWindow().observe(page(1, listOf(a, b, c)))
-            .observe(page(2, listOf(room(base - 100), room(base - 300))))
-        // 同じ人が部屋を立て直した: b が閉じて、新しい部屋が先頭に出た。b は 1 ページ目の範囲の中なので、次のページを待たずに外す。
-        val rebuilt = window.observe(page(1, listOf(room(base + 700), a, c)))
-        assertEquals(listOf(base + 700, base + 500, base + 100, base - 100, base - 300), rebuilt.rooms.map { it.id })
+        fun r(offset: Long) = room(base + offset)
+        val window = RoomPageWindow().observe(page(1, listOf(r(700), r(500), r(300), r(100))))
+            .observe(page(2, listOf(r(-100), r(-300))))
+        // 同じ人が部屋を立て直した: 500 が閉じて、新しい部屋が先頭に出た。500 は 1 ページ目の範囲の中なので、次のページを待たずに外す。
+        val rebuilt = window.observe(page(1, listOf(r(900), r(700), r(300), r(100))))
+        assertEquals(listOf(900L, 700L, 300L, 100L, -100L, -300L), rebuilt.rooms.map { it.id - base })
         assertTrue(rebuilt.carried.isEmpty())
         // ページの端の部屋（同じ秒に立った部屋と順が前後しうる）は、すぐには外さず残す。
-        val edge = window.observe(page(1, listOf(room(base + 700), a, b)))
-        assertTrue(edge.rooms.any { it.id == base + 100 })
+        val edge = window.observe(page(1, listOf(r(900), r(700), r(500), r(100))))
+        assertTrue(edge.rooms.any { it.id == base + 300 })
+        // 閉じた部屋の ID を使い回した部屋が並ぶと ID の順が崩れるので、範囲では判断せず従来どおり残す。
+        val reused = window.observe(page(1, listOf(r(900), r(-5_000), r(700), r(300), r(100))))
+        assertTrue(reused.rooms.any { it.id == base + 500 })
+        assertTrue(reused.rooms.any { it.id == base - 100 })
+        // ページの最後に並んだ使い回しの ID は、ページの端として範囲に入れない。
+        val reusedLast = window.observe(page(1, listOf(r(900), r(700), r(500), r(300), r(-5_000))))
+        assertTrue(reusedLast.rooms.any { it.id == base + 100 })
+        assertTrue(reusedLast.rooms.any { it.id == base - 100 })
         // 前に読んだ別のページに残っている部屋も、新しく読んだページの範囲の中で見つからなければ外す。
-        val stale = RoomPageWindow().observe(page(1, listOf(room(base + 900), room(base + 800))))
-            .observe(page(2, listOf(room(base + 600), room(base + 400), room(base + 200))))
-            .observe(page(1, listOf(room(base + 1000), room(base + 900), room(base + 600), room(base + 200))))
+        val older = page(2, listOf(r(600), r(500), r(400), r(300), r(200)))
+        val head = page(1, listOf(r(1100), r(1000), r(600), r(300), r(200), r(100)))
+        val stale = RoomPageWindow().observe(page(1, listOf(r(1000), r(900), r(800), r(700)))).observe(older).observe(head)
         assertFalse(stale.rooms.any { it.id == base + 400 })
         // 後から読んだページのほうが新しいので、それより前の観測で取り直したページの部屋は消さない。
-        val newer = RoomPageWindow().observe(page(2, listOf(room(base + 600), room(base + 400), room(base + 200))), 10)
-            .observe(page(1, listOf(room(base + 1000), room(base + 600), room(base + 200))), 5)
+        val newer = RoomPageWindow().observe(older, 10).observe(head, 5)
         assertTrue(newer.rooms.any { it.id == base + 400 })
     }
     @Test fun eachRoomKnowsThePageItWasLastSeenOn() {
