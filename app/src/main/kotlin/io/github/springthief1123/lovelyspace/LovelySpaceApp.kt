@@ -90,7 +90,11 @@ class LovelySpaceApp : Application() {
     }
     /** 順番待ちの自動入室。有効なら、空いた部屋の入室画面を画面側に開かせる。 */
     val autoEntry: io.github.springthief1123.lovelyspace.data.AutoEntryController by lazy {
-        io.github.springthief1123.lovelyspace.data.AutoEntryController(startedAt = { settings.entrySettings.first().autoEntryStartedAt })
+        io.github.springthief1123.lovelyspace.data.AutoEntryController(
+            startedAt = { settings.entrySettings.first().autoEntryStartedAt },
+            persistence = io.github.springthief1123.lovelyspace.data.AutoEntryStore(
+                getSharedPreferences(io.github.springthief1123.lovelyspace.data.AutoEntryStore.PREFS, MODE_PRIVATE)),
+        )
     }
     /** 順番待ち。空きを見つけたら（有効なら自動で入室画面を開き）端末通知とお知らせに出す。 */
     val waitlist: io.github.springthief1123.lovelyspace.data.WaitlistRepository by lazy {

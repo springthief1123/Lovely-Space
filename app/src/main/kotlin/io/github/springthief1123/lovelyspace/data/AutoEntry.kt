@@ -23,6 +23,8 @@ import kotlinx.coroutines.sync.withLock
  */
 class AutoEntryController(
     private val startedAt: suspend () -> Long,
+    /** 回数と部屋ごとの最後の依頼を残す。有効にしている間にアプリが落ちて開き直されても、上限と待ちを引き継ぐ。 */
+    private val persistence: AutoEntryPersistence = AutoEntryPersistence.None,
     private val now: () -> Long = System::currentTimeMillis,
 ) {
     private val mutex = Mutex()
@@ -32,14 +34,24 @@ class AutoEntryController(
 
     @Volatile var ready: Boolean = false
 
-    private var period = 0L
-    private val _attempts = MutableStateFlow(0)
+    private val saved = runCatching { persistence.load() }.getOrNull() ?: AutoEntryRecord()
+    private var period = saved.period
+    private val _attempts = MutableStateFlow(saved.attempts)
     /** いま有効にしている間に、自動で入室画面を開いた回数。 */
     val attempts: StateFlow<Int> = _attempts.asStateFlow()
-    private val lastRequested = mutableMapOf<String, Long>()
+    private val lastRequested = saved.lastRequested.toMutableMap()
 
     /** 有効にし直したとき。回数と同じ部屋の待ちを数え直す。 */
-    fun reset() { period = 0L; _attempts.value = 0 }
+    fun reset() {
+        period = 0L
+        _attempts.value = 0
+        lastRequested.clear()
+        save()
+    }
+
+    private fun save() {
+        runCatching { persistence.save(AutoEntryRecord(period, _attempts.value, lastRequested.toMap())) }
+    }
 
     /** 空いた順番待ち [entry] について依頼を出したら true。 */
     suspend fun offer(entry: WaitlistEntry): Boolean = mutex.withLock {
@@ -56,6 +68,7 @@ class AutoEntryController(
         if (_requests.subscriptionCount.value == 0 || !_requests.tryEmit(NotificationTarget.Room(host, opened.genreKey, opened.id))) return@withLock false
         _attempts.value++
         lastRequested[entry.key] = at
+        save()
         true
     }
 
@@ -69,5 +82,42 @@ class AutoEntryController(
 
         /** [startedAt] に有効にした自動入室が [at] の時点でまだ動いているか。0 は無効。 */
         fun active(startedAt: Long, at: Long): Boolean = startedAt > 0 && at - startedAt in 0 until DURATION_MS
+    }
+}
+
+/** [AutoEntryController] の回数と待ち。[period] は数え始めた有効期間（有効にした時刻）。 */
+data class AutoEntryRecord(val period: Long = 0L, val attempts: Int = 0, val lastRequested: Map<String, Long> = emptyMap())
+
+interface AutoEntryPersistence {
+    fun load(): AutoEntryRecord?
+    fun save(record: AutoEntryRecord)
+
+    object None : AutoEntryPersistence {
+        override fun load(): AutoEntryRecord? = null
+        override fun save(record: AutoEntryRecord) {}
+    }
+}
+
+/** 自動入室の回数と待ちを SharedPreferences に JSON で残す。読めない記録は捨てる。 */
+class AutoEntryStore(private val prefs: android.content.SharedPreferences) : AutoEntryPersistence {
+    override fun load(): AutoEntryRecord? {
+        val raw = prefs.getString(KEY, null) ?: return null
+        return runCatching {
+            val o = org.json.JSONObject(raw)
+            val last = o.optJSONObject("lastRequested")
+            AutoEntryRecord(o.getLong("period"), o.getInt("attempts"),
+                last?.keys()?.asSequence()?.associateWith { last.getLong(it) }.orEmpty())
+        }.getOrNull()
+    }
+
+    override fun save(record: AutoEntryRecord) {
+        val last = org.json.JSONObject().apply { record.lastRequested.forEach { (k, v) -> put(k, v) } }
+        prefs.edit().putString(KEY, org.json.JSONObject().put("period", record.period).put("attempts", record.attempts)
+            .put("lastRequested", last).toString()).apply()
+    }
+
+    companion object {
+        const val PREFS = "auto_entry"
+        private const val KEY = "record"
     }
 }

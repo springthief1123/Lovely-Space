@@ -143,7 +143,7 @@ class ChatNavigationTest {
     }
 
     @Test fun waitlistNotificationEntersAutomaticallyOnlyWhenEnabled() {
-        val target = NotificationTarget.Room("chat.shalove.net", "zenkoku", 88)
+        val target = NotificationTarget.Room("chat.shalove.net", "zenkoku", 88, verified = true)
         val nav = controller()
         nav.openNotification(notification(NotificationKind.WAITLIST, target), enterFromWaitlist = true) { null }
         assertEquals(Routes.ENTRY, nav.currentDestination!!.route)
@@ -157,6 +157,11 @@ class ChatNavigationTest {
         val radar = controller()
         radar.openNotification(notification(NotificationKind.RADAR_MATCH, target), enterFromWaitlist = true) { null }
         assertFalse(radar.currentBackStackEntry!!.arguments!!.getBoolean("auto"))
+
+        // 待機メッセージが登録時と違う部屋は、入力画面で確かめてもらう。
+        val changed = controller()
+        changed.openNotification(notification(NotificationKind.WAITLIST, target.copy(verified = false)), enterFromWaitlist = true) { null }
+        assertFalse(changed.currentBackStackEntry!!.arguments!!.getBoolean("auto"))
     }
 
     @Test fun roomEntryNotificationResumesTheActiveChat() {

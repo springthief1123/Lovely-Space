@@ -73,7 +73,8 @@ internal fun NavController.openNotification(notification: AppNotification, enter
             val origin = if (notification.kind == NotificationKind.RADAR_MATCH) Routes.RADAR else Routes.ROOMS
             showMain(origin)
             // 順番待ちの空きは取り合いなので、設定が有効なら入力済みのまま入室まで進める。
-            val auto = enterFromWaitlist && notification.kind == NotificationKind.WAITLIST
+            // 待機メッセージが登録時と違う（別の部屋かもしれない）ときは、入室画面で確かめてもらう。
+            val auto = enterFromWaitlist && notification.kind == NotificationKind.WAITLIST && target.verified
             navigate(Routes.entry(target.host, target.genreKey, target.roomId, origin, auto)) { launchSingleTop = true }
         }
         NotificationTarget.ActiveChat -> resumeChat()?.let { navigateToChat(it, Routes.ROOMS) } ?: showMain(Routes.ROOMS)

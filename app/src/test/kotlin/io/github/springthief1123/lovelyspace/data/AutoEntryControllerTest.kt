@@ -22,8 +22,14 @@ class AutoEntryControllerTest {
     private var now = 1_000_000L
     private var startedAt = 1_000_000L
 
-    private fun TestScope.controller(): Pair<AutoEntryController, MutableList<NotificationTarget.Room>> {
-        val c = AutoEntryController(startedAt = { startedAt }, now = { now })
+    private class Memory : AutoEntryPersistence {
+        var record: AutoEntryRecord? = null
+        override fun load() = record
+        override fun save(record: AutoEntryRecord) { this.record = record }
+    }
+
+    private fun TestScope.controller(persistence: AutoEntryPersistence = AutoEntryPersistence.None): Pair<AutoEntryController, MutableList<NotificationTarget.Room>> {
+        val c = AutoEntryController(startedAt = { startedAt }, persistence = persistence, now = { now })
         val received = mutableListOf<NotificationTarget.Room>()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { c.requests.toList(received) }
         c.ready = true
@@ -78,5 +84,20 @@ class AutoEntryControllerTest {
         val c = AutoEntryController(startedAt = { startedAt }, now = { now }).apply { ready = true }
         assertFalse(c.offer(opened()))
         assertEquals(0, c.attempts.value)
+    }
+
+    @Test fun keepsTheLimitAndWaitAcrossARestartWithinTheSamePeriod() = runTest {
+        val memory = Memory()
+        val (first, _) = controller(memory)
+        repeat(AutoEntryController.MAX_ATTEMPTS - 1) { i ->
+            assertTrue(first.offer(opened(room = full.copy(id = 100L + i), openedRoom = open.copy(id = 100L + i))))
+        }
+
+        // アプリが落ちて開き直された（同じ有効期間のまま）。
+        val (restarted, _) = controller(memory)
+        assertEquals(AutoEntryController.MAX_ATTEMPTS - 1, restarted.attempts.value)
+        assertFalse("同じ部屋への 60 秒の待ちも引き継ぐ", restarted.offer(opened(room = full.copy(id = 100L), openedRoom = open.copy(id = 100L))))
+        assertTrue(restarted.offer(opened()))
+        assertFalse("上限も引き継ぐ", restarted.offer(opened(room = full.copy(id = 999), openedRoom = open.copy(id = 999))))
     }
 }
