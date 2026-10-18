@@ -125,4 +125,45 @@ class PublicRoomViewModelTest {
             job.cancelAndJoin()
         } finally { Dispatchers.resetMain() }
     }
+    @Test fun aJustEnteredRoomIsReadAgainUntilItsLogAppears() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            var ready = false
+            var requests = 0
+            val vm = PublicRoomViewModel(clock = { testScheduler.currentTime }) {
+                requests++
+                if (!ready) throw PublicRoomUnavailableException("合成の読めないページ")
+                PublicRoomPage("合成", listOf(ChatLine("合成", true, "合成の発言", null)), "")
+            }
+            vm.open(); runCurrent()
+            // 一度も読めていないので、閉じたと決めずに設定の間隔で読み直す。
+            assertTrue(vm.state.value.automatic)
+            assertTrue(vm.state.value.waitingForLog)
+            val job = backgroundScope.launch { vm.monitor { 5_000 } }
+            advanceTimeBy(5_001); runCurrent()
+            assertEquals(2, requests)
+            ready = true
+            advanceTimeBy(5_001); runCurrent()
+            assertTrue(vm.state.value.opened)
+            assertFalse(vm.state.value.waitingForLog)
+            job.cancelAndJoin()
+        } finally { Dispatchers.resetMain() }
+    }
+    @Test fun aRoomThatStaysUnreadableStopsAfterAWhile() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            var requests = 0
+            val vm = PublicRoomViewModel(clock = { testScheduler.currentTime }) {
+                requests++
+                throw PublicRoomUnavailableException("合成の読めないページ")
+            }
+            vm.open(); runCurrent()
+            val job = backgroundScope.launch { vm.monitor { 20_000 } }
+            advanceTimeBy(PublicRoomViewModel.FRESH_RETRY_MS + 60_000); runCurrent()
+            assertFalse(vm.state.value.automatic)
+            assertFalse(vm.state.value.waitingForLog)
+            assertEquals((PublicRoomViewModel.FRESH_RETRY_MS / 20_000 + 1).toInt(), requests)
+            job.cancelAndJoin()
+        } finally { Dispatchers.resetMain() }
+    }
 }

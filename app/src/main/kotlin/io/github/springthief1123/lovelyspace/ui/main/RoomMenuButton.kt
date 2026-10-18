@@ -26,6 +26,7 @@ import io.github.springthief1123.lovelyspace.core.RoomIdentityEvidence
 import io.github.springthief1123.lovelyspace.core.roomIdentity
 import io.github.springthief1123.lovelyspace.core.roomIdentityEvidence
 import io.github.springthief1123.lovelyspace.data.ObservedRoomPage
+import io.github.springthief1123.lovelyspace.data.RoomListRepository
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomActionMenu
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomMenuItem
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomPreferenceViewModel
@@ -33,25 +34,28 @@ import io.github.springthief1123.lovelyspace.ui.rooms.RoomPreferenceViewModel
 /**
  * 取得済みの一覧から、その部屋が見えた最新の姿を探す。通信はしない。
  * 状態（満室など）は最新の姿のものを使う。満室になると名前などが隠れるので、それ以前に見えた名前・性別・年齢を補う。
+ * 一覧はページごとに最新の取得結果だけを持つので、入室されたばかりの部屋は待機中の姿がもう残っていない。
+ * そのときは [named]（[RoomListRepository.lastNamed]、名前が見えていた最後の姿）から、待機メッセージが同じときだけ補う。
  * ただし、途中で別の人の部屋に変わった（ID の再利用）と分かる観測より前からは補わない。
  */
-internal fun observedRoom(observations: Collection<ObservedRoomPage>, genreKey: String, roomId: Long): Room? {
+internal fun observedRoom(observations: Collection<ObservedRoomPage>, genreKey: String, roomId: Long, named: Room? = null): Room? {
     val key = "${Genres[genreKey]?.host ?: genreKey}/$roomId"
     val seen = observations.sortedByDescending { it.revision }
         .flatMap { observed -> observed.page.rooms.filter { roomIdentity(it) == key } }
     val newest = seen.firstOrNull() ?: return null
     if (newest.name != null) return newest
+    fun borrow(older: Room) = newest.copy(
+        name = older.name,
+        gender = if (newest.gender == Gender.UNKNOWN) older.gender else newest.gender,
+        age = newest.age ?: older.age,
+        area = newest.area ?: older.area,
+    )
     for (older in seen.drop(1)) {
-        if (roomIdentityEvidence(newest, older) == RoomIdentityEvidence.REUSED) break
-        if (older.name != null) {
-            return newest.copy(
-                name = older.name,
-                gender = if (newest.gender == Gender.UNKNOWN) older.gender else newest.gender,
-                age = newest.age ?: older.age,
-                area = newest.area ?: older.area,
-            )
-        }
+        if (roomIdentityEvidence(newest, older) == RoomIdentityEvidence.REUSED) return newest
+        if (older.name != null) return borrow(older)
     }
+    if (named != null && roomIdentity(named) == key && named.name != null && newest.message.isNotBlank() && named.message == newest.message &&
+        roomIdentityEvidence(newest, named) != RoomIdentityEvidence.REUSED) return borrow(named)
     return newest
 }
 
@@ -63,7 +67,7 @@ internal fun observedRoom(observations: Collection<ObservedRoomPage>, genreKey: 
 internal fun RoomMenuButton(genreKey: String, roomId: Long, fallbackTitle: String, onNotice: (String) -> Unit, waitingMessage: String? = null) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val observations by app.roomLists.observations.collectAsStateWithLifecycle()
-    val room = observedRoom(observations.values, genreKey, roomId)
+    val room = observedRoom(observations.values, genreKey, roomId, app.roomLists.lastNamed(genreKey, roomId))
     val preferencesVm: RoomPreferenceViewModel = viewModel(
         key = "room-menu",
         factory = viewModelFactory { initializer { RoomPreferenceViewModel(app.roomPreferences) } },

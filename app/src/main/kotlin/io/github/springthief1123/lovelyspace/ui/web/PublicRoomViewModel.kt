@@ -21,6 +21,8 @@ data class PublicRoomUiState(
     val lines: List<UiLine> = emptyList(), val information: String = "", val error: String? = null,
     /** 部屋主・入室者の名前。読み直しても引き継ぎ、入室者の発言を右に出す。 */
     val roles: RoomRoles = RoomRoles(),
+    /** 一度も読めないまま、開いてから [PublicRoomViewModel.FRESH_RETRY_MS] の間は読み直している（入室された直後の部屋）。 */
+    val waitingForLog: Boolean = false,
 )
 
 /**
@@ -38,6 +40,8 @@ class PublicRoomViewModel(
     private var refreshJob: Job? = null
     /** 前回の読み込みが終わった時刻。自動の読み直しはここから間隔を数える。 */
     private var readAt: Long? = null
+    /** 最初の読み込みを始めた時刻。入室された直後で公開ログが読めない間、読み直し続ける期間を数える。 */
+    private var firstReadAt: Long? = null
     /**
      * 画面を開いたらすぐ読み込む。画面の切り替えの動きが終わるのを待たない。
      * 一度読み込んだ後（画面の回転など）は何もしない。
@@ -53,14 +57,19 @@ class PublicRoomViewModel(
         // 開いた直後の読み込みが終わるのを待ってから数え始める。
         refreshJob?.takeIf { it.isActive }?.join()
         while (currentCoroutineContext().isActive && _state.value.automatic) {
-            val gap = if (_state.value.error != null) maxOf(interval(), RoomPageSchedule.ERROR_INTERVAL_MS) else interval()
+            // 通信の失敗は間を空ける。ページは届いたが公開ログがまだ無い間は、設定の間隔で読み直す。
+            val failed = _state.value.error != null && !_state.value.waitingForLog
+            val gap = if (failed) maxOf(interval(), RoomPageSchedule.ERROR_INTERVAL_MS) else interval()
             val wait = readAt?.let { it + gap - clock() } ?: 0
             if (wait > 0) { delay(wait); continue }
             read(manual = false)
         }
     }
+    /** 一度でも公開ログを読めたか。 */
+    private var seen = false
     private suspend fun read(manual: Boolean) = mutex.withLock {
         _state.update { it.copy(loading = true) }
+        val startedAt = firstReadAt ?: clock().also { firstReadAt = it }
         try {
             val page = fetch(manual)
             currentCoroutineContext().ensureActive()
@@ -72,15 +81,28 @@ class PublicRoomViewModel(
                 existing[line]?.removeFirstOrNull()?.copy(isMine = isGuest) ?: UiLine(nextId++, line, isGuest)
             }.asReversed()
             // 閉じられた後に「再読み込み」で読めたら、自動の読み直しへ戻す。
-            _state.update { it.copy(opened = true, automatic = true, roles = roles, lines = lines, information = page.information, error = null) }
+            _state.update { it.copy(opened = true, automatic = true, roles = roles, lines = lines, information = page.information, error = null, waitingForLog = false) }
+            seen = true
         } catch (e: CancellationException) { throw e }
         catch (e: PublicRoomUnavailableException) {
-            _state.update { it.copy(lines = emptyList(), opened = false, automatic = false, error = e.message) }
-        } catch (e: Exception) { _state.update { it.copy(error = describeError(e)) } }
+            // 入室された直後の部屋は、本家の公開ログがまだ読めないことがある（2026-10-18 Yuya）。
+            // 一度も読めていなければ、開いてからしばらくは閉じたと決めずに読み直す。読めていた部屋が読めなくなったら閉じた。
+            val fresh = !seen && clock() - startedAt < FRESH_RETRY_MS
+            _state.update {
+                it.copy(lines = emptyList(), opened = false, automatic = fresh, waitingForLog = fresh,
+                    error = if (fresh) "$FRESH_NOTE\n${e.message}" else e.message)
+            }
+        } catch (e: Exception) { _state.update { it.copy(error = describeError(e), waitingForLog = false) } }
         finally {
             // 取り消した読み込み（読み込み中に画面を離れたなど）は読んだことにしない。戻ったらすぐ読み直す。
             if (currentCoroutineContext().isActive) readAt = clock()
             _state.update { it.copy(loading = false) }
         }
+    }
+
+    companion object {
+        /** 一度も読めない部屋を、開いてから読み直し続ける時間。 */
+        const val FRESH_RETRY_MS = 2 * 60_000L
+        const val FRESH_NOTE = "入室された直後は、本家の公開ログがまだ読めないことがあります。自動で読み直します。"
     }
 }
