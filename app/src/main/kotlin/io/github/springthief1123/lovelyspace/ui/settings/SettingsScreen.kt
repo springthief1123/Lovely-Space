@@ -22,6 +22,7 @@ import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.material.icons.automirrored.outlined.Login
 import androidx.compose.material.icons.automirrored.outlined.ViewList
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.HorizontalDivider
@@ -43,6 +44,7 @@ fun SettingsScreen(
     onOpenDisplay: () -> Unit,
     onOpenRoomList: () -> Unit,
     onOpenRefresh: () -> Unit,
+    onOpenEntry: () -> Unit,
     onOpenHiddenRooms: () -> Unit,
     onOpenNgWords: () -> Unit,
     onOpenNotifications: () -> Unit,
@@ -65,7 +67,7 @@ fun SettingsScreen(
         ) {
             item {
                 Text(
-                    "アプリの表示・部屋一覧・更新の間隔・NGワード・通知・ロックの設定を、用途ごとに整理しています。",
+                    "アプリの表示・部屋一覧・更新の間隔・入室・NGワード・通知・ロックの設定を、用途ごとに整理しています。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 4.dp, end = 4.dp, bottom = 6.dp),
@@ -93,6 +95,14 @@ fun SettingsScreen(
                     title = "更新の間隔",
                     description = "新しい部屋・自動巡回・空き枠・覗いている部屋を確認する間隔",
                     onClick = onOpenRefresh,
+                )
+            }
+            item {
+                SettingsCategoryCard(
+                    icon = Icons.AutoMirrored.Outlined.Login,
+                    title = "入室",
+                    description = "通知からすぐ入室、ロボット確認後の自動送信、順番待ちの自動入室",
+                    onClick = onOpenEntry,
                 )
             }
             item {

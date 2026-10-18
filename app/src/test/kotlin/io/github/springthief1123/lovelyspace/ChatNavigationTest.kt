@@ -35,6 +35,7 @@ class ChatNavigationTest {
             composable(Routes.ENTRY, arguments = listOf(
                 navArgument("host") { type = NavType.StringType }, navArgument("genre") { type = NavType.StringType },
                 navArgument("roomId") { type = NavType.LongType }, origin,
+                navArgument("auto") { type = NavType.BoolType; defaultValue = false },
             )) { }
             composable(Routes.CREATE, arguments = listOf(navArgument("genre") { type = NavType.StringType }, origin)) { }
             composable(Routes.CHAT, arguments = listOf(navArgument("session") { type = NavType.StringType }, origin)) { }
@@ -139,6 +140,23 @@ class ChatNavigationTest {
         assertEquals(Routes.RADAR, nav.currentBackStackEntry!!.arguments!!.getString("origin"))
         nav.popBackStack()
         assertEquals(Routes.RADAR, nav.currentDestination!!.route)
+    }
+
+    @Test fun waitlistNotificationEntersAutomaticallyOnlyWhenEnabled() {
+        val target = NotificationTarget.Room("chat.shalove.net", "zenkoku", 88)
+        val nav = controller()
+        nav.openNotification(notification(NotificationKind.WAITLIST, target), enterFromWaitlist = true) { null }
+        assertEquals(Routes.ENTRY, nav.currentDestination!!.route)
+        assertTrue(nav.currentBackStackEntry!!.arguments!!.getBoolean("auto"))
+
+        val manual = controller()
+        manual.openNotification(notification(NotificationKind.WAITLIST, target)) { null }
+        assertFalse(manual.currentBackStackEntry!!.arguments!!.getBoolean("auto"))
+
+        // 順番待ち以外の通知（レーダーの一致など）は、設定が有効でも入力画面で止める。
+        val radar = controller()
+        radar.openNotification(notification(NotificationKind.RADAR_MATCH, target), enterFromWaitlist = true) { null }
+        assertFalse(radar.currentBackStackEntry!!.arguments!!.getBoolean("auto"))
     }
 
     @Test fun roomEntryNotificationResumesTheActiveChat() {

@@ -17,19 +17,21 @@ internal object Routes {
     const val SETTINGS_DISPLAY = "settings/display"
     const val SETTINGS_ROOMS = "settings/rooms"
     const val SETTINGS_REFRESH = "settings/refresh"
+    const val SETTINGS_ENTRY = "settings/entry"
     const val SETTINGS_HIDDEN = "settings/hidden"
     const val SETTINGS_NG_WORDS = "settings/ngwords"
     const val SETTINGS_NOTIFICATIONS = "settings/notifications"
     const val SETTINGS_LOCK = "settings/lock"
-    const val ENTRY = "entry/{host}/{genre}/{roomId}?origin={origin}"
+    /** [auto] は入力済みのまま入室まで進める（順番待ちの通知・自動入室から開いたとき）。 */
+    const val ENTRY = "entry/{host}/{genre}/{roomId}?origin={origin}&auto={auto}"
     /** pwdはrouteに載せず、ActiveRoomsの一時IDだけを渡す。 */
     const val CHAT = "chat/{session}?origin={origin}"
     /** [origin] は部屋の作成を始めた主画面。会話の後はそこへ戻る。 */
     const val CREATE = "create/{genre}?origin={origin}"
     const val PUBLIC = "public/{host}/{genre}/{roomId}"
 
-    fun entry(host: String, genre: String, roomId: Long, origin: String = ROOMS) =
-        "entry/${Uri.encode(host)}/${Uri.encode(genre)}/$roomId?origin=${mainOrigin(origin)}"
+    fun entry(host: String, genre: String, roomId: Long, origin: String = ROOMS, auto: Boolean = false) =
+        "entry/${Uri.encode(host)}/${Uri.encode(genre)}/$roomId?origin=${mainOrigin(origin)}&auto=$auto"
     fun create(genre: String, origin: String = ROOMS) = "create/${Uri.encode(genre)}?origin=${mainOrigin(origin)}"
     fun public(host: String, genre: String, roomId: Long) = "public/${Uri.encode(host)}/${Uri.encode(genre)}/$roomId"
     fun chat(sessionId: String, origin: String) = "chat/${Uri.encode(sessionId)}?origin=${mainOrigin(origin)}"
@@ -62,14 +64,17 @@ internal fun NavController.navigateMain(route: String) {
 
 /**
  * 通知・お知らせから該当の画面を開く。部屋は元のタブの上に入室画面を重ね、戻ると元のタブに戻る。
+ * [enterFromWaitlist] は順番待ちの通知から開いたら入室まで進めるか（設定の「通知から開いたらすぐ入室する」）。
  * [resumeChat] は進行中の部屋の一時 ID を返す（無ければ null）。
  */
-internal fun NavController.openNotification(notification: AppNotification, resumeChat: () -> String?) {
+internal fun NavController.openNotification(notification: AppNotification, enterFromWaitlist: Boolean = false, resumeChat: () -> String?) {
     when (val target = notification.target) {
         is NotificationTarget.Room -> {
             val origin = if (notification.kind == NotificationKind.RADAR_MATCH) Routes.RADAR else Routes.ROOMS
             showMain(origin)
-            navigate(Routes.entry(target.host, target.genreKey, target.roomId, origin)) { launchSingleTop = true }
+            // 順番待ちの空きは取り合いなので、設定が有効なら入力済みのまま入室まで進める。
+            val auto = enterFromWaitlist && notification.kind == NotificationKind.WAITLIST
+            navigate(Routes.entry(target.host, target.genreKey, target.roomId, origin, auto)) { launchSingleTop = true }
         }
         NotificationTarget.ActiveChat -> resumeChat()?.let { navigateToChat(it, Routes.ROOMS) } ?: showMain(Routes.ROOMS)
         NotificationTarget.Radar -> showMain(Routes.RADAR)

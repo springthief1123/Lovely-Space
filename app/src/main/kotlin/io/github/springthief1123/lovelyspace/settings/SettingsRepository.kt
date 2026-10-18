@@ -3,6 +3,7 @@ package io.github.springthief1123.lovelyspace.settings
 import android.content.Context
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -81,6 +82,9 @@ class SettingsRepository(private val context: Context) : RoomListPreferenceStore
     private val radarHeadKey = longPreferencesKey("pacing_radar_head_ms")
     private val waitlistKey = longPreferencesKey("pacing_waitlist_ms")
     private val publicRoomKey = longPreferencesKey("pacing_public_room_ms")
+    private val entryFromNotificationKey = booleanPreferencesKey("entry_from_notification")
+    private val entryAutoSubmitKey = booleanPreferencesKey("entry_auto_submit")
+    private val autoEntryStartedAtKey = longPreferencesKey("auto_entry_started_at")
 
     val themeMode: Flow<ThemeMode> = context.dataStore.data.map { prefs ->
         prefs[themeKey]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.SYSTEM
@@ -169,6 +173,28 @@ class SettingsRepository(private val context: Context) : RoomListPreferenceStore
         context.dataStore.edit { it[lastRoomGenreKey] = genreKey }
     }
 
+    /** 入室の速さに関わる設定。 */
+    val entrySettings: Flow<EntrySettings> = context.dataStore.data.map { prefs ->
+        EntrySettings(
+            fromNotification = prefs[entryFromNotificationKey] ?: true,
+            autoSubmit = prefs[entryAutoSubmitKey] ?: true,
+            autoEntryStartedAt = prefs[autoEntryStartedAtKey] ?: 0L,
+        )
+    }
+
+    suspend fun setEntryFromNotification(enabled: Boolean) {
+        context.dataStore.edit { it[entryFromNotificationKey] = enabled }
+    }
+
+    suspend fun setEntryAutoSubmit(enabled: Boolean) {
+        context.dataStore.edit { it[entryAutoSubmitKey] = enabled }
+    }
+
+    /** 順番待ちの自動入室を [startedAt]（0 で止める）から有効にする。 */
+    suspend fun setAutoEntryStartedAt(startedAt: Long) {
+        context.dataStore.edit { it[autoEntryStartedAtKey] = startedAt }
+    }
+
     /** 前回入室したときの名前・性別・年齢。既定のプリセットが無い場合の入力補助。 */
     val lastEntryProfile: Flow<EntryProfile?> = context.dataStore.data.map { prefs ->
         val name = prefs[entryNameKey] ?: return@map null
@@ -197,5 +223,12 @@ class SettingsRepository(private val context: Context) : RoomListPreferenceStore
         }
     }
 }
+
+/**
+ * [fromNotification]: 順番待ちの空きの通知から開いたら、入力済みのまま入室まで進める。
+ * [autoSubmit]: ロボット確認がある本家の入室画面で、送信ボタンが押せるようになったらアプリが押す。
+ * [autoEntryStartedAt]: 順番待ちの自動入室を有効にした時刻（0 は無効）。一定時間で止まる。
+ */
+data class EntrySettings(val fromNotification: Boolean = true, val autoSubmit: Boolean = true, val autoEntryStartedAt: Long = 0L)
 
 data class RoomDetails(val prefecture: Int?, val message: String)
