@@ -143,7 +143,10 @@ class RoomPreferenceRepository(private val db: PresetDatabase) : RoomPreferenceS
             val claimed = all.mapTo(HashSet()) { "${it.host}/${it.roomId}" }
             all.filterNot { it.stale }.forEach { existing ->
                 val key = "${existing.host}/${existing.roomId}"
-                val old = existing.toRoom().copy(name = existing.identityName ?: existing.snapshotName)
+                // 満室の一覧で見た後は、名前・性別・年齢が記録から消えているので、照合用に残した値で比べる。
+                val snapshot = existing.toRoom()
+                val old = snapshot.copy(name = existing.identityName ?: snapshot.name,
+                    gender = existing.identityGender?.let(Gender::valueOf) ?: snapshot.gender, age = existing.identityAge ?: snapshot.age)
                 val rebuilt = window.rebuildOf(old, claimed - key) ?: return@forEach
                 dao.delete(existing.host, existing.roomId)
                 dao.put(existing.refreshed(rebuilt).copy(

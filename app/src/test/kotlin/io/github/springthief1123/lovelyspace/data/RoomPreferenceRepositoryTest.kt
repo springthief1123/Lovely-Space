@@ -202,12 +202,17 @@ class RoomPreferenceRepositoryTest {
             val saved = room(base + 400, "zenkoku", "合成の保存", message = "合成の保存の募集文")
             repo.setHidden(hidden, true)
             repo.setFavorite(saved, true)
+            // 満室の一覧で見ると、名前・性別・年齢が出ない。照合には待機中に記録した値を使う。
+            repo.observe(listOf(hidden.copy(status = RoomStatus.FULL, name = null, gender = Gender.UNKNOWN, age = null)))
             fun window(vararg rooms: SiteRoom) = io.github.springthief1123.lovelyspace.core.RoomPageWindow()
                 .observe(io.github.springthief1123.lovelyspace.core.RoomListPage("zenkoku", rooms.toList(), null, null, 1, 1, emptyMap(), null))
             // 部屋がまだ一覧にあれば移さない。
             repo.followRebuilds(window(other(800), hidden, saved, other(100)))
             assertEquals(setOf(base + 500, base + 400), repo.preferences.first().map { it.roomId }.toSet())
             // 2 つとも閉じて、同じ名前・募集文で立て直された。
+            // 名前・募集文が同じでも、年齢の違う部屋へは移さない。
+            repo.followRebuilds(window(hidden.copy(id = base + 900, age = 40), other(800), other(300), other(100), other(50)))
+            assertTrue(repo.preferences.first().any { it.roomId == base + 500 })
             val rebuiltHidden = hidden.copy(id = base + 900)
             val rebuiltSaved = saved.copy(id = base + 950, message = "合成の保存の募集文 ")
             repo.followRebuilds(window(rebuiltSaved, rebuiltHidden, other(800), other(300), other(100), other(50)))

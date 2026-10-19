@@ -554,7 +554,8 @@ class RadarRepository(
             if (evidence == RoomIdentityEvidence.NOT_OBSERVED) {
                 // 閉じたと分かった部屋が同じ名前・募集文で立て直されていれば、新しい部屋を追う。1ページに無いだけでは不在と判断しない。
                 val window = livePages[o.query.genre.key] ?: return@map target
-                val old = target.room.copy(name = target.room.name ?: target.identity.name)
+                val old = target.room.copy(name = target.room.name ?: target.identity.name,
+                    gender = target.room.gender.takeUnless { it == Gender.UNKNOWN } ?: target.identity.gender, age = target.room.age ?: target.identity.age)
                 val rebuilt = window.rebuildOf(old, claimed - roomIdentity(target.room)) ?: return@map target
                 claimed -= roomIdentity(target.room)
                 claimed += roomIdentity(rebuilt)
