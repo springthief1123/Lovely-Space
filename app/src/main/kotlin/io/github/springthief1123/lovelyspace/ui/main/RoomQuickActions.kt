@@ -1,17 +1,12 @@
 package io.github.springthief1123.lovelyspace.ui.main
 
-import io.github.springthief1123.lovelyspace.ui.components.QuietDialog
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.NotificationAdd
 import androidx.compose.material.icons.outlined.NotificationsOff
-import androidx.compose.material.icons.outlined.TrackChanges
 import androidx.compose.runtime.Composable
-import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -20,16 +15,15 @@ import io.github.springthief1123.lovelyspace.core.Room
 import io.github.springthief1123.lovelyspace.core.RoomQuery
 import io.github.springthief1123.lovelyspace.core.RoomStatus
 import io.github.springthief1123.lovelyspace.core.roomIdentity
-import io.github.springthief1123.lovelyspace.data.WaitlistRepository
-import io.github.springthief1123.lovelyspace.data.WaitlistStatus
+import io.github.springthief1123.lovelyspace.data.PinAlert
 import io.github.springthief1123.lovelyspace.notify.rememberNotificationPermissionRequest
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomMenuItem
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /**
- * 長押しメニューから追跡・順番待ちを直接行うための項目を作る。詳細シートと同じ処理を呼び、
- * 結果は [onNotice] で知らせる。追跡の解除はメモも消えるため、確認してから行う。
+ * 長押しメニューから、ピンの知らせ方を直接変える項目を作る。満室の部屋は「空いたら知らせる」でピンし（以前の順番待ち）、
+ * 知らせているピンは知らせるのをやめられる。結果は [onNotice] で知らせる。
  */
 @Composable
 internal fun rememberRoomQuickActions(
@@ -37,16 +31,14 @@ internal fun rememberRoomQuickActions(
 ): (Room, RoomQuery?) -> List<RoomMenuItem> {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val scope = rememberCoroutineScope()
-    val radar by app.radar.state.collectAsStateWithLifecycle()
-    val waitlist by app.waitlist.entries.collectAsStateWithLifecycle()
+    val pins by app.pins.pins.collectAsStateWithLifecycle()
+    val records by app.pins.records.collectAsStateWithLifecycle()
     val requestNotifications = rememberNotificationPermissionRequest()
-    // 一覧の各カードがメニューの項目を毎回作り直さないよう、追跡・順番待ち・レーダーの読み込みが変わったときだけ作り直す。
-    val tracked = remember(radar.targets) { radar.targets.mapTo(HashSet()) { roomIdentity(it.room) } }
-    val waiting = remember(waitlist) { waitlist.filter { it.status == WaitlistStatus.WATCHING }.mapTo(HashSet()) { it.key } }
-    val loaded = radar.loaded
+    // 一覧の各カードがメニューの項目を毎回作り直さないよう、ピンと知らせ方が変わったときだけ作り直す。
+    val pinned = remember(pins) { pins.mapTo(HashSet()) { it.key } }
+    val notifying = remember(records, pinned) { records.values.filter { it.notifies && it.key in pinned }.mapTo(HashSet()) { it.key } }
     val currentNotice by rememberUpdatedState(onNotice)
     val currentRequestNotifications by rememberUpdatedState(requestNotifications)
-    var confirmUntrack by remember { mutableStateOf<Room?>(null) }
 
     fun save(failure: String, block: suspend () -> String) {
         scope.launch {
@@ -58,42 +50,19 @@ internal fun rememberRoomQuickActions(
         }
     }
 
-    confirmUntrack?.let { room ->
-        QuietDialog(
-            title = "追跡を解除しますか？",
-            onDismissRequest = { confirmUntrack = null },
-            confirmLabel = "追跡を解除",
-            confirmEnabled = loaded,
-            destructive = true,
-            dismissLabel = "戻る",
-            onConfirm = {
-                confirmUntrack = null
-                save("追跡設定を保存できませんでした。") { app.radar.removeTarget(room); "追跡を解除しました" }
-            },
-        ) { Text("追跡と自分用メモを削除します。変化の履歴は残ります。") }
-    }
-
-    return remember(tracked, waiting, loaded) { { room, sourceQuery ->
+    return remember(pinned, notifying) { { room, _ ->
         val key = roomIdentity(room)
         buildList {
-            if (key in tracked) {
-                add(RoomMenuItem("追跡を解除…", Icons.Outlined.TrackChanges, enabled = loaded) { confirmUntrack = room })
-            } else {
-                add(RoomMenuItem("この部屋を追跡", Icons.Outlined.TrackChanges, enabled = loaded && room.name != null) {
-                    save("追跡設定を保存できませんでした。") { app.radar.track(room, sourceQuery); "レーダーに追加しました" }
-                })
-            }
-            // 満室の部屋は順番待ちに登録できる。空いたら通知し、入室とロボット確認は利用者が行う。
-            if (key in waiting) {
-                add(RoomMenuItem("順番待ちを取り消す", Icons.Outlined.NotificationsOff) {
-                    save("順番待ちを保存できませんでした。") { app.waitlist.remove(key); "順番待ちを取り消しました" }
+            if (key in notifying) {
+                add(RoomMenuItem("知らせるのをやめる", Icons.Outlined.NotificationsOff) {
+                    save("ピンを保存できませんでした。") { app.pins.setAlert(key, PinAlert.OFF); "知らせるのをやめました（ピンは残します）" }
                 })
             } else if (room.status == RoomStatus.FULL) {
                 add(RoomMenuItem("空いたら知らせる", Icons.Outlined.NotificationAdd) {
                     currentRequestNotifications()
-                    save("順番待ちを保存できませんでした。") {
-                        app.waitlist.register(room, sourceQuery)
-                        "順番待ちに登録しました。空いたら通知します（${WaitlistRepository.DEFAULT_HOURS}時間まで）"
+                    save("ピンを保存できませんでした。") {
+                        if (key in pinned) app.pins.setAlert(key, PinAlert.NOTIFY) else app.pins.pin(room, PinAlert.NOTIFY)
+                        "ピンしました。空いたら知らせます"
                     }
                 })
             }

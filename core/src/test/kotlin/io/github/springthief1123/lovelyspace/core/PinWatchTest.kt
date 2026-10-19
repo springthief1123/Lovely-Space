@@ -22,6 +22,9 @@ class PinWatchTest {
         // 読んだページの範囲の外（読んでいない後ろのページかもしれない）なら、閉じたとは言えない。
         val partial = RoomPageWindow().observe(page(1, (900L downTo 700L step 50).map { room(it) }, last = 3))
         assertEquals(PinState.UNSEEN, partial.pinState(pinned).first)
+        // 同じ ID に別の名前の部屋が載っていれば、ピンした部屋は閉じた（ID の再利用）。
+        val reused = RoomPageWindow().observe(page(1, rooms.map { if (it.id == 500L) it.copy(name = "別の合成") else it }))
+        assertEquals(PinState.CLOSED to null, reused.pinState(pinned))
     }
 
     @Test fun aRoomOlderThanTheLastPageIsClosedOnceTheLastPageHasBeenRead() {

@@ -17,19 +17,9 @@ class RoomDetailsTextTest {
         assertTrue("男性" !in roomDetailsSubtitle(room.copy(gender = Gender.UNKNOWN)))
     }
 
-    @Test fun trackingExplainsWhyItIsUnavailable() {
-        assertNull(trackUnavailableReason(room, allowEntry = true, tracking = false))
-        assertEquals("名前が表示されていない部屋（会話中・満室）は追跡できません。",
-            trackUnavailableReason(room.copy(name = null), allowEntry = true, tracking = false))
-        assertEquals("最新の一覧でこの部屋を確認できていないため、追跡できません。",
-            trackUnavailableReason(room, allowEntry = false, tracking = false))
-        // 追跡中は解除できるので理由を出さない。
-        assertNull(trackUnavailableReason(room.copy(name = null), allowEntry = false, tracking = true))
-    }
-
-    @Test fun waitlistAndRadarWordingFollowsTheNotificationPermission() {
-        assertEquals("順番待ちに登録しました。空いたら通知します（6時間まで）。", waitlistNoticeText(true, 6))
-        assertEquals("順番待ちに登録しました。通知がオフのため、空いても知らせられません。", waitlistNoticeText(false, 6))
+    @Test fun pinAndRadarWordingFollowsTheNotificationPermission() {
+        assertTrue("空いたら通知します" in pinNoticeText(true))
+        assertTrue("通知がオフ" in pinNoticeText(false))
         assertTrue("通知がオフ" in backgroundRadarNoticeText())
     }
 

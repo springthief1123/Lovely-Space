@@ -35,7 +35,6 @@ import io.github.springthief1123.lovelyspace.core.Genres
 import io.github.springthief1123.lovelyspace.ui.chat.ChatScreen
 import io.github.springthief1123.lovelyspace.ui.create.CreateRoomScreen
 import io.github.springthief1123.lovelyspace.ui.entry.EntryScreen
-import io.github.springthief1123.lovelyspace.ui.main.FavoritesScreen
 import io.github.springthief1123.lovelyspace.ui.main.ProfileScreen
 import io.github.springthief1123.lovelyspace.ui.main.SearchScreen
 import io.github.springthief1123.lovelyspace.ui.main.RadarScreen
@@ -58,7 +57,7 @@ fun AppNavHost() {
     val nav = rememberNavController()
     val backStackEntry by nav.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
-    val mainRoutes = setOf(Routes.ROOMS, Routes.SEARCH, Routes.RADAR, Routes.FAVORITES, Routes.PROFILE)
+    val mainRoutes = setOf(Routes.ROOMS, Routes.SEARCH, Routes.RADAR, Routes.PROFILE)
     var roomsRefreshKey by rememberSaveable { mutableIntStateOf(0) }
     var createGenreKey by rememberSaveable { mutableStateOf(Genres.default.key) }
 
@@ -167,27 +166,13 @@ fun AppNavHost() {
             }
             composable(Routes.RADAR) {
                 RadarScreen(onFindRooms = { nav.navigate(Routes.ROOMS) { launchSingleTop = true } },
+                    onApplyPreset = { pendingPreset = it; nav.navigate(Routes.ROOMS) { popUpTo(Routes.ROOMS); launchSingleTop = true } },
                     onEnterRoom = { room -> Genres[room.genreKey]?.host?.let { host ->
                         nav.navigate(Routes.entry(host, room.genreKey, room.id, Routes.RADAR)) { launchSingleTop = true }
                     } },
                     onPeekRoom = { room -> Genres[room.genreKey]?.host?.let { host ->
                         nav.navigate(Routes.public(host, room.genreKey, room.id)) { launchSingleTop = true }
                     } })
-            }
-            composable(Routes.FAVORITES) {
-                FavoritesScreen(
-                    onApplyPreset = { pendingPreset = it; nav.navigate(Routes.ROOMS) { popUpTo(Routes.ROOMS); launchSingleTop = true } },
-                    onEnterRoom = { room ->
-                        Genres[room.genreKey]?.host?.let { host ->
-                            nav.navigate(Routes.entry(host, room.genreKey, room.id, Routes.FAVORITES)) { launchSingleTop = true }
-                        }
-                    },
-                    onPeekRoom = { room ->
-                        Genres[room.genreKey]?.host?.let { host ->
-                            nav.navigate(Routes.public(host, room.genreKey, room.id)) { launchSingleTop = true }
-                        }
-                    },
-                )
             }
             composable(Routes.PROFILE) { ProfileScreen(
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) { launchSingleTop = true } },

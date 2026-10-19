@@ -101,7 +101,7 @@ fun SettingsScreen(
                 SettingsCategoryCard(
                     icon = Icons.AutoMirrored.Outlined.Login,
                     title = "入室",
-                    description = "通知からすぐ入室、ロボット確認後の自動送信、順番待ちの自動入室",
+                    description = "通知からすぐ入室、ロボット確認後の自動送信、ピンの自動入室",
                     onClick = onOpenEntry,
                 )
             }

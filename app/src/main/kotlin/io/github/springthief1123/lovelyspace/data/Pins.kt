@@ -39,6 +39,8 @@ data class PinRecord(
     val stateAt: Long? = null,
     /** 似た部屋として知らせた部屋。同じ部屋を何度も知らせない。 */
     val suggested: String? = null,
+    /** ピンを外したと分かった時刻。[PinRepository.PRUNE_MS] 経ったら記録を消す。ピンし直したら null に戻す。 */
+    val removedAt: Long? = null,
 ) {
     fun autoActive(now: Long): Boolean = alert == PinAlert.AUTO && (autoUntil ?: 0L) > now
     /** 知らせるか（自動で入室の期限が過ぎても知らせる）。 */
@@ -98,6 +100,8 @@ class PinRepository(
     private val now: () -> Long = System::currentTimeMillis,
 ) {
     private val mutex = Mutex()
+    /** 利用者が同じ人と答えて引き継ぐ似た部屋。引き継いだ時点の様子をそのまま記録し、空いたとは数えない。 */
+    private val adopting = HashSet<String>()
     private val _records = MutableStateFlow(runCatching { persistence.load() }.getOrNull().orEmpty())
     val records: StateFlow<Map<String, PinRecord>> = _records.asStateFlow()
 
@@ -150,7 +154,9 @@ class PinRepository(
 
     /** 似た部屋 [similar] を同じ人の部屋として、ピンを移す。 */
     suspend fun adopt(pin: PinView, similar: Room) {
-        preferences.moveFavorite(pin.preference, similar)
+        mutex.withLock { adopting += roomIdentity(similar) }
+        try { preferences.moveFavorite(pin.preference, similar) }
+        catch (e: Exception) { mutex.withLock { adopting -= roomIdentity(similar) }; throw e }
     }
 
     /** 似た部屋 [roomKey] を別の人の部屋として、以後候補にしない。 */
@@ -165,26 +171,18 @@ class PinRepository(
         save(_records.value + (key to block(_records.value[key] ?: PinRecord(key))))
     }
 
-    /** 立て直しで保存の記録が [from] から新しい部屋 [to] へ移った。見張りの記録を引き継ぎ、空いていれば知らせる。 */
-    private suspend fun move(from: String, to: Room) {
-        val events = mutableListOf<PinEvent>()
-        mutex.withLock {
-            val old = _records.value[from] ?: return
-            val key = roomIdentity(to)
-            val current = _records.value[key]
-            val state = if (to.status == RoomStatus.FULL) PinState.FULL else PinState.OPEN
-            val at = now()
-            var next = old.copy(key = key, rebuilds = old.rebuilds + 1, suggested = null, state = state, stateAt = at,
-                vacancies = (old.vacancies + (current?.vacancies.orEmpty())).distinct().sorted().takeLast(PinRecord.MAX_VACANCIES))
-            if (state == PinState.OPEN && old.state != PinState.OPEN && current?.state != PinState.OPEN) {
-                next = next.copy(vacancies = (next.vacancies + at).takeLast(PinRecord.MAX_VACANCIES))
-                favorites.value?.firstOrNull { it.pinKey() == key }?.let { pref ->
-                    if (next.notifies) events += PinEvent.Opened(PinView(pref, next, state, to, null, null), pref.identityRoom(), next.autoActive(at))
-                }
-            }
-            save(_records.value - from + (key to next))
-        }
-        deliver(events)
+    /**
+     * 保存の記録が [from] から新しい部屋 [to] へ移った（同じ名前・募集文の立て直し、または似た部屋の引き継ぎ）。見張りの記録を引き継ぐ。
+     * 立て直しは、移る前の様子（閉じた・満室）を残しておき、次に一覧で確かめたときに空いたと分かるようにする（[process]）。
+     */
+    private suspend fun move(from: String, to: Room) = mutex.withLock {
+        val old = _records.value[from] ?: return@withLock
+        val key = roomIdentity(to)
+        val current = _records.value[key]
+        var next = old.copy(key = key, rebuilds = old.rebuilds + 1, suggested = null, removedAt = null,
+            vacancies = (old.vacancies + current?.vacancies.orEmpty()).distinct().sorted().takeLast(PinRecord.MAX_VACANCIES))
+        if (adopting.remove(key)) next = next.copy(state = if (to.status == RoomStatus.FULL) PinState.FULL else PinState.OPEN, stateAt = now())
+        save(_records.value - from + (key to next))
     }
 
     private suspend fun process(favs: List<RoomPreference>, observations: Map<RoomQuery, ObservedRoomPage>) {
@@ -200,7 +198,7 @@ class PinRepository(
                 val window = Genres[pref.genreKey]?.let(windows::get)
                 val (seen, observed) = window?.pinState(identity) ?: (PinState.UNSEEN to null)
                 val before = records[key] ?: PinRecord(key)
-                var record = before
+                var record = before.copy(removedAt = null)
                 if (seen != PinState.UNSEEN && seen != before.state) {
                     record = record.copy(state = seen, stateAt = at)
                     // 初めて確かめたときは記録するだけ。満室・閉じた部屋が待機中になったら空いたとする。
@@ -223,7 +221,8 @@ class PinRepository(
                 view.copy(record = record)
             }
             // ピンを外して時間が経った記録は消す（外してすぐは「元に戻す」で知らせ方などを戻せるよう残す）。
-            records.entries.removeAll { (key, r) -> key !in claimed && (r.stateAt ?: 0L) < at - PRUNE_MS }
+            records.keys.filter { it !in claimed && records[it]?.removedAt == null }.forEach { key -> records[key] = records.getValue(key).copy(removedAt = at) }
+            records.entries.removeAll { (key, r) -> key !in claimed && (r.removedAt ?: at) < at - PRUNE_MS }
             if (records != _records.value) save(records)
             _pins.value = views.sortedWith(compareBy<PinView> { order(it) }.thenByDescending { it.record.stateAt ?: 0L })
             _loaded.value = true
@@ -281,7 +280,7 @@ class PinStore(private val prefs: android.content.SharedPreferences) : PinPersis
     private fun encode(r: PinRecord) = JSONObject()
         .put("key", r.key).put("alert", r.alert.name).put("autoUntil", r.autoUntil).put("memo", r.memo)
         .put("vacancies", JSONArray(r.vacancies)).put("rebuilds", r.rebuilds).put("dismissed", JSONArray(r.dismissed.toList()))
-        .put("state", r.state?.name).put("stateAt", r.stateAt).put("suggested", r.suggested)
+        .put("state", r.state?.name).put("stateAt", r.stateAt).put("suggested", r.suggested).put("removedAt", r.removedAt)
 
     private fun decode(o: JSONObject): PinRecord {
         fun long(key: String) = if (o.isNull(key)) null else o.getLong(key)
@@ -299,6 +298,7 @@ class PinStore(private val prefs: android.content.SharedPreferences) : PinPersis
             state = string("state")?.let { s -> PinState.entries.firstOrNull { it.name == s } },
             stateAt = long("stateAt"),
             suggested = string("suggested"),
+            removedAt = long("removedAt"),
         )
     }
 

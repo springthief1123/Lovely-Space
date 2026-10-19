@@ -87,7 +87,7 @@ fun EntrySettingsScreen(onBack: () -> Unit) {
                         checked = settings.fromNotification,
                         onCheckedChange = { enabled -> save { app.settings.setEntryFromNotification(enabled) } },
                         title = "通知から開いたらすぐ入室する",
-                        description = "順番待ちの部屋が空いた通知を開くと、入力画面で止まらずに入室します。ロボット確認があるときは本家の入室画面を開きます。",
+                        description = "ピンした部屋が空いた通知を開くと、入力画面で止まらずに入室します。ロボット確認があるときは本家の入室画面を開きます。",
                     )
                 }
                 item {
@@ -114,7 +114,7 @@ fun EntrySettingsScreen(onBack: () -> Unit) {
                                 now = System.currentTimeMillis()
                             }
                         },
-                        title = "順番待ちの部屋が空いたら自動で入室する",
+                        title = "ピンした部屋が空いたら自動で入室する",
                         description = autoEntryDescription(autoActive, settings.autoEntryStartedAt, now, attempts),
                     )
                 }

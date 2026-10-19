@@ -17,7 +17,6 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowUpward
-import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Explore
@@ -58,7 +57,6 @@ data class MainDestination(val route: String, val label: String, val icon: Image
 val MainDestinations = listOf(
     MainDestination(Routes.ROOMS, "見つける", Icons.Outlined.Explore),
     MainDestination(Routes.RADAR, "レーダー", Icons.Outlined.Radar),
-    MainDestination(Routes.FAVORITES, "保存", Icons.Outlined.BookmarkBorder),
     MainDestination(Routes.PROFILE, "マイルーム", Icons.Outlined.PersonOutline),
 )
 

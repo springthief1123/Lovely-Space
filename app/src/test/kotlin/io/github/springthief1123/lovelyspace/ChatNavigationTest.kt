@@ -29,7 +29,6 @@ class ChatNavigationTest {
         nav.graph = nav.createGraph(startDestination = Routes.ROOMS) {
             composable(Routes.ROOMS) { }
             composable(Routes.SEARCH) { }
-            composable(Routes.FAVORITES) { }
             composable(Routes.RADAR) { }
             composable(Routes.PROFILE) { }
             composable(Routes.ENTRY, arguments = listOf(
@@ -59,17 +58,17 @@ class ChatNavigationTest {
         assertEquals(3, nav.currentBackStackEntry!!.savedStateHandle.get<Int>("loaded-page"))
         assertEquals("合成の検索語", nav.currentBackStackEntry!!.savedStateHandle.get<String>("criteria"))
     }
-    @Test fun entryFromFavoritesReturnsToFavoritesAfterChat() {
+    @Test fun entryFromMyRoomReturnsToMyRoomAfterChat() {
         val nav = controller()
-        nav.navigate(Routes.FAVORITES)
-        val favorites = nav.getBackStackEntry(Routes.FAVORITES)
-        nav.navigate(Routes.entry("chat.shalove.net", "zenkoku", 321, Routes.FAVORITES))
+        nav.navigate(Routes.PROFILE)
+        val profile = nav.getBackStackEntry(Routes.PROFILE)
+        nav.navigate(Routes.entry("chat.shalove.net", "zenkoku", 321, Routes.PROFILE))
         val origin = nav.currentBackStackEntry!!.arguments!!.getString("origin")!!
         nav.navigateToChat("favorite-session", origin)
-        assertSame(favorites, nav.getBackStackEntry(Routes.FAVORITES))
+        assertSame(profile, nav.getBackStackEntry(Routes.PROFILE))
         nav.returnFromChat(origin)
-        assertEquals(Routes.FAVORITES, nav.currentDestination!!.route)
-        assertSame(favorites, nav.currentBackStackEntry)
+        assertEquals(Routes.PROFILE, nav.currentDestination!!.route)
+        assertSame(profile, nav.currentBackStackEntry)
     }
 
     @Test fun entryFromRadarReturnsToTheSameRadarStateAfterChat() {
@@ -132,7 +131,7 @@ class ChatNavigationTest {
 
     @Test fun radarMatchOpensTheEntryOverRadarAndBackReturnsToRadar() {
         val nav = controller()
-        nav.navigate(Routes.FAVORITES)
+        nav.navigate(Routes.PROFILE)
         nav.openNotification(notification(NotificationKind.RADAR_MATCH,
             NotificationTarget.Room("chat.shalove.net", "zenkoku", 77))) { null }
         assertEquals(Routes.ENTRY, nav.currentDestination!!.route)

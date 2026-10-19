@@ -11,7 +11,6 @@ internal object Routes {
     const val ROOMS = "rooms"
     const val RADAR = "radar"
     const val SEARCH = "search"
-    const val FAVORITES = "favorites"
     const val PROFILE = "profile"
     const val SETTINGS = "settings"
     const val SETTINGS_DISPLAY = "settings/display"
@@ -35,7 +34,7 @@ internal object Routes {
     fun create(genre: String, origin: String = ROOMS) = "create/${Uri.encode(genre)}?origin=${mainOrigin(origin)}"
     fun public(host: String, genre: String, roomId: Long) = "public/${Uri.encode(host)}/${Uri.encode(genre)}/$roomId"
     fun chat(sessionId: String, origin: String) = "chat/${Uri.encode(sessionId)}?origin=${mainOrigin(origin)}"
-    fun mainOrigin(value: String?): String = when (value) { RADAR -> RADAR; SEARCH -> SEARCH; FAVORITES -> FAVORITES; PROFILE -> PROFILE; else -> ROOMS }
+    fun mainOrigin(value: String?): String = when (value) { RADAR -> RADAR; SEARCH -> SEARCH; PROFILE -> PROFILE; else -> ROOMS }
 }
 
 /** 入室フォームだけを閉じ、元の一覧のViewModel・取得済みページを残す。 */

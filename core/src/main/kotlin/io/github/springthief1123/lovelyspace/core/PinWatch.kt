@@ -18,11 +18,13 @@ enum class PinState {
 /**
  * [pinned]（ピンしたときの内容）の部屋が、ジャンル全体の一覧 [this] でどうなっているか。一覧に載っていればその部屋も返す。
  * 載っていなければ、閉じたと分かるとき（[RoomPageWindow.isClosed]）だけ [PinState.CLOSED]、ほかは [PinState.UNSEEN]。
+ * 同じ ID に名前・性別・年齢の違う部屋が載っていれば（ID の再利用）、元の部屋は閉じたとする。
  */
 fun RoomPageWindow.pinState(pinned: Room): Pair<PinState, Room?> {
     val key = roomIdentity(pinned)
     val observed = rooms.firstOrNull { roomIdentity(it) == key }
     return when {
+        observed != null && roomIdentityEvidence(pinned, observed) == RoomIdentityEvidence.REUSED -> PinState.CLOSED to null
         observed != null -> (if (observed.status == RoomStatus.FULL) PinState.FULL else PinState.OPEN) to observed
         isClosed(pinned) -> PinState.CLOSED to null
         else -> PinState.UNSEEN to null
