@@ -499,6 +499,7 @@ private fun VacancyHistogram(hours: List<Int>) {
 
 /** ピンのメモ。自分の端末内だけに残す。 */
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun PinMemoEditor(pin: PinView, working: Boolean, error: String?, onDismiss: () -> Unit, onSave: (String) -> Unit) {
     var memo by rememberSaveable(pin.key) { mutableStateOf(pin.record.memo) }
     QuietSheet(onDismissRequest = { if (!working) onDismiss() }) {
@@ -549,7 +550,7 @@ private fun ConditionCard(preset: SearchPreset, found: ConditionMatches, expande
 
 /** 変化の履歴。レーダーの右上から開く（いずれ通知ベルへ移す）。 */
 @Composable
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 private fun RadarHistorySheet(state: RadarState, working: Boolean, onDismiss: () -> Unit, onRead: (Set<String>) -> Unit, onRoom: (RadarEvent, Room) -> Unit) {
     var historyUnread by rememberSaveable { mutableStateOf(false) }
     var historyKind by rememberSaveable { mutableStateOf("") }
