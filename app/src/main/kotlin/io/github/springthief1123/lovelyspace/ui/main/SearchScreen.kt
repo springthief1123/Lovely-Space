@@ -156,6 +156,8 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
     var userRefreshing by remember { mutableStateOf(false) }
     LaunchedEffect(state.loading, state.refreshing) { if (!state.loading && !state.refreshing) userRefreshing = false }
     val newCount = remember(visibleResults, state.newRoomIds) { visibleResults.count { roomIdentity(it) in state.newRoomIds } }
+    // 検索シートの暗い面は、幅を 720dp に抑えた一覧の外（広い画面の左右の余白）まで覆う。
+    Box(Modifier.fillMaxSize()) {
     QuietPage {
     val pullState = rememberPullToRefreshState()
     val pullRefreshing = userRefreshing && (state.refreshing || state.loading)
@@ -264,6 +266,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
     val scrollButton = if (scrolled) ShellScrollToTop(newCount, scrollToTop) else null
     SideEffect { shell.publish(owner, searchButton = searchButton, scrollToTop = scrollButton) }
     DisposableEffect(shell, owner) { onDispose { shell.release(owner) } }
+    }
     SearchSheet(
         visible = searchOpen,
         state = state,

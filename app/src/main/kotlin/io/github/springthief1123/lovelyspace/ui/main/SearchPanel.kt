@@ -76,9 +76,10 @@ internal fun SearchSheet(
     Box(Modifier.fillMaxSize()) {
         AnimatedVisibility(visible, enter = fadeIn(tween(160)), exit = fadeOut(tween(140))) {
             Box(Modifier.fillMaxSize().background(scheme.scrim.copy(alpha = 0.32f))
-                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss))
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null,
+                    onClickLabel = "検索を閉じる", onClick = onDismiss))
         }
-        BoxWithConstraints(Modifier.fillMaxSize().padding(top = top, bottom = bottom)) {
+        BoxWithConstraints(Modifier.fillMaxSize().padding(top = top, bottom = bottom), contentAlignment = Alignment.TopCenter) {
             AnimatedVisibility(
                 visible,
                 enter = fadeIn(tween(160)) + slideInVertically(tween(220)) { -it / 3 },
@@ -88,6 +89,7 @@ internal fun SearchSheet(
                 val shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp)
                 Column(
                     Modifier
+                        .widthIn(max = 720.dp)
                         .fillMaxWidth()
                         .heightIn(max = maxHeight)
                         .shadow(12.dp, shape, clip = false)
