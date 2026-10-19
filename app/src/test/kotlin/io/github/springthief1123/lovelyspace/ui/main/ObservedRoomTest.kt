@@ -39,4 +39,13 @@ class ObservedRoomTest {
         assertEquals(full, observedRoom(listOf(seen(1, full)), Genres.default.key, 42))
         assertNull(observedRoom(listOf(seen(1, waiting.copy(id = 7))), Genres.default.key, 42))
     }
+
+    @Test fun borrowsTheLastNamedSightingWhenThePageNoLongerHasIt() {
+        // 入室されたばかりで、一覧には満室の姿しか残っていない。
+        val observations = listOf(seen(1, full))
+        assertEquals(full.copy(name = "合成"), observedRoom(observations, Genres.default.key, 42, named = waiting))
+        // 待機メッセージが違えば、別の人の部屋かもしれないので補わない。
+        assertNull(observedRoom(observations, Genres.default.key, 42, named = waiting.copy(message = "別の本文"))?.name)
+        assertNull(observedRoom(observations, Genres.default.key, 42, named = waiting.copy(age = 40))?.name)
+    }
 }

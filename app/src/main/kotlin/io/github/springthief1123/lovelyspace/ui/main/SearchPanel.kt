@@ -240,7 +240,8 @@ private fun SearchDetails(state: SearchUiState, vm: SearchViewModel, ng: NgSumma
         ChoiceRow("探す場所", state.keywordScope, KeywordScope.entries.map { it to it.label }, vm::keywordScope)
         ChoiceRow("複数の語", c.keywordMode, listOf(KeywordMode.ALL to "すべて含む", KeywordMode.ANY to "どれかを含む")) { vm.criteria(c.copy(keywordMode = it)) }
         HiddenKeywords(hiddenKeywords(c, state.keywordScope), vm::clearHiddenKeywords)
-        OutlinedTextField(c.excluded, { vm.criteria(c.copy(excluded = it)) }, label = { Text("除外する語（スペース区切り）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(c.excluded, { vm.criteria(c.copy(excluded = it)) }, label = { Text("除外する語（スペース区切り）") },
+            supportingText = { Text("検索欄に「-語」と書いても除外できます") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         // この検索だけの「除外する語」と、常に効く NG ワードの関係が分かるよう、すぐ下に NG ワードの状態を出す。
         ng?.let { NgSummaryRow(it) }
         QuietFieldPair(first = { fieldModifier ->

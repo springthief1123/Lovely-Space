@@ -18,7 +18,7 @@ fun WaitlistEntry.toOpenedNotification(): AppNotification? {
         title = "順番待ちの部屋に空きが出ました",
         text = "${genre}の部屋に入室できます。" +
             if (sameMessage) "待機メッセージは登録時と同じです。" else "待機メッセージが登録時と違うため、同じ部屋かを入室画面で確かめてください。",
-        target = NotificationTarget.Room(host, opened.genreKey, opened.id),
+        target = NotificationTarget.Room(host, opened.genreKey, opened.id, verified = sameMessage),
         at = changedAt ?: System.currentTimeMillis(),
         message = listOfNotNull(opened.name, opened.message.takeIf { it.isNotBlank() }).joinToString("\n").ifBlank { null },
     )

@@ -6,7 +6,9 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -20,7 +22,11 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.first
 import io.github.springthief1123.lovelyspace.ui.chat.ResumeChatBar
 import io.github.springthief1123.lovelyspace.ui.chat.ChatActivity
 import io.github.springthief1123.lovelyspace.ui.chat.ChatController
@@ -36,6 +42,7 @@ import io.github.springthief1123.lovelyspace.ui.main.RadarScreen
 import io.github.springthief1123.lovelyspace.ui.main.SearchPresetSaver
 import io.github.springthief1123.lovelyspace.data.SearchPreset
 import io.github.springthief1123.lovelyspace.ui.settings.DisplaySettingsScreen
+import io.github.springthief1123.lovelyspace.ui.settings.EntrySettingsScreen
 import io.github.springthief1123.lovelyspace.ui.settings.HiddenRoomsScreen
 import io.github.springthief1123.lovelyspace.ui.settings.NgWordsScreen
 import io.github.springthief1123.lovelyspace.ui.settings.NotificationSettingsScreen
@@ -64,6 +71,7 @@ fun AppNavHost() {
     )
 
     val originArg = navArgument("origin") { type = NavType.StringType; defaultValue = Routes.ROOMS }
+    val autoArg = navArgument("auto") { type = NavType.BoolType; defaultValue = false }
 
     val resumable by app.activeRooms.resumable.collectAsStateWithLifecycle()
     // 一覧を見ている間は「会話に戻る」を常に出す。× は帯を小さくするだけで、会話への入口は残す。記録は退室・部屋の終了で消える。
@@ -78,7 +86,23 @@ fun AppNavHost() {
     LaunchedEffect(openedNotification) {
         val notification = openedNotification ?: return@LaunchedEffect
         app.notificationInbox.consumeOpened()
-        nav.openNotification(notification) { app.activeRooms.resume() }
+        val fromNotification = try { app.settings.entrySettings.first().fromNotification } catch (e: CancellationException) { throw e } catch (_: Exception) { false }
+        nav.openNotification(notification, enterFromWaitlist = fromNotification) { app.activeRooms.resume() }
+    }
+
+    // 順番待ちの自動入室は、前面で主画面を見ていて、会話中でもロックもされていないときだけ受け付ける。
+    val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
+    val lock by app.appLock.state.collectAsStateWithLifecycle()
+    val autoEntryReady = lifecycleState.isAtLeast(Lifecycle.State.RESUMED) && currentRoute in mainRoutes && resumable == null && !lock.locked
+    DisposableEffect(autoEntryReady) {
+        app.autoEntry.ready = autoEntryReady
+        onDispose { app.autoEntry.ready = false }
+    }
+    LaunchedEffect(Unit) {
+        app.autoEntry.requests.collect { target ->
+            val origin = Routes.mainOrigin(nav.currentDestination?.route)
+            nav.navigate(Routes.entry(target.host, target.genreKey, target.roomId, origin, auto = true)) { launchSingleTop = true }
+        }
     }
 
     LovelyAppShell(
@@ -174,6 +198,7 @@ fun AppNavHost() {
                     onOpenDisplay = { nav.navigate(Routes.SETTINGS_DISPLAY) { launchSingleTop = true } },
                     onOpenRoomList = { nav.navigate(Routes.SETTINGS_ROOMS) { launchSingleTop = true } },
                     onOpenRefresh = { nav.navigate(Routes.SETTINGS_REFRESH) { launchSingleTop = true } },
+                    onOpenEntry = { nav.navigate(Routes.SETTINGS_ENTRY) { launchSingleTop = true } },
                     onOpenHiddenRooms = { nav.navigate(Routes.SETTINGS_HIDDEN) { launchSingleTop = true } },
                     onOpenNgWords = { nav.navigate(Routes.SETTINGS_NG_WORDS) { launchSingleTop = true } },
                     onOpenNotifications = { nav.navigate(Routes.SETTINGS_NOTIFICATIONS) { launchSingleTop = true } },
@@ -190,6 +215,9 @@ fun AppNavHost() {
             composable(Routes.SETTINGS_REFRESH) {
                 RefreshSettingsScreen(onBack = { nav.popBackStack() })
             }
+            composable(Routes.SETTINGS_ENTRY) {
+                EntrySettingsScreen(onBack = { nav.popBackStack() })
+            }
             composable(Routes.SETTINGS_HIDDEN) {
                 HiddenRoomsScreen(onBack = { nav.popBackStack() })
             }
@@ -202,12 +230,13 @@ fun AppNavHost() {
             composable(Routes.SETTINGS_NOTIFICATIONS) {
                 NotificationSettingsScreen(onBack = { nav.popBackStack() })
             }
-            composable(Routes.ENTRY, arguments = roomArgs + originArg) { entry ->
+            composable(Routes.ENTRY, arguments = roomArgs + originArg + autoArg) { entry ->
                 val args = entry.arguments!!
                 EntryScreen(
                     host = args.getString("host")!!,
                     genreKey = args.getString("genre")!!,
                     roomId = args.getLong("roomId"),
+                    auto = args.getBoolean("auto"),
                     onBack = { nav.popBackStack() },
                     onEntered = { room ->
                         nav.navigateToChat(app.activeRooms.register(room), Routes.mainOrigin(args.getString("origin")))

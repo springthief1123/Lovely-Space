@@ -7,6 +7,8 @@ import io.github.springthief1123.lovelyspace.core.Room
 import io.github.springthief1123.lovelyspace.data.RoomPreference
 import io.github.springthief1123.lovelyspace.data.RoomPreferenceStore
 import io.github.springthief1123.lovelyspace.data.appliesTo
+import io.github.springthief1123.lovelyspace.data.roomSignature
+import io.github.springthief1123.lovelyspace.data.signature
 import io.github.springthief1123.lovelyspace.ui.describeError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -36,7 +38,12 @@ data class RoomPreferenceUiState(
     fun hasRecord(room: Room): Boolean = room.id in byRoomId
 
     fun isFavorite(room: Room): Boolean = activePreference(room)?.favorite == true
-    fun isHidden(room: Room): Boolean = activePreference(room)?.hidden == true
+    /** 非表示の記録の印（[signature]）。閉じて同じ内容で立て直した部屋も隠す。 */
+    private val hiddenSignatures: Set<String> by lazy { preferences.filter { it.hidden }.mapNotNull { it.signature() }.toSet() }
+
+    /** 同じ部屋の記録があればそれに従い、無ければ名前と待機メッセージが同じ非表示の部屋か（[hides] と同じ判定）。 */
+    fun isHidden(room: Room): Boolean = activePreference(room)?.hidden
+        ?: (hiddenSignatures.isNotEmpty() && roomSignature(room)?.let { it in hiddenSignatures } == true)
 
     fun canEdit(host: String, roomId: Long): Boolean = key(host, roomId) !in workingKeys
     fun canEdit(room: Room): Boolean = canEdit(Genres[room.genreKey]?.host ?: room.genreKey, room.id)

@@ -84,8 +84,8 @@ class ChatClientTest {
         assertEquals("30", fields["years"])
         assertEquals(entry.pwd, fields["pwd"])
         assertTrue("認証が無ければトークンは送らない", "cf-turnstile-response" !in fields)
-        // 入室前画面と入室は通常の間隔制限を通る。
-        assertEquals(listOf(3_000L), sleeps)
+        // 入室前画面と入室はブラウザで押すのと同じく、前の通信から間隔を空けない。
+        assertEquals(emptyList<Long>(), sleeps)
     }
 
     @Test

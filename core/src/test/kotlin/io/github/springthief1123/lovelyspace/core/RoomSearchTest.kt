@@ -65,4 +65,36 @@ class RoomSearchTest {
         assertTrue(RoomSearchCriteria(message = "にゃんこ").matches(room, custom))
         assertEquals(setOf("猫", "ねこ", "にゃんこ"), custom.variants("ネコ"))
     }
+
+    @Test
+    fun minusWordsExcludeInEachField() {
+        assertFalse(RoomSearchCriteria(text = "猫 -雑談").matches(room))
+        assertTrue(RoomSearchCriteria(text = "猫 -犬").matches(room))
+        assertFalse(RoomSearchCriteria(text = "－ALICE").matches(room))
+        // 除外は「どれかを含む」でも必ず効く。
+        assertFalse(RoomSearchCriteria(text = "猫 犬 -雑談", keywordMode = KeywordMode.ANY).matches(room))
+        // 名前欄の -語 は名前だけ、待機メッセージ欄は待機メッセージだけを見る。
+        assertTrue(RoomSearchCriteria(name = "-雑談").matches(room))
+        assertFalse(RoomSearchCriteria(message = "-雑談").matches(room))
+        assertFalse(RoomSearchCriteria(name = "-alice").matches(room))
+        // 長音で始まる語や「-」だけは除外にしない。
+        assertFalse(RoomSearchCriteria(text = "ーゲーム").matches(room))
+        assertTrue(RoomSearchCriteria(text = "猫 -").matches(room))
+    }
+
+    @Test
+    fun areaMatchesTagPrefixAndWrittenLocations() {
+        assertTrue(RoomSearchCriteria(area = "東京").matches(room.copy(area = "東京都")))
+        assertFalse(RoomSearchCriteria(area = "京都").matches(room.copy(area = "東京都")))
+        // タグが無ければ、名前・募集文に地域として書いてあるときだけ含める。
+        val untagged = room.copy(area = null)
+        assertTrue(RoomSearchCriteria(area = "神奈川").matches(untagged.copy(message = "神奈川住みです")))
+        assertTrue(RoomSearchCriteria(area = "大阪").matches(untagged.copy(message = "大阪府の人")))
+        assertFalse(RoomSearchCriteria(area = "大分").matches(untagged.copy(message = "大分慣れました")))
+        assertFalse(RoomSearchCriteria(area = "京都").matches(untagged.copy(message = "東京都在住")))
+        assertTrue(RoomSearchCriteria(area = "東京").matches(untagged.copy(message = "東京都在住")))
+        assertFalse(RoomSearchCriteria(area = "東京").matches(untagged))
+        // タグのある部屋はタグで決める。
+        assertFalse(RoomSearchCriteria(area = "大阪").matches(room.copy(message = "大阪住みの友達")))
+    }
 }
