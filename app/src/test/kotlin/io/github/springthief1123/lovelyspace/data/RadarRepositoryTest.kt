@@ -394,6 +394,28 @@ class RadarRepositoryTest {
             assertEquals(0L, radar.state.value.candidateRules.single().autoEnterUntil)
         } finally { db.close() }
     }
+    @Test fun namedAutoEntryOnlyGetsRoomsOpenedAfterTheRuleSawTheList() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val hiddenName = room.copy(status = RoomStatus.FULL, action = RoomAction.NONE, name = null)
+            val lists = Lists().apply { rooms = listOf(hiddenName) }
+            val arrivals = mutableListOf<Long>()
+            val radar = RadarRepository(db.presets(), lists, SearchPresetRepository(db), RoomPreferenceRepository(db), backgroundScope,
+                onNamedRoom = { _, found -> arrivals += found.id })
+            radar.state.first { it.loaded }
+            radar.saveCandidate(CandidateRule("a", "合成条件", "zenkoku", "合成"))
+            radar.setCandidateAutoEnter("a", true)
+            radar.scan()
+            // 満室で隠れていた名前が、空いて出ただけ。前から立っていた部屋なので自動入室には渡さない。
+            lists.rooms = listOf(room)
+            radar.scan()
+            assertEquals(emptyList<Long>(), arrivals)
+            // 後から立った（ID の大きい）同じ名前の部屋だけを渡す。
+            lists.rooms = listOf(room.copy(id = 43), room)
+            radar.scan()
+            assertEquals(listOf(43L), arrivals)
+        } finally { db.close() }
+    }
     @Test fun candidatePlansAtDifferentPagesAdvanceOnlyTheirScheduledRequest() = runTest {
         val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
         try {

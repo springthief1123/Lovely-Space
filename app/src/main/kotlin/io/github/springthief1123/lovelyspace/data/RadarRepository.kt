@@ -95,6 +95,11 @@ class RadarRepository(
     private val evaluatedPlans = mutableMapOf<String, Long>()
     private val candidateBaselines = mutableMapOf<String, Set<String>>()
     private val candidateKnown = mutableMapOf<String, MutableSet<String>>()
+    /**
+     * 候補条件ごとに、これまでに読んだそのジャンルの部屋の ID の最大。一覧は部屋を立てた順（ID の大きい順）なので、
+     * これより大きい ID の部屋だけを「新しく立った部屋」として自動入室に渡す（名前の再表示やプロフィールの変更では入らない）。
+     */
+    private val candidateNewestId = mutableMapOf<String, Long>()
     private val candidateNext = mutableMapOf<String, Int>()
     /** 自動巡回で、計画・候補条件ごとに 1 ページ目を読み始めた時刻（周の始まり）。 */
     private val lapStartedAt = mutableMapOf<String, Long>()
@@ -116,7 +121,7 @@ class RadarRepository(
                 mutex.withLock {
                     val saved = dao.state(KEY)
                     saved?.let(::restore)
-                    seen.clear(); baselines.clear(); baselineAt.clear(); knownMatches.clear(); nextPages.clear(); planKeys.clear(); candidateBaselines.clear(); candidateKnown.clear(); candidateNext.clear(); evaluatedPlans.clear(); evaluatedCandidates.clear(); lapStartedAt.clear(); cursors.clear()
+                    seen.clear(); baselines.clear(); baselineAt.clear(); knownMatches.clear(); nextPages.clear(); planKeys.clear(); candidateBaselines.clear(); candidateKnown.clear(); candidateNewestId.clear(); candidateNext.clear(); evaluatedPlans.clear(); evaluatedCandidates.clear(); lapStartedAt.clear(); cursors.clear()
                     backgroundTriedAt.clear()
                     saved?.let(::restoreBaselines)
                     // 背景の巡回は loaded を待って始まるので、NG ワードを読み終えるまで読み込み済みにしない。
@@ -236,6 +241,7 @@ class RadarRepository(
     private fun resetCandidate(id: String) {
         candidateBaselines.keys.removeAll { it.startsWith("$id/") }
         candidateKnown.keys.removeAll { it.startsWith("$id/") }
+        candidateNewestId.keys.removeAll { it.startsWith("$id/") }
         candidateNext.keys.removeAll { it.startsWith("$id/") }
         evaluatedCandidates.keys.removeAll { it.startsWith("$id/") }
         lapStartedAt.remove("candidate/$id")
@@ -318,6 +324,7 @@ class RadarRepository(
         val oldNext = nextPages.toMap()
         val oldCandidateBaselines = candidateBaselines.toMap()
         val oldCandidateKnown = candidateKnown.mapValues { it.value.toMutableSet() }
+        val oldCandidateNewestId = candidateNewestId.toMap()
         val oldCandidateNext = candidateNext.toMap()
         val oldLapStartedAt = lapStartedAt.toMap()
         val oldCursors = cursors.toMap()
@@ -335,6 +342,7 @@ class RadarRepository(
             nextPages.clear(); nextPages.putAll(oldNext)
             candidateBaselines.clear(); candidateBaselines.putAll(oldCandidateBaselines)
             candidateKnown.clear(); candidateKnown.putAll(oldCandidateKnown)
+            candidateNewestId.clear(); candidateNewestId.putAll(oldCandidateNewestId)
             candidateNext.clear(); candidateNext.putAll(oldCandidateNext)
             lapStartedAt.clear(); lapStartedAt.putAll(oldLapStartedAt)
             cursors.clear(); cursors.putAll(oldCursors)
@@ -683,9 +691,11 @@ class RadarRepository(
                 evaluatedCandidates[key] = o.revision
                 val previous = candidateBaselines[key]
                 val known = candidateKnown.getOrPut(rule.key) { mutableSetOf() }
+                val newest = candidateNewestId[rule.key]
                 if (previous != null) {
                     val added = identities - previous - known
-                    if (rule.autoEnterActive(now())) matches.filter { "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" in added }
+                    // 自動入室は、前に読んだどの部屋より後に立った部屋だけ（満室で隠れていた名前が出ただけの部屋には入らない）。
+                    if (rule.autoEnterActive(now()) && newest != null) matches.filter { it.id > newest && "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" in added }
                         .forEach { namedArrivals += rule to it }
                     if (added.isNotEmpty()) events += RadarEvent(o.confirmedAt, "候補「${rule.label}」：${o.page.page}ページで新しい表示名の一致を${added.size}件確認",
                         rooms = matches.filter { "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" in added }.take(20), page = o.page.page, sourceQuery = o.query, kind = RadarEventKind.CANDIDATE_MATCH,
@@ -693,6 +703,7 @@ class RadarRepository(
                 }
                 known.addAll(identities)
                 candidateBaselines[key] = identities
+                o.page.rooms.maxOfOrNull { it.id }?.let { id -> candidateNewestId[rule.key] = maxOf(newest ?: id, id) }
                 // 結果は、計画と同じく手元にあるジャンルの一覧の全ページから出す。
                 candidateResults[rule.id] = candidateResult(rule, o.confirmedAt, o.page.page, window, hidden)
             }
@@ -717,6 +728,7 @@ class RadarRepository(
                 .map { "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" }.toSet()
             candidateBaselines[key] = identities
             candidateKnown.getOrPut(rule.key) { mutableSetOf() }.addAll(identities)
+            o.page.rooms.maxOfOrNull { it.id }?.let { id -> candidateNewestId[rule.key] = maxOf(candidateNewestId[rule.key] ?: id, id) }
             evaluatedCandidates[key] = o.revision
         }
         val latest = pages.maxBy { it.confirmedAt }
