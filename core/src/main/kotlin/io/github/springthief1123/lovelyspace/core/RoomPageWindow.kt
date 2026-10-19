@@ -30,7 +30,7 @@ data class RoomPageWindow(
         if (observationRevision != null && nextRevision <= (revisions[page.page] ?: Long.MIN_VALUE)) return this
         val limit = if (nextRevision >= revision) page.lastPage.coerceAtLeast(1) else lastPage
         val seen = page.rooms.mapTo(HashSet(), ::roomIdentity)
-        val closed = closedRange(page)
+        val closed = closedRange(page.rooms)
         // このページの範囲にあるのに載っていない部屋は閉じた。このページより前に読んだページからも外す。
         fun gone(room: Room) = closed != null && room.id in closed && roomIdentity(room) !in seen
         val nextPages = (pages.mapValues { (number, rooms) ->
@@ -52,18 +52,33 @@ data class RoomPageWindow(
     }
 
     /**
-     * [page] に載っているはずの部屋の ID の範囲。ページの端の [ID_MARGIN] は含めない。部屋が少なく範囲が無ければ null。
+     * [rooms]（1 ページ分）に載っているはずの部屋の ID の範囲。ページの端の [ID_MARGIN] は含めない。部屋が少なく範囲が無ければ null。
      * 部屋の ID は閉じた後に別の部屋で使い回されることがある（docs/site-protocol.md）。使い回した小さな ID の部屋が並ぶと
      * 範囲が何ページ分にも広がるので、ページの中で ID の大きい順から [ID_MARGIN] を超えて外れる部屋があれば範囲を使わない。
      * ページの最後に並んだ部屋は順の崩れが見えないので、いちばん大きい ID と小さい ID の部屋は範囲の端に使わない。
      */
-    private fun closedRange(page: RoomListPage): LongRange? {
-        if (page.rooms.size < 3) return null
-        if (page.rooms.zipWithNext().any { (above, below) -> below.id > above.id + ID_MARGIN }) return null
-        val ids = page.rooms.map { it.id }.sorted()
+    private fun closedRange(rooms: List<Room>): LongRange? {
+        if (rooms.size < 3) return null
+        if (rooms.zipWithNext().any { (above, below) -> below.id > above.id + ID_MARGIN }) return null
+        val ids = rooms.map { it.id }.sorted()
         val low = ids[1] + ID_MARGIN
         val high = ids[ids.size - 2] - ID_MARGIN
         return if (low <= high) low..high else null
+    }
+
+    /**
+     * [old] の部屋が閉じて立て直された（[isRebuildOf]）ときの新しい部屋。分からなければ null。
+     *
+     * [old] がこの一覧に無く（消えたばかりで [carried] に残っている間も含めて、まだあるものとみなす）、読んだページの ID の範囲（[closedRange]）に
+     * [old] の ID が入っていて閉じたと分かるときだけ探す。読んでいない後ろのページにあるだけかもしれない部屋は追わない。
+     * 候補がちょうど 1 つのときだけ返す。2 つ以上なら、別の人の部屋を選ばないよう追わない。[claimed]（ほかの登録が追っている部屋）は候補にしない。
+     */
+    fun rebuildOf(old: Room, claimed: Set<String> = emptySet()): Room? {
+        val all = rooms
+        val oldKey = roomIdentity(old)
+        if (all.any { roomIdentity(it) == oldKey }) return null
+        if (pages.values.none { closedRange(it)?.contains(old.id) == true }) return null
+        return all.filter { roomIdentity(it) !in claimed && isRebuildOf(old, it) }.distinctBy(::roomIdentity).singleOrNull()
     }
 
     companion object {

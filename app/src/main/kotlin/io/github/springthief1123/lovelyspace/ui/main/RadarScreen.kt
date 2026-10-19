@@ -398,7 +398,7 @@ private fun WaitlistRow(entry: WaitlistEntry, onEnter: () -> Unit, onRemove: () 
             QuietOverflowMenu(listOf(QuietMenuItem(if (entry.active(now)) "順番待ちを取り消す" else "記録を削除", destructive = entry.active(now), onClick = onRemove)),
                 contentDescription = "順番待ちの操作")
         }
-        Text(when {
+        Text((if (entry.rebuilds > 0) "部屋の立て直しを確認し、新しい部屋を待っています（${entry.rebuilds}回）。" else "") + when {
             entry.status == WaitlistStatus.OPENED -> "${formatObservationTime(entry.changedAt ?: now)}に空きを確認しました。入室時には埋まっている場合があります。"
             entry.status == WaitlistStatus.STOPPED -> "同じIDに別の部屋を確認したため、待つのをやめました。"
             !entry.active(now) -> "期限（${formatObservationTime(entry.expiresAt)}）を過ぎました。"

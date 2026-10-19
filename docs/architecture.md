@@ -30,7 +30,7 @@ app   (Android)     画面（Compose）・端末内の保存（Room / DataStore�
 | `Genres.kt`（`Genre`, `RoomQuery`） | ジャンル（3 つのサブドメインに分かれる）と、一覧 URL・サイト側の絞り込みパラメータの組み立て |
 | `RoomListParser` | 一覧ページ（PC 版レイアウト）の解析。`Room`, `RoomListPage` を返す |
 | `RoomSearch`（`RoomSearchCriteria`） | 端末側の絞り込み（複数語 AND/OR、除外、性別、年齢範囲、地域、公開・待機）と並び替え |
-| `RoomTracking`（`RoomIdentityEvidence`） | 同じ `room_id` の部屋が同じ人のものかを、一覧で見える名前・性別・年齢で照合する（本人確認ではない） |
+| `RoomTracking`（`RoomIdentityEvidence`、`isRebuildOf`） | 同じ `room_id` の部屋が同じ人のものかを、一覧で見える名前・性別・年齢で照合する。閉じた部屋が同じ名前・募集文で立て直されたか（新しい ID）も見る（`RoomPageWindow.rebuildOf`。どちらも本人確認ではない） |
 | `SitePages`, `Prefectures` | 部屋作成・入室前・公開ルームの URL、都道府県コード |
 | `chat/ChatParsers` | `2shot.php`（待機・チャット画面）の初回表示と、ログ 1 行の解析 |
 | `chat/JsAssignments` | `ajax.php` の応答（JavaScript の代入文の並び）を `eval` せずに読む |

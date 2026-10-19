@@ -208,4 +208,25 @@ class RoomPageWindowTest {
         now = 4_000
         assertEquals(0, schedule.waitMs(w))
     }
+    @Test fun rebuiltRoomIsFoundOnlyOnceTheOldRoomIsKnownToBeClosed() {
+        val base = 900_000_000L
+        fun r(offset: Long, name: String = "合成$offset", message: String = "合成募集文$offset") =
+            Room(base + offset, "zenkoku", RoomStatus.WAITING, RoomAction.ENTER, null, name, Gender.FEMALE, 25, null, message)
+        val old = r(500)
+        val window = RoomPageWindow().observe(page(1, listOf(r(700), old, r(300), r(100))))
+            .observe(page(2, listOf(r(-100), r(-300))))
+        // まだ一覧にある部屋は立て直していない。
+        val rebuilt = r(900, name = old.name!!, message = old.message)
+        assertNull(window.rebuildOf(old))
+        // 500 が閉じ、同じ名前・募集文の 900 が先頭に出た。
+        val after = window.observe(page(1, listOf(rebuilt, r(700), r(300), r(100))))
+        assertEquals(rebuilt, after.rebuildOf(old))
+        // ほかの登録が追っている部屋は選ばない。
+        assertNull(after.rebuildOf(old, claimed = setOf(roomIdentity(rebuilt))))
+        // 同じ名前・募集文の候補が 2 つあれば、どちらとも決めない。
+        assertNull(window.observe(page(1, listOf(rebuilt, r(800, name = old.name!!, message = old.message), r(700), r(300), r(100)))).rebuildOf(old))
+        // 読んだページの範囲の外（まだ読んでいない後ろのページ）にあるかもしれない部屋は追わない。
+        val unread = r(-2000)
+        assertNull(after.rebuildOf(unread))
+    }
 }
