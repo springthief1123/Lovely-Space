@@ -518,7 +518,7 @@ class RadarRepository(
                         target.evidence == RoomIdentityEvidence.MATCH &&
                         target.observationRevision == observation.revision &&
                         target.confirmedAt == observation.confirmedAt &&
-                        hidden.none { it.appliesTo(target.room) }
+                        !hidden.hides(target.room)
                 }.map { it.room }
                 val matches = (scheduledPlans.flatMap { _state.value.resultFor(it)?.rooms.orEmpty() } +
                     scheduledCandidates.flatMap { _state.value.resultFor(it)?.rooms.orEmpty() } +
@@ -598,7 +598,7 @@ class RadarRepository(
         val candidateResults = current.candidateResults.toMutableMap()
         if (genreList) {
             candidates.filter { it.enabled && it.genreKey == o.query.genre.key }.forEach { rule ->
-                val matches = o.page.rooms.distinctBy(::roomIdentity).filter { room -> rule.matches(room) && hidden.none { it.appliesTo(room) } }
+                val matches = o.page.rooms.distinctBy(::roomIdentity).filter { room -> rule.matches(room) && !hidden.hides(room) }
                 val identities = matches.map { "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" }.toSet()
                 val key = "${rule.key}/${o.page.page}"
                 if ((evaluatedCandidates[key] ?: 0) >= o.revision) return@forEach
@@ -620,7 +620,7 @@ class RadarRepository(
         _state.update { current.copy(automatic = it.automatic, livePages = livePages, targets = targets, events = (events + current.events).take(100), scopes = scopes, results = results, candidateResults = candidateResults) }
     }
     private fun candidateResult(rule: CandidateRule, at: Long, page: Int, window: RoomPageWindow, hidden: List<RoomPreference>): CandidateResult {
-        val all = window.rooms.distinctBy(::roomIdentity).filter { room -> rule.matches(room) && hidden.none { it.appliesTo(room) } }
+        val all = window.rooms.distinctBy(::roomIdentity).filter { room -> rule.matches(room) && !hidden.hides(room) }
         return CandidateResult(rule.key, at, page, window.lastPage, all, window.pages.size,
             window.roomPages.filterKeys { key -> all.any { roomIdentity(it) == key } })
     }
@@ -633,7 +633,7 @@ class RadarRepository(
         val window = pages.fold(RoomPageWindow()) { w, o -> w.observe(o.page, o.revision) }
         pages.filter { window.pages[it.query.page] != null }.forEach { o ->
             val key = "${rule.key}/${o.query.page}"
-            val identities = o.page.rooms.filter { room -> rule.matches(room) && hidden.none { it.appliesTo(room) } }
+            val identities = o.page.rooms.filter { room -> rule.matches(room) && !hidden.hides(room) }
                 .map { "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" }.toSet()
             candidateBaselines[key] = identities
             candidateKnown.getOrPut(rule.key) { mutableSetOf() }.addAll(identities)
@@ -671,7 +671,7 @@ class RadarRepository(
     /** 計画の一致。非表示にした部屋と NG ワードに当たる部屋を外してから、保存した条件で絞る。 */
     private fun planMatches(rooms: List<Room>, preset: SearchPreset, hidden: List<RoomPreference>): List<Room> {
         val filter = ng
-        return searchRooms(rooms.filterNot { room -> hidden.any { it.appliesTo(room) } || filter.matches(room) }, preset.criteria)
+        return searchRooms(rooms.filterNot { room -> hidden.hides(room) || filter.matches(room) }, preset.criteria)
     }
 
     /**
