@@ -270,4 +270,28 @@ class WaitlistRepositoryTest {
         assertEquals(1, entry.rebuilds)
         assertTrue("立て直され" in entry.toOpenedNotification()!!.text)
     }
+
+    @Test fun aRoomRebuiltWhileFullKeepsTheProfileItWasMatchedWith() = runTest {
+        // 合成データ。満室のまま立て直されると名前・性別・年齢が出ない。分かっていた値を引き継ぎ、次の立て直しで別の人の部屋を選ばない。
+        val base = 900_000_000L
+        fun other(offset: Long) = Room(base + offset, "zenkoku", RoomStatus.WAITING, RoomAction.ENTER, null, "合成$offset", Gender.MALE, 30, null, "合成の別の募集文$offset")
+        val message = "合成の長い募集文です。よろしくお願いします"
+        val old = full.copy(id = base + 500, name = "合成の名前", gender = Gender.FEMALE, age = 25, message = message)
+        val lists = Lists().apply { pages = mapOf(1 to listOf(other(700), old, other(300), other(100))) }
+        val opened = mutableListOf<WaitlistEntry>()
+        val waitlist = WaitlistRepository(Memory(), lists, { opened += it }, backgroundScope) { 0L }
+        waitlist.register(old, RoomQuery(zenkoku))
+        waitlist.check(3)
+        val hidden = full.copy(id = base + 800, message = message)
+        lists.pages = mapOf(1 to listOf(hidden, other(700), other(300), other(100)))
+        waitlist.check(3)
+        assertEquals(hidden.id, waitlist.entries.value.single().room.id)
+        assertEquals("合成の名前", waitlist.entries.value.single().room.name)
+        // 次の部屋は名前が違うので立て直しとみなさない。
+        val stranger = hidden.copy(id = base + 900, status = RoomStatus.WAITING, action = RoomAction.ENTER, name = "別の合成", gender = Gender.FEMALE, age = 25)
+        lists.pages = mapOf(1 to listOf(stranger, other(890), other(880), other(700), other(300), other(100)))
+        waitlist.check(3)
+        assertTrue(opened.isEmpty())
+        assertEquals(hidden.id, waitlist.entries.value.single().room.id)
+    }
 }

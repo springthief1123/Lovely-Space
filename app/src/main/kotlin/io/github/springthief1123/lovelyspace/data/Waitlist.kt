@@ -215,7 +215,10 @@ class WaitlistRepository(
     /** 立て直された部屋 [rebuilt] を待つ登録にする。空いていれば空きとして知らせる。 */
     private fun followRebuild(entry: WaitlistEntry, rebuilt: Room, window: RoomPageWindow, o: ObservedRoomPage): WaitlistEntry {
         val page = window.roomPages[roomIdentity(rebuilt)] ?: 1
-        val moved = entry.copy(room = rebuilt, rebuilds = entry.rebuilds + 1, lastSeenAt = o.confirmedAt, missed = 0,
+        // 満室のまま立て直された部屋は名前・性別・年齢が出ないので、分かっていた値を引き継いで次の照合に使う。
+        val known = rebuilt.copy(name = rebuilt.name ?: entry.room.name,
+            gender = rebuilt.gender.takeUnless { it == Gender.UNKNOWN } ?: entry.room.gender, age = rebuilt.age ?: entry.room.age)
+        val moved = entry.copy(room = known, rebuilds = entry.rebuilds + 1, lastSeenAt = o.confirmedAt, missed = 0,
             query = RoomQuery(o.query.genre, page = page), anchorPage = page)
         return if (rebuilt.status == RoomStatus.FULL) moved
         else moved.copy(status = WaitlistStatus.OPENED, openedRoom = rebuilt, changedAt = o.confirmedAt)
