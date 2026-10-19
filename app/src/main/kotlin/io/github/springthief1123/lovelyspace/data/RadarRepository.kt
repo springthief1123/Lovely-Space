@@ -76,6 +76,8 @@ class RadarRepository(
     /** NG ワードの判定。計画の一致から外す（名前で追う候補と、追跡中の部屋には掛けない）。 */
     private val ngWords: Flow<NgWordFilter> = flowOf(NgWordFilter.NONE),
     private val now: () -> Long = System::currentTimeMillis,
+    /** 自動入室をオンにした名前で追う 1 件に、新しい部屋が見つかったとき（[AutoEntryController.offerNamed]）。ロックの外で呼ぶ。 */
+    private val onNamedRoom: suspend (CandidateRule, Room) -> Unit = { _, _ -> },
 ) {
     private val mutex = Mutex()
     private val sync = ListSync(lists)
@@ -99,6 +101,8 @@ class RadarRepository(
     /** 計画・候補条件ごとの、後ろのページを回る位置。 */
     private val cursors = mutableMapOf<String, PageCursor>()
     private val evaluatedCandidates = mutableMapOf<String, Long>()
+    /** [process] で見つけた、自動入室をオンにした名前で追う 1 件の新しい部屋。ロックを出てから [deliverNamed] で渡す。 */
+    private val namedArrivals = mutableListOf<Pair<CandidateRule, Room>>()
     private var observationJob: Job? = null
     /** いま効いている NG ワードの判定。[reload] で最初の値を待ってから読み込み済みにし、その後は購読で更新する。 */
     @Volatile private var ng: NgWordFilter = NgWordFilter.NONE
@@ -193,8 +197,11 @@ class RadarRepository(
         edit { state ->
         require(rule.id.isNotBlank() && rule.label.isNotBlank() && rule.label.length <= 80 && rule.term.isNotBlank() && rule.term.length <= 160 && Genres[rule.genreKey] != null) { "候補条件の入力を確認してください。" }
         require(state.candidateRules.size < 20 || state.candidateRules.any { it.id == rule.id }) { "候補監視は20件までです。" }
-        val value = rule.copy(label = rule.label.trim(), term = rule.term.trim())
         val old = state.candidateRules.firstOrNull { it.id == rule.id }
+        // 自動入室は名前の完全一致だけ。名前を変えたら、別の人に入らないよう止める。
+        val value = rule.copy(label = rule.label.trim(), term = rule.term.trim()).let {
+            if (it.mode != CandidateMode.EXACT_NAME || (old != null && old.term.trim() != it.term)) it.copy(autoEnterUntil = 0L) else it
+        }
         val changed = old?.key != value.key || old?.enabled != value.enabled
         if (changed) resetCandidate(rule.id)
         state.copy(candidateRules = state.candidateRules.filterNot { it.id == value.id } + value,
@@ -212,6 +219,15 @@ class RadarRepository(
             state.copy(candidateRules = state.candidateRules.map { if (it.id == id) it.copy(enabled = enabled) else it }, nextCandidatePages = state.nextCandidatePages - id)
                 .let { if (enabled) seedCandidate(rule.copy(enabled = true), hidden, it) else it }
         }
+    }
+    /** 名前で追う 1 件の、新しい部屋への自動入室をオンにする（[AutoEntryController.PINNED_MS] まで）。[enabled] が false なら止める。 */
+    suspend fun setCandidateAutoEnter(id: String, enabled: Boolean) = edit { state ->
+        val rule = state.candidateRules.firstOrNull { it.id == id }
+        require(rule != null) { "候補条件が見つかりません。" }
+        require(!enabled || rule.mode == CandidateMode.EXACT_NAME) { "自動入室は、名前が完全に一致する条件だけで使えます。" }
+        require(!enabled || rule.enabled) { "候補を探す条件をオンにしてから選んでください。" }
+        val until = if (enabled) now() + AutoEntryController.PINNED_MS else 0L
+        state.copy(candidateRules = state.candidateRules.map { if (it.id == id) it.copy(autoEnterUntil = until) else it })
     }
     suspend fun removeCandidate(id: String) = edit { state ->
         resetCandidate(id)
@@ -384,6 +400,15 @@ class RadarRepository(
                 _state.update { state -> state.copy(lastConfirmedAt = maxOf(state.lastConfirmedAt ?: o.confirmedAt, o.confirmedAt)) }
                 persist()
             }
+        }
+        deliverNamed()
+    }
+
+    /** 自動入室をオンにした名前で追う 1 件の新しい部屋を渡す。取り消された記録（[transaction] の巻き戻し）の分も渡すが、入室画面で確かめられる。 */
+    private suspend fun deliverNamed() {
+        val arrivals = mutex.withLock { namedArrivals.toList().also { namedArrivals.clear() } }
+        arrivals.forEach { (rule, room) ->
+            try { onNamedRoom(rule, room) } catch (e: CancellationException) { throw e } catch (_: Exception) { }
         }
     }
 
@@ -563,6 +588,7 @@ class RadarRepository(
                 updateCheck(query, RadarCheckStatus.CONFIRMED, observation.confirmedAt, matches)
             }
         }
+        deliverNamed()
     }
     private fun updateCheck(query: RoomQuery, status: RadarCheckStatus, at: Long? = null, matches: Int = 0, message: String? = null) {
         _state.update { state -> state.copy(lastScan = state.lastScan?.let { report ->
@@ -659,6 +685,8 @@ class RadarRepository(
                 val known = candidateKnown.getOrPut(rule.key) { mutableSetOf() }
                 if (previous != null) {
                     val added = identities - previous - known
+                    if (rule.autoEnterActive(now())) matches.filter { "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" in added }
+                        .forEach { namedArrivals += rule to it }
                     if (added.isNotEmpty()) events += RadarEvent(o.confirmedAt, "候補「${rule.label}」：${o.page.page}ページで新しい表示名の一致を${added.size}件確認",
                         rooms = matches.filter { "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" in added }.take(20), page = o.page.page, sourceQuery = o.query, kind = RadarEventKind.CANDIDATE_MATCH,
                         origin = RadarEventOrigin(RadarOriginType.CANDIDATE, rule.id, rule.label, "${Genres[rule.genreKey]?.label ?: rule.genreKey} · ${if (rule.mode == CandidateMode.EXACT_NAME) "名前一致" else "表示名"}「${rule.term}」"))
@@ -763,7 +791,7 @@ class RadarRepository(
             .put("targets", JSONArray(s.targets.map { t -> JSONObject().put("room", roomJson(t.room)).put("identity", roomJson(t.identity)).put("at", t.confirmedAt).put("observedAt", t.observedAt).put("evidence", t.evidence.name).put("page", t.observedPage).put("sourceQuery", radarQueryJson(t.sourceQuery)).put("pinned", t.pinned).put("note", t.note) }))
             .put("events", JSONArray(s.events.map { JSONObject().put("at", it.at).put("text", it.text).put("id", it.id).put("rooms", JSONArray(it.rooms.map(::roomJson))).put("page", it.page).put("blocked", it.blocked).put("sourceQuery", radarQueryJson(it.sourceQuery)).put("kind", it.kind.name).put("origin", radarOriginJson(it.origin)).put("read", it.read).put("pendingNotice", it.pendingNotice) }))
         json.put("candidateRules", JSONArray(s.candidateRules.map { rule -> JSONObject().put("id", rule.id).put("label", rule.label).put("genre", rule.genreKey)
-            .put("term", rule.term).put("mode", rule.mode.name).put("enabled", rule.enabled) }))
+            .put("term", rule.term).put("mode", rule.mode.name).put("enabled", rule.enabled).put("autoEnterUntil", rule.autoEnterUntil) }))
         json.put("backgroundPlans", JSONArray(s.backgroundPlans.toList())).put("backgroundInterval", s.backgroundIntervalMinutes)
         // 背景の巡回は実行ごとにプロセスが作り直されるので、背景で巡回する計画の比較基準だけを、ページを取得した時刻つきで残す。
         // 古い基準は再起動時に捨て（[BASELINE_TTL_MS]）、久しぶりの起動で大量の「新しい一致」を出さない。巡回位置は残さない。
@@ -812,7 +840,7 @@ class RadarRepository(
                 page = if (it.isNull("page")) null else it.getInt("page").coerceAtLeast(1), blocked = it.optBoolean("blocked"), sourceQuery = readRadarQuery(it.optJSONObject("sourceQuery")),
                 kind = RadarEventKind.entries.firstOrNull { kind -> kind.name == it.optString("kind") } ?: RadarEventKind.LEGACY,
                 origin = readRadarOrigin(it.optJSONObject("origin")), read = if (it.has("read")) it.getBoolean("read") else true, pendingNotice = it.optBoolean("pendingNotice")) } },
-            candidateRules = (0 until candidates.length()).map { i -> candidates.getJSONObject(i).let { CandidateRule(it.getString("id"), it.getString("label"), it.getString("genre"), it.getString("term"), CandidateMode.valueOf(it.getString("mode")), it.optBoolean("enabled", true)) } },
+            candidateRules = (0 until candidates.length()).map { i -> candidates.getJSONObject(i).let { CandidateRule(it.getString("id"), it.getString("label"), it.getString("genre"), it.getString("term"), CandidateMode.valueOf(it.getString("mode")), it.optBoolean("enabled", true), it.optLong("autoEnterUntil")) } },
             backgroundPlans = json.optJSONArray("backgroundPlans")?.let { b -> (0 until b.length()).map(b::getString).toSet() } ?: emptySet(),
             backgroundIntervalMinutes = json.optInt("backgroundInterval").takeIf { it in RadarState.BACKGROUND_INTERVALS } ?: RadarState.BACKGROUND_INTERVALS.first())
         _state.update { restored.copy(automatic = it.automatic) }

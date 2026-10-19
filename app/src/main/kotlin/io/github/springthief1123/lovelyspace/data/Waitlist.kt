@@ -46,6 +46,8 @@ data class WaitlistEntry(
     val anchorPage: Int = query.page,
     /** 部屋が立て直された（閉じて同じ名前・募集文で作り直された）のを追って、新しい部屋へ移した回数。 */
     val rebuilds: Int = 0,
+    /** 必ず入りたい部屋として、空いたら自動で入室する（設定の自動入室がオフでも。[AutoEntryController]）。 */
+    val autoEnter: Boolean = false,
 ) {
     val key: String get() = roomIdentity(room)
     fun active(now: Long): Boolean = status == WaitlistStatus.WATCHING && now < expiresAt
@@ -114,6 +116,12 @@ class WaitlistRepository(
         val source = sourceQuery?.takeIf { it.genre.key == room.genreKey }
         if (source != null && lists.observation(source)?.shows() == true) return source
         return lists.observations.value.values.filter { it.shows() }.maxByOrNull { it.revision }?.query ?: source
+    }
+
+    /** 順番待ちの 1 件を、空いたら自動で入室する部屋にする（[enabled] が false なら戻す）。 */
+    suspend fun setAutoEnter(key: String, enabled: Boolean) = mutex.withLock {
+        require(_entries.value.any { it.key == key }) { "順番待ちが見つかりません。" }
+        save(_entries.value.map { if (it.key == key) it.copy(autoEnter = enabled) else it })
     }
 
     suspend fun remove(key: String) = mutex.withLock {
@@ -294,6 +302,7 @@ class WaitlistStore(private val prefs: android.content.SharedPreferences) : Wait
         .put("registeredAt", e.registeredAt).put("expiresAt", e.expiresAt).put("status", e.status.name)
         .put("lastSeenAt", e.lastSeenAt).put("missed", e.missed).put("changedAt", e.changedAt)
         .put("openedRoom", e.openedRoom?.let(::waitlistRoomJson)).put("noticed", e.noticed).put("anchorPage", e.anchorPage).put("rebuilds", e.rebuilds)
+        .put("autoEnter", e.autoEnter)
 
     private fun decode(o: JSONObject): WaitlistEntry {
         val room = readWaitlistRoom(o.getJSONObject("room"))
@@ -312,6 +321,7 @@ class WaitlistStore(private val prefs: android.content.SharedPreferences) : Wait
             noticed = o.optBoolean("noticed"),
             anchorPage = o.optInt("anchorPage", query.page),
             rebuilds = o.optInt("rebuilds"),
+            autoEnter = o.optBoolean("autoEnter"),
         )
     }
 
