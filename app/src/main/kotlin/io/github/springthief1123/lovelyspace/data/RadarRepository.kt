@@ -75,9 +75,9 @@ class RadarRepository(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     /** NG ワードの判定。計画の一致から外す（名前で追う候補と、追跡中の部屋には掛けない）。 */
     private val ngWords: Flow<NgWordFilter> = flowOf(NgWordFilter.NONE),
-    private val now: () -> Long = System::currentTimeMillis,
     /** 自動入室をオンにした名前で追う 1 件に、新しい部屋が見つかったとき（[AutoEntryController.offerNamed]）。ロックの外で呼ぶ。 */
     private val onNamedRoom: suspend (CandidateRule, Room) -> Unit = { _, _ -> },
+    private val now: () -> Long = System::currentTimeMillis,
 ) {
     private val mutex = Mutex()
     private val sync = ListSync(lists)
