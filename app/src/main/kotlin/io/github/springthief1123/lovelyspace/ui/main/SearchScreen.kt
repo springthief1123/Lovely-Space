@@ -65,7 +65,7 @@ import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentTopPaddin
 @Composable
 fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refreshKey: Int = 0, onGenreChanged: (Genre) -> Unit = {}, preset: SearchPreset? = null, onPresetConsumed: () -> Unit = {}, onOpenNgWords: () -> Unit = {}) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
-    val vm: SearchViewModel = viewModel(factory = viewModelFactory { initializer { SearchViewModel(app.roomLists, app.settings, pacing = { app.pacing.value }) } })
+    val vm: SearchViewModel = viewModel(factory = viewModelFactory { initializer { SearchViewModel(app.roomLists, app.settings, pacing = { app.pacing.value }, hot = app.hotPages) } })
     val preferencesVm: RoomPreferenceViewModel = viewModel(
         factory = viewModelFactory { initializer { RoomPreferenceViewModel(app.roomPreferences) } },
     )

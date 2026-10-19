@@ -78,6 +78,7 @@ class SettingsRepository(private val context: Context) : RoomListPreferenceStore
     private val roomMessageKey = stringPreferencesKey("room_message")
     private val notificationPreviewKey = stringPreferencesKey("notification_preview")
     private val minIntervalKey = longPreferencesKey("pacing_min_interval_ms")
+    private val hotKey = longPreferencesKey("pacing_hot_ms")
     private val searchHeadKey = longPreferencesKey("pacing_search_head_ms")
     private val radarHeadKey = longPreferencesKey("pacing_radar_head_ms")
     private val waitlistKey = longPreferencesKey("pacing_waitlist_ms")
@@ -122,6 +123,7 @@ class SettingsRepository(private val context: Context) : RoomListPreferenceStore
 
     private fun refreshPacingOf(prefs: Preferences) = RefreshPacing(
         minIntervalMs = prefs[minIntervalKey] ?: RefreshPacing.DEFAULT_MIN_INTERVAL_MS,
+        hotMs = prefs[hotKey] ?: RefreshPacing.DEFAULT_HOT_MS,
         searchHeadMs = prefs[searchHeadKey] ?: RefreshPacing.DEFAULT_SEARCH_HEAD_MS,
         radarHeadMs = prefs[radarHeadKey] ?: RefreshPacing.DEFAULT_RADAR_HEAD_MS,
         waitlistMs = prefs[waitlistKey] ?: RefreshPacing.DEFAULT_WAITLIST_MS,
@@ -136,6 +138,7 @@ class SettingsRepository(private val context: Context) : RoomListPreferenceStore
         context.dataStore.edit {
             val value = change(refreshPacingOf(it)).sanitized()
             it[minIntervalKey] = value.minIntervalMs
+            it[hotKey] = value.hotMs
             it[searchHeadKey] = value.searchHeadMs
             it[radarHeadKey] = value.radarHeadMs
             it[waitlistKey] = value.waitlistMs

@@ -43,6 +43,7 @@ internal fun CandidateRuleEditor(value: CandidateRule, working: Boolean, error: 
 }
 
 internal val CandidateRuleSaver = listSaver<CandidateRule?, Any>(
-    save = { if (it == null) emptyList() else listOf(it.id, it.label, it.genreKey, it.term, it.mode.name, it.enabled) },
-    restore = { if (it.isEmpty()) null else CandidateRule(it[0] as String, it[1] as String, it[2] as String, it[3] as String, CandidateMode.valueOf(it[4] as String), it[5] as Boolean) },
+    save = { if (it == null) emptyList() else listOf(it.id, it.label, it.genreKey, it.term, it.mode.name, it.enabled, it.autoEnterUntil) },
+    restore = { if (it.isEmpty()) null else CandidateRule(it[0] as String, it[1] as String, it[2] as String, it[3] as String, CandidateMode.valueOf(it[4] as String), it[5] as Boolean,
+        it.getOrNull(6) as? Long ?: 0L) },
 )

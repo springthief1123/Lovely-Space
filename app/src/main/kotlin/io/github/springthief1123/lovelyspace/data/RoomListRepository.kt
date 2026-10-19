@@ -13,6 +13,8 @@ fun interface RoomListSource {
     fun observation(query: RoomQuery): ObservedRoomPage? = null
     /** 利用者が更新ボタンを押した取り直し（本家の「最新更新」）。押すたびに、前の通信から間隔を空けずに取り直す（[ShaloveClient.fetchRoomList] の manual）。 */
     suspend fun fetchNow(query: RoomQuery): RoomListPage = fetch(query, true)
+    /** 新着の確認（1 ページ目）と順番待ちのページ。設定の最小間隔は空けるが、後ろのページの巡回より先に通す（[ShaloveClient.fetchRoomList] の priority）。 */
+    suspend fun fetchPriority(query: RoomQuery, force: Boolean): RoomListPage = fetch(query, force)
 }
 
 data class ObservedRoomPage(val query: RoomQuery, val page: RoomListPage, val confirmedAt: Long, val revision: Long)
@@ -51,6 +53,9 @@ class RoomListRepository(private val client: ShaloveClient) : ObservedRoomListSo
     override suspend fun fetch(query: RoomQuery, force: Boolean): RoomListPage = record(query) { client.fetchRoomList(query, forceRefresh = force) }
 
     override suspend fun fetchNow(query: RoomQuery): RoomListPage = record(query) { client.fetchRoomList(query, manual = true) }
+
+    override suspend fun fetchPriority(query: RoomQuery, force: Boolean): RoomListPage =
+        record(query) { client.fetchRoomList(query, forceRefresh = force, priority = true) }
 
     private suspend fun record(query: RoomQuery, load: suspend () -> RoomListPage): RoomListPage {
         attempts.incrementAndGet()

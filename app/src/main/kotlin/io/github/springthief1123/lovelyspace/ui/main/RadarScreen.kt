@@ -199,12 +199,18 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                         enabled = rule.enabled,
                         switchEnabled = state.loaded && !working,
                         onEnabled = { enabled -> action { app.radar.setCandidateEnabled(rule.id, enabled) } },
-                        status = if (found == null) "まだ確認していません" else "${formatObservationTime(found.at)}・${found.pagesRead}/${found.lastPage}ページ分",
+                        status = (if (found == null) "まだ確認していません" else "${formatObservationTime(found.at)}・${found.pagesRead}/${found.lastPage}ページ分") +
+                            if (rule.autoEnterActive(System.currentTimeMillis())) "・新しい部屋に自動で入室（${formatObservationTime(rule.autoEnterUntil)}まで）" else "",
                         matches = found?.rooms?.size,
                         onMatches = { found?.let { result = RadarRoomsDisplay("確認した候補", it.at, it::pageOf, "${it.pagesRead}/${it.lastPage}ページ分の一覧情報", it.rooms) } },
                         menuLabel = "候補条件の操作",
                         menu = listOf(
                             QuietMenuItem("条件を編集", enabled = state.loaded && !working && !state.running) { error = null; candidateDraft = rule },
+                        ) + (if (rule.mode != CandidateMode.EXACT_NAME) emptyList<QuietMenuItem>() else if (rule.autoEnterActive(System.currentTimeMillis()))
+                            listOf(QuietMenuItem("自動入室をやめる", enabled = state.loaded && !working) { action { app.radar.setCandidateAutoEnter(rule.id, false) } })
+                        else listOf(QuietMenuItem("新しい部屋に自動で入室する（${AutoEntryController.PINNED_MS / 3_600_000}時間）", enabled = state.loaded && !working && rule.enabled) {
+                            action { app.autoEntry.resetTarget(AutoEntryController.candidateTarget(rule.id)); app.radar.setCandidateAutoEnter(rule.id, true) }
+                        })) + listOf(
                             QuietMenuItem("条件を削除", enabled = state.loaded && !working, destructive = true) { error = null; deletingCandidate = rule },
                         ),
                     )
@@ -239,6 +245,10 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                 if (waitlist.isEmpty()) item { RadarEmpty("順番待ちはまだありません。満室の部屋の詳細から「空いたら知らせる」を選ぶと始まります。") }
                 items(waitlist, key = { "waitlist/${it.key}" }) { entry ->
                     WaitlistRow(entry, onEnter = { entry.openedRoom?.let(onEnterRoom) },
+                        onAutoEnter = { enabled -> action {
+                            if (enabled) app.autoEntry.resetTarget(AutoEntryController.waitlistTarget(entry.key))
+                            app.waitlist.setAutoEnter(entry.key, enabled)
+                        } },
                         onRemove = {
                             scope.launch {
                                 try { app.waitlist.remove(entry.key) }
@@ -386,7 +396,7 @@ private fun RadarRuleRow(
 
 /** 順番待ちの1件。空いたら入室へ進めるようにし、取り消し・削除は「︙」にまとめる。 */
 @Composable
-private fun WaitlistRow(entry: WaitlistEntry, onEnter: () -> Unit, onRemove: () -> Unit) {
+private fun WaitlistRow(entry: WaitlistEntry, onEnter: () -> Unit, onAutoEnter: (Boolean) -> Unit, onRemove: () -> Unit) {
     val now = System.currentTimeMillis()
     QuietListPanel {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -395,10 +405,14 @@ private fun WaitlistRow(entry: WaitlistEntry, onEnter: () -> Unit, onRemove: () 
                 Text(listOfNotNull(Genres[entry.room.genreKey]?.label, entry.room.message.takeIf { it.isNotBlank() }).joinToString("・"),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            QuietOverflowMenu(listOf(QuietMenuItem(if (entry.active(now)) "順番待ちを取り消す" else "記録を削除", destructive = entry.active(now), onClick = onRemove)),
+            QuietOverflowMenu(listOfNotNull(
+                // 必ず入りたい部屋だけ、設定の自動入室がオフでも空いたら入室画面を開く。
+                QuietMenuItem(if (entry.autoEnter) "自動入室をやめる" else "空いたら自動で入室する") { onAutoEnter(!entry.autoEnter) }.takeIf { entry.active(now) },
+                QuietMenuItem(if (entry.active(now)) "順番待ちを取り消す" else "記録を削除", destructive = entry.active(now), onClick = onRemove)),
                 contentDescription = "順番待ちの操作")
         }
-        Text((if (entry.rebuilds > 0) "部屋の立て直しを確認し、新しい部屋を待っています（${entry.rebuilds}回）。" else "") + when {
+        Text((if (entry.autoEnter && entry.active(now)) "空いたら自動で入室します（アプリで一覧などを見ている間）。" else "") +
+            (if (entry.rebuilds > 0) "部屋の立て直しを確認し、新しい部屋を待っています（${entry.rebuilds}回）。" else "") + when {
             entry.status == WaitlistStatus.OPENED -> "${formatObservationTime(entry.changedAt ?: now)}に空きを確認しました。入室時には埋まっている場合があります。"
             entry.status == WaitlistStatus.STOPPED -> "同じIDに別の部屋を確認したため、待つのをやめました。"
             !entry.active(now) -> "期限（${formatObservationTime(entry.expiresAt)}）を過ぎました。"

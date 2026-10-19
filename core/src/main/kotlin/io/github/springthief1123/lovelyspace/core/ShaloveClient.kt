@@ -35,6 +35,7 @@ import kotlin.coroutines.resumeWithException
  *
  * 規約で「通常のブラウザ利用とは異なるアクセスを繰り返す」ツールアクセスが禁止されているため、
  * - リクエスト同士の間隔を [RefreshPacing.minIntervalMs] 以上空ける（1 秒より短くはしない。利用者が押した一覧の取り直し・公開ルームの読み込み・入室は空けない）
+ * - 順番は 利用者の操作 → 新着の確認（1 ページ目）・順番待ちのページ → 後ろのページの巡回。どれも 1 本ずつで、間隔は同じように空ける
  * - 同じ一覧 URL は [RefreshPacing.listCacheTtlMs] の間は再取得しない
  * をここで強制する。間隔は利用者が設定で選び、通信のたびに [pacing] から読む。
  *
@@ -52,6 +53,8 @@ class ShaloveClient(
     private val gate = Mutex()
     /** 順番を待っている、利用者の操作による通信の数。一覧の取得はこれが 0 になるまで譲る。 */
     private val waitingOperations = java.util.concurrent.atomic.AtomicInteger()
+    /** 順番を待っている、新着の確認・順番待ちの一覧の取得（[fetchRoomList] の priority）の数。後ろのページの巡回はこれが 0 になるまで譲る。 */
+    private val waitingPriority = java.util.concurrent.atomic.AtomicInteger()
     /** 一覧の URL ごとの順番。同じ URL は 1 本ずつ取り、別の URL（利用者が押した 1 ページ目と巡回中の後ろのページなど）は待たせない。 */
     private val listGates = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
     private var lastRequestAt: Long? = null
@@ -71,8 +74,11 @@ class ShaloveClient(
      * [manual] は利用者が更新ボタンを押した取り直し（本家の「最新更新」と同じ）。キャッシュを使わず、巡回の取得より先に通し、
      * 本家のブラウザで押すのと同じく、前の通信から間隔を空けずに取る（Yuya の決定、2026-10-17）。
      * 通信は常に 1 本ずつなので、前の通信が終わるまでは待つ。連打は呼び出し側で 1 回にまとめる。
+     *
+     * [priority] は新着の確認（1 ページ目）と順番待ちの部屋のページ。設定の最小間隔は空けるが、後ろのページの巡回より先に通す。
+     * 利用者の操作（入室など）には譲る。
      */
-    suspend fun fetchRoomList(query: RoomQuery, forceRefresh: Boolean = false, manual: Boolean = false): RoomListPage {
+    suspend fun fetchRoomList(query: RoomQuery, forceRefresh: Boolean = false, manual: Boolean = false, priority: Boolean = false): RoomListPage {
         val url = query.toUrl()
         val seen = listCache[url]?.generation
         return listGates.computeIfAbsent(url) { Mutex() }.withLock {
@@ -84,7 +90,7 @@ class ShaloveClient(
             // 本家のリンクでも、今の条件・ページと食い違うもの（別の性別など）は使わず、自前で組み立てた URL で取る。
             val requestUrl = pagerLinks[firstUrl]?.get(query.page)?.takeIf { isListUrl(it, query.genre) && query.matchesPagerUrl(it) } ?: url
             val html = if (manual) gated(operation = true, minIntervalMs = 0) { request(requestUrl) }
-                else get(requestUrl)
+                else gated(priority = priority) { request(requestUrl) }
             val page = RoomListParser.parse(html, query.genre.key, query.page, requestUrl)
             // 一覧として読めない応答（連続で取り直したときなど）は、0 件の一覧として扱わずに取得の失敗にする。
             // キャッシュもページャも更新しないので、手元の一覧は前回のまま残る。
@@ -144,32 +150,40 @@ class ShaloveClient(
      * 後から来た利用者の操作も、待っている一覧の取得を追い越せる。
      * [minIntervalMs] は前の通信から空ける間隔。省略すると設定の最小間隔（1 秒より短くはしない）。
      * 0 にするのは利用者が押した読み込み（一覧の更新ボタン、公開ルームの「覗く」「再読み込み」）と入室（入室前画面・送信・入室後のチャット画面）だけ。
+     * [priority]（新着の確認・順番待ち）は一覧の取得と同じく間隔を待つ間は順番を手放すが、待っている間は後ろのページの巡回を先に通さない。
      */
-    private suspend fun <T> gated(operation: Boolean = false, minIntervalMs: Long? = null, block: suspend () -> T): T {
-        while (true) {
-            acquire(operation)
-            var holdsGate = true
-            try {
-                val interval = minIntervalMs ?: pacing().sanitized().minIntervalMs
-                val wait = lastRequestAt?.let { it + interval - clock() } ?: 0
-                if (wait > 0 && !operation) {
-                    // 一覧の待機中はゲートを手放し、後から来た利用者の操作を優先する。
-                    gate.unlock()
-                    holdsGate = false
-                    sleep(wait)
-                    continue
+    private suspend fun <T> gated(operation: Boolean = false, minIntervalMs: Long? = null, priority: Boolean = false, block: suspend () -> T): T {
+        var waitingAsPriority = priority && !operation
+        if (waitingAsPriority) waitingPriority.incrementAndGet()
+        try {
+            while (true) {
+                acquire(operation, waitingAsPriority)
+                var holdsGate = true
+                try {
+                    val interval = minIntervalMs ?: pacing().sanitized().minIntervalMs
+                    val wait = lastRequestAt?.let { it + interval - clock() } ?: 0
+                    if (wait > 0 && !operation) {
+                        // 一覧の待機中はゲートを手放し、後から来た利用者の操作を優先する。
+                        gate.unlock()
+                        holdsGate = false
+                        sleep(wait)
+                        continue
+                    }
+                    // 利用者の操作はゲート内で待つ。途中でキャンセルされても finally で必ず解放する。
+                    if (wait > 0) sleep(wait)
+                    lastRequestAt = clock()
+                    if (waitingAsPriority) { waitingPriority.decrementAndGet(); waitingAsPriority = false }
+                    return withContext(Dispatchers.IO) { block() }
+                } finally {
+                    if (holdsGate) gate.unlock()
                 }
-                // 利用者の操作はゲート内で待つ。途中でキャンセルされても finally で必ず解放する。
-                if (wait > 0) sleep(wait)
-                lastRequestAt = clock()
-                return withContext(Dispatchers.IO) { block() }
-            } finally {
-                if (holdsGate) gate.unlock()
             }
+        } finally {
+            if (waitingAsPriority) waitingPriority.decrementAndGet()
         }
     }
 
-    private suspend fun acquire(operation: Boolean) {
+    private suspend fun acquire(operation: Boolean, priority: Boolean = false) {
         if (operation) {
             waitingOperations.incrementAndGet()
             try { gate.lock() } finally { waitingOperations.decrementAndGet() }
@@ -177,8 +191,8 @@ class ShaloveClient(
         }
         while (true) {
             gate.lock()
-            if (waitingOperations.get() == 0) return
-            // 利用者の操作が待っていれば譲り、少し後に並び直す。
+            if (waitingOperations.get() == 0 && (priority || waitingPriority.get() == 0)) return
+            // 利用者の操作（巡回なら、新着の確認・順番待ちも）が待っていれば譲り、少し後に並び直す。
             gate.unlock()
             delay(YIELD_MS)
         }

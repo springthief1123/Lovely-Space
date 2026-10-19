@@ -100,4 +100,44 @@ class AutoEntryControllerTest {
         assertTrue(restarted.offer(opened()))
         assertFalse("上限も引き継ぐ", restarted.offer(opened(room = full.copy(id = 999), openedRoom = open.copy(id = 999))))
     }
+
+    @Test fun aPinnedWaitlistRoomEntersEvenWhenTheSettingIsOffWithItsOwnLimit() = runTest {
+        val (c, received) = controller()
+        startedAt = 0L
+        val pinned = opened().copy(autoEnter = true)
+        assertFalse("設定がオフで、必ず入りたい部屋でもない", c.offer(opened()))
+        assertTrue(c.offer(pinned))
+        assertEquals(0, c.attempts.value)
+        c.ready = false
+        now += AutoEntryController.COOLDOWN_MS
+        assertFalse("前面の主画面でなければ入らない", c.offer(pinned))
+        c.ready = true
+        assertFalse("募集文が変わったら入らない", c.offer(pinned.copy(openedRoom = open.copy(message = "別の募集文"))))
+        repeat(AutoEntryController.MAX_ATTEMPTS - 1) {
+            now += AutoEntryController.COOLDOWN_MS
+            assertTrue(c.offer(pinned))
+        }
+        now += AutoEntryController.COOLDOWN_MS
+        assertFalse("部屋ごとに 5 回まで", c.offer(pinned))
+        assertEquals(AutoEntryController.MAX_ATTEMPTS, received.size)
+        // オンにし直すと数え直す。
+        c.resetTarget(AutoEntryController.waitlistTarget(pinned.key))
+        assertTrue(c.offer(pinned))
+    }
+
+    @Test fun aNamedPersonsNewRoomEntersOnlyForAnExactNameWhileEnabled() = runTest {
+        val (c, received) = controller()
+        startedAt = 0L
+        val rule = CandidateRule(id = "r", label = "合成", genreKey = "zenkoku", term = "合成の名前", autoEnterUntil = now + AutoEntryController.PINNED_MS)
+        assertTrue(c.offerNamed(rule, open))
+        assertEquals(listOf(NotificationTarget.Room(zenkoku.host, "zenkoku", 42)), received)
+        val other = open.copy(id = 43)
+        assertFalse("自動入室がオフ", c.offerNamed(rule.copy(autoEnterUntil = 0L), other))
+        assertFalse("表示名に含むだけ", c.offerNamed(rule.copy(mode = CandidateMode.DISPLAY_TEXT, term = "合成"), other))
+        assertFalse("名前が違う", c.offerNamed(rule, other.copy(name = "別の名前")))
+        assertFalse("満室", c.offerNamed(rule, other.copy(status = RoomStatus.FULL, action = RoomAction.NONE)))
+        now += AutoEntryController.PINNED_MS
+        assertFalse("3 時間たった", c.offerNamed(rule, other))
+        assertEquals(1, received.size)
+    }
 }

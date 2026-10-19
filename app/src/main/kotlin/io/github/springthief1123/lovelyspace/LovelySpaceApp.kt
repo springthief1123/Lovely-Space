@@ -36,6 +36,9 @@ class LovelySpaceApp : Application() {
         notifier.ensureChannels()
         // 通信の間隔の設定を、通信のたびに読める置き場へ写す。
         appScope.launch { settings.refreshPacing.collect { pacing.value = it } }
+        // レーダー・順番待ちが見ているジャンルの 1 ページ目を、新着の確認で読み直す（見つける画面は画面側で登録する）。
+        appScope.launch { radar.hotGenres.distinctUntilChanged().collect { hotPages.want("radar", it) } }
+        appScope.launch { waitlist.genres.distinctUntilChanged().collect { hotPages.want("waitlist", it) } }
         // 前回の実行が空きの通知を出す前に止まっていれば、起動時に出し直す。
         appScope.launch { waitlist.deliverPending() }
         // 一覧を読むたびに、保存・非表示の部屋が立て直されていれば新しい部屋へ移す。
@@ -65,6 +68,10 @@ class LovelySpaceApp : Application() {
         ShaloveClient(ShaloveClient.defaultHttpClient(SharedSiteCookieJar(WebViewCookieStore())), pacing = { pacing.value })
     }
     val roomLists: RoomListRepository by lazy { RoomListRepository(client) }
+    /** 新着の確認。見ているジャンルの 1 ページ目を、アプリが前面の間は設定の間隔ごとに読み直す（[MainActivity] が動かす）。 */
+    val hotPages: io.github.springthief1123.lovelyspace.data.HotPagePoller by lazy {
+        io.github.springthief1123.lovelyspace.data.HotPagePoller(roomLists, pacing = { pacing.value }, onFetched = { radar.absorbLatest(it) })
+    }
     val settings: SettingsRepository by lazy { SettingsRepository(this) }
     /** アプリロック。起動直後に画面を隠せるよう、設定は同期で読む。 */
     val appLock: io.github.springthief1123.lovelyspace.lock.AppLockController by lazy {
@@ -80,7 +87,9 @@ class LovelySpaceApp : Application() {
     val searchPresets: SearchPresetRepository by lazy { SearchPresetRepository(database) }
     val radar: io.github.springthief1123.lovelyspace.data.RadarRepository by lazy {
         io.github.springthief1123.lovelyspace.data.RadarRepository(database.presets(), roomLists, searchPresets, roomPreferences,
-            ngWords = ngWords.readyFilter)
+            ngWords = ngWords.readyFilter,
+            // 自動入室をオンにした名前で追う人の新しい部屋（立て直しを含む）は、順番待ちと同じ歯止めで入室画面を開く。
+            onNamedRoom = { rule, room -> autoEntry.offerNamed(rule, room) })
     }
     val roomPreferences: RoomPreferenceRepository by lazy { RoomPreferenceRepository(database) }
     /** NG ワードのセット。見つける・レーダーで、ON のセットに当たる部屋を最初から外す。 */

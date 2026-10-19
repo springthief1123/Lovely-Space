@@ -75,6 +75,8 @@ class RadarRepository(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     /** NG ワードの判定。計画の一致から外す（名前で追う候補と、追跡中の部屋には掛けない）。 */
     private val ngWords: Flow<NgWordFilter> = flowOf(NgWordFilter.NONE),
+    /** 自動入室をオンにした名前で追う 1 件に、新しい部屋が見つかったとき（[AutoEntryController.offerNamed]）。ロックの外で呼ぶ。 */
+    private val onNamedRoom: suspend (CandidateRule, Room) -> Unit = { _, _ -> },
     private val now: () -> Long = System::currentTimeMillis,
 ) {
     private val mutex = Mutex()
@@ -93,12 +95,19 @@ class RadarRepository(
     private val evaluatedPlans = mutableMapOf<String, Long>()
     private val candidateBaselines = mutableMapOf<String, Set<String>>()
     private val candidateKnown = mutableMapOf<String, MutableSet<String>>()
+    /**
+     * 候補条件ごとに、これまでに読んだそのジャンルの部屋の ID の最大。一覧は部屋を立てた順（ID の大きい順）なので、
+     * これより大きい ID の部屋だけを「新しく立った部屋」として自動入室に渡す（名前の再表示やプロフィールの変更では入らない）。
+     */
+    private val candidateNewestId = mutableMapOf<String, Long>()
     private val candidateNext = mutableMapOf<String, Int>()
     /** 自動巡回で、計画・候補条件ごとに 1 ページ目を読み始めた時刻（周の始まり）。 */
     private val lapStartedAt = mutableMapOf<String, Long>()
     /** 計画・候補条件ごとの、後ろのページを回る位置。 */
     private val cursors = mutableMapOf<String, PageCursor>()
     private val evaluatedCandidates = mutableMapOf<String, Long>()
+    /** [process] で見つけた、自動入室をオンにした名前で追う 1 件の新しい部屋。ロックを出てから [deliverNamed] で渡す。 */
+    private val namedArrivals = mutableListOf<Pair<CandidateRule, Room>>()
     private var observationJob: Job? = null
     /** いま効いている NG ワードの判定。[reload] で最初の値を待ってから読み込み済みにし、その後は購読で更新する。 */
     @Volatile private var ng: NgWordFilter = NgWordFilter.NONE
@@ -112,7 +121,7 @@ class RadarRepository(
                 mutex.withLock {
                     val saved = dao.state(KEY)
                     saved?.let(::restore)
-                    seen.clear(); baselines.clear(); baselineAt.clear(); knownMatches.clear(); nextPages.clear(); planKeys.clear(); candidateBaselines.clear(); candidateKnown.clear(); candidateNext.clear(); evaluatedPlans.clear(); evaluatedCandidates.clear(); lapStartedAt.clear(); cursors.clear()
+                    seen.clear(); baselines.clear(); baselineAt.clear(); knownMatches.clear(); nextPages.clear(); planKeys.clear(); candidateBaselines.clear(); candidateKnown.clear(); candidateNewestId.clear(); candidateNext.clear(); evaluatedPlans.clear(); evaluatedCandidates.clear(); lapStartedAt.clear(); cursors.clear()
                     backgroundTriedAt.clear()
                     saved?.let(::restoreBaselines)
                     // 背景の巡回は loaded を待って始まるので、NG ワードを読み終えるまで読み込み済みにしない。
@@ -193,8 +202,11 @@ class RadarRepository(
         edit { state ->
         require(rule.id.isNotBlank() && rule.label.isNotBlank() && rule.label.length <= 80 && rule.term.isNotBlank() && rule.term.length <= 160 && Genres[rule.genreKey] != null) { "候補条件の入力を確認してください。" }
         require(state.candidateRules.size < 20 || state.candidateRules.any { it.id == rule.id }) { "候補監視は20件までです。" }
-        val value = rule.copy(label = rule.label.trim(), term = rule.term.trim())
         val old = state.candidateRules.firstOrNull { it.id == rule.id }
+        // 自動入室は名前の完全一致だけ。名前かジャンルを変えたら、許可していない条件で入らないよう止める。
+        val value = rule.copy(label = rule.label.trim(), term = rule.term.trim()).let {
+            if (it.mode != CandidateMode.EXACT_NAME || (old != null && (old.term.trim() != it.term || old.genreKey != it.genreKey))) it.copy(autoEnterUntil = 0L) else it
+        }
         val changed = old?.key != value.key || old?.enabled != value.enabled
         if (changed) resetCandidate(rule.id)
         state.copy(candidateRules = state.candidateRules.filterNot { it.id == value.id } + value,
@@ -213,6 +225,15 @@ class RadarRepository(
                 .let { if (enabled) seedCandidate(rule.copy(enabled = true), hidden, it) else it }
         }
     }
+    /** 名前で追う 1 件の、新しい部屋への自動入室をオンにする（[AutoEntryController.PINNED_MS] まで）。[enabled] が false なら止める。 */
+    suspend fun setCandidateAutoEnter(id: String, enabled: Boolean) = edit { state ->
+        val rule = state.candidateRules.firstOrNull { it.id == id }
+        require(rule != null) { "候補条件が見つかりません。" }
+        require(!enabled || rule.mode == CandidateMode.EXACT_NAME) { "自動入室は、名前が完全に一致する条件だけで使えます。" }
+        require(!enabled || rule.enabled) { "候補を探す条件をオンにしてから選んでください。" }
+        val until = if (enabled) now() + AutoEntryController.PINNED_MS else 0L
+        state.copy(candidateRules = state.candidateRules.map { if (it.id == id) it.copy(autoEnterUntil = until) else it })
+    }
     suspend fun removeCandidate(id: String) = edit { state ->
         resetCandidate(id)
         state.copy(candidateRules = state.candidateRules.filterNot { it.id == id }, candidateResults = state.candidateResults - id, nextCandidatePages = state.nextCandidatePages - id)
@@ -220,6 +241,7 @@ class RadarRepository(
     private fun resetCandidate(id: String) {
         candidateBaselines.keys.removeAll { it.startsWith("$id/") }
         candidateKnown.keys.removeAll { it.startsWith("$id/") }
+        candidateNewestId.keys.removeAll { it.startsWith("$id/") }
         candidateNext.keys.removeAll { it.startsWith("$id/") }
         evaluatedCandidates.keys.removeAll { it.startsWith("$id/") }
         lapStartedAt.remove("candidate/$id")
@@ -302,6 +324,7 @@ class RadarRepository(
         val oldNext = nextPages.toMap()
         val oldCandidateBaselines = candidateBaselines.toMap()
         val oldCandidateKnown = candidateKnown.mapValues { it.value.toMutableSet() }
+        val oldCandidateNewestId = candidateNewestId.toMap()
         val oldCandidateNext = candidateNext.toMap()
         val oldLapStartedAt = lapStartedAt.toMap()
         val oldCursors = cursors.toMap()
@@ -319,6 +342,7 @@ class RadarRepository(
             nextPages.clear(); nextPages.putAll(oldNext)
             candidateBaselines.clear(); candidateBaselines.putAll(oldCandidateBaselines)
             candidateKnown.clear(); candidateKnown.putAll(oldCandidateKnown)
+            candidateNewestId.clear(); candidateNewestId.putAll(oldCandidateNewestId)
             candidateNext.clear(); candidateNext.putAll(oldCandidateNext)
             lapStartedAt.clear(); lapStartedAt.putAll(oldLapStartedAt)
             cursors.clear(); cursors.putAll(oldCursors)
@@ -350,6 +374,49 @@ class RadarRepository(
             // 部屋の表が無いページ（案内は出さない失敗）が返ったときも、失敗と同じく 20 秒空ける。
             val failed = _state.value.error != null || unreadablePage.getAndSet(false)
             delay(if (failed) RoomPageSchedule.ERROR_INTERVAL_MS else pacing().sanitized().minIntervalMs)
+        }
+    }
+
+    /**
+     * 新着の確認（[HotPagePoller]）で 1 ページ目を読むジャンル。自動巡回を有効にしている間の、有効な計画・名前で追う・追跡中の部屋のジャンル。
+     * レーダー画面を開いていなくても、新しい部屋の一致はここで見つける（後ろのページはレーダー画面の巡回が読む）。
+     */
+    val hotGenres: Flow<Set<Genre>> = combine(_state, searches.presets) { s, saved ->
+        if (!s.loaded || !s.automatic) emptySet<Genre>()
+        else (saved.filter { it.id in s.plans }.map { it.genreKey } +
+            s.candidateRules.filter { it.enabled }.map { it.genreKey } +
+            s.targets.filter { it.evidence != RoomIdentityEvidence.REUSED }.map { it.room.genreKey }).mapNotNullTo(HashSet()) { Genres[it] }
+    }
+
+    /**
+     * 新着の確認（[HotPagePoller]）が読んだ 1 ページ目を、そのジャンルの有効な計画・名前で追うに当てはめ、新しい一致を履歴に載せる。
+     * 巡回の位置（[nextPages]・[candidateNext]）は進めない。端末通知は今までどおり背景の巡回で見つけたときだけ出す。
+     * 一覧の観測の購読（[reload]）は計画を当てはめずに観測済みにするので、ここでは観測済みかどうか（[seen]）を見ずに当てはめる。
+     * 同じ観測を 2 度当てはめないのは [process] の evaluatedPlans・evaluatedCandidates が防ぐ。
+     */
+    suspend fun absorbLatest(o: ObservedRoomPage) {
+        if (!_state.value.loaded || !_state.value.automatic || o.query != RoomQuery(o.query.genre, page = o.query.page)) return
+        mutex.withLock {
+            if (!_state.value.loaded) return@withLock
+            transaction {
+                val saved = searches.presets.first()
+                reconcilePlans(saved)
+                val plans = saved.filter { it.id in _state.value.plans && it.genreKey == o.query.genre.key }
+                val candidates = _state.value.candidateRules.filter { it.enabled && it.genreKey == o.query.genre.key }
+                process(o, plans, candidates)
+                seen[o.query] = maxOf(seen[o.query] ?: 0, o.revision)
+                _state.update { state -> state.copy(lastConfirmedAt = maxOf(state.lastConfirmedAt ?: o.confirmedAt, o.confirmedAt)) }
+                persist()
+            }
+        }
+        deliverNamed()
+    }
+
+    /** 自動入室をオンにした名前で追う 1 件の新しい部屋を渡す。取り消された記録（[transaction] の巻き戻し）の分も渡すが、入室画面で確かめられる。 */
+    private suspend fun deliverNamed() {
+        val arrivals = mutex.withLock { namedArrivals.toList().also { namedArrivals.clear() } }
+        arrivals.forEach { (rule, room) ->
+            try { onNamedRoom(rule, room) } catch (e: CancellationException) { throw e } catch (_: Exception) { }
         }
     }
 
@@ -529,6 +596,7 @@ class RadarRepository(
                 updateCheck(query, RadarCheckStatus.CONFIRMED, observation.confirmedAt, matches)
             }
         }
+        deliverNamed()
     }
     private fun updateCheck(query: RoomQuery, status: RadarCheckStatus, at: Long? = null, matches: Int = 0, message: String? = null) {
         _state.update { state -> state.copy(lastScan = state.lastScan?.let { report ->
@@ -623,14 +691,19 @@ class RadarRepository(
                 evaluatedCandidates[key] = o.revision
                 val previous = candidateBaselines[key]
                 val known = candidateKnown.getOrPut(rule.key) { mutableSetOf() }
+                val newest = candidateNewestId[rule.key]
                 if (previous != null) {
                     val added = identities - previous - known
+                    // 自動入室は、前に読んだどの部屋より後に立った部屋だけ（満室で隠れていた名前が出ただけの部屋には入らない）。
+                    if (rule.autoEnterActive(now()) && newest != null) matches.filter { it.id > newest && "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" in added }
+                        .forEach { namedArrivals += rule to it }
                     if (added.isNotEmpty()) events += RadarEvent(o.confirmedAt, "候補「${rule.label}」：${o.page.page}ページで新しい表示名の一致を${added.size}件確認",
                         rooms = matches.filter { "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" in added }.take(20), page = o.page.page, sourceQuery = o.query, kind = RadarEventKind.CANDIDATE_MATCH,
                         origin = RadarEventOrigin(RadarOriginType.CANDIDATE, rule.id, rule.label, "${Genres[rule.genreKey]?.label ?: rule.genreKey} · ${if (rule.mode == CandidateMode.EXACT_NAME) "名前一致" else "表示名"}「${rule.term}」"))
                 }
                 known.addAll(identities)
                 candidateBaselines[key] = identities
+                o.page.rooms.maxOfOrNull { it.id }?.let { id -> candidateNewestId[rule.key] = maxOf(newest ?: id, id) }
                 // 結果は、計画と同じく手元にあるジャンルの一覧の全ページから出す。
                 candidateResults[rule.id] = candidateResult(rule, o.confirmedAt, o.page.page, window, hidden)
             }
@@ -655,6 +728,7 @@ class RadarRepository(
                 .map { "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" }.toSet()
             candidateBaselines[key] = identities
             candidateKnown.getOrPut(rule.key) { mutableSetOf() }.addAll(identities)
+            o.page.rooms.maxOfOrNull { it.id }?.let { id -> candidateNewestId[rule.key] = maxOf(candidateNewestId[rule.key] ?: id, id) }
             evaluatedCandidates[key] = o.revision
         }
         val latest = pages.maxBy { it.confirmedAt }
@@ -729,7 +803,7 @@ class RadarRepository(
             .put("targets", JSONArray(s.targets.map { t -> JSONObject().put("room", roomJson(t.room)).put("identity", roomJson(t.identity)).put("at", t.confirmedAt).put("observedAt", t.observedAt).put("evidence", t.evidence.name).put("page", t.observedPage).put("sourceQuery", radarQueryJson(t.sourceQuery)).put("pinned", t.pinned).put("note", t.note) }))
             .put("events", JSONArray(s.events.map { JSONObject().put("at", it.at).put("text", it.text).put("id", it.id).put("rooms", JSONArray(it.rooms.map(::roomJson))).put("page", it.page).put("blocked", it.blocked).put("sourceQuery", radarQueryJson(it.sourceQuery)).put("kind", it.kind.name).put("origin", radarOriginJson(it.origin)).put("read", it.read).put("pendingNotice", it.pendingNotice) }))
         json.put("candidateRules", JSONArray(s.candidateRules.map { rule -> JSONObject().put("id", rule.id).put("label", rule.label).put("genre", rule.genreKey)
-            .put("term", rule.term).put("mode", rule.mode.name).put("enabled", rule.enabled) }))
+            .put("term", rule.term).put("mode", rule.mode.name).put("enabled", rule.enabled).put("autoEnterUntil", rule.autoEnterUntil) }))
         json.put("backgroundPlans", JSONArray(s.backgroundPlans.toList())).put("backgroundInterval", s.backgroundIntervalMinutes)
         // 背景の巡回は実行ごとにプロセスが作り直されるので、背景で巡回する計画の比較基準だけを、ページを取得した時刻つきで残す。
         // 古い基準は再起動時に捨て（[BASELINE_TTL_MS]）、久しぶりの起動で大量の「新しい一致」を出さない。巡回位置は残さない。
@@ -778,7 +852,7 @@ class RadarRepository(
                 page = if (it.isNull("page")) null else it.getInt("page").coerceAtLeast(1), blocked = it.optBoolean("blocked"), sourceQuery = readRadarQuery(it.optJSONObject("sourceQuery")),
                 kind = RadarEventKind.entries.firstOrNull { kind -> kind.name == it.optString("kind") } ?: RadarEventKind.LEGACY,
                 origin = readRadarOrigin(it.optJSONObject("origin")), read = if (it.has("read")) it.getBoolean("read") else true, pendingNotice = it.optBoolean("pendingNotice")) } },
-            candidateRules = (0 until candidates.length()).map { i -> candidates.getJSONObject(i).let { CandidateRule(it.getString("id"), it.getString("label"), it.getString("genre"), it.getString("term"), CandidateMode.valueOf(it.getString("mode")), it.optBoolean("enabled", true)) } },
+            candidateRules = (0 until candidates.length()).map { i -> candidates.getJSONObject(i).let { CandidateRule(it.getString("id"), it.getString("label"), it.getString("genre"), it.getString("term"), CandidateMode.valueOf(it.getString("mode")), it.optBoolean("enabled", true), it.optLong("autoEnterUntil")) } },
             backgroundPlans = json.optJSONArray("backgroundPlans")?.let { b -> (0 until b.length()).map(b::getString).toSet() } ?: emptySet(),
             backgroundIntervalMinutes = json.optInt("backgroundInterval").takeIf { it in RadarState.BACKGROUND_INTERVALS } ?: RadarState.BACKGROUND_INTERVALS.first())
         _state.update { restored.copy(automatic = it.automatic) }
