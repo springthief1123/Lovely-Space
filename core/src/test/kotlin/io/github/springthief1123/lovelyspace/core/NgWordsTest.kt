@@ -22,6 +22,15 @@ class NgWordsTest {
         assertNull(f.matchOf(room))
     }
 
+    @Test fun newHalfSetMatchesItsWordsInNameOrMessage() {
+        val f = filter(NgWordSet.builtIn("newhalf")!!)
+        assertEquals(NgMatch("ニューハーフ系", "ニューハーフ"), f.matchOf(room.copy(message = "にゅーはーふです")))
+        assertEquals(NgMatch("ニューハーフ系", "NH"), f.matchOf(room.copy(name = "合成ｎｈ")))
+        assertEquals(NgMatch("ニューハーフ系", "女装"), f.matchOf(room.copy(message = "女装してます")))
+        assertEquals(NgMatch("ニューハーフ系", "男の娘"), f.matchOf(room.copy(name = "男の娘")))
+        assertNull(f.matchOf(room))
+    }
+
     @Test fun findsAmountsButNotOtherUsesOfYenOrNumbers() {
         val f = filter(money.copy(words = emptyList()))
         listOf("3000円から", "３，０００円", "1.5万円", "5千円", "千円", "五千円", "一万円", "¥500", "￥500", "\\1000", "2000 円")
