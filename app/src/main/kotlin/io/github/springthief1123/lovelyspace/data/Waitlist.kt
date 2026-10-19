@@ -126,6 +126,11 @@ class WaitlistRepository(
         save(_entries.value.map { if (it.key == key) it.copy(autoEnter = enabled) else it })
     }
 
+    /** 以前の順番待ちの 1 件を、ピン用の登録に変える。確認していたページはそのまま引き継ぐ。 */
+    suspend fun markForPin(key: String) = mutex.withLock {
+        save(_entries.value.map { if (it.key == key) it.copy(forPin = true, autoEnter = false) else it })
+    }
+
     suspend fun remove(key: String) = mutex.withLock {
         save(_entries.value.filterNot { it.key == key })
     }

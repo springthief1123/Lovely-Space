@@ -104,6 +104,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
         scope.launch {
             try { block(); error = null; retry = null }
             catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: IllegalArgumentException) { fail(e.message ?: "設定を保存できませんでした。") }
             catch (e: Exception) { fail("設定を保存できませんでした。もう一度お試しください。", again = { action(block) }) }
             finally { working = false }
         }
@@ -370,7 +371,9 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
     }
     details?.let { room -> RoomDetailsSheet(room, preferences.isFavorite(room), preferences.canEdit(room),
         onDismiss = { details = null }, onFavorite = { preferencesVm.toggleFavorite(room) },
-        onHide = { preferencesVm.hide(room); details = null }, onEnter = onEnterRoom, onPeek = onPeekRoom) }
+        onHide = { preferencesVm.hide(room); details = null }, onEnter = onEnterRoom, onPeek = onPeekRoom,
+        // 閉じたと分かっているピンは、保存した姿のままでは入れない（ID が別の部屋に使われていることもある）。
+        allowEntry = pins.none { it.key == roomIdentity(room) && it.state == PinState.CLOSED }) }
     selected?.let { snapshot ->
         RadarRoomSheet(snapshot, onDismiss = { selected = null }, onFindRooms, onEnterRoom, onPeekRoom)
     }

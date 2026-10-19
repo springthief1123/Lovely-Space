@@ -100,7 +100,8 @@ class LovelySpaceApp : Application() {
         val at = System.currentTimeMillis()
         waitlist.entries.value.filter { !it.forPin && it.active(at) }.forEach { entry ->
             pins.pin(entry.room, if (entry.autoEnter) PinAlert.AUTO else PinAlert.NOTIFY)
-            waitlist.remove(entry.key)
+            // 登録は消さずにピン用へ変え、確認していたページ（後ろのページのこともある）を引き継ぐ。
+            waitlist.markForPin(entry.key)
         }
         val state = radar.state.first { it.loaded || it.error != null }
         if (!state.loaded) return

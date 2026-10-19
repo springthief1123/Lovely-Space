@@ -130,8 +130,13 @@ class PinRepository(
     /** 知らせるピンのジャンル。1 ページ目を新着の確認で読み、立て直された部屋にすぐ気づく。 */
     val genres: Flow<Set<Genre>> = pins.map { list -> list.filter { it.record.notifies }.mapNotNullTo(HashSet()) { Genres[it.room.genreKey] } }
 
-    /** 空きを早く確かめたい満室のピン（知らせるもの）。順番待ちに登録して、部屋のページを設定の間隔で読む。 */
-    val fastWatch: Flow<List<PinView>> = pins.map { list -> list.filter { it.record.notifies && it.state == PinState.FULL } }
+    /**
+     * 空きを早く確かめたい満室のピン（知らせるもの）。順番待ちに登録して、部屋のページを設定の間隔で読む。
+     * まだ一覧で確かめていないピンも、ピンしたときに満室だったものは含める（起動直後に以前の順番待ちの登録を外さない）。
+     */
+    val fastWatch: Flow<List<PinView>> = pins.map { list ->
+        list.filter { it.record.notifies && (it.state == PinState.FULL || it.state == PinState.UNSEEN && it.room.status == RoomStatus.FULL) }
+    }
 
     /** いま手元にある一覧で見張りを進め、起きたことを知らせ終えるまで待つ（背景の実行が終わる前に呼ぶ）。 */
     suspend fun refresh() {
@@ -142,12 +147,21 @@ class PinRepository(
 
     /** [room] をピンし、知らせ方を [alert] にする。 */
     suspend fun pin(room: Room, alert: PinAlert = PinAlert.OFF) {
+        if (alert != PinAlert.OFF) mutex.withLock { requireAlertSlot(roomIdentity(room)) }
         preferences.setFavorite(room, true)
         setAlert(roomIdentity(room), alert)
     }
 
-    suspend fun setAlert(key: String, alert: PinAlert) = edit(key) {
-        it.copy(alert = alert, autoUntil = if (alert == PinAlert.AUTO) now() + AutoEntryController.PINNED_MS else null)
+    /** 知らせ方を変える。知らせるピンは [MAX_NOTIFYING] 件まで（満室のピンは順番待ちの登録で確かめ、その数に限りがあるため）。 */
+    suspend fun setAlert(key: String, alert: PinAlert) = mutex.withLock {
+        if (alert != PinAlert.OFF) requireAlertSlot(key)
+        val record = _records.value[key] ?: PinRecord(key)
+        save(_records.value + (key to record.copy(alert = alert, autoUntil = if (alert == PinAlert.AUTO) now() + AutoEntryController.PINNED_MS else null)))
+    }
+
+    private fun requireAlertSlot(key: String) {
+        val others = _pins.value.count { it.key != key && _records.value[it.key]?.notifies == true }
+        require(others < MAX_NOTIFYING) { "知らせるピンは同時に${MAX_NOTIFYING}件までです。ほかのピンの知らせ方を「知らせない」にしてください。" }
     }
 
     suspend fun setMemo(key: String, memo: String) = edit(key) { it.copy(memo = memo.trim().take(PinRecord.MAX_MEMO)) }
@@ -252,6 +266,8 @@ class PinRepository(
     companion object {
         /** 外したピンの見張りの記録を残す間。 */
         const val PRUNE_MS = 7 * 24 * 60 * 60_000L
+        /** 同時に知らせられるピンの数。満室のピンを確かめる順番待ちの登録の上限と同じ。 */
+        const val MAX_NOTIFYING = WaitlistRepository.MAX_ACTIVE
     }
 }
 

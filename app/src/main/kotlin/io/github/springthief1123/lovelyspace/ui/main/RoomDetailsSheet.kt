@@ -49,6 +49,7 @@ internal fun RoomDetailsSheet(room: Room, favorite: Boolean, actionsEnabled: Boo
         scope.launch {
             try { block() }
             catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: IllegalArgumentException) { error = e.message ?: "ピンを保存できませんでした。" }
             catch (e: Exception) { error = "ピンを保存できませんでした。もう一度お試しください。" }
             finally { working = false }
         }

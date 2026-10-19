@@ -133,4 +133,17 @@ class PinRepositoryTest {
         wait { pins.dismiss(view.key, roomIdentity(rewritten)) }
         awaitPins { it.singleOrNull()?.let { p -> p.similar == null && p.state == PinState.CLOSED } == true }
     }
+
+    @Test fun onlyFiveRoomsCanBeNotifiedAtOnce() {
+        (1L..PinRepository.MAX_NOTIFYING).forEach { id -> wait { pins.pin(room(id * 100, RoomStatus.FULL), PinAlert.NOTIFY) } }
+        awaitPins { it.size == PinRepository.MAX_NOTIFYING }
+        val extra = room(900, RoomStatus.FULL)
+        assertThrows(IllegalArgumentException::class.java) { wait { pins.pin(extra, PinAlert.NOTIFY) } }
+        // 知らせないピンはいくつでもでき、ほかを止めれば知らせられる。
+        wait { pins.pin(extra) }
+        awaitPins { it.size == PinRepository.MAX_NOTIFYING + 1 }
+        wait { pins.setAlert(roomIdentity(room(100, RoomStatus.FULL)), PinAlert.OFF) }
+        wait { pins.setAlert(roomIdentity(extra), PinAlert.NOTIFY) }
+        assertEquals(PinAlert.NOTIFY, pins.record(roomIdentity(extra)).alert)
+    }
 }
