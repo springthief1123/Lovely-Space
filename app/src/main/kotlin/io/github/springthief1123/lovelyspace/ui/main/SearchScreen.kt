@@ -30,6 +30,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
@@ -56,7 +61,7 @@ import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
 import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentBottomInset
 import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentTopPadding
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalComposeUiApi::class)
 @Composable
 fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refreshKey: Int = 0, onGenreChanged: (Genre) -> Unit = {}, preset: SearchPreset? = null, onPresetConsumed: () -> Unit = {}, onOpenNgWords: () -> Unit = {}) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
@@ -158,6 +163,8 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
     val newCount = remember(visibleResults, state.newRoomIds) { visibleResults.count { roomIdentity(it) in state.newRoomIds } }
     // 検索シートの暗い面は、幅を 720dp に抑えた一覧の外（広い画面の左右の余白）まで覆う。
     Box(Modifier.fillMaxSize()) {
+    // 検索シートを開いている間は、後ろの一覧へキーボード・D-pad のフォーカスも読み上げも入らないようにする（暗い面はタッチしか止めない）。
+    Box(Modifier.fillMaxSize().then(if (searchOpen) Modifier.clearAndSetSemantics {}.focusProperties { enter = { FocusRequester.Cancel } }.focusGroup() else Modifier)) {
     QuietPage {
     val pullState = rememberPullToRefreshState()
     val pullRefreshing = userRefreshing && (state.refreshing || state.loading)
@@ -266,6 +273,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
     val scrollButton = if (scrolled) ShellScrollToTop(newCount, scrollToTop) else null
     SideEffect { shell.publish(owner, searchButton = searchButton, scrollToTop = scrollButton) }
     DisposableEffect(shell, owner) { onDispose { shell.release(owner) } }
+    }
     }
     SearchSheet(
         visible = searchOpen,
