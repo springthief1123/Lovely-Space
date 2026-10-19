@@ -34,7 +34,7 @@ class RoomDetailsTextTest {
     }
 
     @Test fun cardsShowWhatTappingDoes() {
-        assertEquals("入室へ", cardActionLabel(RoomAction.ENTER))
+        assertEquals("入室する", cardActionLabel(RoomAction.ENTER))
         assertEquals("覗く", cardActionLabel(RoomAction.PEEK))
         assertNull(cardActionLabel(RoomAction.NONE))
     }
