@@ -5,6 +5,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
@@ -79,6 +80,11 @@ class WaitlistRepository(
         scope.launch { lists.observations.collect { all -> all.values.sortedBy { it.revision }.forEach { apply(it) } } }
     }
 
+    /** 待っている部屋のジャンル。1 ページ目を新着の確認（[HotPagePoller]）で読み、立て直された部屋にすぐ気づく。 */
+    val genres: kotlinx.coroutines.flow.Flow<Set<Genre>> = _entries.map { list ->
+        list.filter { it.status == WaitlistStatus.WATCHING }.mapNotNullTo(HashSet()) { Genres[it.room.genreKey] }
+    }
+
     fun hasActive(): Boolean = _entries.value.any { it.active(now()) }
 
     /**
@@ -148,7 +154,8 @@ class WaitlistRepository(
         val queries = mutex.withLock { _entries.value.filter { it.active(now()) }.map { it.query } }
         if (queries.isEmpty()) return false
         var failed = false
-        sync.sync(queries, maxPages, force = false, shouldFetch = { !failed }, onResult = { query, outcome ->
+        // 空き枠は秒単位で埋まるので、後ろのページの巡回より先に取る。
+        sync.sync(queries, maxPages, force = false, priority = true, shouldFetch = { !failed }, onResult = { query, outcome ->
             if (outcome is ListSyncOutcome.Failed) failed = true
             if (outcome is ListSyncOutcome.Fetched) lists.observation(query)?.let { apply(it) }
         })

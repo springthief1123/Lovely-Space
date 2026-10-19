@@ -81,8 +81,18 @@ fun RefreshSettingsScreen(onBack: () -> Unit) {
                 }
                 item {
                     IntervalPicker(
-                        title = "見つける画面の更新",
-                        description = "見つける画面で、直近1時間の部屋が並ぶページを1ページ目から読み直す1周の間隔（古い部屋のページは1周に1ページずつ。ページの間は通信の最小間隔）",
+                        title = "新着の確認",
+                        description = "新しい部屋は必ず1ページ目に出るので、見つける画面・レーダー・順番待ちで見ているジャンルの1ページ目を、アプリを開いている間はこの間隔で読み直します（ジャンルが複数あるときや、通信の最小間隔が長いときは、通信の半分を超えないよう伸ばします）",
+                        value = pacing.hotMs,
+                        choices = RefreshPacing.HOT_CHOICES,
+                        defaultValue = RefreshPacing.DEFAULT_HOT_MS,
+                        onSelect = { value -> save { it.copy(hotMs = value) } },
+                    )
+                }
+                item {
+                    IntervalPicker(
+                        title = "見つける画面の全ページ",
+                        description = "見つける画面で、直近1時間の部屋が並ぶページを読み直す1周の間隔（古い部屋のページは1周に1ページずつ。新着の確認の合間に読みます）",
                         value = pacing.searchHeadMs,
                         choices = RefreshPacing.LIST_CHOICES,
                         defaultValue = RefreshPacing.DEFAULT_SEARCH_HEAD_MS,
@@ -92,7 +102,7 @@ fun RefreshSettingsScreen(onBack: () -> Unit) {
                 item {
                     IntervalPicker(
                         title = "レーダーの自動巡回",
-                        description = "レーダー画面を開いている間に、直近1時間の部屋が並ぶページを1ページ目から読み直す1周の間隔",
+                        description = "レーダー画面を開いている間に、直近1時間の部屋が並ぶページを読み直す1周の間隔（1ページ目の新しい部屋は、ほかの画面でも新着の確認で見つけます）",
                         value = pacing.radarHeadMs,
                         choices = RefreshPacing.LIST_CHOICES,
                         defaultValue = RefreshPacing.DEFAULT_RADAR_HEAD_MS,

@@ -3,6 +3,7 @@ package io.github.springthief1123.lovelyspace.ui.main
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.springthief1123.lovelyspace.core.*
+import io.github.springthief1123.lovelyspace.data.HotPagePoller
 import io.github.springthief1123.lovelyspace.data.ObservedRoomListSource
 import io.github.springthief1123.lovelyspace.data.ObservedRoomPage
 import io.github.springthief1123.lovelyspace.data.RoomListSource
@@ -14,6 +15,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import io.github.springthief1123.lovelyspace.settings.RoomListPreferenceStore
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.ensureActive
@@ -127,7 +130,9 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
     /** 取り直しの間隔の設定。巡回のたびに読むので、設定の変更は次の取得から効く。 */
     private val pacing: () -> RefreshPacing = { RefreshPacing() },
     /** 共有の一覧の確認時刻（[ObservedRoomPage.confirmedAt]）と比べる時計。 */
-    private val now: () -> Long = System::currentTimeMillis) : ViewModel() {
+    private val now: () -> Long = System::currentTimeMillis,
+    /** 新着の確認。自動更新が有効な間、いまのジャンルの 1 ページ目を読み直してもらう（届いたページは [ObservedRoomListSource] から取り込む）。 */
+    private val hot: HotPagePoller? = null) : ViewModel() {
     private val _state = MutableStateFlow(SearchUiState(initialized = preferences == null))
     val state = _state.asStateFlow()
     private var job: Job? = null
@@ -142,6 +147,10 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
     /** いまのジャンルの巡回位置。画面に戻って [monitor] を呼び直しても、ジャンルを変えるまでは最初の周からやり直さない。 */
     private var schedule: RoomPageSchedule? = null
     init {
+        if (hot != null) viewModelScope.launch {
+            _state.map { if (it.initialized && it.automatic) setOf(it.genre) else emptySet() }.distinctUntilChanged()
+                .collect { hot.want(HOT_OWNER, it) }
+        }
         if (repository is ObservedRoomListSource) viewModelScope.launch {
             repository.observations.collect { observed -> if (_state.value.initialized) absorbShared(observed.values) }
         }
@@ -353,7 +362,12 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
                 .filterKeys { q -> q.page <= next.lastPage }) }
     }
 
+    override fun onCleared() {
+        hot?.want(HOT_OWNER, emptySet())
+    }
+
     companion object {
+        private const val HOT_OWNER = "search"
         /** 他の機能が読んだページを取り込むのは、確認からこの時間（ミリ秒）以内のものだけ。古い一覧で閉じた部屋を出さない。 */
         const val SHARED_MAX_AGE_MS = 5 * 60_000L
     }

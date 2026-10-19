@@ -63,6 +63,10 @@ class MainActivity : FragmentActivity() {
                 app.waitlist.monitor { app.pacing.value.sanitized().waitlistMs }
             }
         }
+        // 見ているジャンルの 1 ページ目を、アプリが見えている間は設定の間隔で読み直す（新しい部屋は必ず 1 ページ目に出る）。
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) { app.hotPages.run() }
+        }
         setContent {
             val themeMode by app.settings.themeMode.collectAsStateWithLifecycle(initialValue = ThemeMode.SYSTEM)
             val textScale by app.settings.textScale.collectAsStateWithLifecycle(initialValue = TextScale.STANDARD)

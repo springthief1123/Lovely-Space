@@ -64,6 +64,7 @@ class ShaloveClientTest {
                 Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
                     .code(200).message("OK").body("ok".toResponseBody()).build()
             }.build(),
+            pacing = { RefreshPacing(minIntervalMs = 3_000) },
             clock = { now },
             sleep = { ms ->
                 if (firstWait) {
@@ -200,6 +201,31 @@ class ShaloveClientTest {
     }
 
     @Test
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun theFirstPageCheckGoesBeforeQueuedSweepsButAfterUserOperations() = runTest {
+        val sentAt = java.util.Collections.synchronizedList(mutableListOf<Long>())
+        val paths = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val http = OkHttpClient.Builder().addInterceptor { chain ->
+            sentAt += testScheduler.currentTime
+            paths += chain.request().url.encodedPath
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("OK")
+                .body(EMPTY_LIST.toResponseBody("text/html; charset=Shift_JIS".toMediaType())).build()
+        }.build()
+        val gated = ShaloveClient(http = http, pacing = { RefreshPacing(minIntervalMs = 3_000) }, clock = { testScheduler.currentTime }, sleep = { delay(it) })
+        gated.get(server.url("/a").toString())
+        // 後ろのページの巡回（3 ページ目）が間隔を待っている間に、新着の確認（1 ページ目）と利用者の操作が来る。
+        val sweep = async { gated.fetchRoomList(RoomQuery(Genres.default, page = 3)) }
+        advanceTimeBy(20)
+        val hot = async { gated.fetchRoomList(RoomQuery(Genres.default), forceRefresh = true, priority = true) }
+        advanceTimeBy(20)
+        val operation = async { gated.get(server.url("/c").toString(), operation = true) }
+        awaitAll(sweep, hot, operation)
+        // 利用者の操作 → 新着の確認 → 巡回の順。間隔は毎回空ける。
+        assertEquals(listOf("/a", "/c", "/g/${Genres.default.key}/", "/g/${Genres.default.key}/pageID/3/"), paths)
+        assertEquals(listOf(3_000L, 3_000L, 3_000L), sentAt.zipWithNext { x, y -> y - x })
+    }
+
+    @Test
     fun aRefreshTheUserPressedSkipsTheCacheAndDoesNotWait() = runTest {
         val calls = IntArray(1)
         val sleeps = mutableListOf<Long>()
@@ -322,7 +348,7 @@ class ShaloveClientTest {
                 override fun responseBodyStart(call: Call) { bodyStarted.complete(Unit) }
             })
             .build()
-        val client = ShaloveClient(http = http, clock = { now }, sleep = { ms -> sleeps += ms; now += ms })
+        val client = ShaloveClient(http = http, pacing = { RefreshPacing(minIntervalMs = 3_000) }, clock = { now }, sleep = { ms -> sleeps += ms; now += ms })
         server.enqueue(firstResponse)
         repeat(2) { server.enqueue(MockResponse().setBody(EMPTY_LIST)) }
         val original = RoomQuery(Genres.default)

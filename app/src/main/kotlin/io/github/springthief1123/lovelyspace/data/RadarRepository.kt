@@ -353,6 +353,40 @@ class RadarRepository(
         }
     }
 
+    /**
+     * 新着の確認（[HotPagePoller]）で 1 ページ目を読むジャンル。自動巡回を有効にしている間の、有効な計画・名前で追う・追跡中の部屋のジャンル。
+     * レーダー画面を開いていなくても、新しい部屋の一致はここで見つける（後ろのページはレーダー画面の巡回が読む）。
+     */
+    val hotGenres: Flow<Set<Genre>> = combine(_state, searches.presets) { s, saved ->
+        if (!s.loaded || !s.automatic) emptySet<Genre>()
+        else (saved.filter { it.id in s.plans }.map { it.genreKey } +
+            s.candidateRules.filter { it.enabled }.map { it.genreKey } +
+            s.targets.filter { it.evidence != RoomIdentityEvidence.REUSED }.map { it.room.genreKey }).mapNotNullTo(HashSet()) { Genres[it] }
+    }
+
+    /**
+     * 新着の確認（[HotPagePoller]）が読んだ 1 ページ目を、そのジャンルの有効な計画・名前で追うに当てはめ、新しい一致を履歴に載せる。
+     * 巡回の位置（[nextPages]・[candidateNext]）は進めない。端末通知は今までどおり背景の巡回で見つけたときだけ出す。
+     * 一覧の観測の購読（[reload]）は計画を当てはめずに観測済みにするので、ここでは観測済みかどうか（[seen]）を見ずに当てはめる。
+     * 同じ観測を 2 度当てはめないのは [process] の evaluatedPlans・evaluatedCandidates が防ぐ。
+     */
+    suspend fun absorbLatest(o: ObservedRoomPage) {
+        if (!_state.value.loaded || !_state.value.automatic || o.query != RoomQuery(o.query.genre, page = o.query.page)) return
+        mutex.withLock {
+            if (!_state.value.loaded) return@withLock
+            transaction {
+                val saved = searches.presets.first()
+                reconcilePlans(saved)
+                val plans = saved.filter { it.id in _state.value.plans && it.genreKey == o.query.genre.key }
+                val candidates = _state.value.candidateRules.filter { it.enabled && it.genreKey == o.query.genre.key }
+                process(o, plans, candidates)
+                seen[o.query] = maxOf(seen[o.query] ?: 0, o.revision)
+                _state.update { state -> state.copy(lastConfirmedAt = maxOf(state.lastConfirmedAt ?: o.confirmedAt, o.confirmedAt)) }
+                persist()
+            }
+        }
+    }
+
     /** この巡回で、本家が部屋の表を出さずにページを返した（[RoomListUnavailableException]）。[monitor] の次の待ちを延ばす。 */
     private val unreadablePage = java.util.concurrent.atomic.AtomicBoolean(false)
 
