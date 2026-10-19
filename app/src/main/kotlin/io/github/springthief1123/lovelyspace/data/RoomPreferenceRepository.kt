@@ -28,6 +28,33 @@ fun RoomPreference.toRoom(): Room = Room(
 
 fun RoomPreference.appliesTo(room: Room): Boolean = !stale && sameIdentity(room)
 
+/**
+ * 立て直した部屋を見分ける印（サーバー・名前・待機メッセージ）。部屋を閉じて同じ内容で作り直すと ID が変わるので、
+ * 非表示は ID のほかにこの印でも効かせる（Chrome 拡張と同じ）。満室で名前が見えない部屋や、短くてよくある待機メッセージには付けない。
+ */
+internal fun roomSignature(host: String?, name: String?, message: String): String? {
+    if (host == null || name.isNullOrBlank() || message.trim().length < MIN_SIGNATURE_MESSAGE) return null
+    return "$host\n${name.trim()}\n${message.trim()}"
+}
+
+internal fun roomSignature(room: Room): String? = roomSignature(Genres[room.genreKey]?.host, room.name, room.message)
+
+/** 非表示にしたときの部屋の印。名前は非表示にしたときのもの（満室で見えなくなった後の記録でも残る）。 */
+internal fun RoomPreference.signature(): String? = roomSignature(host, identityName ?: snapshotName, snapshotMessage)
+
+/** 印で見分けるのに使う待機メッセージの最短の長さ。「よろしく」のような短い文は別の人でも同じになりやすい。 */
+internal const val MIN_SIGNATURE_MESSAGE = 8
+
+/**
+ * 非表示の記録 [this] のどれかが [room] を隠すか。同じ部屋の記録のほか、名前と待機メッセージが同じ立て直した部屋も隠す。
+ * ただし [room] 自身に保存（お気に入り）の記録があれば、その記録に従う。
+ */
+fun List<RoomPreference>.hides(room: Room): Boolean {
+    firstOrNull { it.appliesTo(room) }?.let { return it.hidden }
+    val signature = roomSignature(room) ?: return false
+    return any { it.hidden && it.signature() == signature }
+}
+
 internal fun RoomPreference.sameIdentity(room: Room): Boolean {
     if (room.id != roomId || Genres[room.genreKey]?.host != host || room.genreKey != genreKey) return false
     if (identityName != null && room.name != null && identityName != room.name) return false

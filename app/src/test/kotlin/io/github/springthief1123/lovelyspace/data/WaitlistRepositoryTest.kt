@@ -66,7 +66,7 @@ class WaitlistRepositoryTest {
         assertEquals(2, lists.calls.size)
         val n = opened.single().toOpenedNotification()!!
         assertEquals(NotificationKind.WAITLIST, n.kind)
-        assertEquals(NotificationTarget.Room(zenkoku.host, "zenkoku", 42), n.target)
+        assertEquals("待機メッセージが同じなので照合済み", NotificationTarget.Room(zenkoku.host, "zenkoku", 42, verified = true), n.target)
         assertTrue("同じです" in n.text)
     }
 

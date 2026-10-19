@@ -34,6 +34,12 @@ data class EntryUiState(
     val entryError: String? = null,
     /** 入室できた部屋。画面はこれを見てチャット画面へ移る。 */
     val entered: ChatRoomRef? = null,
+    /** 入力済みのまま入室まで進めている（順番待ちの通知・自動入室から開いた）。 */
+    val autoEntering: Boolean = false,
+    /** ロボット確認があるので、本家の入室画面を開くよう画面に伝える。画面は開いたら [EntryViewModel.browserOpened] を呼ぶ。 */
+    val openBrowser: Boolean = false,
+    /** 入室まで自動で進められなかった理由。入力画面に出す。 */
+    val autoNote: String? = null,
 ) {
     val yearsValue: Int? get() = years.toIntOrNull()
     val yearsValid: Boolean get() = years.isEmpty() || (yearsValue ?: 0) in MIN_YEARS..MAX_YEARS
@@ -61,10 +67,13 @@ class EntryViewModel(
     private val host: String,
     private val genreKey: String,
     private val roomId: Long,
+    /** 入力済みのまま入室まで進める。進めるのは最初に入室前画面を開いたときの 1 回だけで、断られたら入力画面で止める。 */
+    auto: Boolean = false,
 ) : ViewModel() {
-    private val _state = MutableStateFlow(EntryUiState())
+    private val _state = MutableStateFlow(EntryUiState(autoEntering = auto))
     val state: StateFlow<EntryUiState> = _state.asStateFlow()
     private var inputsLoaded = false
+    private var autoPending = auto
 
     init {
         load()
@@ -95,14 +104,40 @@ class EntryViewModel(
                     )
                 }
                 inputsLoaded = true
+                if (autoPending) {
+                    autoPending = false
+                    if (form != null) continueAutomatically(form, hasProfile = last != null)
+                    else _state.update { it.copy(autoEntering = false) }
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 // 使用済みのトークンを持つ古いフォームは捨て、エラーと再読み込みを出す。
-                _state.update { it.copy(isLoading = false, form = null, loadError = describeError(e)) }
+                autoPending = false
+                _state.update { it.copy(isLoading = false, form = null, loadError = describeError(e), autoEntering = false) }
             }
         }
     }
+
+    /**
+     * 入室前画面を開けたら、そのまま入室まで進める。名前などは既定のプロフィール（無ければ前回の入力）を使い、
+     * どちらも無いときは無自覚に既定の値（名前が空白・男性）で入らないよう、入力画面で止める。
+     */
+    private fun continueAutomatically(form: EntryForm, hasProfile: Boolean) {
+        val s = _state.value
+        when {
+            !hasProfile || s.name.isBlank() || !s.yearsValid -> _state.update {
+                it.copy(autoEntering = false, autoNote = "プロフィールが決まっていないので、自動では入室しませんでした。入力を確かめて入室してください。")
+            }
+            form.requiresCaptcha -> {
+                saveProfile()
+                _state.update { it.copy(openBrowser = true) }
+            }
+            else -> enter()
+        }
+    }
+
+    fun browserOpened() = _state.update { it.copy(openBrowser = false) }
 
     fun applyPreset(preset: ProfilePreset) {
         inputsLoaded = true
@@ -125,7 +160,7 @@ class EntryViewModel(
                 when (val result = client.enter(form, profile)) {
                     is EntryResult.Entered -> _state.update { it.copy(isEntering = false, entered = result.room) }
                     is EntryResult.Rejected -> {
-                        _state.update { it.copy(isEntering = false, entryError = result.message) }
+                        _state.update { it.copy(isEntering = false, autoEntering = false, entryError = result.message) }
                         // トークンは 1 回きりなので、入室前画面を取り直して再挑戦できるようにする。
                         load()
                     }
@@ -133,7 +168,7 @@ class EntryViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _state.update { it.copy(isEntering = false, entryError = describeError(e)) }
+                _state.update { it.copy(isEntering = false, autoEntering = false, entryError = describeError(e)) }
             }
         }
     }
