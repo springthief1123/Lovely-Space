@@ -13,6 +13,8 @@ import kotlin.time.Duration.Companion.minutes
 class AutomaticSearchTest {
     private fun room(id: Long) = Room(id, "zenkoku", RoomStatus.WAITING, RoomAction.ENTER, null, "合成$id", Gender.MALE, 25, null, "合成")
     private fun page(number: Int, rooms: List<Room>) = RoomListPage("zenkoku", rooms, null, null, number, 3, emptyMap(), null)
+    /** ページの間を 3 秒で数えるテスト（既定の最小間隔は 1.5 秒）。 */
+    private val threeSeconds = { RefreshPacing(minIntervalMs = 3_000) }
 
     @Test fun automaticDiscoveryLoadsAllPagesAndKeepsThemWhenHeadIsRefreshed() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
@@ -22,7 +24,7 @@ class AutomaticSearchTest {
                 if (calls.size < 4) assertFalse(force)
                 calls += query.page
                 page(query.page, listOf(room(query.page.toLong())))
-            }, clock = { testScheduler.currentTime })
+            }, clock = { testScheduler.currentTime }, pacing = threeSeconds)
             val job = backgroundScope.launch { vm.monitor() }
             // 1 ページ目から順に 3 秒ごとに全ページを読み、読み終えたらまた 1 ページ目から読む。
             // 0 秒: 1、3 秒: 2、6 秒: 3、9 秒: 1。
@@ -45,7 +47,7 @@ class AutomaticSearchTest {
                 calls += query.page
                 // 1 ページ目は直近 1 時間に立った部屋、2・3 ページ目は古い部屋。
                 page(query.page, listOf(room(query.page.toLong()).copy(elapsed = if (query.page == 1) 5.minutes else 90.minutes)))
-            }, clock = { testScheduler.currentTime })
+            }, clock = { testScheduler.currentTime }, pacing = threeSeconds)
             val job = backgroundScope.launch { vm.monitor() }
             // 最初の周は全ページ。その後は 1 ページ目を毎周読み、間に後ろのページを 1 つずつ読む。
             // 0 秒: 1、3 秒: 2、6 秒: 3、9 秒: 1、12 秒: 2、15 秒: 1、18 秒: 3。
@@ -77,7 +79,7 @@ class AutomaticSearchTest {
                 }
                 override fun observation(query: RoomQuery) = observed[query]
             }
-            val vm = SearchViewModel(source, clock = { testScheduler.currentTime }, now = { wall })
+            val vm = SearchViewModel(source, clock = { testScheduler.currentTime }, pacing = threeSeconds, now = { wall })
             val job = backgroundScope.launch { vm.monitor() }
             // 0 秒: 1、3 秒: 2、6 秒: 3、9 秒: 1、12 秒: 2。
             runCurrent(); advanceTimeBy(12_001); runCurrent()
