@@ -30,6 +30,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
@@ -50,14 +55,13 @@ import io.github.springthief1123.lovelyspace.ui.shell.LocalLovelyShellState
 import io.github.springthief1123.lovelyspace.ui.shell.ShellScrollToTop
 import io.github.springthief1123.lovelyspace.ui.shell.ShellSearchButton
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.unit.IntRect
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomCard
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomPreferenceViewModel
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
 import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentBottomInset
 import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentTopPadding
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalComposeUiApi::class)
 @Composable
 fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refreshKey: Int = 0, onGenreChanged: (Genre) -> Unit = {}, preset: SearchPreset? = null, onPresetConsumed: () -> Unit = {}, onOpenNgWords: () -> Unit = {}) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
@@ -125,9 +129,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
     val scope = rememberCoroutineScope()
     val c = state.criteria
     val validAges = state.validAges
-    var panelExpanded by rememberSaveable { mutableStateOf(false) }
-    var searchOpen by remember { mutableStateOf(false) }
-    var searchAnchor by remember { mutableStateOf<IntRect?>(null) }
+    var searchOpen by rememberSaveable { mutableStateOf(false) }
     var selectedRoom by remember { mutableStateOf<Room?>(null) }
     LaunchedEffect(state.initialized, refreshKey) { if (state.initialized) vm.onRefreshKey(refreshKey) }
     LaunchedEffect(state.genre) { onGenreChanged(state.genre) }
@@ -159,6 +161,10 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
     var userRefreshing by remember { mutableStateOf(false) }
     LaunchedEffect(state.loading, state.refreshing) { if (!state.loading && !state.refreshing) userRefreshing = false }
     val newCount = remember(visibleResults, state.newRoomIds) { visibleResults.count { roomIdentity(it) in state.newRoomIds } }
+    // 検索シートの暗い面は、幅を 720dp に抑えた一覧の外（広い画面の左右の余白）まで覆う。
+    Box(Modifier.fillMaxSize()) {
+    // 検索シートを開いている間は、後ろの一覧へキーボード・D-pad のフォーカスも読み上げも入らないようにする（暗い面はタッチしか止めない）。
+    Box(Modifier.fillMaxSize().then(if (searchOpen) Modifier.clearAndSetSemantics {}.focusProperties { enter = { FocusRequester.Cancel } }.focusGroup() else Modifier)) {
     QuietPage {
     val pullState = rememberPullToRefreshState()
     val pullRefreshing = userRefreshing && (state.refreshing || state.loading)
@@ -181,7 +187,6 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
         // ジャンル名が画面の見出しを兼ねる。
         if (state.initialized) item { GenreBar(state.genre, emptyList(), emptyMap(), { vm.genre(it); vm.refresh() }) }
-        item { SearchPanel(state, vm, panelExpanded, onExpandedChange = { panelExpanded = it }, onReset = resetSearch, ng = ngSummary) }
         item {
             SearchStatusRow(
                 text = searchStatusText(state.page, state.lastPage, visibleResults.size, state.loading || !state.initialized,
@@ -194,6 +199,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
                 refreshEnabled = state.initialized,
             )
         }
+        item { SortRow(c.sort) { vm.criteria(c.copy(sort = it)) } }
         if (ngSuspended || ngExcluded.isNotEmpty()) item {
             NgStatusRow(ngExcluded.size, ngSuspended, onShow = { ngSheetOpen = true }, onResume = { ngSuspended = false })
         }
@@ -250,42 +256,40 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
         }
     }
     }
-    // 検索パネルが上に隠れたらトップバーに検索ボタンを、少しでも下へ進んだら「トップへ戻る」を出す。
+    // トップバーの検索ボタンはいつも出し、少しでも下へ進んだら「トップへ戻る」を出す。
     // どちらも外枠に置くので、トップバー・ボトムナビと同じく後ろの一覧がぼける。
     // 新着は一覧の上に足されるので、下へ進んでいる間は「トップへ戻る」を「新着 N件」にして知らせる。
     // 先頭が見えている間に届いた新着はその場で見えるので、数えない。
-    val panelIndex = if (state.initialized) 1 else 0
-    val panelHidden by remember(panelIndex) { derivedStateOf { listState.firstVisibleItemIndex > panelIndex } }
     val scrolled by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0 } }
     val atTop = !scrolled
     LaunchedEffect(atTop, newCount) { if (atTop && newCount > 0) vm.clearNewRooms() }
     val shell = LocalLovelyShellState.current
     val owner = remember { Any() }
-    val openSearch = remember { { anchor: IntRect -> searchAnchor = anchor; searchOpen = true } }
+    val toggleSearch = remember { { searchOpen = !searchOpen } }
     val scrollToTop = remember(scope, listState) { { scope.launch { listState.animateScrollToItem(0) }; Unit } }
     val activeCount = activeFilterCount(c)
     // SideEffect の中で読んだ状態は再コンポーズのきっかけにならない。先頭へ戻ったのにボタンが残らないよう、ここで読む。
-    val searchButton = if (panelHidden) ShellSearchButton(activeCount, openSearch) else null
+    val searchButton = ShellSearchButton(activeCount, searchOpen, toggleSearch)
     val scrollButton = if (scrolled) ShellScrollToTop(newCount, scrollToTop) else null
     SideEffect { shell.publish(owner, searchButton = searchButton, scrollToTop = scrollButton) }
     DisposableEffect(shell, owner) { onDispose { shell.release(owner) } }
-    // パネルが見えるところまで戻ったら、上から開いたポップオーバーは閉じる。
-    LaunchedEffect(panelHidden) { if (!panelHidden) searchOpen = false }
+    }
+    }
+    SearchSheet(
+        visible = searchOpen,
+        state = state,
+        vm = vm,
+        resultCount = visibleResults.size,
+        onDismiss = { searchOpen = false },
+        onReset = resetSearch,
+        ng = ngSummary.copy(onManage = { searchOpen = false; ngSummary.onManage() }),
+    )
+    // シートの上に出す（リセットの「元に戻す」をシートを開いたまま押せるように）。
     SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = lovelyMainContentBottomInset()))
     }
     selectedRoom?.let { room -> RoomDetailsSheet(room, preferences.isFavorite(room), preferences.canEdit(room),
         onDismiss = { selectedRoom = null }, onFavorite = { preferencesVm.toggleFavorite(room) },
         onHide = { preferencesVm.hide(room); selectedRoom = null }, onEnter = onEnterRoom, onPeek = onPeekRoom) }
-    SearchPopover(
-        visible = searchOpen,
-        anchor = searchAnchor,
-        state = state,
-        vm = vm,
-        statusText = searchStatusText(state.page, state.lastPage, visibleResults.size, state.loading || !state.initialized, null),
-        onDismiss = { searchOpen = false },
-        onReset = resetSearch,
-        ng = ngSummary,
-    )
     if (ngSheetOpen) NgExcludedSheet(
         excluded = ngExcluded,
         onDismiss = { ngSheetOpen = false },
@@ -385,7 +389,7 @@ internal fun searchStatusText(page: Int, lastPage: Int, shown: Int, loading: Boo
     else -> listOfNotNull("${shown}件", "${page}/${lastPage}ページ", oldestCheck?.let { "$it 確認" }).joinToString("・")
 }
 
-/** 「詳しい条件」で指定した、チップ以外の条件の数。 */
+/** 検索シートのタブで指定した、チップ以外の条件の数。並び順は一覧の上に出しているので数えない。 */
 internal fun advancedFilterCount(c: RoomSearchCriteria): Int = listOf(
     c.name.isNotBlank(),
     c.message.isNotBlank(),
@@ -393,7 +397,6 @@ internal fun advancedFilterCount(c: RoomSearchCriteria): Int = listOf(
     c.minAge != null || c.maxAge != null,
     !c.includeUnknownAge,
     c.area != null,
-    c.sort != RoomSort.SITE,
 ).count { it }
 
 /** 指定中の条件の数。検索語・チップ・詳しい条件をすべて数え、トップバーの検索ボタンのバッジに出す。 */

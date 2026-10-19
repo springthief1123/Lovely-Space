@@ -1,174 +1,216 @@
 package io.github.springthief1123.lovelyspace.ui.main
 
-import io.github.springthief1123.lovelyspace.ui.theme.LovelyShapes
 import io.github.springthief1123.lovelyspace.ui.components.QuietCheckboxRow
 import io.github.springthief1123.lovelyspace.ui.components.QuietFilterChip
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.ExpandLess
-import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.outlined.SwapVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntRect
-import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupPositionProvider
-import androidx.compose.ui.window.PopupProperties
 import io.github.springthief1123.lovelyspace.core.*
 import io.github.springthief1123.lovelyspace.ui.components.QuietFieldPair
 import io.github.springthief1123.lovelyspace.ui.components.QuietExposedMenu
 import io.github.springthief1123.lovelyspace.ui.components.QuietMenuRow
-import io.github.springthief1123.lovelyspace.ui.rooms.roomMenuBelowEnd
-import io.github.springthief1123.lovelyspace.ui.theme.LocalLovelyColors
+import io.github.springthief1123.lovelyspace.ui.theme.LovelyShapes
+import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
+import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentBottomInset
 
 /**
- * 「見つける」の一覧の先頭に置く検索パネル。閉じているときは検索欄とよく使う絞り込みだけを出し、
- * 開くとその場で下に広がって、詳しい条件と保存した条件を出す。条件は変えた時点で取得済みの一覧に反映する。
+ * 「見つける」の検索シート。トップバーの検索ボタンで開き、トップバーのすぐ下から降りてくる。
+ * 上に検索欄とよく使う絞り込み、その下に詳しい条件を 3 つのタブ（年齢・地域／語の設定／保存した条件）に分けて出す。
+ * 1 つのタブの中身を短くしてスクロールせずに済むようにし、「リセット」「N件を表示」は下端に固定する。
+ * 画面の下（ボトムナビ）は覆わない。条件は変えた時点で取得済みの一覧に反映する。
  */
 @Composable
-internal fun SearchPanel(
+internal fun SearchSheet(
+    visible: Boolean,
     state: SearchUiState,
     vm: SearchViewModel,
-    expanded: Boolean,
-    onExpandedChange: (Boolean) -> Unit,
+    resultCount: Int,
+    onDismiss: () -> Unit,
     onReset: () -> Unit,
     ng: NgSummary? = null,
 ) {
-    val shape = LovelyShapes.sheet
+    // 閉じても最後に見ていたタブを覚えておく（中身は閉じると破棄されるので外に置く）。
+    var tab by rememberSaveable { mutableStateOf(SearchSheetTab.AGE_AREA) }
+    BackHandler(enabled = visible, onBack = onDismiss)
     val scheme = MaterialTheme.colorScheme
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(scheme.surfaceContainerLow)
-            .border(BorderStroke(1.dp, scheme.outlineVariant), shape)
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        SearchField(state.criteria.keyword(state.keywordScope), state.keywordScope.placeholder, vm::keyword)
-        QuickFilterRow(
-            criteria = state.criteria,
-            advancedCount = advancedFilterCount(state.criteria),
-            expanded = expanded,
-            onChange = vm::criteria,
-            onToggleDetails = { onExpandedChange(!expanded) },
-        )
-        AnimatedVisibility(expanded, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SearchDetails(state, vm, ng)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = onReset) { Text("条件をリセット") }
-                    TextButton(onClick = { onExpandedChange(false) }) { Text("閉じる") }
+    val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + LovelySpacing.topBarHeight
+    // キーボードが出ているときはその上まで、出ていないときはボトムナビの上までに収める。
+    val bottom = maxOf(
+        WindowInsets.ime.asPaddingValues().calculateBottomPadding(),
+        lovelyMainContentBottomInset() + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+    )
+    Box(Modifier.fillMaxSize()) {
+        AnimatedVisibility(visible, enter = fadeIn(tween(160)), exit = fadeOut(tween(140))) {
+            Box(Modifier.fillMaxSize().background(scheme.scrim.copy(alpha = 0.32f))
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null,
+                    onClickLabel = "検索を閉じる", onClick = onDismiss))
+        }
+        BoxWithConstraints(Modifier.fillMaxSize().padding(top = top, bottom = bottom), contentAlignment = Alignment.TopCenter) {
+            AnimatedVisibility(
+                visible,
+                enter = fadeIn(tween(160)) + slideInVertically(tween(220)) { -it / 3 },
+                exit = fadeOut(tween(120)) + slideOutVertically(tween(160)) { -it / 4 },
+            ) {
+                // トップバーの下端につなげるので、角丸は下側だけ。背景は透かさない。
+                val shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp)
+                Column(
+                    Modifier
+                        .widthIn(max = 720.dp)
+                        .fillMaxWidth()
+                        .heightIn(max = maxHeight)
+                        .shadow(12.dp, shape, clip = false)
+                        .clip(shape)
+                        .background(scheme.surfaceContainerLow)
+                        .border(BorderStroke(1.dp, scheme.outlineVariant), shape),
+                ) {
+                    // 文字を大きくしているときなどに収まらなければ、下端のボタンは残して中だけをスクロールする。
+                    Column(
+                        Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())
+                            .padding(horizontal = LovelySpacing.screenHorizontal).padding(top = 12.dp, bottom = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        SearchField(state.criteria.keyword(state.keywordScope), state.keywordScope.placeholder, vm::keyword)
+                        QuickFilterRow(state.criteria, onChange = vm::criteria)
+                        SearchSheetTabs(tab) { tab = it }
+                        when (tab) {
+                            SearchSheetTab.AGE_AREA -> AgeAreaConditions(state, vm)
+                            SearchSheetTab.KEYWORD -> KeywordConditions(state, vm, ng)
+                            SearchSheetTab.SAVED -> SavedSearchControls(state, vm::applyPreset)
+                        }
+                    }
+                    HorizontalDivider(color = scheme.outlineVariant)
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = onReset) { Text("リセット") }
+                        Spacer(Modifier.weight(1f))
+                        Button(onClick = onDismiss) { Text(if (state.page == 0) "閉じる" else "${resultCount}件を表示") }
+                    }
                 }
             }
         }
     }
 }
 
-/**
- * トップバーの検索ボタン [anchor] の右端から左下へ広がる検索のポップオーバー。中身は開いた検索パネルと同じ。
- * 背景は透かさず、画面の高さに収めて中だけをスクロールさせる。「一覧を更新」は下端に固定する。
- */
-@Composable
-internal fun SearchPopover(
-    visible: Boolean,
-    anchor: IntRect?,
-    state: SearchUiState,
-    vm: SearchViewModel,
-    statusText: String,
-    onDismiss: () -> Unit,
-    onReset: () -> Unit,
-    ng: NgSummary? = null,
-) {
-    val transition = remember { MutableTransitionState(false) }
-    LaunchedEffect(visible) { transition.targetState = visible }
-    if (anchor == null || (!transition.currentState && !transition.targetState)) return
+/** 検索シートのタブ。どのタブも中身を数行に収める。 */
+internal enum class SearchSheetTab(val label: String) {
+    AGE_AREA("年齢・地域"),
+    KEYWORD("語の設定"),
+    SAVED("保存した条件"),
+}
 
-    val density = LocalDensity.current
-    val margin = with(density) { POPOVER_MARGIN.roundToPx() }
-    val provider = remember(anchor, margin) {
-        object : PopupPositionProvider {
-            override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset =
-                roomMenuBelowEnd(anchor, popupContentSize, windowSize, margin)
-        }
-    }
-    val configuration = LocalConfiguration.current
-    val width = minOf(configuration.screenWidthDp.dp - POPOVER_MARGIN * 2, 420.dp)
-    val anchorBottom = with(density) { anchor.bottom.toDp() }
-    val maxHeight = (configuration.screenHeightDp.dp - anchorBottom - POPOVER_MARGIN * 2).coerceAtLeast(240.dp)
-    val origin = TransformOrigin(1f, 0f)
-    val shape = LovelyShapes.sheet
+/** 下線で選択を示すタブの並び。Material の TabRow は色と高さが Quiet Rose から浮くので、同じ役割を小さく作る。 */
+@Composable
+private fun SearchSheetTabs(selected: SearchSheetTab, onSelect: (SearchSheetTab) -> Unit) {
     val scheme = MaterialTheme.colorScheme
-    Popup(popupPositionProvider = provider, onDismissRequest = onDismiss, properties = PopupProperties(focusable = true)) {
-        AnimatedVisibility(
-            visibleState = transition,
-            enter = fadeIn(tween(140)) + scaleIn(tween(200), initialScale = 0.6f, transformOrigin = origin),
-            exit = fadeOut(tween(100)) + scaleOut(tween(120), targetScale = 0.96f, transformOrigin = origin),
-        ) {
-            // ポップアップは別のウィンドウなので背景のぼかしは使えない。透かさない面と縁取りで後ろの一覧と分ける。
-            Column(
-                Modifier
-                    .width(width)
-                    .heightIn(max = maxHeight)
-                    .shadow(16.dp, shape, clip = false)
-                    .clip(shape)
-                    .background(scheme.surfaceContainerLow)
-                    .border(BorderStroke(1.dp, LocalLovelyColors.current.glassBorder), shape),
-            ) {
-                Row(Modifier.fillMaxWidth().padding(start = 18.dp, end = 6.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("検索", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                    IconButton(onClick = onDismiss) { Icon(Icons.Outlined.Close, "検索を閉じる") }
-                }
+    Column {
+        Row(Modifier.fillMaxWidth().selectableGroup()) {
+            SearchSheetTab.entries.forEach { tab ->
+                val on = tab == selected
                 Column(
-                    Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    Modifier.weight(1f).heightIn(min = 44.dp)
+                        .selectable(selected = on, role = Role.Tab, onClick = { onSelect(tab) }),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Bottom,
                 ) {
-                    SearchField(state.criteria.keyword(state.keywordScope), state.keywordScope.placeholder, vm::keyword)
-                    QuickFilterRow(state.criteria, advancedFilterCount(state.criteria), expanded = true, onChange = vm::criteria, onToggleDetails = null)
-                    SearchDetails(state, vm, ng?.let { summary -> summary.copy(onManage = { onDismiss(); summary.onManage() }) })
-                    TextButton(onClick = onReset) { Text("条件をリセット") }
-                }
-                HorizontalDivider(color = scheme.outlineVariant)
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(statusText, style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                    Button(onClick = vm::refresh, enabled = state.initialized && !state.loading && state.validAges) {
-                        Text(if (state.page == 0) "一覧を取得" else "一覧を更新")
-                    }
+                    Text(tab.label, style = MaterialTheme.typography.labelLarge,
+                        fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (on) scheme.primary else scheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 10.dp))
+                    Box(Modifier.fillMaxWidth(0.7f).height(2.dp).background(if (on) scheme.primary else scheme.surfaceContainerLow, LovelyShapes.control))
                 }
             }
+        }
+        HorizontalDivider(color = scheme.outlineVariant)
+    }
+}
+
+@Composable
+private fun AgeAreaConditions(state: SearchUiState, vm: SearchViewModel) {
+    val c = state.criteria
+    val validAges = state.validAges
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        QuietFieldPair(first = { fieldModifier ->
+            OutlinedTextField(state.minAgeInput, vm::minAge,
+                label = { Text("最低年齢") }, singleLine = true, isError = !validAges,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = fieldModifier)
+        }, second = { fieldModifier ->
+            OutlinedTextField(state.maxAgeInput, vm::maxAge,
+                label = { Text("最高年齢") }, singleLine = true, isError = !validAges,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = fieldModifier)
+        })
+        if (!validAges) Text(AGE_RANGE_ERROR, color = MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.bodySmall)
+        QuietCheckboxRow(c.includeUnknownAge, { vm.criteria(c.copy(includeUnknownAge = it)) }, "年齢が秘密の部屋も含める")
+        // 検索の未指定は「すべて」。プロフィール側の秘密とは別の意味。
+        AreaFilter(c.area) { vm.criteria(c.copy(area = it)) }
+    }
+}
+
+/** 語は上の検索欄 1 つで入れ、ここでは探す場所・一致のしかた・除外する語を選ぶ。 */
+@Composable
+private fun KeywordConditions(state: SearchUiState, vm: SearchViewModel, ng: NgSummary?) {
+    val c = state.criteria
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        ChoiceRow("探す場所", state.keywordScope, KeywordScope.entries.map { it to it.label }, vm::keywordScope)
+        ChoiceRow("複数の語", c.keywordMode, listOf(KeywordMode.ALL to "すべて含む", KeywordMode.ANY to "どれかを含む")) { vm.criteria(c.copy(keywordMode = it)) }
+        HiddenKeywords(hiddenKeywords(c, state.keywordScope), vm::clearHiddenKeywords)
+        OutlinedTextField(c.excluded, { vm.criteria(c.copy(excluded = it)) }, label = { Text("除外する語（スペース区切り）") },
+            supportingText = { Text("検索欄に「-語」と書いても除外できます") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        // この検索だけの「除外する語」と、常に効く NG ワードの関係が分かるよう、すぐ下に NG ワードの状態を出す。
+        ng?.let { NgSummaryRow(it) }
+    }
+}
+
+/**
+ * 一覧の上に常に出す並び順。並び替えは絞り込みより頻繁に変えるので、検索シートを開かずに 1 タップで切り替える。
+ * おすすめ順は保存・非表示にした部屋から学んだ好みで並べる（PreferenceModel）。
+ */
+@Composable
+internal fun SortRow(selected: RoomSort, onSelect: (RoomSort) -> Unit) {
+    val options = listOf(RoomSort.SITE to "一覧順", RoomSort.RECOMMENDED to "おすすめ", RoomSort.NAME to "名前", RoomSort.AGE to "年齢", RoomSort.ELAPSED to "経過")
+    LazyRow(Modifier.fillMaxWidth().semantics { stateDescription = "並び順：" + options.first { it.first == selected }.second },
+        horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                Icon(Icons.Outlined.SwapVert, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("並び", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        options.forEach { (value, label) ->
+            item { QuietFilterChip(selected = value == selected, onClick = { onSelect(value) }, label = label) }
         }
     }
 }
@@ -182,16 +224,9 @@ internal fun SearchField(text: String, placeholder: String, onChange: (String) -
         singleLine = true, shape = LovelyShapes.control, modifier = Modifier.fillMaxWidth())
 }
 
-/** 性別・待機中・公開は1タップで切り替える。それ以外の条件は「詳しい条件」に置き、件数だけ示す。 */
-@OptIn(ExperimentalMaterial3Api::class)
+/** 性別・待機中・公開は1タップで切り替える。それ以外の条件はタブに置く。 */
 @Composable
-private fun QuickFilterRow(
-    criteria: RoomSearchCriteria,
-    advancedCount: Int,
-    expanded: Boolean,
-    onChange: (RoomSearchCriteria) -> Unit,
-    onToggleDetails: (() -> Unit)?,
-) {
+private fun QuickFilterRow(criteria: RoomSearchCriteria, onChange: (RoomSearchCriteria) -> Unit) {
     LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         item {
             QuietFilterChip(criteria.gender == Gender.FEMALE,
@@ -217,49 +252,6 @@ private fun QuickFilterRow(
                 label = triStateLabel(criteria.publicOnly, "公開設定", "公開", "非公開"),
                 modifier = Modifier.semantics { stateDescription = triStateLabel(criteria.publicOnly, "すべて", "公開", "非公開") })
         }
-        if (onToggleDetails != null) item {
-            QuietFilterChip(advancedCount > 0 || expanded, onToggleDetails,
-                label = if (advancedCount > 0) "詳しい条件 $advancedCount" else "詳しい条件",
-                leadingIcon = Icons.Outlined.Tune,
-                trailingIcon = { Icon(if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
-                    if (expanded) "詳しい条件を閉じる" else "詳しい条件を開く", Modifier.size(16.dp)) })
-        }
-    }
-}
-
-/**
- * 保存した条件と、チップ以外の詳しい条件。語は上の検索欄 1 つで入れ、ここでは探す場所と一致のしかただけを選ぶ。
- * 開いても一覧が隠れすぎないよう、選択肢は見出しと同じ行に並べる。
- */
-@Composable
-private fun SearchDetails(state: SearchUiState, vm: SearchViewModel, ng: NgSummary?) {
-    val c = state.criteria
-    val validAges = state.validAges
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SavedSearchControls(state, vm::applyPreset)
-        ChoiceRow("探す場所", state.keywordScope, KeywordScope.entries.map { it to it.label }, vm::keywordScope)
-        ChoiceRow("複数の語", c.keywordMode, listOf(KeywordMode.ALL to "すべて含む", KeywordMode.ANY to "どれかを含む")) { vm.criteria(c.copy(keywordMode = it)) }
-        HiddenKeywords(hiddenKeywords(c, state.keywordScope), vm::clearHiddenKeywords)
-        OutlinedTextField(c.excluded, { vm.criteria(c.copy(excluded = it)) }, label = { Text("除外する語（スペース区切り）") },
-            supportingText = { Text("検索欄に「-語」と書いても除外できます") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        // この検索だけの「除外する語」と、常に効く NG ワードの関係が分かるよう、すぐ下に NG ワードの状態を出す。
-        ng?.let { NgSummaryRow(it) }
-        QuietFieldPair(first = { fieldModifier ->
-            OutlinedTextField(state.minAgeInput, vm::minAge,
-                label = { Text("最低年齢") }, singleLine = true, isError = !validAges,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = fieldModifier)
-        }, second = { fieldModifier ->
-            OutlinedTextField(state.maxAgeInput, vm::maxAge,
-                label = { Text("最高年齢") }, singleLine = true, isError = !validAges,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = fieldModifier)
-        })
-        if (!validAges) Text(AGE_RANGE_ERROR, color = MaterialTheme.colorScheme.error,
-            style = MaterialTheme.typography.bodySmall)
-        QuietCheckboxRow(c.includeUnknownAge, { vm.criteria(c.copy(includeUnknownAge = it)) }, "年齢が秘密の部屋も含める")
-        // 検索の未指定は「すべて」。プロフィール側の秘密とは別の意味。
-        AreaFilter(c.area) { vm.criteria(c.copy(area = it)) }
-        // おすすめ順は保存・非表示にした部屋から学んだ好みで並べる（PreferenceModel）。
-        ChoiceRow("並び順", c.sort, listOf(RoomSort.SITE to "一覧順", RoomSort.RECOMMENDED to "おすすめ", RoomSort.NAME to "名前", RoomSort.AGE to "年齢", RoomSort.ELAPSED to "経過")) { vm.criteria(c.copy(sort = it)) }
     }
 }
 
@@ -300,8 +292,6 @@ private fun AreaFilter(selected: String?, onSelect: (String?) -> Unit) {
         }
     }
 }
-
-private val POPOVER_MARGIN = 12.dp
 
 /** 3 段階のチップの次の値。未指定 → true → false → 未指定。 */
 internal fun nextTriState(value: Boolean?): Boolean? = when (value) { null -> true; true -> false; false -> null }
