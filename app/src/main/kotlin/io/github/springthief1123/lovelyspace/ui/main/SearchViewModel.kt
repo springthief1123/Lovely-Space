@@ -15,7 +15,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import io.github.springthief1123.lovelyspace.settings.RoomListPreferenceStore
 import kotlinx.coroutines.launch
@@ -131,7 +131,7 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
     private val pacing: () -> RefreshPacing = { RefreshPacing() },
     /** 共有の一覧の確認時刻（[ObservedRoomPage.confirmedAt]）と比べる時計。 */
     private val now: () -> Long = System::currentTimeMillis,
-    /** 新着の確認。自動更新が有効な間、いまのジャンルの 1 ページ目を読み直してもらう（届いたページは [ObservedRoomListSource] から取り込む）。 */
+    /** 新着の確認。画面が前面で自動更新している間（[monitor] の間）、いまのジャンルの 1 ページ目を読み直してもらう（届いたページは [ObservedRoomListSource] から取り込む）。 */
     private val hot: HotPagePoller? = null) : ViewModel() {
     private val _state = MutableStateFlow(SearchUiState(initialized = preferences == null))
     val state = _state.asStateFlow()
@@ -146,9 +146,12 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
     private var inFlight = 0
     /** いまのジャンルの巡回位置。画面に戻って [monitor] を呼び直しても、ジャンルを変えるまでは最初の周からやり直さない。 */
     private var schedule: RoomPageSchedule? = null
+    /** [monitor] が動いている（画面が前面）。タブを移っても ViewModel は残るので、新着の確認はこの間だけ頼む。 */
+    private val monitoring = MutableStateFlow(false)
     init {
         if (hot != null) viewModelScope.launch {
-            _state.map { if (it.initialized && it.automatic) setOf(it.genre) else emptySet() }.distinctUntilChanged()
+            combine(_state, monitoring) { state, on -> if (on && state.initialized && state.automatic) setOf(state.genre) else emptySet() }
+                .distinctUntilChanged()
                 .collect { hot.want(HOT_OWNER, it) }
         }
         if (repository is ObservedRoomListSource) viewModelScope.launch {
@@ -277,6 +280,7 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
     suspend fun monitor() {
         val oldest = _state.value.pageTimes.values.minOrNull()
         if (oldest != null && oldest < now() - SHARED_MAX_AGE_MS) schedule = null
+        monitoring.value = true
         try {
             while (currentCoroutineContext().isActive && _state.value.automatic) {
                 if (!_state.value.initialized) { state.first { it.initialized }; continue }
@@ -293,7 +297,7 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
                 // 取れなかったときは、案内を出さない失敗（部屋の表が無いページ）でも 20 秒空ける。
                 delay(if (!fetched || _state.value.error != null) RoomPageSchedule.ERROR_INTERVAL_MS else pacing().sanitized().minIntervalMs)
             }
-        } finally { stopRefresh() }
+        } finally { monitoring.value = false; stopRefresh() }
     }
 
     private fun schedule(): RoomPageSchedule = RoomPageSchedule(clock) { pacing().sanitized().searchHeadMs }

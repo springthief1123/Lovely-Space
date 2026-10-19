@@ -39,6 +39,27 @@ class AutomaticSearchTest {
             assertEquals(stopped, calls.size)
         } finally { Dispatchers.resetMain() }
     }
+    @Test fun theFirstPageCheckIsRequestedOnlyWhileTheScreenIsMonitoring() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val hot = io.github.springthief1123.lovelyspace.data.HotPagePoller(
+                object : io.github.springthief1123.lovelyspace.data.ObservedRoomListSource {
+                    override val observations = kotlinx.coroutines.flow.MutableStateFlow<Map<RoomQuery, io.github.springthief1123.lovelyspace.data.ObservedRoomPage>>(emptyMap())
+                    override fun observation(query: RoomQuery) = null
+                    override suspend fun fetch(query: RoomQuery, force: Boolean) = page(query.page, emptyList())
+                }, pacing = threeSeconds)
+            val vm = SearchViewModel(repository = RoomListSource { query, _ -> page(query.page, listOf(room(query.page.toLong()))) },
+                clock = { testScheduler.currentTime }, pacing = threeSeconds, hot = hot)
+            runCurrent()
+            // 見つける画面を開いていても、前面で巡回していない間（別のタブ・入室中）は 1 ページ目の確認を頼まない。
+            assertEquals(emptySet<Genre>(), hot.genres.value)
+            val job = backgroundScope.launch { vm.monitor() }
+            runCurrent()
+            assertEquals(setOf(vm.state.value.genre), hot.genres.value)
+            job.cancelAndJoin(); runCurrent()
+            assertEquals(emptySet<Genre>(), hot.genres.value)
+        } finally { Dispatchers.resetMain() }
+    }
     @Test fun afterTheFirstLapRecentPagesAreReadEveryLapAndOlderPagesInTurn() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {

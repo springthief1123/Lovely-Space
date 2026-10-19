@@ -10,7 +10,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -29,15 +28,18 @@ class HotPagePoller(
     clock: () -> Long = { System.nanoTime() / 1_000_000 },
 ) {
     private val schedule = HotPageSchedule(clock, pacing)
-    private val owners = MutableStateFlow<Map<String, Set<Genre>>>(emptyMap())
+    /** 見ているジャンル（登録した機能ごと）。[want] は複数の coroutine から同時に呼ばれるので、[_genres] とあわせて同期して書く。 */
+    private val owners = mutableMapOf<String, Set<Genre>>()
     private val _genres = MutableStateFlow<Set<Genre>>(emptySet())
     /** いま 1 ページ目を読み直しているジャンル。 */
     val genres: StateFlow<Set<Genre>> = _genres.asStateFlow()
 
     /** [owner]（見つける画面・レーダー・順番待ち）が見ているジャンルを [genres] にする。空なら外す。 */
     fun want(owner: String, genres: Set<Genre>) {
-        owners.update { if (genres.isEmpty()) it - owner else it + (owner to genres) }
-        _genres.value = owners.value.values.flatten().toSet()
+        synchronized(owners) {
+            if (genres.isEmpty()) owners -= owner else owners[owner] = genres
+            _genres.value = owners.values.flatten().toSet()
+        }
     }
 
     /** アプリが前面の間だけ呼ぶ（取消で止まる）。 */
