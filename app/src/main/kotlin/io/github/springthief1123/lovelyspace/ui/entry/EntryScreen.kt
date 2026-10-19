@@ -98,6 +98,10 @@ fun EntryScreen(
     ) { padding ->
         val modifier = Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)
         when {
+            // 自動送信を付けるかは WebView を作るときに決まるので、設定を読めるまでは本家の画面を開かない。
+            showBrowser && entrySettings == null -> Box(modifier, contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
             showBrowser -> SiteWebView(
                 url = SitePages.preEnter(host, genreKey, roomId),
                 genreKey = genreKey,
@@ -106,7 +110,7 @@ fun EntryScreen(
                     mapOf("name" to state.name.trim(), "sex" to state.sex.toString(), "years" to state.yearsValue?.toString().orEmpty()),
                 ),
                 scriptPath = "/PreEnterRoom",
-                // 自動の送信は設定が有効なときだけ。設定を読めるまでは押さない。
+                // 自動の送信は設定が有効なときだけ。
                 onceScript = autoSubmitScript("entry").takeIf { entrySettings?.autoSubmit == true },
                 onRoomOpened = vm::onEnteredInBrowser,
                 modifier = modifier,

@@ -50,10 +50,11 @@ class RoomListRepository(private val client: ShaloveClient) : ObservedRoomListSo
         attempts.incrementAndGet()
         val result = load()
         currentCoroutineContext().ensureActive()
-        synchronized(named) { result.rooms.forEach { if (it.name != null) named[roomIdentity(it)] = it } }
         mutex.withLock {
             val previous = observation(query)
             if (previous?.page !== result) {
+                // キャッシュを再利用した結果は新しい観測ではないので、名前の記録を古い姿へ戻さない。
+                synchronized(named) { result.rooms.forEach { if (it.name != null) named[roomIdentity(it)] = it } }
                 _observations.value = _observations.value + (query to ObservedRoomPage(query, result, System.currentTimeMillis(), ++revision))
             }
         }
