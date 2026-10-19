@@ -373,6 +373,27 @@ class RadarRepositoryTest {
             assertEquals(2, lists.calls.size)
         } finally { db.close() }
     }
+    @Test fun changingTheNameOrGenreOfAnAutoEntryRuleTurnsAutoEntryOff() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val radar = RadarRepository(db.presets(), Lists(), SearchPresetRepository(db), RoomPreferenceRepository(db), backgroundScope)
+            radar.state.first { it.loaded }
+            val rule = CandidateRule("a", "合成条件", "zenkoku", "合成")
+            radar.saveCandidate(rule)
+            radar.setCandidateAutoEnter("a", true)
+            val saved = radar.state.value.candidateRules.single()
+            assertTrue(saved.autoEnterActive(System.currentTimeMillis()))
+            // 表示名だけの変更なら続ける。
+            radar.saveCandidate(saved.copy(label = "合成の別名"))
+            assertTrue(radar.state.value.candidateRules.single().autoEnterUntil > 0)
+            // ジャンルを変えたら、許可していない条件で入らないよう止める（名前を変えたときと同じ）。
+            radar.saveCandidate(radar.state.value.candidateRules.single().copy(genreKey = "kanto"))
+            assertEquals(0L, radar.state.value.candidateRules.single().autoEnterUntil)
+            radar.setCandidateAutoEnter("a", true)
+            radar.saveCandidate(radar.state.value.candidateRules.single().copy(term = "別の合成"))
+            assertEquals(0L, radar.state.value.candidateRules.single().autoEnterUntil)
+        } finally { db.close() }
+    }
     @Test fun candidatePlansAtDifferentPagesAdvanceOnlyTheirScheduledRequest() = runTest {
         val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
         try {

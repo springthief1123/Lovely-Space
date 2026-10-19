@@ -198,9 +198,9 @@ class RadarRepository(
         require(rule.id.isNotBlank() && rule.label.isNotBlank() && rule.label.length <= 80 && rule.term.isNotBlank() && rule.term.length <= 160 && Genres[rule.genreKey] != null) { "候補条件の入力を確認してください。" }
         require(state.candidateRules.size < 20 || state.candidateRules.any { it.id == rule.id }) { "候補監視は20件までです。" }
         val old = state.candidateRules.firstOrNull { it.id == rule.id }
-        // 自動入室は名前の完全一致だけ。名前を変えたら、別の人に入らないよう止める。
+        // 自動入室は名前の完全一致だけ。名前かジャンルを変えたら、許可していない条件で入らないよう止める。
         val value = rule.copy(label = rule.label.trim(), term = rule.term.trim()).let {
-            if (it.mode != CandidateMode.EXACT_NAME || (old != null && old.term.trim() != it.term)) it.copy(autoEnterUntil = 0L) else it
+            if (it.mode != CandidateMode.EXACT_NAME || (old != null && (old.term.trim() != it.term || old.genreKey != it.genreKey))) it.copy(autoEnterUntil = 0L) else it
         }
         val changed = old?.key != value.key || old?.enabled != value.enabled
         if (changed) resetCandidate(rule.id)
