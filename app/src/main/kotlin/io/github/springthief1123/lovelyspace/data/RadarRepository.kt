@@ -541,13 +541,33 @@ class RadarRepository(
         val hidden = preferences.preferences.first().filter { it.hidden }
         val current = _state.value
         val events = mutableListOf<RadarEvent>()
+        val genreList = o.query == RoomQuery(o.query.genre, page = o.query.page)
+        val livePages = if (freshTracking && genreList)
+            current.livePages + (o.query.genre.key to (current.livePages[o.query.genre.key] ?: RoomPageWindow()).observe(o.page, o.revision)) else current.livePages
+        val claimed = current.targets.mapTo(HashSet()) { roomIdentity(it.room) }
         val targets = current.targets.map { target ->
             if (!freshTracking) return@map target
             if (target.room.genreKey != o.query.genre.key || target.evidence == RoomIdentityEvidence.REUSED) return@map target
             if (target.observationRevision > o.revision) return@map target
             val room = o.page.rooms.firstOrNull { roomIdentity(it) == roomIdentity(target.room) }
             val evidence = roomIdentityEvidence(target.identity, room)
-            if (evidence == RoomIdentityEvidence.NOT_OBSERVED) return@map target // 1ページに無いだけで不在とは判断しない。
+            if (evidence == RoomIdentityEvidence.NOT_OBSERVED) {
+                // 閉じたと分かった部屋が同じ名前・募集文で立て直されていれば、新しい部屋を追う。1ページに無いだけでは不在と判断しない。
+                val window = livePages[o.query.genre.key] ?: return@map target
+                val old = target.room.copy(name = target.room.name ?: target.identity.name)
+                val rebuilt = window.rebuildOf(old, claimed - roomIdentity(target.room)) ?: return@map target
+                claimed -= roomIdentity(target.room)
+                claimed += roomIdentity(rebuilt)
+                val page = window.roomPages[roomIdentity(rebuilt)] ?: o.page.page
+                val query = RoomQuery(o.query.genre, page = page)
+                val identity = rebuilt.copy(name = rebuilt.name ?: target.identity.name,
+                    gender = rebuilt.gender.takeUnless { it == Gender.UNKNOWN } ?: target.identity.gender, age = rebuilt.age ?: target.identity.age)
+                events += RadarEvent(o.confirmedAt, "${identity.name ?: "追跡中の部屋"}：部屋の立て直しを確認。新しい部屋を追跡します", rooms = listOf(rebuilt), page = page, sourceQuery = query,
+                    kind = RadarEventKind.ROOM_STATUS, origin = RadarEventOrigin(RadarOriginType.ROOM, roomIdentity(identity), identity.name.orEmpty()))
+                return@map target.copy(room = rebuilt, identity = identity, confirmedAt = o.confirmedAt, observedAt = o.confirmedAt,
+                    evidence = if (rebuilt.name != null) RoomIdentityEvidence.MATCH else RoomIdentityEvidence.AMBIGUOUS,
+                    observationRevision = o.revision, observedPage = page, sourceQuery = query)
+            }
             if (evidence == RoomIdentityEvidence.MATCH && room != null) {
                 if (target.confirmedAt != null && target.room.status != room.status) events += RadarEvent(o.confirmedAt, "${room.name}：${statusName(room.status)}を確認", rooms = listOf(room), page = o.page.page, sourceQuery = o.query, kind = RadarEventKind.ROOM_STATUS,
                     origin = RadarEventOrigin(RadarOriginType.ROOM, roomIdentity(target.identity), target.identity.name.orEmpty()))
@@ -565,9 +585,6 @@ class RadarRepository(
         }
         val scopes = current.scopes.toMutableMap()
         val results = current.results.toMutableMap()
-        val genreList = o.query == RoomQuery(o.query.genre, page = o.query.page)
-        val livePages = if (freshTracking && genreList)
-            current.livePages + (o.query.genre.key to (current.livePages[o.query.genre.key] ?: RoomPageWindow()).observe(o.page, o.revision)) else current.livePages
         // 計画の一致は、手元にあるジャンルの一覧の全ページから出す（このページだけでなく）。新しい一致の記録はページごとに比べる。
         val window = livePages[o.query.genre.key]?.takeIf { it.pages[o.page.page] != null } ?: RoomPageWindow().observe(o.page, o.revision)
         presets.filter { it.genreKey == o.query.genre.key }.forEach { preset ->

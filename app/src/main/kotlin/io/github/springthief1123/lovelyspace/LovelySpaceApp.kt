@@ -38,6 +38,8 @@ class LovelySpaceApp : Application() {
         appScope.launch { settings.refreshPacing.collect { pacing.value = it } }
         // 前回の実行が空きの通知を出す前に止まっていれば、起動時に出し直す。
         appScope.launch { waitlist.deliverPending() }
+        // 一覧を読むたびに、保存・非表示の部屋が立て直されていれば新しい部屋へ移す。
+        appScope.launch { roomPreferences.followRebuilds(roomLists.observations) }
         // 背景で巡回する計画か、待っている（または通知を出し終えていない）順番待ちがあるときだけ周期実行を登録し、
         // どちらも無くなれば解除する。順番待ちがあるときは最短の 15 分ごとに確認する。
         appScope.launch {

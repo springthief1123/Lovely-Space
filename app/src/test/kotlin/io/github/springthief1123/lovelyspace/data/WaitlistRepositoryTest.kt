@@ -250,4 +250,24 @@ class WaitlistRepositoryTest {
         assertEquals(2, searchPage(9, 0, 2))
         assertEquals(1, searchPage(3, 5, 1))
     }
+
+    @Test fun aRebuiltRoomIsFollowedToItsNewIdAndReportedWhenItWaits() = runTest {
+        // 合成データ。一覧は ID の大きい順で、ページの端から ID_MARGIN より内側に置く。満室の部屋は名前が出ないので、長い募集文で照合する。
+        val base = 900_000_000L
+        fun other(offset: Long) = Room(base + offset, "zenkoku", RoomStatus.WAITING, RoomAction.ENTER, null, "合成$offset", Gender.MALE, 30, null, "合成の別の募集文$offset")
+        val old = full.copy(id = base + 500, message = "合成の長い募集文です。よろしくお願いします")
+        val lists = Lists().apply { pages = mapOf(1 to listOf(other(700), old, other(300), other(100))) }
+        val opened = mutableListOf<WaitlistEntry>()
+        val waitlist = WaitlistRepository(Memory(), lists, { opened += it }, backgroundScope) { 0L }
+        waitlist.register(old, RoomQuery(zenkoku))
+        waitlist.check(3)
+        assertTrue(opened.isEmpty())
+        val rebuilt = old.copy(id = base + 900, status = RoomStatus.WAITING, action = RoomAction.ENTER, name = "合成の名前", gender = Gender.FEMALE)
+        lists.pages = mapOf(1 to listOf(rebuilt, other(700), other(300), other(100)))
+        waitlist.check(3)
+        val entry = opened.single()
+        assertEquals(rebuilt.id, entry.openedRoom?.id)
+        assertEquals(1, entry.rebuilds)
+        assertTrue("立て直され" in entry.toOpenedNotification()!!.text)
+    }
 }

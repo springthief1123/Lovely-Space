@@ -38,6 +38,12 @@ interface RoomPreferenceDao {
     @Upsert
     suspend fun put(value: RoomPreference)
 
+    @Query("SELECT * FROM room_preferences")
+    suspend fun all(): List<RoomPreference>
+
+    @Query("DELETE FROM room_preferences WHERE host = :host AND roomId = :roomId")
+    suspend fun delete(host: String, roomId: Long)
+
     @Query("UPDATE room_preferences SET favorite = 0 WHERE host = :host AND roomId = :roomId")
     suspend fun clearFavorite(host: String, roomId: Long)
 

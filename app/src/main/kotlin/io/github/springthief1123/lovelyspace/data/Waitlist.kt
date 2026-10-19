@@ -24,6 +24,7 @@ enum class WaitlistStatus {
 /**
  * 順番待ちの 1 件。部屋は `host + room_id`（[key]）で見分け、[room] に登録時の一覧の情報を残して照合に使う。
  * [query] は次に確認する一覧のページ。見つからなければ次のページへ進め、見つからないことを閉鎖とは判断しない。
+ * 閉じたと分かった部屋が同じ名前・募集文で立て直されていれば（[RoomPageWindow.rebuildOf]）、新しい部屋を待つ。
  */
 data class WaitlistEntry(
     val room: Room,
@@ -42,6 +43,8 @@ data class WaitlistEntry(
     val noticed: Boolean = false,
     /** 最後にその部屋が見えたページ。見つからないときはここから前後へ広げて探す。 */
     val anchorPage: Int = query.page,
+    /** 部屋が立て直された（閉じて同じ名前・募集文で作り直された）のを追って、新しい部屋へ移した回数。 */
+    val rebuilds: Int = 0,
 ) {
     val key: String get() = roomIdentity(room)
     fun active(now: Long): Boolean = status == WaitlistStatus.WATCHING && now < expiresAt
@@ -176,10 +179,18 @@ class WaitlistRepository(
             seen[o.query] = o.revision
             val at = now()
             var changed = false
+            val window by lazy { lists.observations.value.genreWindow(o.query.genre) }
+            val claimed = _entries.value.mapTo(HashSet()) { it.key }
             val next = _entries.value.map { entry ->
                 if (!entry.active(at) || entry.room.genreKey != o.query.genre.key) return@map entry
                 val observed = o.page.rooms.firstOrNull { roomIdentity(it) == entry.key }
                 if (observed == null) {
+                    // 閉じたと分かった部屋が立て直されていれば、新しい部屋を待つ（ほかの登録が追っている部屋は選ばない）。
+                    window.rebuildOf(entry.room, claimed - entry.key)?.let { rebuilt ->
+                        changed = true
+                        claimed += roomIdentity(rebuilt)
+                        return@map followRebuild(entry, rebuilt, window, o).also { if (it.status == WaitlistStatus.OPENED) opened += it }
+                    }
                     // 記録したページに無いだけでは閉鎖と判断しない。一覧の増減で前後へずれることがあるので、
                     // 最後に見えたページから前後へ交互に広げて探す（全ページを回ったら最初から）。
                     if (o.query != entry.query) return@map entry
@@ -199,6 +210,15 @@ class WaitlistRepository(
             if (changed) save(next)
         }
         notify(opened)
+    }
+
+    /** 立て直された部屋 [rebuilt] を待つ登録にする。空いていれば空きとして知らせる。 */
+    private fun followRebuild(entry: WaitlistEntry, rebuilt: Room, window: RoomPageWindow, o: ObservedRoomPage): WaitlistEntry {
+        val page = window.roomPages[roomIdentity(rebuilt)] ?: 1
+        val moved = entry.copy(room = rebuilt, rebuilds = entry.rebuilds + 1, lastSeenAt = o.confirmedAt, missed = 0,
+            query = RoomQuery(o.query.genre, page = page), anchorPage = page)
+        return if (rebuilt.status == RoomStatus.FULL) moved
+        else moved.copy(status = WaitlistStatus.OPENED, openedRoom = rebuilt, changedAt = o.confirmedAt)
     }
 
     private suspend fun notify(entries: List<WaitlistEntry>) {
@@ -263,7 +283,7 @@ class WaitlistStore(private val prefs: android.content.SharedPreferences) : Wait
         .put("room", waitlistRoomJson(e.room)).put("query", radarQueryJson(e.query))
         .put("registeredAt", e.registeredAt).put("expiresAt", e.expiresAt).put("status", e.status.name)
         .put("lastSeenAt", e.lastSeenAt).put("missed", e.missed).put("changedAt", e.changedAt)
-        .put("openedRoom", e.openedRoom?.let(::waitlistRoomJson)).put("noticed", e.noticed).put("anchorPage", e.anchorPage)
+        .put("openedRoom", e.openedRoom?.let(::waitlistRoomJson)).put("noticed", e.noticed).put("anchorPage", e.anchorPage).put("rebuilds", e.rebuilds)
 
     private fun decode(o: JSONObject): WaitlistEntry {
         val room = readWaitlistRoom(o.getJSONObject("room"))
@@ -281,6 +301,7 @@ class WaitlistStore(private val prefs: android.content.SharedPreferences) : Wait
             changedAt = long("changedAt"),
             noticed = o.optBoolean("noticed"),
             anchorPage = o.optInt("anchorPage", query.page),
+            rebuilds = o.optInt("rebuilds"),
         )
     }
 

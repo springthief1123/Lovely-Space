@@ -17,6 +17,12 @@ fun interface RoomListSource {
 
 data class ObservedRoomPage(val query: RoomQuery, val page: RoomListPage, val confirmedAt: Long, val revision: Long)
 
+/** 手元にある [genre] のジャンル全体の一覧（条件を付けずに読んだページを古い順に重ねたもの）。 */
+fun Map<RoomQuery, ObservedRoomPage>.genreWindow(genre: Genre): RoomPageWindow = values
+    .filter { it.query == RoomQuery(genre, page = it.query.page) }
+    .sortedBy { it.revision }
+    .fold(RoomPageWindow()) { w, observed -> w.observe(observed.page, observed.revision) }
+
 interface ObservedRoomListSource : RoomListSource {
     val observations: kotlinx.coroutines.flow.StateFlow<Map<RoomQuery, ObservedRoomPage>>
 }

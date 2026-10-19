@@ -5,8 +5,12 @@ import io.github.springthief1123.lovelyspace.core.Gender
 import io.github.springthief1123.lovelyspace.core.Genres
 import io.github.springthief1123.lovelyspace.core.Room
 import io.github.springthief1123.lovelyspace.core.RoomAction
+import io.github.springthief1123.lovelyspace.core.RoomPageWindow
+import io.github.springthief1123.lovelyspace.core.RoomQuery
 import io.github.springthief1123.lovelyspace.core.RoomStatus
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
 import kotlin.time.Duration.Companion.seconds
 
 fun RoomPreference.toRoom(): Room = Room(
@@ -75,6 +79,8 @@ interface RoomPreferenceStore {
     /** 解除した保存を「元に戻す」。解除前の記録 [value] をそのまま戻し、その間に非表示にしていればそれも残す。 */
     suspend fun restoreFavorite(value: RoomPreference)
     suspend fun observe(rooms: List<Room>)
+    /** 保存・非表示の部屋が閉じて立て直されていれば（[RoomPageWindow.rebuildOf]）、記録を新しい部屋へ移す。[window] はジャンル全体の一覧。 */
+    suspend fun followRebuilds(window: RoomPageWindow) {}
 }
 
 class RoomPreferenceRepository(private val db: PresetDatabase) : RoomPreferenceStore {
@@ -127,6 +133,43 @@ class RoomPreferenceRepository(private val db: PresetDatabase) : RoomPreferenceS
                 val existing = dao.preference(roomHost(room), room.id) ?: return@forEach
                 val next = if (existing.sameIdentity(room)) existing.refreshed(room) else existing.copy(stale = true)
                 if (next != existing) dao.put(next)
+            }
+        }
+    }
+
+    override suspend fun followRebuilds(window: RoomPageWindow) {
+        db.withTransaction {
+            val all = dao.all()
+            val claimed = all.mapTo(HashSet()) { "${it.host}/${it.roomId}" }
+            all.filterNot { it.stale }.forEach { existing ->
+                val key = "${existing.host}/${existing.roomId}"
+                val old = existing.toRoom().copy(name = existing.identityName ?: existing.snapshotName)
+                val rebuilt = window.rebuildOf(old, claimed - key) ?: return@forEach
+                dao.delete(existing.host, existing.roomId)
+                dao.put(existing.refreshed(rebuilt).copy(
+                    roomId = rebuilt.id,
+                    identityName = rebuilt.name ?: existing.identityName,
+                    identityGender = rebuilt.gender.takeUnless { it == Gender.UNKNOWN }?.name ?: existing.identityGender,
+                    identityAge = rebuilt.age ?: existing.identityAge,
+                ))
+                claimed -= key
+                claimed += "${existing.host}/${rebuilt.id}"
+            }
+        }
+    }
+
+    /**
+     * 一覧を読むたびに（どの画面・背景の確認が読んだページでも）、そのジャンルの全体の一覧で [followRebuilds] を行う。
+     * 立て直された非表示の部屋がまた出たり、保存した部屋を見失ったりしないようにする。
+     */
+    suspend fun followRebuilds(observations: StateFlow<Map<RoomQuery, ObservedRoomPage>>) {
+        var seen = 0L
+        observations.collect { all ->
+            val fresh = all.values.filter { it.revision > seen && it.query == RoomQuery(it.query.genre, page = it.query.page) }
+            seen = maxOf(seen, all.values.maxOfOrNull { it.revision } ?: 0L)
+            fresh.map { it.query.genre }.distinct().forEach { genre ->
+                // 保存の失敗などで一覧の監視を止めない。次に読んだページでやり直す。
+                try { followRebuilds(all.genreWindow(genre)) } catch (e: CancellationException) { throw e } catch (e: Exception) { }
             }
         }
     }
