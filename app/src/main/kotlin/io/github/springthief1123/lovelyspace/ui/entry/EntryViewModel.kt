@@ -74,6 +74,11 @@ class EntryViewModel(
     private val roomId: Long,
     /** 入力済みのまま入室まで進める。進めるのは最初に入室前画面を開いたときの 1 回だけで、断られたら入力画面で止める。 */
     auto: Boolean = false,
+    /**
+     * 一覧で公開の部屋だった。入室前画面が開けなければ、満室になった公開ルームとして公開ルームの画面へ移る。
+     * 確かめるための取得はしない（公開ルームの画面が最初に読み、まだ読めなければ読み直す）。
+     */
+    private val listedPublic: Boolean = false,
 ) : ViewModel() {
     private val _state = MutableStateFlow(EntryUiState(autoEntering = auto))
     val state: StateFlow<EntryUiState> = _state.asStateFlow()
@@ -97,8 +102,8 @@ class EntryViewModel(
             }
             try {
                 val form = client.openEntry(host, roomId, genreKey)
-                // 利用者が押して開いた部屋が埋まっていたら、公開ルームとして覗けるか確かめる（本家で「覗く」を押し直すのと同じ）。
-                val becamePublic = form == null && !autoPending && client.isPublicRoom(host, genreKey, roomId)
+                // 利用者が押して開いた公開の部屋が埋まっていたら、本家で「覗く」を押し直すのと同じく公開ルームを開く。
+                val becamePublic = form == null && !autoPending && listedPublic
                 _state.update { s ->
                     s.copy(
                         isLoading = false,

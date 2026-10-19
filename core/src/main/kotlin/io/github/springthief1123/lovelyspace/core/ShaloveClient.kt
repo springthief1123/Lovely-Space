@@ -275,19 +275,6 @@ class ShaloveClient(
     }
 
     /**
-     * 満室になった部屋を公開ルームとして覗けるか。入室前画面が開けなかったときに、利用者の操作の続きとして 1 回だけ確かめる。
-     * 非公開・閉鎖・通信の失敗はどれも false。
-     */
-    suspend fun isPublicRoom(host: String, genreKey: String, roomId: Long): Boolean = try {
-        openPublicRoom(host, genreKey, roomId, manual = true)
-        true
-    } catch (e: kotlinx.coroutines.CancellationException) {
-        throw e
-    } catch (_: IOException) {
-        false
-    }
-
-    /**
      * 開いた部屋の新着取得・発言用のセッションを作る。
      * [previous] が同じ部屋なら、ページから読み出し位置を取り直しても発言・poll の間隔制限を引き継ぐ。
      */

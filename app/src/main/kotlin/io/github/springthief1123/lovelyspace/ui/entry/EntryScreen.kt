@@ -67,10 +67,12 @@ fun EntryScreen(
     onPeek: () -> Unit = {},
     /** 入力済みのまま入室まで進める（順番待ちの通知・自動入室から開いたとき）。 */
     auto: Boolean = false,
+    /** 一覧で公開の部屋だった。開いたときに満室になっていたら [onPeek] で公開ルームへ移る。 */
+    listedPublic: Boolean = false,
 ) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val vm: EntryViewModel = viewModel(
-        factory = viewModelFactory { initializer { EntryViewModel(app.client, app.settings, app.presets, host, genreKey, roomId, auto) } },
+        factory = viewModelFactory { initializer { EntryViewModel(app.client, app.settings, app.presets, host, genreKey, roomId, auto, listedPublic) } },
     )
     val state by vm.state.collectAsStateWithLifecycle()
     val entrySettings by app.settings.entrySettings.collectAsStateWithLifecycle(initialValue = null)

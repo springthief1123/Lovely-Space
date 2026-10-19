@@ -248,21 +248,6 @@ class ShaloveClientTest {
     }
 
     @Test
-    fun aRoomThatFilledUpIsPublicOnlyWhenItsLogCanBeRead() = runTest {
-        val bodies = ArrayDeque(listOf("<meta charset=\"utf-8\"><div id=\"chatarea\"></div>", "<meta charset=\"utf-8\"><p>合成の閉鎖ページ</p>"))
-        val client = ShaloveClient(
-            http = OkHttpClient.Builder().addInterceptor { chain ->
-                Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("OK")
-                    .body(bodies.removeFirst().toResponseBody("text/html; charset=UTF-8".toMediaType())).build()
-            }.build(),
-            clock = { now },
-            sleep = { ms -> now += ms },
-        )
-        assertTrue(client.isPublicRoom("chat.shalove.net", "chah", 5))
-        assertTrue(!client.isPublicRoom("chat.shalove.net", "chah", 6))
-    }
-
-    @Test
     fun aPublicRoomInsideAFrameIsReadFromTheFrame() = runTest {
         val bodies = ArrayDeque(listOf(
             "<frameset><frame src=\"/PublicRoomLog?room_id=5&genre_key=chah\"></frameset>",
