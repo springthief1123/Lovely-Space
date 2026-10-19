@@ -37,7 +37,10 @@ private class RoomMatcher(private val c: RoomSearchCriteria, synonyms: SynonymDi
     private val nameTerms = terms(c.name, synonyms)
     private val messageTerms = terms(c.message, synonyms)
     private val textTerms = terms(c.text, synonyms)
-    private val excludedTerms = terms(c.excluded, synonyms)
+    // 各欄の「-語」は、その欄で語を含む部屋を外す（「すべて含む」「どれかを含む」に関係なく）。
+    private val nameExcluded = terms(c.name, synonyms, negative = true)
+    private val messageExcluded = terms(c.message, synonyms, negative = true)
+    private val excludedTerms = terms(c.excluded, synonyms) + terms(c.text, synonyms, negative = true)
 
     fun matches(room: Room): Boolean {
         if (!c.isValid) return false
@@ -45,10 +48,11 @@ private class RoomMatcher(private val c: RoomSearchCriteria, synonyms: SynonymDi
         if (room.age == null) {
             if (!c.includeUnknownAge) return false
         } else if ((c.minAge != null && room.age < c.minAge) || (c.maxAge != null && room.age > c.maxAge)) return false
-        if (c.area != null && room.area != c.area) return false
+        if (c.area != null && !Prefectures.matches(room, c.area)) return false
         if (c.waitingOnly != null && !room.isFull != c.waitingOnly) return false
         if (c.publicOnly != null && room.isPublic != c.publicOnly) return false
         if (!keywordsMatch(room.name.orEmpty(), nameTerms) || !keywordsMatch(room.message, messageTerms)) return false
+        if (containsAny(room.name.orEmpty(), nameExcluded) || containsAny(room.message, messageExcluded)) return false
         // 名前と募集文をまとめた文は、共通検索欄か除外する語があるときだけそろえる。
         if (textTerms.isEmpty() && excludedTerms.isEmpty()) return true
         val allText = KeywordFolding.fold("${room.name.orEmpty()} ${room.message}")
@@ -63,12 +67,26 @@ private class RoomMatcher(private val c: RoomSearchCriteria, synonyms: SynonymDi
         return if (c.keywordMode == KeywordMode.ALL) terms.all(hit) else terms.any(hit)
     }
 
-    /** 語ごとの、同じ意味として扱う語（[KeywordFolding.fold] 済み）。 */
-    private fun terms(text: String, synonyms: SynonymDictionary): List<Set<String>> =
-        KeywordFolding.fold(text).split(SPACES).filter(String::isNotEmpty).map(synonyms::variants)
+    private fun containsAny(text: String, terms: List<Set<String>>): Boolean {
+        if (terms.isEmpty()) return false
+        val target = KeywordFolding.fold(text)
+        return terms.any { variants -> variants.any(target::contains) }
+    }
+
+    /**
+     * 語ごとの、同じ意味として扱う語（[KeywordFolding.fold] 済み）。[negative] なら先頭が「-」の語（除外）だけ、そうでなければそれ以外。
+     * 「-」はそろえると長音「ー」になるので、そろえる前の語で見分ける。「-」だけの語は使わない。
+     */
+    private fun terms(text: String, synonyms: SynonymDictionary, negative: Boolean = false): List<Set<String>> =
+        text.split(SPACES).filter(String::isNotEmpty)
+            .filter { (it.first() in MINUS) == negative }
+            .map { if (negative) it.drop(1) else it }
+            .map(KeywordFolding::fold).filter(String::isNotEmpty).map(synonyms::variants)
 
     companion object {
         private val SPACES = Regex("[\\s　]+")
+        /** 除外の印。半角・全角のハイフンマイナスと数学のマイナス。長音「ー」は含めない。 */
+        private const val MINUS = "-－−"
     }
 }
 

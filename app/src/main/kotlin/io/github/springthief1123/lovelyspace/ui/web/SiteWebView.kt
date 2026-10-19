@@ -18,7 +18,8 @@ import org.json.JSONObject
 
 /**
  * 本家のページをアプリ内で表示する。ロボット確認が必要なフォーム（入室・部屋作成）や、まだ解析していない画面に使う。
- * 確認と送信ボタンは利用者が操作する（認証を自動で通すことはしない）。
+ * 確認は利用者と本家のページが行う（認証を自動で通すことはしない）。送信ボタンは利用者が押すか、入室で設定が有効なら
+ * 本家のページがボタンを押せるようにした後で [onceScript] が押す（Yuya の決定、2026-10-18）。
  *
  * [onRoomOpened] を渡すと、サイトが `2shot.php?room_id=..&pwd=..`（入室・部屋作成の完了）へ移るところで止め、
  * アプリのチャット画面へ引き継ぐ。ラブルーム以外へのリンクは端末のブラウザで開く。
@@ -35,11 +36,17 @@ fun SiteWebView(
      */
     onLoadScript: String? = null,
     scriptPath: String? = null,
+    /**
+     * [scriptPath] のページを最初に読み終えたときだけ、[onLoadScript] の後に実行する JavaScript（入室の自動送信）。
+     * 送信して本家が同じページを返した（入室できなかった）ときに、送り直しを繰り返さないよう 1 回にする。
+     */
+    onceScript: String? = null,
     onRoomOpened: ((ChatRoomRef) -> Unit)? = null,
 ) {
     require(Uri.parse(url).isShalove()) { "Only HTTPS shalove.net pages can be opened in SiteWebView" }
     val currentOnRoomOpened = rememberUpdatedState(onRoomOpened)
     val currentScript = rememberUpdatedState(onLoadScript)
+    val currentOnceScript = rememberUpdatedState(onceScript)
     AndroidView(
         modifier = modifier,
         factory = { context ->
@@ -52,6 +59,7 @@ fun SiteWebView(
                 settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                 webViewClient = object : WebViewClient() {
                     private var done = false
+                    private var onceRan = false
 
                     /** チャット画面へ引き継いだら true。 */
                     private fun interceptRoom(uri: Uri?): Boolean {
@@ -83,10 +91,15 @@ fun SiteWebView(
                     }
 
                     override fun onPageFinished(view: WebView, url: String?) {
-                        val script = currentScript.value ?: return
                         val uri = url?.let(Uri::parse) ?: return
                         val path = scriptPath ?: return
-                        if (uri.isShalove() && uri.path?.endsWith(path) == true) view.evaluateJavascript(script, null)
+                        if (!uri.isShalove() || uri.path?.endsWith(path) != true) return
+                        currentScript.value?.let { view.evaluateJavascript(it, null) }
+                        val once = currentOnceScript.value
+                        if (once != null && !onceRan) {
+                            onceRan = true
+                            view.evaluateJavascript(once, null)
+                        }
                     }
                 }
                 loadUrl(url)
@@ -134,3 +147,27 @@ fun prefillFormScript(formName: String, values: Map<String, String?>): String {
         })();
     """.trimIndent()
 }
+
+/**
+ * フォーム [formName] の送信ボタンが押せるようになったら 1 回だけ押す JavaScript。
+ * 本家の入室画面の送信ボタン（`#submit_captcha`）は押せない状態で始まり、ロボット確認が通る・本家のスクリプトが一定時間で
+ * 押せるようにする、のどちらかで押せるようになる。その変化を待って押すだけで、確認そのものには触れない。
+ */
+fun autoSubmitScript(formName: String): String = """
+    (function() {
+      var f = document.forms[${JSONObject.quote(formName)}];
+      if (!f) return;
+      var b = f.querySelector('#submit_captcha') || f.querySelector('input[type=submit],button[type=submit]');
+      if (!b) return;
+      var pressed = false;
+      var observer = new MutationObserver(press);
+      function press() {
+        if (pressed || b.disabled) return;
+        pressed = true;
+        observer.disconnect();
+        b.click();
+      }
+      observer.observe(b, { attributes: true, attributeFilter: ['disabled'] });
+      press();
+    })();
+""".trimIndent()

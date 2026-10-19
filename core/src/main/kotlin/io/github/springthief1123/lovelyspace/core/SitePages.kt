@@ -15,6 +15,27 @@ object Prefectures {
 
     /** [code] は 1 始まり。範囲外なら null。 */
     fun name(code: Int): String? = names.getOrNull(code - 1)
+
+    /**
+     * [room] が地域 [area]（[names] の 1 つ）の部屋か。
+     * 地域タグがあればその先頭で比べる（「東京都」「大阪府」も同じ地域）。
+     * タグの無い部屋も多いので、名前・募集文に「東京住み」「大阪府」「神奈川在住」のように地域として書いてあれば含める。
+     * 人の名字や普通の言葉（「大分慣れた」）と取り違えないよう、都道府県・市・住み・在住などが続くときだけ数える。
+     */
+    fun matches(room: Room, area: String): Boolean {
+        room.area?.let { return it.trim().startsWith(area) }
+        return mention(area).containsMatchIn("${room.name.orEmpty()} ${room.message}")
+    }
+
+    private val mentions = HashMap<String, Regex>()
+
+    private fun mention(area: String): Regex = synchronized(mentions) {
+        mentions.getOrPut(area) {
+            // 「東京都」の中の「京都」は京都ではない。
+            val before = if (area == "京都") "(?<!東)" else ""
+            Regex(before + Regex.escape(area) + "(?:都|道|府|県|市|住|在住|近郊|周辺|方面|付近|エリア|民)")
+        }
+    }
 }
 
 /**

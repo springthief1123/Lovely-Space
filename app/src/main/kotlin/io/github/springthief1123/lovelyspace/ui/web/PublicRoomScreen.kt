@@ -16,6 +16,10 @@ import io.github.springthief1123.lovelyspace.ui.chat.ChatLog
 import io.github.springthief1123.lovelyspace.ui.components.ForegroundPolling
 import io.github.springthief1123.lovelyspace.ui.components.QuietTopBar
 import io.github.springthief1123.lovelyspace.ui.main.RoomMenuButton
+import io.github.springthief1123.lovelyspace.ui.main.observedRoom
+import io.github.springthief1123.lovelyspace.core.Gender
+import io.github.springthief1123.lovelyspace.core.Room
+import androidx.compose.ui.text.style.TextOverflow
 import kotlinx.coroutines.launch
 
 /** 公開ログをアプリのチャット表示で読む。閲覧用なので発言欄・入退室操作は持たない。 */
@@ -29,6 +33,9 @@ fun PublicRoomScreen(host: String, genreKey: String, roomId: Long, onBack: () ->
     LaunchedEffect(vm) { vm.open() }
     val state by vm.state.collectAsStateWithLifecycle()
     ForegroundPolling(state.automatic, vm, vm::stopRefresh) { vm.monitor { app.pacing.value.sanitized().publicRoomMs } }
+    // 部屋主の名前・待機メッセージは一覧で見たもの（満室になる前に見えた名前を補う）。本家の公開ログが読めなくても出す。
+    val observations by app.roomLists.observations.collectAsStateWithLifecycle()
+    val room = observedRoom(observations.values, genreKey, roomId, app.roomLists.lastNamed(genreKey, roomId))
     val snackbar = remember { SnackbarHostState() }
     val menuScope = rememberCoroutineScope()
     Scaffold(
@@ -44,9 +51,10 @@ fun PublicRoomScreen(host: String, genreKey: String, roomId: Long, onBack: () ->
             // 閲覧中は常に自動で読み直す。閉じられた部屋（非公開への変更など）では止まり、「再読み込み」だけを出す。
             Text("閲覧のみ（発言・入室はしません）。開いている間、新着を自動で読み込みます", style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+            room?.let { RoomSummary(it) }
             state.error?.let { message ->
                 Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
-                    Text(message, color = MaterialTheme.colorScheme.error)
+                    Text(message, color = if (state.waitingForLog) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
                     TextButton(onClick = vm::refresh, enabled = !state.loading) { Text("再読み込み") }
                 }
             }
@@ -56,5 +64,17 @@ fun PublicRoomScreen(host: String, genreKey: String, roomId: Long, onBack: () ->
                 CircularProgressIndicator()
             } else if (state.opened) ChatLog(state.lines, Modifier.weight(1f), nameOnBothSides = true)
         }
+    }
+}
+
+/** 一覧で見た部屋主の名前・性別・年齢・地域と待機メッセージ。 */
+@Composable
+private fun RoomSummary(room: Room) {
+    val profile = listOfNotNull(room.name, when (room.gender) { Gender.FEMALE -> "女性"; Gender.MALE -> "男性"; Gender.UNKNOWN -> null },
+        room.age?.let { "${it}歳" }, room.area).joinToString(" · ")
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)) {
+        if (profile.isNotEmpty()) Text("部屋主: $profile", style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (room.message.isNotBlank()) Text(room.message, style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis)
     }
 }

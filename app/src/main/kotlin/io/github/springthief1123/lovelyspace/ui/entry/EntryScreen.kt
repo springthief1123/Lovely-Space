@@ -53,6 +53,7 @@ import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
 import io.github.springthief1123.lovelyspace.core.SitePages
 import io.github.springthief1123.lovelyspace.ui.main.ProfilePresetPicker
 import io.github.springthief1123.lovelyspace.ui.web.SiteWebView
+import io.github.springthief1123.lovelyspace.ui.web.autoSubmitScript
 import io.github.springthief1123.lovelyspace.ui.web.prefillFormScript
 
 @Composable
@@ -62,13 +63,24 @@ fun EntryScreen(
     roomId: Long,
     onBack: () -> Unit,
     onEntered: (ChatRoomRef) -> Unit,
+    /** 入力済みのまま入室まで進める（順番待ちの通知・自動入室から開いたとき）。 */
+    auto: Boolean = false,
 ) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val vm: EntryViewModel = viewModel(
-        factory = viewModelFactory { initializer { EntryViewModel(app.client, app.settings, app.presets, host, genreKey, roomId) } },
+        factory = viewModelFactory { initializer { EntryViewModel(app.client, app.settings, app.presets, host, genreKey, roomId, auto) } },
     )
     val state by vm.state.collectAsStateWithLifecycle()
+    val entrySettings by app.settings.entrySettings.collectAsStateWithLifecycle(initialValue = null)
     var showBrowser by rememberSaveable { mutableStateOf(false) }
+
+    // 自動で進めているときにロボット確認が要れば、入力画面を挟まずに本家の入室画面を開く。
+    LaunchedEffect(state.openBrowser) {
+        if (state.openBrowser) {
+            showBrowser = true
+            vm.browserOpened()
+        }
+    }
 
     // 端末の戻る操作も、ツールバーの矢印と同じくロボット確認の画面から入力画面へ戻す。
     BackHandler(enabled = showBrowser) { showBrowser = false }
@@ -86,6 +98,10 @@ fun EntryScreen(
     ) { padding ->
         val modifier = Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)
         when {
+            // 自動送信を付けるかは WebView を作るときに決まるので、設定を読めるまでは本家の画面を開かない。
+            showBrowser && entrySettings == null -> Box(modifier, contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
             showBrowser -> SiteWebView(
                 url = SitePages.preEnter(host, genreKey, roomId),
                 genreKey = genreKey,
@@ -94,6 +110,8 @@ fun EntryScreen(
                     mapOf("name" to state.name.trim(), "sex" to state.sex.toString(), "years" to state.yearsValue?.toString().orEmpty()),
                 ),
                 scriptPath = "/PreEnterRoom",
+                // 自動の送信は設定が有効なときだけ。
+                onceScript = autoSubmitScript("entry").takeIf { entrySettings?.autoSubmit == true },
                 onRoomOpened = vm::onEnteredInBrowser,
                 modifier = modifier,
             )
@@ -109,13 +127,14 @@ fun EntryScreen(
                 OutlinedButton(onClick = vm::load) { Text("もう一度読み込む") }
                 OutlinedButton(onClick = onBack) { Text("一覧に戻る") }
             }
-            else -> EntryFormContent(state, vm, onOpenBrowser = { vm.saveProfile(); showBrowser = true }, modifier = modifier)
+            else -> EntryFormContent(state, vm, autoSubmit = entrySettings?.autoSubmit == true,
+                onOpenBrowser = { vm.saveProfile(); showBrowser = true }, modifier = modifier)
         }
     }
 }
 
 @Composable
-private fun EntryFormContent(state: EntryUiState, vm: EntryViewModel, onOpenBrowser: () -> Unit, modifier: Modifier) {
+private fun EntryFormContent(state: EntryUiState, vm: EntryViewModel, autoSubmit: Boolean, onOpenBrowser: () -> Unit, modifier: Modifier) {
     val form = state.form ?: return
     val profiles by vm.presets.profiles.collectAsStateWithLifecycle(initialValue = emptyList())
     Box(modifier, contentAlignment = Alignment.TopCenter) {
@@ -184,12 +203,19 @@ private fun EntryFormContent(state: EntryUiState, vm: EntryViewModel, onOpenBrow
             state.entryError?.let {
                 Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
             }
+            state.autoNote?.let {
+                Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+            }
 
             if (form.requiresCaptcha) {
                 QuietPanel {
                     Text("ロボット確認", style = MaterialTheme.typography.titleSmall)
                     Text(
-                        "この部屋に入るにはロボット確認が必要です。ラブルームの入室画面を開くので、確認のあと「入室」を押してください。名前などは入力済みになります。",
+                        if (autoSubmit) {
+                            "この部屋に入るにはロボット確認が必要です。ラブルームの入室画面を開きます。名前などは入力済みになり、確認が通るとアプリが「入室」を押します。"
+                        } else {
+                            "この部屋に入るにはロボット確認が必要です。ラブルームの入室画面を開くので、確認のあと「入室」を押してください。名前などは入力済みになります。"
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Button(

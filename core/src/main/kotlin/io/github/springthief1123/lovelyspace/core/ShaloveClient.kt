@@ -34,7 +34,7 @@ import kotlin.coroutines.resumeWithException
  * 本家サイトへのすべての通信をここに集約する。
  *
  * 規約で「通常のブラウザ利用とは異なるアクセスを繰り返す」ツールアクセスが禁止されているため、
- * - リクエスト同士の間隔を [RefreshPacing.minIntervalMs] 以上空ける（1 秒より短くはしない。利用者が押した一覧の取り直しと公開ルームの読み込みだけは空けない）
+ * - リクエスト同士の間隔を [RefreshPacing.minIntervalMs] 以上空ける（1 秒より短くはしない。利用者が押した一覧の取り直し・公開ルームの読み込み・入室は空けない）
  * - 同じ一覧 URL は [RefreshPacing.listCacheTtlMs] の間は再取得しない
  * をここで強制する。間隔は利用者が設定で選び、通信のたびに [pacing] から読む。
  *
@@ -143,7 +143,7 @@ class ShaloveClient(
      * 間隔はどちらも同じように空けるので、本家へのアクセスの頻度は変わらない。一覧の取得は間隔を待つ間に順番を手放すので、
      * 後から来た利用者の操作も、待っている一覧の取得を追い越せる。
      * [minIntervalMs] は前の通信から空ける間隔。省略すると設定の最小間隔（1 秒より短くはしない）。
-     * 0 にするのは利用者が押した読み込み（一覧の更新ボタン、公開ルームの「覗く」「再読み込み」）だけ。
+     * 0 にするのは利用者が押した読み込み（一覧の更新ボタン、公開ルームの「覗く」「再読み込み」）と入室（入室前画面・送信・入室後のチャット画面）だけ。
      */
     private suspend fun <T> gated(operation: Boolean = false, minIntervalMs: Long? = null, block: suspend () -> T): T {
         while (true) {
@@ -186,10 +186,13 @@ class ShaloveClient(
 
     // ---- 入室・チャット ----
 
-    /** 入室前画面を開く。部屋が埋まった・閉じられた場合など、フォームが無ければ null。 */
+    /**
+     * 入室前画面を開く。部屋が埋まった・閉じられた場合など、フォームが無ければ null。
+     * 入室は空き枠の取り合いなので、ブラウザでリンクを押すのと同じく前の通信から間隔を空けない（[enter]・[openChat] も同じ）。
+     */
     suspend fun openEntry(host: String, roomId: Long, genreKey: String): EntryForm? {
         val url = "https://$host/PreEnterRoom?room_id=$roomId&genre_key=$genreKey"
-        return gated(operation = true) {
+        return gated(operation = true, minIntervalMs = 0) {
             http.newCall(Request.Builder().url(url).header("User-Agent", USER_AGENT).build()).execute().use { res ->
                 if (!res.isSuccessful) throw HttpStatusException(res.code, url)
                 val bytes = res.body?.bytes() ?: ByteArray(0)
@@ -223,7 +226,7 @@ class ShaloveClient(
             }
             .build()
         val url = "https://${form.host}/PreEnterRoom"
-        return gated(operation = true) {
+        return gated(operation = true, minIntervalMs = 0) {
             val request = Request.Builder().url(url).post(body)
                 .header("User-Agent", USER_AGENT)
                 .header("Referer", "$url?room_id=${form.roomId}&genre_key=${form.genreKey}")
@@ -252,7 +255,8 @@ class ShaloveClient(
     }
 
     /** 待機画面・チャット画面を開き、初期状態（直近のログ・読み出し位置など）を得る。 */
-    suspend fun openChat(room: ChatRoomRef): ChatPage = ChatPageParser.parse(get(room.pageUrl, operation = true), room)
+    suspend fun openChat(room: ChatRoomRef): ChatPage =
+        ChatPageParser.parse(gated(operation = true, minIntervalMs = 0) { request(room.pageUrl) }, room)
 
     /**
      * 公開閲覧は入室・発言・退室を送信しない。ページ通信と同じ制限を共有する。

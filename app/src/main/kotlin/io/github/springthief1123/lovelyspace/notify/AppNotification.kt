@@ -18,8 +18,11 @@ enum class NotificationKind(val channelId: String, val label: String, val descri
 
 /** 通知をタップしたときに開く画面。 */
 sealed interface NotificationTarget {
-    /** 部屋の入室画面。 */
-    data class Room(val host: String, val genreKey: String, val roomId: Long) : NotificationTarget
+    /**
+     * 部屋の入室画面。[verified] は登録時と同じ部屋だと照合できた（順番待ちで待機メッセージが同じ）こと。
+     * 照合できた部屋だけ、通知から開いたときに入室まで進める。
+     */
+    data class Room(val host: String, val genreKey: String, val roomId: Long, val verified: Boolean = false) : NotificationTarget
     /** 進行中の部屋の会話画面（無ければ一覧）。 */
     data object ActiveChat : NotificationTarget
     data object Radar : NotificationTarget
@@ -27,14 +30,14 @@ sealed interface NotificationTarget {
 }
 
 internal fun NotificationTarget.toJson(): JSONObject = when (this) {
-    is NotificationTarget.Room -> JSONObject().put("type", "room").put("host", host).put("genre", genreKey).put("roomId", roomId)
+    is NotificationTarget.Room -> JSONObject().put("type", "room").put("host", host).put("genre", genreKey).put("roomId", roomId).put("verified", verified)
     NotificationTarget.ActiveChat -> JSONObject().put("type", "chat")
     NotificationTarget.Radar -> JSONObject().put("type", "radar")
     NotificationTarget.Rooms -> JSONObject().put("type", "rooms")
 }
 
 internal fun notificationTarget(o: JSONObject): NotificationTarget = when (val type = o.getString("type")) {
-    "room" -> NotificationTarget.Room(o.getString("host"), o.getString("genre"), o.getLong("roomId"))
+    "room" -> NotificationTarget.Room(o.getString("host"), o.getString("genre"), o.getLong("roomId"), o.optBoolean("verified"))
     "chat" -> NotificationTarget.ActiveChat
     "radar" -> NotificationTarget.Radar
     "rooms" -> NotificationTarget.Rooms
