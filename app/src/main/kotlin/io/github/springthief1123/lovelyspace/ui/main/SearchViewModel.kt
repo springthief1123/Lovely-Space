@@ -188,7 +188,8 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
     }
 
     fun restoreCriteria(draft: SearchDraft) {
-        _state.update { it.copy(criteria = draft.criteria, minAgeInput = draft.minAgeInput, maxAgeInput = draft.maxAgeInput,
+        // 並び順はリセットしていないので、リセットの後に選び直した並び順を元に戻さない。
+        _state.update { it.copy(criteria = draft.criteria.copy(sort = it.criteria.sort), minAgeInput = draft.minAgeInput, maxAgeInput = draft.maxAgeInput,
             keywordScope = draft.keywordScope) }
     }
     fun minAge(value: String) {

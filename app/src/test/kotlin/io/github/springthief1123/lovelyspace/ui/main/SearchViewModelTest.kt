@@ -91,8 +91,13 @@ class SearchViewModelTest {
             // 並び順だけなら、リセットするものは無い。
             assertNull(vm.resetCriteria())
             vm.criteria(RoomSearchCriteria(gender = Gender.FEMALE, sort = RoomSort.AGE))
-            assertNotNull(vm.resetCriteria())
+            val draft = vm.resetCriteria()
+            assertNotNull(draft)
             assertEquals(RoomSearchCriteria(sort = RoomSort.AGE), vm.state.value.criteria)
+            // リセットの後に選んだ並び順は、「元に戻す」でも変わらない。
+            vm.criteria(vm.state.value.criteria.copy(sort = RoomSort.NAME))
+            vm.restoreCriteria(draft!!)
+            assertEquals(RoomSearchCriteria(gender = Gender.FEMALE, sort = RoomSort.NAME), vm.state.value.criteria)
             vm.stopRefresh()
         } finally { Dispatchers.resetMain() }
     }
