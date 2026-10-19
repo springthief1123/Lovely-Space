@@ -241,6 +241,11 @@ fun AppNavHost() {
                     onEntered = { room ->
                         nav.navigateToChat(app.activeRooms.register(room), Routes.mainOrigin(args.getString("origin")))
                     },
+                    // 入室画面を公開ルームに置き換える。戻ると一覧に戻る。
+                    onPeek = {
+                        nav.popBackStack()
+                        nav.navigate(Routes.public(args.getString("host")!!, args.getString("genre")!!, args.getLong("roomId"))) { launchSingleTop = true }
+                    },
                 )
             }
             composable(Routes.CREATE, arguments = listOf(navArgument("genre") { type = NavType.StringType }, originArg)) { entry ->

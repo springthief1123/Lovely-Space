@@ -63,6 +63,8 @@ fun EntryScreen(
     roomId: Long,
     onBack: () -> Unit,
     onEntered: (ChatRoomRef) -> Unit,
+    /** 開いたときには満室の公開ルームになっていた部屋を覗く。 */
+    onPeek: () -> Unit = {},
     /** 入力済みのまま入室まで進める（順番待ちの通知・自動入室から開いたとき）。 */
     auto: Boolean = false,
 ) {
@@ -87,6 +89,9 @@ fun EntryScreen(
 
     LaunchedEffect(state.entered) {
         state.entered?.let(onEntered)
+    }
+    LaunchedEffect(state.becamePublic) {
+        if (state.becamePublic) onPeek()
     }
 
     Scaffold(
@@ -115,7 +120,8 @@ fun EntryScreen(
                 onRoomOpened = vm::onEnteredInBrowser,
                 modifier = modifier,
             )
-            state.isLoading && state.form == null -> Box(modifier, contentAlignment = Alignment.Center) {
+            // 公開ルームへ移るまでは、入室できない旨を出さずに読み込み中のままにする。
+            (state.isLoading && state.form == null) || state.becamePublic -> Box(modifier, contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
             state.form == null -> Column(
