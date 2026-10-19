@@ -27,6 +27,9 @@ data class NgWordSet(
             // 「写真」「動画」だけだと「写真交換なし」のような普通の部屋も外れるので入れない。
             NgWordSet("builtin-media", "写真・動画目的", listOf("写真販売", "動画販売", "画像販売", "サンプル", "自撮り販売"),
                 builtInKey = "media"),
+            // 「NH」は英字 2 字なので、名前や募集文に「nh」を含む部屋も外れる。
+            NgWordSet("builtin-newhalf", "ニューハーフ系", listOf("ニューハーフ", "NH", "女装", "男の娘"),
+                builtInKey = "newhalf"),
         )
 
         fun builtIn(key: String): NgWordSet? = BUILT_IN.firstOrNull { it.builtInKey == key }
