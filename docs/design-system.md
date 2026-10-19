@@ -58,7 +58,7 @@
 | `control` | 12dp | `extraSmall`（既定 4dp）、`small`（既定 8dp） | `OutlinedTextField`、`DropdownMenu`、`Snackbar`、`FilterChip` / `AssistChip` | 設定のアイコン枠、チャットの通知 |
 | `panel` | 16dp | `medium`（既定 12dp） | `Card` | 部屋カード、Quiet の一覧パネル |
 | `menu` | 20dp | `large`（既定 16dp） | FAB・ドロワー（現状未使用） | `RoomActionMenu` |
-| `sheet` | 24dp | `extraLarge`（既定 28dp） | `AlertDialog`、`ModalBottomSheet` の上端 | 検索パネル・検索ポップオーバー |
+| `sheet` | 24dp | `extraLarge`（既定 28dp） | `AlertDialog`、`ModalBottomSheet` の上端 | 検索シート（トップバーにつながる下側だけ） |
 | `bottomGlass` | 上 22dp | なし | なし | Glass の下部ナビ |
 
 - ボタン、`Switch`、`SegmentedButton`、バッジは Material 3 では Shapes ではなく全丸なので、この設定では変わらない。全丸は Quiet Rose でも維持する。
@@ -112,7 +112,7 @@
 - `ui/components/QuietMenu.kt`: 汎用メニューの `QuietDropdownMenu` / `QuietExposedMenu` / `QuietMenuRow`（2.3）。新しいメニューはこれを使い、標準の `DropdownMenu` / `DropdownMenuItem` を画面に直接書かない。
 - `ui/rooms/RoomActionMenu.kt`: 部屋名・状態・アイコン付き操作を備えた独自メニュー。**部屋固有のヘッダーや配置を一般用途へ無理に転用せず**、必要ならパネルの外観と操作行だけを共通化する。
 - `ui/components/Glass.kt` と `ui/shell/LovelyAppShell.kt`: メインシェルの Glass UI。
-- `ui/main/SearchPanel.kt`: カスタム検索パネル／ポップオーバー。内部の標準チップや入力欄は今後の統一対象。
+- `ui/main/SearchPanel.kt`: トップバーの下から降りる検索シート（`SearchSheet`、タブは Material の TabRow を使わず下線の小さなタブ）と、一覧の上の並び順（`SortRow`）。内部の標準チップや入力欄は今後の統一対象。
 - `ui/settings/SettingsScreen.kt`: 設定画面のカードと見出し。シェル外画面とのヘッダー差分を比較する。
 
 新しい共有コンポーネントの名前は原則 `Lovely...` または既存の `Quiet...` に合わせ、用途、必須パラメーター、選択・無効・エラー状態、プレビュー／テストの方針を明らかにする。名前だけを変えた標準 Material の薄いラッパーではなく、外観・振る舞いの一貫性を担保する。

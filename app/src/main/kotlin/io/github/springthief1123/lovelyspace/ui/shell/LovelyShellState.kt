@@ -5,10 +5,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.compose.ui.unit.IntRect
 
-/** トップバーに出す検索ボタン。[activeCount] は指定中の条件の数で、バッジに出す。[onClick] には押したボタンの画面上の位置を渡す。 */
-data class ShellSearchButton(val activeCount: Int, val onClick: (IntRect) -> Unit)
+/** トップバーに出す検索ボタン。[activeCount] は指定中の条件の数で、バッジに出す。[open] は検索シートを開いているか。押すたびに開け閉めする。 */
+data class ShellSearchButton(val activeCount: Int, val open: Boolean, val onClick: () -> Unit)
 
 /** 浮かせた「トップへ戻る」。一覧の上に新着が増えていれば [newCount] にその数を入れ、「新着 N件」と出す。 */
 data class ShellScrollToTop(val newCount: Int, val onClick: () -> Unit)
