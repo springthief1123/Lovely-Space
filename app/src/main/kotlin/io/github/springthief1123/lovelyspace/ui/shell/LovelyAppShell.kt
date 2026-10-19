@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.NotificationsActive
@@ -28,11 +29,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.layout.boundsInWindow
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.unit.IntRect
-import androidx.compose.ui.unit.roundToIntRect
 import io.github.springthief1123.lovelyspace.ui.theme.LocalLovelyBottomContentInset
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
@@ -136,14 +133,20 @@ private fun LovelyTopBar(onOpenNotificationSettings: () -> Unit, searchButton: S
             Text("Lovely Space", modifier = Modifier.weight(1f).padding(start = 10.dp),
                 style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.Serif),
                 color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            // 検索パネルが一覧の上に隠れているときだけ、ベルの左隣に検索ボタンを出す。
-            var searchBounds by remember { mutableStateOf(IntRect.Zero) }
+            // 「見つける」を開いている間はいつも、ベルの左隣に検索ボタンを出す。押すと検索シートがこのバーの下から降りてくる。
             AnimatedVisibility(searchButton != null, enter = fadeIn() + scaleIn(initialScale = 0.8f), exit = fadeOut() + scaleOut(targetScale = 0.8f)) {
                 val active = searchButton?.activeCount ?: 0
-                IconButton(onClick = { searchButton?.onClick?.invoke(searchBounds) },
-                    modifier = Modifier.onGloballyPositioned { searchBounds = it.boundsInWindow().roundToIntRect() }) {
-                    BadgedBox(badge = { if (active > 0) Badge { Text("$active") } }) {
-                        Icon(Icons.Outlined.Search, contentDescription = if (active > 0) "検索（条件${active}件）" else "検索")
+                val open = searchButton?.open == true
+                IconButton(onClick = { searchButton?.onClick?.invoke() },
+                    colors = if (open) IconButtonDefaults.iconButtonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.primary) else IconButtonDefaults.iconButtonColors()) {
+                    BadgedBox(badge = { if (active > 0 && !open) Badge { Text("$active") } }) {
+                        Icon(if (open) Icons.Outlined.Close else Icons.Outlined.Search,
+                            contentDescription = when {
+                                open -> "検索を閉じる"
+                                active > 0 -> "検索（条件${active}件）"
+                                else -> "検索"
+                            })
                     }
                 }
             }

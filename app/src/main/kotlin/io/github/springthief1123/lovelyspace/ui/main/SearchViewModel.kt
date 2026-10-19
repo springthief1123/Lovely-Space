@@ -180,8 +180,10 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
     fun resetCriteria(): SearchDraft? {
         val s = _state.value
         val draft = SearchDraft(s.criteria, s.minAgeInput, s.maxAgeInput, s.keywordScope)
-        if (draft == SearchDraft(RoomSearchCriteria(), "", "")) return null
-        _state.update { it.copy(criteria = RoomSearchCriteria(), minAgeInput = "", maxAgeInput = "", keywordScope = KeywordScope.ALL) }
+        // 並び順は一覧の上で選ぶ別の操作なので、条件のリセットでは変えない。
+        val cleared = RoomSearchCriteria(sort = s.criteria.sort)
+        if (draft == SearchDraft(cleared, "", "")) return null
+        _state.update { it.copy(criteria = cleared, minAgeInput = "", maxAgeInput = "", keywordScope = KeywordScope.ALL) }
         return draft
     }
 

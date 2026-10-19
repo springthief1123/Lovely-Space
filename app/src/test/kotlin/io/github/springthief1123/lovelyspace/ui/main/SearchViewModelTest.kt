@@ -82,6 +82,21 @@ class SearchViewModelTest {
         } finally { Dispatchers.resetMain() }
     }
 
+    @Test fun resettingCriteriaKeepsTheSortOrder() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val vm = SearchViewModel(RoomListSource { query, _ -> page(query.genre.key, 1, listOf(room(1))) })
+            vm.refresh(); runCurrent()
+            vm.criteria(RoomSearchCriteria(sort = RoomSort.AGE))
+            // 並び順だけなら、リセットするものは無い。
+            assertNull(vm.resetCriteria())
+            vm.criteria(RoomSearchCriteria(gender = Gender.FEMALE, sort = RoomSort.AGE))
+            assertNotNull(vm.resetCriteria())
+            assertEquals(RoomSearchCriteria(sort = RoomSort.AGE), vm.state.value.criteria)
+            vm.stopRefresh()
+        } finally { Dispatchers.resetMain() }
+    }
+
     @Test fun invalidAgeInputOnlyDropsTheAgeConditionAndKeepsTheList() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {
