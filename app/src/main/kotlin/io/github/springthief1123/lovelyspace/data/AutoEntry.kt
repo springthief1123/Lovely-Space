@@ -85,6 +85,17 @@ class AutoEntryController(
         request(room, roomIdentity(room), candidateTarget(rule.id))
     }
 
+    /**
+     * ピン [key] の部屋が空いた（立て直した部屋が待機中で現れたときも）とき。依頼を出したら true。
+     * 順番待ちと同じく、待機メッセージがピンしたとき（[registered]）と同じ部屋に限る。
+     * [always] は「自動で入室」にしたピン（[pinTarget] で数える）。false なら設定の自動入室が有効な間だけ。
+     */
+    suspend fun offerPin(key: String, registered: Room, opened: Room, always: Boolean): Boolean = mutex.withLock {
+        if (registered.message.isBlank() || registered.message != opened.message) return@withLock false
+        if (opened.status == RoomStatus.FULL || opened.action != RoomAction.ENTER) return@withLock false
+        request(opened, roomIdentity(opened), if (always) pinTarget(key) else null)
+    }
+
     /** [room] の入室画面を開く依頼。[target] は必ず入りたい部屋としてオンにしたもの（null なら設定の自動入室で数える）。 */
     private suspend fun request(room: Room, key: String, target: String?): Boolean {
         val host = Genres[room.genreKey]?.host ?: return false
@@ -119,6 +130,7 @@ class AutoEntryController(
 
         fun waitlistTarget(key: String) = "waitlist/$key"
         fun candidateTarget(id: String) = "candidate/$id"
+        fun pinTarget(key: String) = "pin/$key"
 
         /** [startedAt] に有効にした自動入室が [at] の時点でまだ動いているか。0 は無効。 */
         fun active(startedAt: Long, at: Long): Boolean = startedAt > 0 && at - startedAt in 0 until DURATION_MS

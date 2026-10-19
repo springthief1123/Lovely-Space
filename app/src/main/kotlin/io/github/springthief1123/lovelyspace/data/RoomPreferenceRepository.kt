@@ -10,7 +10,10 @@ import io.github.springthief1123.lovelyspace.core.RoomQuery
 import io.github.springthief1123.lovelyspace.core.RoomStatus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlin.time.Duration.Companion.seconds
 
 fun RoomPreference.toRoom(): Room = Room(
@@ -108,11 +111,16 @@ interface RoomPreferenceStore {
     suspend fun observe(rooms: List<Room>)
     /** 保存・非表示の部屋が閉じて立て直されていれば（[RoomPageWindow.rebuildOf]）、記録を新しい部屋へ移す。[window] はジャンル全体の一覧。 */
     suspend fun followRebuilds(window: RoomPageWindow) {}
+    /** 保存した部屋 [from] を、利用者が同じ人と答えた新しい部屋 [to] へ移す（似た部屋の立て直し）。 */
+    suspend fun moveFavorite(from: RoomPreference, to: Room) {}
 }
 
 class RoomPreferenceRepository(private val db: PresetDatabase) : RoomPreferenceStore {
     private val dao = db.roomPreferences()
     override val preferences = dao.preferences()
+    private val _moved = MutableSharedFlow<Pair<String, Room>>(extraBufferCapacity = 64)
+    /** 記録が立て直した部屋へ移ったとき（元の「サーバー/ID」と新しい部屋）。ピンの見張りの記録を引き継ぐのに使う。 */
+    val moved: SharedFlow<Pair<String, Room>> = _moved.asSharedFlow()
 
     override suspend fun setFavorite(room: Room, enabled: Boolean) {
         if (!enabled) return clearFavorite(roomHost(room), room.id)
@@ -165,7 +173,9 @@ class RoomPreferenceRepository(private val db: PresetDatabase) : RoomPreferenceS
     }
 
     override suspend fun followRebuilds(window: RoomPageWindow) {
+        val moves = mutableListOf<Pair<String, Room>>()
         db.withTransaction {
+            moves.clear()
             val all = dao.all()
             val claimed = all.mapTo(HashSet()) { "${it.host}/${it.roomId}" }
             all.filterNot { it.stale }.forEach { existing ->
@@ -176,17 +186,36 @@ class RoomPreferenceRepository(private val db: PresetDatabase) : RoomPreferenceS
                     gender = existing.identityGender?.let(Gender::valueOf) ?: snapshot.gender, age = existing.identityAge ?: snapshot.age)
                 val rebuilt = window.rebuildOf(old, claimed - key) ?: return@forEach
                 dao.delete(existing.host, existing.roomId)
-                dao.put(existing.refreshed(rebuilt).copy(
-                    roomId = rebuilt.id,
-                    identityName = rebuilt.name ?: existing.identityName,
-                    identityGender = rebuilt.gender.takeUnless { it == Gender.UNKNOWN }?.name ?: existing.identityGender,
-                    identityAge = rebuilt.age ?: existing.identityAge,
-                ))
+                dao.put(existing.movedTo(rebuilt))
                 claimed -= key
                 claimed += "${existing.host}/${rebuilt.id}"
+                if (existing.favorite) moves += key to rebuilt
             }
         }
+        moves.forEach { _moved.emit(it) }
     }
+
+    override suspend fun moveFavorite(from: RoomPreference, to: Room) {
+        if (Genres[to.genreKey]?.host != from.host) return
+        val key = "${from.host}/${from.roomId}"
+        db.withTransaction {
+            val current = dao.preference(from.host, from.roomId)?.takeIf { it.favorite } ?: return@withTransaction false
+            val existing = dao.preference(from.host, to.id)
+            if (current.hidden) dao.clearFavorite(from.host, from.roomId).also { dao.deleteUnused(from.host, from.roomId) }
+            else dao.delete(from.host, from.roomId)
+            // 似た部屋は名前が違うことがあるので、照合用の名前は新しい部屋のものにする。
+            dao.put(current.movedTo(to, keepIdentity = false).copy(favorite = true, hidden = existing?.takeIf { it.sameIdentity(to) }?.hidden == true))
+            true
+        }.let { if (it) _moved.emit(key to to) }
+    }
+
+    private fun RoomPreference.movedTo(room: Room, keepIdentity: Boolean = true): RoomPreference = refreshed(room).copy(
+        roomId = room.id,
+        stale = false,
+        identityName = room.name ?: identityName.takeIf { keepIdentity },
+        identityGender = room.gender.takeUnless { it == Gender.UNKNOWN }?.name ?: identityGender.takeIf { keepIdentity },
+        identityAge = room.age ?: identityAge.takeIf { keepIdentity },
+    )
 
     /**
      * 一覧を読むたびに（どの画面・背景の確認が読んだページでも）、そのジャンルの全体の一覧で [followRebuilds] を行う。

@@ -16,6 +16,16 @@ import io.github.springthief1123.lovelyspace.notify.AppNotifier
 import io.github.springthief1123.lovelyspace.notify.NotificationInbox
 import io.github.springthief1123.lovelyspace.notify.NotificationInboxStore
 import io.github.springthief1123.lovelyspace.notify.toOpenedNotification
+import io.github.springthief1123.lovelyspace.notify.toNotification
+import io.github.springthief1123.lovelyspace.data.PinAlert
+import io.github.springthief1123.lovelyspace.data.PinEvent
+import io.github.springthief1123.lovelyspace.data.PinRepository
+import io.github.springthief1123.lovelyspace.data.PinStore
+import io.github.springthief1123.lovelyspace.data.PinView
+import io.github.springthief1123.lovelyspace.data.WaitlistEntry
+import io.github.springthief1123.lovelyspace.data.WaitlistRepository
+import io.github.springthief1123.lovelyspace.core.Genres
+import io.github.springthief1123.lovelyspace.core.roomIdentity
 import io.github.springthief1123.lovelyspace.ui.chat.ActiveRooms
 import io.github.springthief1123.lovelyspace.background.BackgroundSync
 import kotlinx.coroutines.CoroutineScope
@@ -25,6 +35,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 
@@ -39,6 +50,14 @@ class LovelySpaceApp : Application() {
         // レーダー・順番待ちが見ているジャンルの 1 ページ目を、新着の確認で読み直す（見つける画面は画面側で登録する）。
         appScope.launch { radar.hotGenres.distinctUntilChanged().collect { hotPages.want("radar", it) } }
         appScope.launch { waitlist.genres.distinctUntilChanged().collect { hotPages.want("waitlist", it) } }
+        appScope.launch { pins.genres.distinctUntilChanged().collect { hotPages.want("pins", it) } }
+        // 以前の順番待ち・追跡をピンへ移してから、満室のピンの空きを順番待ちの確認で早く追う。
+        appScope.launch {
+            try { migrateToPins() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { }
+            combine(pins.fastWatch, waitlist.entries) { fast, entries -> fast to entries }.conflate().collect { (fast, entries) ->
+                try { syncPinWatch(fast, entries) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { }
+            }
+        }
         // 前回の実行が空きの通知を出す前に止まっていれば、起動時に出し直す。
         appScope.launch { waitlist.deliverPending() }
         // 一覧を読むたびに、保存・非表示の部屋が立て直されていれば新しい部屋へ移す。
@@ -59,6 +78,41 @@ class LovelySpaceApp : Application() {
         }
     }
 
+    /** 満室のピン（知らせるもの）を、順番待ちの確認（ピン用の登録）で追う。ピンでなくなった・空いた登録は外す。 */
+    private suspend fun syncPinWatch(fast: List<PinView>, entries: List<WaitlistEntry>) {
+        val at = System.currentTimeMillis()
+        val wanted = fast.take(WaitlistRepository.MAX_ACTIVE).associateBy { it.key }
+        entries.filter { it.forPin && (it.key !in wanted || !it.active(at)) }.forEach { waitlist.remove(it.key) }
+        wanted.values.filter { pin -> entries.none { it.key == pin.key && it.forPin && it.active(at) } }.forEach { pin ->
+            val genre = io.github.springthief1123.lovelyspace.core.Genres[pin.room.genreKey] ?: return@forEach
+            // 同時に待てる数を超えたら、その分は一覧の巡回と新着の確認だけで追う。
+            runCatching { waitlist.register(pin.room, pin.page?.let { io.github.springthief1123.lovelyspace.core.RoomQuery(genre, page = it) }, forPin = true) }
+        }
+    }
+
+    /**
+     * 一度だけ、以前の順番待ち（待っているもの）とレーダーの追跡をピンへ移す。順番待ちは「空いたら知らせる」
+     * （1 件ずつ自動入室をオンにしていたものは「自動で入室」）、追跡は知らせ方なしでメモを引き継ぐ。
+     */
+    private suspend fun migrateToPins() {
+        val store = pinStore
+        if (store.migrated) return
+        val at = System.currentTimeMillis()
+        waitlist.entries.value.filter { !it.forPin && it.active(at) }.forEach { entry ->
+            pins.pin(entry.room, if (entry.autoEnter) PinAlert.AUTO else PinAlert.NOTIFY)
+            waitlist.remove(entry.key)
+        }
+        val state = radar.state.first { it.loaded || it.error != null }
+        if (!state.loaded) return
+        state.targets.forEach { target ->
+            val room = target.identity
+            if (Genres[room.genreKey] == null) return@forEach
+            pins.pin(room)
+            if (target.note.isNotBlank()) pins.setMemo(roomIdentity(room), target.note)
+            radar.removeTarget(target.room)
+        }
+        store.migrated = true
+    }
 
     /** 通信の間隔の設定（設定画面で選ぶ）。読み込むまでは既定値。 */
     val pacing = MutableStateFlow(RefreshPacing())
@@ -113,11 +167,28 @@ class LovelySpaceApp : Application() {
             io.github.springthief1123.lovelyspace.data.WaitlistStore(getSharedPreferences(io.github.springthief1123.lovelyspace.data.WaitlistStore.PREFS, MODE_PRIVATE)),
             roomLists,
             onOpened = { entry ->
-                // 自動入室は通知より先に始める。通知の失敗で入室を遅らせない。
-                try { autoEntry.offer(entry) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { }
-                entry.toOpenedNotification()?.let { notifier.post(it) }
+                // ピン用の登録は、ピンの見張りが空きを知らせる。
+                if (!entry.forPin) {
+                    // 自動入室は通知より先に始める。通知の失敗で入室を遅らせない。
+                    try { autoEntry.offer(entry) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { }
+                    entry.toOpenedNotification()?.let { notifier.post(it) }
+                }
             },
         )
+    }
+    private val pinStore: PinStore by lazy { PinStore(getSharedPreferences(PinStore.PREFS, MODE_PRIVATE)) }
+    /** ピン。保存した部屋を見張り、空いた・似た部屋が建ったら（知らせ方に従って）知らせ、自動で入室画面を開く。 */
+    val pins: PinRepository by lazy {
+        PinRepository(pinStore, roomPreferences, roomLists,
+            onEvent = { event ->
+                // 自動入室は通知より先に始める。通知の失敗で入室を遅らせない。
+                if (event is PinEvent.Opened) {
+                    try { autoEntry.offerPin(event.pin.key, event.registered, event.pin.room, event.autoEnter) }
+                    catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { }
+                }
+                event.toNotification()?.let { notifier.post(it) }
+            },
+            moved = roomPreferences.moved)
     }
     val notifier: AppNotifier by lazy { AppNotifier(this, notificationInbox) { settings.notificationPreview.first() } }
 

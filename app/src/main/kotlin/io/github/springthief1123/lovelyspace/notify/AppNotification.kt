@@ -11,7 +11,7 @@ import org.json.JSONObject
 enum class NotificationKind(val channelId: String, val label: String, val description: String, val logged: Boolean = true, val delivered: Boolean = true) {
     RADAR_MATCH("radar_match", "巡回の一致", "レーダーの巡回で条件に合う部屋が見つかったとき"),
     ROOM_ENTRY("room_entry", "入室者あり", "自分の部屋に相手が入ったとき", delivered = false),
-    WAITLIST("waitlist", "順番待ち", "満室だった部屋に空きが出たとき"),
+    WAITLIST("waitlist", "ピン", "ピンした部屋が空いたとき・似た部屋が建ったとき"),
     /** 背景で巡回・待機している間の表示。状態を示すだけなので、お知らせの履歴には残さない。 */
     ONGOING("ongoing", "常駐", "背景で巡回・待機している間の表示", logged = false),
 }
