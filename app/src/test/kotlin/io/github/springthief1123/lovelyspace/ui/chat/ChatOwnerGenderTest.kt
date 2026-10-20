@@ -10,10 +10,13 @@ class ChatOwnerGenderTest {
     private fun line(id: Long, mine: Boolean, female: Boolean = false, speaker: String? = "合成$id") =
         UiLine(id, ChatLine(speaker = speaker, speakerIsFemale = female, text = "合成の発言", time = null), isMine = mine)
 
-    @Test fun listedGenderWins() {
-        val lines = listOf(line(1, mine = false, female = true))
-        assertEquals(Gender.MALE, ownerGender(lines, isOwnerLine = { !it.isMine }, listed = Gender.MALE))
+    @Test fun ownerLinesWinOverListedGender() {
+        // 部屋の ID は使い回されるので、一覧の古い性別よりいまの発言を優先する。
+        assertEquals(Gender.FEMALE, ownerGender(listOf(line(1, mine = false, female = true)), isOwnerLine = { !it.isMine }, listed = Gender.MALE))
+        assertEquals(Gender.UNKNOWN, ownerGender(listOf(line(1, mine = false)), isOwnerLine = { !it.isMine }, listed = Gender.FEMALE))
+        // 部屋主がまだ発言していなければ一覧の性別を使う。
         assertEquals(Gender.FEMALE, ownerGender(emptyList(), isOwnerLine = { it.isMine }, listed = Gender.FEMALE))
+        assertEquals(Gender.FEMALE, ownerGender(listOf(line(1, mine = false)), isOwnerLine = { it.isMine }, listed = Gender.FEMALE))
     }
 
     @Test fun femaleNameOnOwnerSideMeansFemaleOwner() {

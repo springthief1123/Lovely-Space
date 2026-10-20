@@ -101,11 +101,12 @@ private val ReadingSaver = mapSaver(
 @Composable
 fun ChatScreen(room: ChatRoomRef, vm: ChatController, onBrowse: () -> Unit, onExit: () -> Unit, onEnded: () -> Unit = {}) {
     val state by vm.state.collectAsStateWithLifecycle()
-    // 吹き出しの色に使う部屋主の性別。一覧で見た性別を優先し、なければ部屋主側の発言から読む。
+    // 吹き出しの色に使う部屋主の性別。部屋主の発言から読み、まだ発言がなければ一覧で見た性別を使う。
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val observations by app.roomLists.observations.collectAsStateWithLifecycle()
-    val listedGender = observedRoom(observations.values, room.genreKey, room.roomId,
-        app.roomLists.lastNamed(room.genreKey, room.roomId))?.gender
+    val listed = observedRoom(observations.values, room.genreKey, room.roomId, app.roomLists.lastNamed(room.genreKey, room.roomId))
+    // 作った直後は、一覧に同じ ID の以前の部屋しか無いことがある。作成者は自分の名前と一致する部屋だけを使う。
+    val listedGender = listed?.takeIf { !state.isOwner || (it.name != null && it.name == state.myName?.trim()) }?.gender
     // 作成者なら自分の発言、入室者なら相手の発言が部屋主のもの。
     val isOwnerLine: (UiLine) -> Boolean = { it.isMine == state.isOwner }
     // 見えている間は新着を「会話に戻る」の帯に数えない。
