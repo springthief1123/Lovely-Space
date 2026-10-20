@@ -183,7 +183,13 @@ class RoomPreferenceRepository(private val db: PresetDatabase) : RoomPreferenceS
         db.withTransaction {
             rooms.forEach { room ->
                 val existing = dao.preference(roomHost(room), room.id) ?: return@forEach
-                val next = if (existing.sameIdentity(room)) existing.refreshed(room) else existing.copy(stale = true)
+                val next = when {
+                    !existing.sameIdentity(room) -> existing.copy(stale = true)
+                    // 名前の記録がない（満室でピンした）部屋に、待機メッセージの違う名前付きの部屋が載った。番号の使い回しかもしれないので、
+                    // 記録の待機メッセージを書き換えない（書き換えると、次に見たときにその人を部屋主として覚えてしまう）。
+                    existing.identityName == null && room.name != null && room.message != existing.snapshotMessage -> existing
+                    else -> existing.refreshed(room)
+                }
                 if (next != existing) dao.put(next)
             }
         }

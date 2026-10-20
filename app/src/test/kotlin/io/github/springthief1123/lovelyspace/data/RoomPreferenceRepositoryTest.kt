@@ -238,6 +238,11 @@ class RoomPreferenceRepositoryTest {
             // 番号を使い回した別の人の部屋（待機メッセージが違う）からは覚えない。
             repo.rememberIdentity(repo.preferences.first().single(), waiting.copy(name = "別の人", message = "別の募集文"))
             assertNull(repo.preferences.first().single().identityName)
+            // 一覧に載っても、2 回見ても覚えず、記録の待機メッセージも書き換えない。
+            repo.observe(listOf(waiting.copy(name = "別の人", message = "別の募集文")))
+            repo.observe(listOf(waiting.copy(name = "別の人", message = "別の募集文")))
+            assertNull(repo.preferences.first().single().identityName)
+            assertEquals("合成の満室の募集文", repo.preferences.first().single().snapshotMessage)
             // 待機中の姿を一覧で見ると、照合用の値に残る。満室に戻っても消えない。
             repo.observe(listOf(waiting))
             repo.observe(listOf(full))
