@@ -631,22 +631,14 @@ private fun RoomCardSurface(
         }
     }
     val hasMenu = menuItems.isNotEmpty()
-    val lovely = LocalLovelyColors.current
     val messageMaxLines = LocalRoomMessageMaxLines.current
-    val statusColor = when (room.status) { RoomStatus.WAITING -> lovely.waiting; RoomStatus.PUBLIC_WAITING -> lovely.publicWaiting; RoomStatus.FULL -> lovely.full }
-    val (genderColor, genderContainer) = when (room.gender) {
-        Gender.FEMALE -> lovely.female to lovely.femaleContainer
-        Gender.MALE -> lovely.male to lovely.maleContainer
-        Gender.UNKNOWN -> MaterialTheme.colorScheme.onSurfaceVariant to MaterialTheme.colorScheme.surfaceContainerHigh
-    }
+    val statusColor = roomStatusColor(room.status)
     val name = room.name?.trim()?.takeIf { it.isNotEmpty() }
     // 部屋の操作は長押しメニューとスワイプに集約し、TalkBack ではカスタムアクションとして出す。
     val a11yActions = menuItems.filter { it.enabled }.map { item -> CustomAccessibilityAction(item.label) { item.onClick(); true } }
     // 満室の部屋は面を背景と同じ色に沈め、空き枠のある部屋だけが浮いて見えるようにする。
     // 背後のスワイプの面が透けないよう、透明にはせず背景色で塗る。性別の色は満室でも残す。
-    Surface(shape = RoundedCornerShape(16.dp),
-        color = if (room.isFull) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.surface, tonalElevation = 0.dp,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.fillMaxWidth()) {
+    RoomCardPanel(full = room.isFull) {
         Box {
             Column(
                 Modifier
@@ -668,30 +660,8 @@ private fun RoomCardSurface(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 // ピンの印と重ならないよう、見出しの行はその幅だけ内側で終える。
-                Row(Modifier.padding(end = if (isFavorite) SAVED_RIBBON_CLEARANCE else 0.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(34.dp).clip(CircleShape).background(genderContainer), contentAlignment = Alignment.Center) {
-                        if (name != null) {
-                            Text(name.substring(0, name.offsetByCodePoints(0, 1)), style = MaterialTheme.typography.titleSmall, color = genderColor)
-                        } else {
-                            GenderIcon(room.gender, genderColor, Modifier.size(18.dp))
-                        }
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(name ?: "会話中", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
-                                color = if (name == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                        }
-                        ProfileLine(room, genderColor)
-                    }
-                    room.elapsed?.let { elapsed ->
-                        Text(cardElapsedLabel(room.status, elapsed), style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
-                            modifier = Modifier.align(Alignment.Top).padding(start = 8.dp))
-                    }
-                }
+                RoomCardHeading(room, placeholder = "会話中", elapsed = room.elapsed,
+                    modifier = Modifier.padding(end = if (isFavorite) SAVED_RIBBON_CLEARANCE else 0.dp))
                 if (room.message.isNotBlank()) {
                     Text(room.message, style = MaterialTheme.typography.bodyMedium,
                         color = if (room.isFull) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
@@ -738,6 +708,62 @@ private fun RoomCardSurface(
             }
         }
     }
+}
+
+/**
+ * 部屋カードの面。満室の部屋は面を背景と同じ色に沈め、空き枠のある部屋だけが浮いて見えるようにする。
+ * 背後のスワイプの面が透けないよう、透明にはせず背景色で塗る。見つける画面のカードとレーダーのピンで共通。
+ */
+@Composable
+internal fun RoomCardPanel(full: Boolean, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    Surface(shape = RoundedCornerShape(16.dp),
+        color = if (full) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.surface, tonalElevation = 0.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = modifier.fillMaxWidth(), content = content)
+}
+
+/**
+ * 部屋カードの見出し。性別の色の丸に名前の頭文字、名前とプロフィール、右上に経過時間（[elapsed]）。
+ * 名前が見えない部屋は [placeholder] を薄く出す。性別の色は満室でも残す。
+ */
+@Composable
+internal fun RoomCardHeading(room: Room, placeholder: String, elapsed: Duration?, modifier: Modifier = Modifier) {
+    val lovely = LocalLovelyColors.current
+    val (genderColor, genderContainer) = when (room.gender) {
+        Gender.FEMALE -> lovely.female to lovely.femaleContainer
+        Gender.MALE -> lovely.male to lovely.maleContainer
+        Gender.UNKNOWN -> MaterialTheme.colorScheme.onSurfaceVariant to MaterialTheme.colorScheme.surfaceContainerHigh
+    }
+    val name = room.name?.trim()?.takeIf { it.isNotEmpty() }
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(34.dp).clip(CircleShape).background(genderContainer), contentAlignment = Alignment.Center) {
+            if (name != null) {
+                Text(name.substring(0, name.offsetByCodePoints(0, 1)), style = MaterialTheme.typography.titleSmall, color = genderColor)
+            } else {
+                GenderIcon(room.gender, genderColor, Modifier.size(18.dp))
+            }
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(name ?: placeholder, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
+                    color = if (name == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+            }
+            ProfileLine(room, genderColor)
+        }
+        elapsed?.let {
+            Text(cardElapsedLabel(room.status, it), style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
+                modifier = Modifier.align(Alignment.Top).padding(start = 8.dp))
+        }
+    }
+}
+
+/** 部屋の状態（待機中・公開待機・満室）の色。 */
+@Composable
+internal fun roomStatusColor(status: RoomStatus): Color {
+    val lovely = LocalLovelyColors.current
+    return when (status) { RoomStatus.WAITING -> lovely.waiting; RoomStatus.PUBLIC_WAITING -> lovely.publicWaiting; RoomStatus.FULL -> lovely.full }
 }
 
 /** ピンした部屋の右上に下げるしおり。読み上げはカード本体の状態（ピン済み）で伝える。 */
@@ -790,7 +816,7 @@ private fun GenderIcon(gender: Gender, tint: Color, modifier: Modifier = Modifie
 
 /** 状態チップと公開設定を同じ高さ・中央揃えで並べ、ベースラインをそろえる。 */
 @Composable
-private fun MetaChip(text: String, color: Color, filled: Boolean, icon: ImageVector? = null) {
+internal fun MetaChip(text: String, color: Color, filled: Boolean, icon: ImageVector? = null) {
     Row(
         Modifier
             .heightIn(min = CARD_CHIP_HEIGHT)
@@ -811,13 +837,14 @@ private fun MetaChip(text: String, color: Color, filled: Boolean, icon: ImageVec
  * 入れる部屋は `primary` で塗り、覗くだけの部屋は枠だけにして、遠目でも入れるかどうかを分ける。
  */
 @Composable
-private fun ActionChip(text: String, emphasized: Boolean, onClick: (() -> Unit)? = null) {
+internal fun ActionChip(text: String, emphasized: Boolean, onClick: (() -> Unit)? = null, onClickLabel: String = "確認せずに入室する",
+    modifier: Modifier = Modifier) {
     val scheme = MaterialTheme.colorScheme
     Box(
-        Modifier
+        modifier
             .heightIn(min = CARD_CHIP_HEIGHT)
             .clip(CircleShape)
-            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClickLabel = "確認せずに入室する", onClick = onClick) else Modifier)
+            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClickLabel = onClickLabel, onClick = onClick) else Modifier)
             .then(if (emphasized) Modifier.background(scheme.primary) else Modifier.border(1.dp, scheme.outline, CircleShape))
             .padding(horizontal = 12.dp),
         contentAlignment = Alignment.Center,
@@ -827,7 +854,7 @@ private fun ActionChip(text: String, emphasized: Boolean, onClick: (() -> Unit)?
     }
 }
 
-private fun statusLabel(status: RoomStatus): String = when (status) {
+internal fun statusLabel(status: RoomStatus): String = when (status) {
     RoomStatus.WAITING -> "待機中"
     RoomStatus.PUBLIC_WAITING -> "公開待機"
     RoomStatus.FULL -> "満室"

@@ -224,4 +224,38 @@ class RoomPreferenceRepositoryTest {
             db.close()
         }
     }
+
+    @Test fun aRoomPinnedWhileFullLearnsItsOwnerWhenSeenWaiting() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        val db = Room.inMemoryDatabaseBuilder(context, PresetDatabase::class.java).allowMainThreadQueries().build()
+        try {
+            val repo = RoomPreferenceRepository(db)
+            // 合成データ。満室でピンすると、名前・性別・年齢の記録がない。
+            val waiting = room(700, "zenkoku", "合成の部屋主", message = "合成の満室の募集文")
+            val full = waiting.copy(status = RoomStatus.FULL, action = RoomAction.NONE, name = null, gender = Gender.UNKNOWN, age = null)
+            repo.setFavorite(full, true)
+            assertNull(repo.preferences.first().single().identityName)
+            // 番号を使い回した別の人の部屋（待機メッセージが違う）からは覚えない。
+            repo.rememberIdentity(repo.preferences.first().single(), waiting.copy(name = "別の人", message = "別の募集文"))
+            assertNull(repo.preferences.first().single().identityName)
+            // 一覧に載っても、2 回見ても覚えず、記録の待機メッセージも書き換えない。
+            repo.observe(listOf(waiting.copy(name = "別の人", message = "別の募集文")))
+            repo.observe(listOf(waiting.copy(name = "別の人", message = "別の募集文")))
+            assertNull(repo.preferences.first().single().identityName)
+            assertEquals("合成の満室の募集文", repo.preferences.first().single().snapshotMessage)
+            // 待機中の姿を一覧で見ると、照合用の値に残る。満室に戻っても消えない。
+            repo.observe(listOf(waiting))
+            repo.observe(listOf(full))
+            val saved = repo.preferences.first().single()
+            assertEquals("合成の部屋主", saved.identityName)
+            assertEquals(Gender.FEMALE.name, saved.identityGender)
+            assertEquals(25, saved.identityAge)
+            assertNull(saved.snapshotName)
+            // 一覧で名前が見えていた姿から補うときも、記録済みの値は書き換えない。
+            repo.rememberIdentity(saved, waiting.copy(name = "別の名前"))
+            assertEquals("合成の部屋主", repo.preferences.first().single().identityName)
+        } finally {
+            db.close()
+        }
+    }
 }

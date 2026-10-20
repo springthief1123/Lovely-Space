@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.room.Room
 import io.github.springthief1123.lovelyspace.data.PresetDatabase
 import io.github.springthief1123.lovelyspace.data.PresetRepository
+import io.github.springthief1123.lovelyspace.data.NamedRoomFile
 import io.github.springthief1123.lovelyspace.data.RoomListRepository
 import io.github.springthief1123.lovelyspace.data.RoomPreferenceRepository
 import io.github.springthief1123.lovelyspace.data.SearchPresetRepository
@@ -130,7 +131,8 @@ class LovelySpaceApp : Application() {
     val client: ShaloveClient by lazy {
         ShaloveClient(ShaloveClient.defaultHttpClient(SharedSiteCookieJar(WebViewCookieStore())), pacing = { pacing.value })
     }
-    val roomLists: RoomListRepository by lazy { RoomListRepository(client) }
+    /** 一覧の取得結果の共有。名前が見えていた部屋の姿は端末に残し、満室・起動し直した後もピンなどで補う。 */
+    val roomLists: RoomListRepository by lazy { RoomListRepository(client, NamedRoomFile(java.io.File(filesDir, NamedRoomFile.FILE))) }
     /** 新着の確認。見ているジャンルの 1 ページ目を、アプリが前面の間は設定の間隔ごとに読み直す（[MainActivity] が動かす）。 */
     val hotPages: io.github.springthief1123.lovelyspace.data.HotPagePoller by lazy {
         io.github.springthief1123.lovelyspace.data.HotPagePoller(roomLists, pacing = { pacing.value }, onFetched = { radar.absorbLatest(it) })
@@ -197,7 +199,8 @@ class LovelySpaceApp : Application() {
                 }
                 event.toNotification()?.let { notifier.post(it) }
             },
-            moved = roomPreferences.moved)
+            moved = roomPreferences.moved,
+            named = { roomLists.lastNamed(it) }, namedRevision = roomLists.namedRevision)
     }
     val notifier: AppNotifier by lazy { AppNotifier(this, notificationInbox) { settings.notificationPreview.first() } }
 

@@ -66,7 +66,19 @@ internal fun RoomPreference.sameIdentity(room: Room): Boolean {
     return true
 }
 
-private fun RoomPreference.refreshed(room: Room): RoomPreference = copy(
+/** 照合用の名前・性別・年齢のうち、記録にないものを [room] から埋める。 */
+private fun RoomPreference.withIdentity(room: Room): RoomPreference = copy(
+    identityName = identityName ?: room.name,
+    identityGender = identityGender ?: room.gender.takeUnless { it == Gender.UNKNOWN }?.name,
+    identityAge = identityAge ?: room.age,
+)
+
+/**
+ * 一覧で見た最新の姿を記録する。満室でピンして名前の記録がなかった部屋は、名前が見えたときに照合用の値も埋める。
+ * 部屋の番号は使い回されるので、照合用の値を埋めるのは待機メッセージが記録と同じときだけ。
+ */
+private fun RoomPreference.refreshed(room: Room): RoomPreference =
+    (if (identityName == null && room.name != null && room.message == snapshotMessage) withIdentity(room) else this).copy(
     genreKey = room.genreKey,
     snapshotStatus = room.status.name,
     snapshotAction = room.action.name,
@@ -113,6 +125,11 @@ interface RoomPreferenceStore {
     suspend fun followRebuilds(window: RoomPageWindow) {}
     /** 保存した部屋 [from] を、利用者が同じ人と答えた新しい部屋 [to] へ移す（似た部屋の立て直し）。 */
     suspend fun moveFavorite(from: RoomPreference, to: Room) {}
+    /**
+     * 名前の記録がない（満室でピンした）[from] に、同じ部屋の名前が見えていた姿 [room] の名前・性別・年齢を照合用の値として残す。
+     * 立て直しの照合（[followRebuilds]）やピンの表示に使う。
+     */
+    suspend fun rememberIdentity(from: RoomPreference, room: Room) {}
 }
 
 class RoomPreferenceRepository(private val db: PresetDatabase) : RoomPreferenceStore {
@@ -166,9 +183,24 @@ class RoomPreferenceRepository(private val db: PresetDatabase) : RoomPreferenceS
         db.withTransaction {
             rooms.forEach { room ->
                 val existing = dao.preference(roomHost(room), room.id) ?: return@forEach
-                val next = if (existing.sameIdentity(room)) existing.refreshed(room) else existing.copy(stale = true)
+                val next = when {
+                    !existing.sameIdentity(room) -> existing.copy(stale = true)
+                    // 名前の記録がない（満室でピンした）部屋に、待機メッセージの違う名前付きの部屋が載った。番号の使い回しかもしれないので、
+                    // 記録の待機メッセージを書き換えない（書き換えると、次に見たときにその人を部屋主として覚えてしまう）。
+                    existing.identityName == null && room.name != null && room.message != existing.snapshotMessage -> existing
+                    else -> existing.refreshed(room)
+                }
                 if (next != existing) dao.put(next)
             }
+        }
+    }
+
+    override suspend fun rememberIdentity(from: RoomPreference, room: Room) {
+        if (room.name == null || roomHost(room) != from.host || room.id != from.roomId) return
+        db.withTransaction {
+            val existing = dao.preference(from.host, from.roomId) ?: return@withTransaction
+            if (existing.identityName != null || existing.snapshotMessage != room.message || !existing.sameIdentity(room)) return@withTransaction
+            dao.put(existing.withIdentity(room))
         }
     }
 

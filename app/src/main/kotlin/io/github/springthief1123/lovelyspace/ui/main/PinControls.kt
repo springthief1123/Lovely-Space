@@ -3,6 +3,7 @@ package io.github.springthief1123.lovelyspace.ui.main
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.MeetingRoom
+import androidx.compose.material.icons.outlined.NotificationAdd
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.runtime.Composable
@@ -16,7 +17,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import io.github.springthief1123.lovelyspace.data.AutoEntryController
 import io.github.springthief1123.lovelyspace.data.PinAlert
-import io.github.springthief1123.lovelyspace.ui.components.QuietAssistChip
+import io.github.springthief1123.lovelyspace.ui.components.QuietFilterChip
 import io.github.springthief1123.lovelyspace.ui.components.QuietDropdownMenu
 import io.github.springthief1123.lovelyspace.ui.components.QuietMenuRow
 
@@ -41,16 +42,20 @@ private fun pinAlertIcon(alert: PinAlert): ImageVector = when (alert) {
 }
 
 /**
- * ピンの知らせ方のチップ。押すと 3 つの知らせ方を選ぶメニューを開く。
+ * ピンの知らせ方のボタン。知らせないピンでは「空いたら知らせる」を枠だけで出し、押すとすぐ知らせるようにする。
+ * 知らせているピンでは淡いローズの面で示し、押すと 3 つの知らせ方を選ぶメニューを開く（知らせない・自動で入室にもここから）。
  * 「自動で入室」は期限（[active] が false）を過ぎると「空いたら知らせる」と同じに働くので、そう表示する。
  */
 @Composable
 internal fun PinAlertChip(alert: PinAlert, active: Boolean, enabled: Boolean, onSelect: (PinAlert) -> Unit, modifier: Modifier = Modifier) {
     var open by remember { mutableStateOf(false) }
     val shown = if (alert == PinAlert.AUTO && !active) PinAlert.NOTIFY else alert
+    val on = shown != PinAlert.OFF
     Box(modifier) {
-        QuietAssistChip(onClick = { open = true }, label = pinAlertLabel(shown), enabled = enabled, icon = pinAlertIcon(shown),
-            modifier = Modifier.semantics { contentDescription = "知らせ方：${pinAlertLabel(shown)}" })
+        QuietFilterChip(selected = on, onClick = { if (on) open = true else onSelect(PinAlert.NOTIFY) },
+            label = pinAlertLabel(if (on) shown else PinAlert.NOTIFY), enabled = enabled,
+            leadingIcon = if (on) pinAlertIcon(shown) else Icons.Outlined.NotificationAdd,
+            modifier = Modifier.semantics { contentDescription = if (on) "知らせ方：${pinAlertLabel(shown)}" else "空いたら知らせる" })
         QuietDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             PinAlert.entries.forEach { option ->
                 QuietMenuRow(pinAlertLabel(option), onClick = { open = false; onSelect(option) }, icon = pinAlertIcon(option),
