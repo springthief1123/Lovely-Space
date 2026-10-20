@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -168,9 +169,11 @@ private fun DefaultGenrePicker(
                     modifier = Modifier.padding(start = 6.dp),
                 )
             }
+            // 全ジャンルを並べると画面の高さを超え、上下の端やステータスバーの下まで伸びる。高さを抑えて中をスクロールさせる。
             QuietDropdownMenu(
                 expanded = expanded,
                 onDismissRequest = { expanded = false },
+                modifier = Modifier.heightIn(max = GENRE_MENU_MAX_HEIGHT),
             ) {
                 Genres.all.forEach { genre ->
                     QuietMenuRow(
@@ -187,3 +190,6 @@ private fun DefaultGenrePicker(
         }
     }
 }
+
+/** 最初のジャンルを選ぶメニューの高さの上限。7 項目ほどが見え、残りはスクロールで選ぶ。 */
+private val GENRE_MENU_MAX_HEIGHT = 360.dp
