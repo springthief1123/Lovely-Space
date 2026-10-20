@@ -46,6 +46,16 @@ class LauncherDisguiseTest {
         assertEquals(PackageManager.COMPONENT_ENABLED_STATE_DISABLED, state(LauncherPreset.CALCULATOR))
     }
 
+    /** 元に戻すと、元のアイコンの alias だけが有効になる。 */
+    @Test fun resetReturnsToTheOriginalIcon() {
+        disguise.applyPreset(LauncherPreset.NOTES)
+        disguise.resetToOriginal()
+        assertEquals(LauncherPreset.DEFAULT, disguise.currentPreset())
+        LauncherPreset.entries.filter { it != LauncherPreset.DEFAULT }.forEach { preset ->
+            assertEquals(preset.name, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, state(preset))
+        }
+    }
+
     /** ショートカットは有効な alias を、アプリ一覧のアイコンと同じ intent で開く。 */
     @Test fun pinnedShortcutOpensTheEnabledAlias() {
         shadowOf(context.getSystemService(ShortcutManager::class.java)).setIsRequestPinShortcutSupported(true)

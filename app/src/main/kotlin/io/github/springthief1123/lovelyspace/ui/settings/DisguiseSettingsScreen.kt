@@ -20,15 +20,18 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -124,6 +127,7 @@ fun DisguiseSettingsScreen(onBack: () -> Unit) {
     val pinSupported = remember(refresh) { disguise.isPinSupported() }
     var preset by remember { mutableStateOf(disguise.currentPreset()) }
     var pendingPreset by remember { mutableStateOf<LauncherPreset?>(null) }
+    var confirmReset by remember { mutableStateOf(false) }
 
     fun show(message: String) {
         scope.launch {
@@ -163,6 +167,22 @@ fun DisguiseSettingsScreen(onBack: () -> Unit) {
         }
     }
 
+    fun resetToOriginal() {
+        try {
+            val hadShortcut = disguise.isShortcutPinned()
+            disguise.resetToOriginal()
+            preset = disguise.currentPreset()
+            (context as? Activity)?.applyDisguiseTaskDescription(preset)
+            refresh++
+            show(
+                if (hadShortcut) "元に戻しました。置いてあるアイコンも Lovely Space にしました（要らなければホーム画面から外してください）。"
+                else "元のアイコンと名前に戻しました。反映まで少しかかることがあります。",
+            )
+        } catch (e: Exception) {
+            show("元に戻せませんでした：${describeError(e)}")
+        }
+    }
+
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             SettingsPageHeader(title = "アイコンと名前", onBack = onBack)
@@ -172,6 +192,19 @@ fun DisguiseSettingsScreen(onBack: () -> Unit) {
                         "ホーム画面に置くアイコンの色・シンボル・名前を自由に組み合わせて、別のアプリのように見せられます。" +
                             "アプリ一覧のアイコンと名前は、下の候補から選べます。",
                     )
+                }
+                item {
+                    OutlinedButton(
+                        onClick = { confirmReset = true },
+                        enabled = preset != LauncherPreset.DEFAULT || pinned,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = LovelySpacing.screenHorizontal, vertical = 6.dp),
+                    ) {
+                        Icon(Icons.Outlined.Restore, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("元のアイコンと名前に戻す")
+                    }
                 }
                 item { SettingsSectionTitle("ホーム画面のアイコン") }
                 item {
@@ -258,6 +291,20 @@ fun DisguiseSettingsScreen(onBack: () -> Unit) {
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
                 .padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+        )
+    }
+
+    if (confirmReset) {
+        QuietConfirmDialog(
+            title = "元のアイコンと名前に戻しますか？",
+            text = "アプリ一覧を Lovely Space のアイコンと名前に戻します。ホーム画面に置いたアイコンも Lovely Space の見た目になります（要らなければホーム画面から外してください）。" +
+                "選んだ色・シンボル・名前は残るので、あとで置き直せます。端末によっては、戻すとアプリが一度閉じます。",
+            confirmLabel = "元に戻す",
+            onConfirm = {
+                confirmReset = false
+                resetToOriginal()
+            },
+            onDismiss = { confirmReset = false },
         )
     }
 

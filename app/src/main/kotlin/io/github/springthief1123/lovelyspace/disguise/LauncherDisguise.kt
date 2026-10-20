@@ -106,6 +106,27 @@ class LauncherDisguise(context: Context) {
         LauncherPreset.entries.filter { it != preset }.forEach { setEnabled(it, false) }
     }
 
+    /**
+     * アイコンと名前を元の Lovely Space に戻す。アプリ一覧を元のアイコンにし、置いてあるショートカットも元の名前とアイコンにする
+     * （アプリからはショートカットを外せないので、要らなければ利用者がホーム画面から外す）。編集中・保存済みの見た目は残す。
+     */
+    fun resetToOriginal() {
+        setEnabled(LauncherPreset.DEFAULT, true)
+        if (isShortcutPinned()) ShortcutManagerCompat.updateShortcuts(context, listOf(originalShortcut()))
+        LauncherPreset.entries.filter { it != LauncherPreset.DEFAULT }.forEach { setEnabled(it, false) }
+    }
+
+    private fun originalShortcut(): ShortcutInfoCompat {
+        val label = context.getString(R.string.app_name)
+        return ShortcutInfoCompat.Builder(context, SHORTCUT_ID)
+            .setShortLabel(label)
+            .setLongLabel(label)
+            .setIcon(IconCompat.createWithResource(context, R.mipmap.ic_launcher))
+            .setActivity(component(LauncherPreset.DEFAULT))
+            .setIntent(launchIntent(LauncherPreset.DEFAULT))
+            .build()
+    }
+
     private fun setEnabled(preset: LauncherPreset, enabled: Boolean) {
         // 既定の状態に戻すとマニフェストの値（DEFAULT だけ有効）に頼ることになるので、常に明示する。
         val state = if (enabled) PackageManager.COMPONENT_ENABLED_STATE_ENABLED else PackageManager.COMPONENT_ENABLED_STATE_DISABLED
