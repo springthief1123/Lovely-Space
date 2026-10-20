@@ -16,6 +16,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -121,18 +123,28 @@ fun AppNavHost() {
         showCreateFab = currentRoute == Routes.ROOMS,
         onCreateRoom = { nav.navigate(Routes.create(createGenreKey, currentRoute ?: Routes.ROOMS)) { launchSingleTop = true } },
     ) {
+        // 右から左の言語では下のタブが左右反転して並ぶので、向きも反転する。
+        val tabSign = if (LocalLayoutDirection.current == LayoutDirection.Rtl) -1 else 1
         NavHost(
             navController = nav,
             startDestination = Routes.ROOMS,
+            // 下のタブ同士は並び順で向きを決める（右のタブへは左へ、左のタブへは右へ流れる）。戻る操作でも同じ。
             enterTransition = {
-                fadeIn(tween(180)) + slideInHorizontally(tween(220)) { it / 14 }
+                val direction = tabSign * mainTabDirection(initialState.destination.route, targetState.destination.route)
+                fadeIn(tween(180)) + slideInHorizontally(tween(220)) { if (direction == 0) it / 14 else direction * it / 14 }
             },
-            exitTransition = { fadeOut(tween(140)) },
+            exitTransition = {
+                val direction = tabSign * mainTabDirection(initialState.destination.route, targetState.destination.route)
+                if (direction == 0) fadeOut(tween(140))
+                else fadeOut(tween(140)) + slideOutHorizontally(tween(200)) { -direction * it / 16 }
+            },
             popEnterTransition = {
-                fadeIn(tween(180)) + slideInHorizontally(tween(220)) { -it / 18 }
+                val direction = tabSign * mainTabDirection(initialState.destination.route, targetState.destination.route)
+                fadeIn(tween(180)) + slideInHorizontally(tween(220)) { if (direction == 0) -it / 18 else direction * it / 14 }
             },
             popExitTransition = {
-                fadeOut(tween(140)) + slideOutHorizontally(tween(200)) { it / 16 }
+                val direction = tabSign * mainTabDirection(initialState.destination.route, targetState.destination.route)
+                fadeOut(tween(140)) + slideOutHorizontally(tween(200)) { if (direction == 0) it / 16 else -direction * it / 16 }
             },
         ) {
             composable(Routes.ROOMS) {
