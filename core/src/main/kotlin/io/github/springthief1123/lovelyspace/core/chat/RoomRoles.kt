@@ -7,6 +7,7 @@ package io.github.springthief1123.lovelyspace.core.chat
  * 「〇〇(男)さん(…)が入室しましたので、…」から入室者の名前を覚える。
  * 覗き画面のログは直近の行だけなので、一度覚えた名前は読み直しても引き継ぐ。
  * どちらの名前も分からない間は見分けない（どちらとも決めつけない）。
+ * 表示の左右だけは、最初に発言した人を左、名前の違う人を右に分ける（[isRight]）。
  */
 data class RoomRoles(val owner: String? = null, val guest: String? = null) {
     /** お知らせから名前を覚える。[lines] はサイトの表示と同じ新しい順で、新しいお知らせほど優先する。 */
@@ -35,6 +36,21 @@ data class RoomRoles(val owner: String? = null, val guest: String? = null) {
             else -> null
         }
     }
+
+    /**
+     * 吹き出しを右（入室者側）に出すか。役割が分かればそれに従う。
+     * 分からなければ、[leftSpeaker]（最初に発言した人、[firstSpeaker]）と名前が違う発言を右に出す。
+     */
+    fun isRight(line: ChatLine, leftSpeaker: String?): Boolean {
+        isGuest(line)?.let { return it }
+        val speaker = line.speaker?.let(::key) ?: return false
+        val left = leftSpeaker?.let(::key) ?: return false
+        return !matches(speaker, left) && !matches(left, speaker)
+    }
+
+    /** [lines]（新しい順）で最初に発言した人。一度決めたら [current] を引き継ぎ、左右が入れ替わらないようにする。 */
+    fun firstSpeaker(lines: List<ChatLine>, current: String?): String? =
+        current ?: lines.lastOrNull { !it.isNotice }?.speaker?.let(::key)?.takeIf { it.isNotEmpty() }
 
     private companion object {
         /** 名前の後に任意で (年齢)・(性別) が付き、「さん」、端末と一時 ID の括弧が続く。 */

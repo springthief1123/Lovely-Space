@@ -464,19 +464,15 @@ private fun Notice(ui: UiLine) {
 @Composable
 /**
  * [ui] の isMine は右側に出すこと。公開ルームでは入室者の発言で、[showName] で右側にも名前を出す。
- * 入室者の吹き出しはグレー、部屋主の吹き出しは部屋主の性別の色（女性は薄いピンク、男性は薄いブルー、不明はグレー）。
+ * 入室者の吹き出しはグレー。部屋主の吹き出しは、部屋主が女性なら薄いピンク、男性・不明はグレー
+ * （本家は女性の名前だけを色付きにするので、それに合わせる。2026-10-20 Yuya）。
  */
 private fun Bubble(ui: UiLine, showName: Boolean = false, isOwnerSide: Boolean, ownerGender: Gender) {
     val line = ui.line
     val uriHandler = LocalUriHandler.current
     val colors = MaterialTheme.colorScheme
     val lovely = LocalLovelyColors.current
-    val container = when {
-        !isOwnerSide -> colors.surfaceVariant
-        ownerGender == Gender.FEMALE -> lovely.femaleContainer
-        ownerGender == Gender.MALE -> lovely.maleContainer
-        else -> colors.surfaceVariant
-    }
+    val container = if (isOwnerSide && ownerGender == Gender.FEMALE) lovely.femaleContainer else colors.surfaceVariant
     val content = colors.onSurface
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val bubbleWidth = (maxWidth * 0.84f).coerceAtMost(560.dp)

@@ -49,6 +49,22 @@ class PublicRoomViewModelTest {
             assertEquals(listOf(true, true, false), vm.state.value.lines.map { it.isMine })
         } finally { Dispatchers.resetMain() }
     }
+    @Test fun differentNamesSplitSidesWhileRolesAreUnknown() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val first = ChatLine("ミナ", true, "合成の発言", null)
+            val second = ChatLine("タロウ", false, "合成の返事", null)
+            var page = listOf(second, first)
+            val vm = PublicRoomViewModel { PublicRoomPage("合成", page, "") }
+            vm.refresh(); runCurrent()
+            // お知らせが無くても、最初に発言した人を左、名前の違う人を右に出す。
+            assertEquals(listOf(true, false), vm.state.value.lines.map { it.isMine })
+            // 最初の発言が直近の行から外れても左右を入れ替えない。
+            page = listOf(first.copy(text = "次の発言"), second)
+            vm.refresh(); runCurrent()
+            assertEquals(listOf(false, true), vm.state.value.lines.map { it.isMine })
+        } finally { Dispatchers.resetMain() }
+    }
     @Test fun leavingCancelsManualPublicRead() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {
