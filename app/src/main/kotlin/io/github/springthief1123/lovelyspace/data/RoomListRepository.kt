@@ -111,11 +111,13 @@ class RoomListRepository(
         }
     }
 
-    fun lastNamed(genreKey: String, roomId: Long): Room? =
-        synchronized(named) { named["${Genres[genreKey]?.host ?: genreKey}/$roomId"]?.room }
+    fun lastNamed(genreKey: String, roomId: Long): Room? = named("${Genres[genreKey]?.host ?: genreKey}/$roomId")
 
     /** [room] と同じ部屋の、名前が見えていた最後の姿。 */
-    fun lastNamed(room: Room): Room? = synchronized(named) { named[roomIdentity(room)]?.room }
+    fun lastNamed(room: Room): Room? = named(roomIdentity(room))
+
+    /** [NAMED_KEEP_MS] より前に見た姿は、アプリが動き続けていても使わない。 */
+    private fun named(key: String): Room? = synchronized(named) { named[key] }?.takeIf { it.seenAt >= now() - NAMED_KEEP_MS }?.room
 
     private fun rememberNamed(rooms: List<Room>) {
         val seen = rooms.filter { it.name != null }

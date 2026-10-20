@@ -73,8 +73,12 @@ private fun RoomPreference.withIdentity(room: Room): RoomPreference = copy(
     identityAge = identityAge ?: room.age,
 )
 
-/** 一覧で見た最新の姿を記録する。満室でピンして名前の記録がなかった部屋は、名前が見えたときに照合用の値も埋める。 */
-private fun RoomPreference.refreshed(room: Room): RoomPreference = (if (identityName == null && room.name != null) withIdentity(room) else this).copy(
+/**
+ * 一覧で見た最新の姿を記録する。満室でピンして名前の記録がなかった部屋は、名前が見えたときに照合用の値も埋める。
+ * 部屋の番号は使い回されるので、照合用の値を埋めるのは待機メッセージが記録と同じときだけ。
+ */
+private fun RoomPreference.refreshed(room: Room): RoomPreference =
+    (if (identityName == null && room.name != null && room.message == snapshotMessage) withIdentity(room) else this).copy(
     genreKey = room.genreKey,
     snapshotStatus = room.status.name,
     snapshotAction = room.action.name,
@@ -189,7 +193,7 @@ class RoomPreferenceRepository(private val db: PresetDatabase) : RoomPreferenceS
         if (room.name == null || roomHost(room) != from.host || room.id != from.roomId) return
         db.withTransaction {
             val existing = dao.preference(from.host, from.roomId) ?: return@withTransaction
-            if (existing.identityName != null || !existing.sameIdentity(room)) return@withTransaction
+            if (existing.identityName != null || existing.snapshotMessage != room.message || !existing.sameIdentity(room)) return@withTransaction
             dao.put(existing.withIdentity(room))
         }
     }

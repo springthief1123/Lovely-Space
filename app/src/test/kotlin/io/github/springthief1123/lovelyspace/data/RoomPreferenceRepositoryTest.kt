@@ -235,6 +235,9 @@ class RoomPreferenceRepositoryTest {
             val full = waiting.copy(status = RoomStatus.FULL, action = RoomAction.NONE, name = null, gender = Gender.UNKNOWN, age = null)
             repo.setFavorite(full, true)
             assertNull(repo.preferences.first().single().identityName)
+            // 番号を使い回した別の人の部屋（待機メッセージが違う）からは覚えない。
+            repo.rememberIdentity(repo.preferences.first().single(), waiting.copy(name = "別の人", message = "別の募集文"))
+            assertNull(repo.preferences.first().single().identityName)
             // 待機中の姿を一覧で見ると、照合用の値に残る。満室に戻っても消えない。
             repo.observe(listOf(waiting))
             repo.observe(listOf(full))

@@ -232,7 +232,9 @@ class PinRepository(
                 val room = observed?.let { o ->
                     o.copy(name = o.name ?: identity.name, gender = if (o.gender == Gender.UNKNOWN) identity.gender else o.gender, age = o.age ?: identity.age)
                 } ?: identity
-                if (pref.identityName == null) (observed?.takeIf { it.name != null } ?: identity.takeIf { it.name != null })?.let { learned += pref to it }
+                // 部屋の番号は使い回されるので、ピンしたときと待機メッセージが同じ部屋からだけ覚える。
+                if (pref.identityName == null) (observed?.takeIf { it.name != null && it.message == pref.snapshotMessage } ?: identity.takeIf { it.name != null })
+                    ?.let { learned += pref to it }
                 val view = PinView(pref, record, state, room, window?.roomPages?.get(key), similar, listed = observed != null)
                 if (record.notifies && seen == PinState.OPEN && before.state != null && before.state != PinState.OPEN && observed != null) {
                     events += PinEvent.Opened(view, identity, record.autoActive(at))
