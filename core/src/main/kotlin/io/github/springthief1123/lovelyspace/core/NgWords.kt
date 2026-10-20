@@ -22,11 +22,14 @@ data class NgWordSet(
         /** 最初から入れておくセット。本家の実データではなく一般的な語。 */
         val BUILT_IN: List<NgWordSet> = listOf(
             NgWordSet("builtin-money", "お金目的", listOf("販売", "実績", "PayPay", "ペイペイ", "メルペイ", "ペイ",
-                "支払い", "支払", "先払い", "後払い", "前払い", "値段", "料金", "有料", "振込", "アマギフ", "投げ銭", "お小遣い", "おこづかい"),
+                "支払い", "支払", "先払い", "後払い", "前払い", "値段", "料金", "有料", "振込", "アマギフ", "投げ銭", "お小遣い", "おこづかい", "買って", "お金"),
                 amounts = true, builtInKey = "money"),
             // 「写真」「動画」だけだと「写真交換なし」のような普通の部屋も外れるので入れない。
             NgWordSet("builtin-media", "写真・動画目的", listOf("写真販売", "動画販売", "画像販売", "サンプル", "自撮り販売"),
                 builtInKey = "media"),
+            // 「NH」は英字 2 字なので、名前や募集文に「nh」を含む部屋も外れる。
+            NgWordSet("builtin-newhalf", "ニューハーフ系", listOf("ニューハーフ", "NH", "女装", "男の娘"),
+                builtInKey = "newhalf"),
         )
 
         fun builtIn(key: String): NgWordSet? = BUILT_IN.firstOrNull { it.builtInKey == key }

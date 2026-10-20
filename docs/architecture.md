@@ -43,8 +43,7 @@ app   (Android)     画面（Compose）・端末内の保存（Room / DataStore�
 LovelySpaceApp           アプリ全体で 1 つずつの ShaloveClient・リポジトリ・DB
 AppNavHost / LovelyAppShell
   ├─ 見つける  ui/rooms (RoomListScreen), ui/main (SearchScreen)
-  ├─ レーダー  ui/main (RadarScreen …)        前面での巡回・部屋の追跡・名前の候補監視
-  ├─ 保存      ui/main (FavoritesScreen)      お気に入りの部屋と保存した検索条件
+  ├─ レーダー  ui/main (RadarScreen …)        ピン（保存・追跡・順番待ちを統合）と保存した条件、前面での巡回
   └─ マイルーム ui/main (ProfileScreen)        プリセット管理・部屋作成・設定
   ├─ ui/entry   入室（プロフィール入力。ロボット確認が必要なら WebView）
   ├─ ui/create  部屋作成（入力 → 本家の作成画面を WebView で開いて入力済みにする）

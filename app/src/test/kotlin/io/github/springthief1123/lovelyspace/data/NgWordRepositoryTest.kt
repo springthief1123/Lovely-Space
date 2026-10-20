@@ -42,13 +42,34 @@ class NgWordRepositoryTest {
             repo = NgWordRepository(db, backgroundScope)
             val sets = repo.sets.first()
             // 消した最初からのセットは入れ直さない。並びは足した順。
-            assertEquals(listOf("builtin-money", "mine"), sets.map { it.id })
+            assertEquals(listOf("builtin-money", "builtin-newhalf", "mine"), sets.map { it.id })
             assertEquals(listOf("合成語", "販売"), sets[0].words)
-            assertEquals(NgWordSet("mine", "自分のセット", listOf("合成ワード"), target = NgTarget.NAME), sets[1])
+            assertEquals(NgWordSet("mine", "自分のセット", listOf("合成ワード"), target = NgTarget.NAME), sets[2])
             val filter = NgWordFilter.of(sets)
             assertTrue(filter.matches(room.copy(message = "合成語あり")))
             assertTrue(filter.matches(room.copy(name = "合成ワード")))
             assertFalse(filter.matches(room))
+        } finally { db.close(); context.deleteDatabase(name) }
+    }
+
+    @Test fun addsBuiltInSetsIntroducedAfterTheFirstSeedButNotDeletedOnes() = runTest {
+        val name = "ng-${UUID.randomUUID()}.db"
+        val db = open(name)
+        try {
+            // 最初の版で 2 セットを入れ、利用者が「写真・動画目的」を消し、自分のセットを足した状態。
+            val money = NgWordSet.builtIn("money")!!
+            db.ngWords().put(NgWordSetEntity(money.id, money.label, "販売", true, money.target.name, true, "money", 0))
+            db.ngWords().put(NgWordSetEntity("mine", "自分のセット", "合成語", false, NgTarget.NAME_AND_MESSAGE.name, true, null, 2))
+            db.presets().put(LocalState("ng_word_seed", "done"))
+
+            val repo = NgWordRepository(db, backgroundScope)
+            val sets = repo.sets.first()
+            // 後から増えたセットだけを末尾に足す。消したセットは戻さず、手を入れた語もそのまま。
+            assertEquals(listOf("builtin-money", "mine", "builtin-newhalf"), sets.map { it.id })
+            assertEquals(listOf("販売"), sets[0].words)
+            assertEquals(NgWordSet.builtIn("newhalf"), sets[2])
+            // もう一度読んでも重ねて足さない。
+            assertEquals(3, NgWordRepository(db, backgroundScope).sets.first().size)
         } finally { db.close(); context.deleteDatabase(name) }
     }
 
@@ -80,8 +101,8 @@ class NgWordRepositoryTest {
             sql.execSQL("ALTER TABLE ng_word_sets_away RENAME TO ng_word_sets")
             repo.retry()
             val ready = repo.state.first { it is NgLoadState.Ready } as NgLoadState.Ready
-            assertEquals(2, ready.filter.setCount)
-            assertTrue(repo.filter.first { it.setCount == 2 }.matches(room.copy(message = "PayPayで")))
+            assertEquals(NgWordSet.BUILT_IN.size, ready.filter.setCount)
+            assertTrue(repo.filter.first { it.setCount == NgWordSet.BUILT_IN.size }.matches(room.copy(message = "PayPayで")))
         } finally { db.close(); context.deleteDatabase(name) }
     }
 

@@ -86,7 +86,6 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -636,7 +635,10 @@ private fun RoomCardSurface(
     val name = room.name?.trim()?.takeIf { it.isNotEmpty() }
     // 部屋の操作は長押しメニューとスワイプに集約し、TalkBack ではカスタムアクションとして出す。
     val a11yActions = menuItems.filter { it.enabled }.map { item -> CustomAccessibilityAction(item.label) { item.onClick(); true } }
-    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp,
+    // 満室の部屋は面を背景と同じ色に沈め、空き枠のある部屋だけが浮いて見えるようにする。
+    // 背後のスワイプの面が透けないよう、透明にはせず背景色で塗る。性別の色は満室でも残す。
+    Surface(shape = RoundedCornerShape(16.dp),
+        color = if (room.isFull) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.surface, tonalElevation = 0.dp,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.fillMaxWidth()) {
         Box {
             Column(
@@ -702,10 +704,11 @@ private fun RoomCardSurface(
                         filled = false,
                         icon = if (room.isPublic) Icons.Outlined.Visibility else Icons.Outlined.Lock,
                     )
-                    // 押したときの動き（入室へ・覗く）を先に示す。満室で非公開の部屋は詳細が開くだけなので付けない。
+                    // 押したときの動き（入室する・覗く）を角丸のチップで先に示す。満室で非公開の部屋は詳細が開くだけなので付けない。
                     cardActionLabel(room.action)?.let { label ->
-                        Text("$label ›", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
-                            textAlign = TextAlign.End, modifier = Modifier.weight(1f).align(Alignment.CenterVertically))
+                        Box(Modifier.weight(1f).align(Alignment.CenterVertically), contentAlignment = Alignment.CenterEnd) {
+                            ActionChip(label, emphasized = room.action == RoomAction.ENTER)
+                        }
                     }
                 }
             }
@@ -794,6 +797,26 @@ private fun MetaChip(text: String, color: Color, filled: Boolean, icon: ImageVec
     }
 }
 
+/**
+ * カードを押したときの動きを示す角丸のチップ。押す先はカード全体なので、チップ自体は押せない表示にとどめる。
+ * 入れる部屋は `primary` で塗り、覗くだけの部屋は枠だけにして、遠目でも入れるかどうかを分ける。
+ */
+@Composable
+private fun ActionChip(text: String, emphasized: Boolean) {
+    val scheme = MaterialTheme.colorScheme
+    Box(
+        Modifier
+            .heightIn(min = 30.dp)
+            .clip(CircleShape)
+            .then(if (emphasized) Modifier.background(scheme.primary) else Modifier.border(1.dp, scheme.outline, CircleShape))
+            .padding(horizontal = 14.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, style = MaterialTheme.typography.labelLarge, fontWeight = if (emphasized) FontWeight.SemiBold else FontWeight.Medium,
+            color = if (emphasized) scheme.onPrimary else scheme.onSurfaceVariant, maxLines = 1)
+    }
+}
+
 private fun statusLabel(status: RoomStatus): String = when (status) {
     RoomStatus.WAITING -> "待機中"
     RoomStatus.PUBLIC_WAITING -> "公開待機"
@@ -842,7 +865,7 @@ private val SAVED_RIBBON_CLEARANCE = SAVED_RIBBON_WIDTH + 6.dp
 
 /** カードを押したときの動きの短い表示。詳細が開くだけの部屋は null。 */
 internal fun cardActionLabel(action: RoomAction): String? = when (action) {
-    RoomAction.ENTER -> "入室へ"
+    RoomAction.ENTER -> "入室する"
     RoomAction.PEEK -> "覗く"
     RoomAction.NONE -> null
 }

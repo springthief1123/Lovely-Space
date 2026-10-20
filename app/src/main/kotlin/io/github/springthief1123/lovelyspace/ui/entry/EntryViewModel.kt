@@ -40,6 +40,11 @@ data class EntryUiState(
     val openBrowser: Boolean = false,
     /** 入室まで自動で進められなかった理由。入力画面に出す。 */
     val autoNote: String? = null,
+    /**
+     * 一覧ではまだ待機中だったが、開いたときには満室の公開ルームになっていた。画面はこれを見て公開ルームへ移る。
+     * 新しい部屋に入室希望者が集まると、一覧の表示が変わる前に埋まることがあるため。
+     */
+    val becamePublic: Boolean = false,
 ) {
     val yearsValue: Int? get() = years.toIntOrNull()
     val yearsValid: Boolean get() = years.isEmpty() || (yearsValue ?: 0) in MIN_YEARS..MAX_YEARS
@@ -69,6 +74,11 @@ class EntryViewModel(
     private val roomId: Long,
     /** 入力済みのまま入室まで進める。進めるのは最初に入室前画面を開いたときの 1 回だけで、断られたら入力画面で止める。 */
     auto: Boolean = false,
+    /**
+     * 一覧で公開の部屋だった。入室前画面が開けなければ、満室になった公開ルームとして公開ルームの画面へ移る。
+     * 確かめるための取得はしない（公開ルームの画面が最初に読み、まだ読めなければ読み直す）。
+     */
+    private val listedPublic: Boolean = false,
 ) : ViewModel() {
     private val _state = MutableStateFlow(EntryUiState(autoEntering = auto))
     val state: StateFlow<EntryUiState> = _state.asStateFlow()
@@ -92,9 +102,12 @@ class EntryViewModel(
             }
             try {
                 val form = client.openEntry(host, roomId, genreKey)
+                // 利用者が押して開いた公開の部屋が埋まっていたら、本家で「覗く」を押し直すのと同じく公開ルームを開く。
+                val becamePublic = form == null && !autoPending && listedPublic
                 _state.update { s ->
                     s.copy(
                         isLoading = false,
+                        becamePublic = becamePublic,
                         form = form,
                         loadError = if (form == null) "この部屋には入室できません。満室になったか、閉じられた可能性があります" else null,
                         // 入力済みの値は残す。未入力なら前回の値、無ければサイトの既定値。

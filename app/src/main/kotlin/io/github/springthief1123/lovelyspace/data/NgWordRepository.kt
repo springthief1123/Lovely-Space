@@ -84,12 +84,19 @@ class NgWordRepository(private val db: PresetDatabase, scope: CoroutineScope = C
     /** 読み込みに失敗したあと、もう一度読む。 */
     fun retry() = attempt.update { it + 1 }
 
+    /**
+     * 最初からのセットのうち、まだ入れていないものを末尾に足す。入れたセットの [NgWordSet.builtInKey] を覚えておき、
+     * 後から増えたセットだけを入れる（利用者が消したセットは入れ直さない）。
+     */
     suspend fun initialize() = seedLock.withLock {
         val presets = db.presets()
-        if (presets.state(SEED_KEY) != null) return@withLock
+        val seeded = seededKeys(presets.state(SEED_KEY))
+        val missing = NgWordSet.BUILT_IN.filter { it.builtInKey !in seeded }
+        if (missing.isEmpty()) return@withLock
         db.withTransaction {
-            NgWordSet.BUILT_IN.forEachIndexed { i, set -> dao.put(set.toEntity(i)) }
-            presets.put(LocalState(SEED_KEY, "done"))
+            var position = dao.maxPosition() + 1
+            missing.forEach { dao.put(it.toEntity(position++)) }
+            presets.put(LocalState(SEED_KEY, (seeded + missing.mapNotNull { it.builtInKey }).joinToString(",")))
         }
     }
 
@@ -109,6 +116,13 @@ class NgWordRepository(private val db: PresetDatabase, scope: CoroutineScope = C
 
     suspend fun setEnabled(id: String, enabled: Boolean) = dao.setEnabled(id, enabled)
     suspend fun delete(id: String) = dao.delete(id)
+
+    // 「done」は最初の版（お金目的・写真・動画目的の 2 セットだけ）で入れた印。
+    private fun seededKeys(value: String?): Set<String> = when (value) {
+        null -> emptySet()
+        "done" -> setOf("money", "media")
+        else -> value.split(',').filter(String::isNotEmpty).toSet()
+    }
 
     private fun NgWordSet.toEntity(position: Int) =
         NgWordSetEntity(id, label, words.joinToString("\n"), amounts, target.name, enabled, builtInKey, position)

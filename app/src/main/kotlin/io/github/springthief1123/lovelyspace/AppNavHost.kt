@@ -71,6 +71,7 @@ fun AppNavHost() {
 
     val originArg = navArgument("origin") { type = NavType.StringType; defaultValue = Routes.ROOMS }
     val autoArg = navArgument("auto") { type = NavType.BoolType; defaultValue = false }
+    val publicArg = navArgument("public") { type = NavType.BoolType; defaultValue = false }
 
     val resumable by app.activeRooms.resumable.collectAsStateWithLifecycle()
     // 一覧を見ている間は「会話に戻る」を常に出す。× は帯を小さくするだけで、会話への入口は残す。記録は退室・部屋の終了で消える。
@@ -139,7 +140,7 @@ fun AppNavHost() {
                     preset = pendingPreset, onPresetConsumed = { pendingPreset = null },
                     onEnterRoom = { room ->
                         val host = Genres[room.genreKey]?.host ?: return@SearchScreen
-                        nav.navigate(Routes.entry(host, room.genreKey, room.id)) { launchSingleTop = true }
+                        nav.navigate(Routes.entry(host, room.genreKey, room.id, listedPublic = room.isPublic)) { launchSingleTop = true }
                     },
                     onPeekRoom = { room ->
                         val host = Genres[room.genreKey]?.host ?: return@SearchScreen
@@ -154,7 +155,7 @@ fun AppNavHost() {
                     onOpenNgWords = { nav.navigate(Routes.SETTINGS_NG_WORDS) { launchSingleTop = true } },
                     onEnterRoom = { room ->
                         Genres[room.genreKey]?.host?.let { host ->
-                            nav.navigate(Routes.entry(host, room.genreKey, room.id, Routes.SEARCH)) { launchSingleTop = true }
+                            nav.navigate(Routes.entry(host, room.genreKey, room.id, Routes.SEARCH, listedPublic = room.isPublic)) { launchSingleTop = true }
                         }
                     },
                     onPeekRoom = { room ->
@@ -168,7 +169,7 @@ fun AppNavHost() {
                 RadarScreen(onFindRooms = { nav.navigate(Routes.ROOMS) { launchSingleTop = true } },
                     onApplyPreset = { pendingPreset = it; nav.navigate(Routes.ROOMS) { popUpTo(Routes.ROOMS); launchSingleTop = true } },
                     onEnterRoom = { room -> Genres[room.genreKey]?.host?.let { host ->
-                        nav.navigate(Routes.entry(host, room.genreKey, room.id, Routes.RADAR)) { launchSingleTop = true }
+                        nav.navigate(Routes.entry(host, room.genreKey, room.id, Routes.RADAR, listedPublic = room.isPublic)) { launchSingleTop = true }
                     } },
                     onPeekRoom = { room -> Genres[room.genreKey]?.host?.let { host ->
                         nav.navigate(Routes.public(host, room.genreKey, room.id)) { launchSingleTop = true }
@@ -215,16 +216,22 @@ fun AppNavHost() {
             composable(Routes.SETTINGS_NOTIFICATIONS) {
                 NotificationSettingsScreen(onBack = { nav.popBackStack() })
             }
-            composable(Routes.ENTRY, arguments = roomArgs + originArg + autoArg) { entry ->
+            composable(Routes.ENTRY, arguments = roomArgs + originArg + autoArg + publicArg) { entry ->
                 val args = entry.arguments!!
                 EntryScreen(
                     host = args.getString("host")!!,
                     genreKey = args.getString("genre")!!,
                     roomId = args.getLong("roomId"),
                     auto = args.getBoolean("auto"),
+                    listedPublic = args.getBoolean("public"),
                     onBack = { nav.popBackStack() },
                     onEntered = { room ->
                         nav.navigateToChat(app.activeRooms.register(room), Routes.mainOrigin(args.getString("origin")))
+                    },
+                    // 入室画面を公開ルームに置き換える。戻ると一覧に戻る。
+                    onPeek = {
+                        nav.popBackStack()
+                        nav.navigate(Routes.public(args.getString("host")!!, args.getString("genre")!!, args.getLong("roomId"))) { launchSingleTop = true }
                     },
                 )
             }
