@@ -50,7 +50,7 @@ AppNavHost / LovelyAppShell
   ├─ ui/chat    会話（ActiveRooms が持つ ChatController が ChatSession を使う）
   ├─ ui/web     WebView（SiteWebView）、公開ルームの閲覧
   ├─ ui/settings 表示・部屋一覧・非表示の管理
-  ├─ lock        アプリロック（MainActivity が全画面の上にロック画面をかぶせる）
+  ├─ lock        アプリロック（MainActivity がロック画面を別の窓に出し、開いているダイアログ・シートより上に重ねる）
   └─ disguise    アイコンと名前のカモフラージュ（アプリ一覧の activity-alias・ホーム画面のショートカット）
 ```
 

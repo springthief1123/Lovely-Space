@@ -13,7 +13,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.foundation.focusGroup
@@ -27,7 +30,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import io.github.springthief1123.lovelyspace.disguise.applyDisguiseTaskDescription
+import io.github.springthief1123.lovelyspace.lock.LocalAppLocked
 import io.github.springthief1123.lovelyspace.lock.LockScreen
+import io.github.springthief1123.lovelyspace.lock.LockWindow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -86,8 +91,11 @@ class MainActivity : FragmentActivity() {
                 enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
             }
             LovelySpaceTheme(themeMode = themeMode, textScale = textScale) {
-                CompositionLocalProvider(LocalRoomMessageMaxLines provides messageLines.maxLines) {
-                    val lock by app.appLock.state.collectAsStateWithLifecycle()
+                val lock by app.appLock.state.collectAsStateWithLifecycle()
+                CompositionLocalProvider(
+                    LocalRoomMessageMaxLines provides messageLines.maxLines,
+                    LocalAppLocked provides lock.locked,
+                ) {
                     val focusManager = LocalFocusManager.current
                     val keyboard = LocalSoftwareKeyboardController.current
                     // ロックしたら、後ろの入力欄のフォーカスとキーボードを外し、キー入力が届かないようにする。
@@ -102,7 +110,12 @@ class MainActivity : FragmentActivity() {
                                 .focusProperties { enter = { if (lock.locked) FocusRequester.Cancel else FocusRequester.Default } }
                                 .focusGroup(),
                         ) { AppNavHost() }
-                        if (lock.locked) LockScreen(app.appLock, lock)
+                        if (lock.locked) {
+                            // 後ろの画面を隠す。ロック画面は別の窓に出し、開いているダイアログ・シートより上に重ねる
+                            // （この画面の中にかぶせるだけでは、別の窓に出るダイアログ・シートが上に透けて見える）。
+                            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
+                            LockWindow { LockScreen(app.appLock, lock) }
+                        }
                     }
                 }
             }

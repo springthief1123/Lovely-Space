@@ -115,7 +115,11 @@ class NgWordRepository(private val db: PresetDatabase, scope: CoroutineScope = C
     }
 
     suspend fun setEnabled(id: String, enabled: Boolean) = dao.setEnabled(id, enabled)
-    suspend fun delete(id: String) = dao.delete(id)
+    /** 最初から入っているセットは削除できない（使わないときはオフにする）。 */
+    suspend fun delete(id: String) {
+        require(dao.set(id)?.builtInKey == null) { "最初から入っているセットは削除できません。" }
+        dao.delete(id)
+    }
 
     // 「done」は最初の版（お金目的・写真・動画目的の 2 セットだけ）で入れた印。
     private fun seededKeys(value: String?): Set<String> = when (value) {

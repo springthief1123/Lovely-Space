@@ -103,7 +103,8 @@ class EntryViewModel(
             try {
                 val form = client.openEntry(host, roomId, genreKey)
                 // 利用者が押して開いた公開の部屋が埋まっていたら、本家で「覗く」を押し直すのと同じく公開ルームを開く。
-                val becamePublic = form == null && !autoPending && listedPublic
+                // 「入室する」チップから確認を飛ばして開いたときも同じ。通知・自動入室からは listedPublic を渡さない。
+                val becamePublic = form == null && listedPublic
                 _state.update { s ->
                     s.copy(
                         isLoading = false,

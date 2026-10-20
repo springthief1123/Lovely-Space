@@ -143,6 +143,11 @@ fun AppNavHost() {
                         val host = Genres[room.genreKey]?.host ?: return@SearchScreen
                         nav.navigate(Routes.entry(host, room.genreKey, room.id, listedPublic = room.isPublic)) { launchSingleTop = true }
                     },
+                    // 「入室する」チップは入室前の確認を飛ばし、入力済みのまま入室まで進める（ロボット確認がある部屋は本家の画面で確認する）。
+                    onQuickEnterRoom = { room ->
+                        val host = Genres[room.genreKey]?.host ?: return@SearchScreen
+                        nav.navigate(Routes.entry(host, room.genreKey, room.id, auto = true, listedPublic = room.isPublic)) { launchSingleTop = true }
+                    },
                     onPeekRoom = { room ->
                         val host = Genres[room.genreKey]?.host ?: return@SearchScreen
                         nav.navigate(Routes.public(host, room.genreKey, room.id)) { launchSingleTop = true }
@@ -157,6 +162,11 @@ fun AppNavHost() {
                     onEnterRoom = { room ->
                         Genres[room.genreKey]?.host?.let { host ->
                             nav.navigate(Routes.entry(host, room.genreKey, room.id, Routes.SEARCH, listedPublic = room.isPublic)) { launchSingleTop = true }
+                        }
+                    },
+                    onQuickEnterRoom = { room ->
+                        Genres[room.genreKey]?.host?.let { host ->
+                            nav.navigate(Routes.entry(host, room.genreKey, room.id, Routes.SEARCH, auto = true, listedPublic = room.isPublic)) { launchSingleTop = true }
                         }
                     },
                     onPeekRoom = { room ->
