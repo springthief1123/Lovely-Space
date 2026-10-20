@@ -114,6 +114,7 @@ fun SiteWebView(
                         currentScript.value?.let { view.evaluateJavascript(it, null) }
                         captchaOnlyStyle?.let { view.evaluateJavascript(captchaOnlyScript(it, currentCaptchaOnly.value), null) }
                         page.ready = true
+                        view.evaluateJavascript(hiddenFlagScript(currentShown.value), null)
                         if (currentShown.value) {
                             page.filledWhileShown = true
                             page.runOnce(view, currentOnceScript.value)
@@ -135,16 +136,29 @@ fun SiteWebView(
             if (!uri.isShalove() || scriptPath == null || uri.path?.endsWith(scriptPath) != true) return@AndroidView
             // 表示の切り替え。確認欄の無いページでは何もしない。
             captchaOnlyStyle?.let { view.evaluateJavascript(captchaOnlyScript(it, captchaOnly), null) }
-            // 先読みしたページを見せるとき。先読みの後に変えた入力を入れ直してから、自動送信を始める。
-            if (shown && page.ready && !page.filledWhileShown) {
+            if (!page.ready) return@AndroidView
+            if (!shown) {
+                // 隠している間は自動送信を止める（確認が通ってボタンが押せるようになっても押さない）。
+                view.evaluateJavascript(hiddenFlagScript(false), null)
+                // 次に見せるときに入力し直す（入力画面へ戻って値を変えたときのため）。
+                page.filledWhileShown = false
+                return@AndroidView
+            }
+            // 見せるとき。隠していた間に変えた入力を入れ直してから、自動送信を始める（再開する）。
+            if (!page.filledWhileShown) {
                 page.filledWhileShown = true
                 onLoadScript?.let { view.evaluateJavascript(it, null) }
             }
-            if (shown && page.ready) page.runOnce(view, onceScript)
+            view.evaluateJavascript(hiddenFlagScript(true), null)
+            page.runOnce(view, onceScript)
         },
         onRelease = { it.destroy() },
     )
 }
+
+/** 画面を隠しているかをページに伝え、見せたら [autoSubmitScript] の自動送信を確かめ直す JavaScript。 */
+private fun hiddenFlagScript(shown: Boolean): String =
+    "window.__lsHidden = ${!shown}; if (!window.__lsHidden && window.__lsAutoSubmitPress) window.__lsAutoSubmitPress();"
 
 /** WebView の読み込みの進み具合。先読み（[SiteWebView] の shown = false）から表示へ移るときに使う。 */
 private class PageProgress {
@@ -214,12 +228,14 @@ fun autoSubmitScript(formName: String): String = """
       var pressed = false;
       var observer = new MutationObserver(press);
       function press() {
-        if (pressed || b.disabled) return;
+        // 画面を隠している間は押さない。見せたときに SiteWebView が呼び直す。
+        if (pressed || b.disabled || window.__lsHidden) return;
         pressed = true;
         observer.disconnect();
         b.click();
       }
       observer.observe(b, { attributes: true, attributeFilter: ['disabled'] });
+      window.__lsAutoSubmitPress = press;
       press();
     })();
 """.trimIndent()
