@@ -60,12 +60,12 @@ import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
 import io.github.springthief1123.lovelyspace.ui.entry.MissingInputs
 import io.github.springthief1123.lovelyspace.ui.main.ProfilePresetPicker
 import io.github.springthief1123.lovelyspace.ui.main.MessagePresetPicker
-import io.github.springthief1123.lovelyspace.ui.web.SiteWebView
+import io.github.springthief1123.lovelyspace.ui.web.RobotCheckView
 import io.github.springthief1123.lovelyspace.ui.web.prefillFormScript
 
 /**
  * 部屋を作る。サイトの部屋作成は毎回ロボット確認が必要なので、アプリで項目を入力してから
- * 本家の作成画面を開き、入力済みにした状態で確認と作成ボタンを利用者に押してもらう。
+ * 本家の作成画面を開き、入力済みにした状態で確認と作成ボタンを利用者に押してもらう（既定では確認欄とボタンだけを出す。[RobotCheckView]）。
  */
 @Composable
 fun CreateRoomScreen(genre: Genre, onBack: () -> Unit, onCreated: (ChatRoomRef) -> Unit) {
@@ -88,12 +88,15 @@ fun CreateRoomScreen(genre: Genre, onBack: () -> Unit, onCreated: (ChatRoomRef) 
         },
     ) { padding ->
         val modifier = Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)
-        if (showBrowser) {
-            // kct はサイトのリンクと同じく開いた時刻。画面を開き直すまで変えない。
-            val url = remember { SitePages.makeRoom(genre, System.currentTimeMillis() / 1000) }
-            SiteWebView(
+        // kct はサイトのリンクと同じく開いた時刻。画面を開き直すまで変えない。
+        val url = remember { SitePages.makeRoom(genre, System.currentTimeMillis() / 1000) }
+        Box(modifier) {
+            // 部屋作成は毎回ロボット確認があるので、入力している間に本家の作成画面を見せずに読み込み、確認を先に進めておく。
+            // 先読みから表示へ移っても同じ WebView を使い続けるよう、呼び出す場所は 1 つにする。
+            if (showBrowser || state.isLoaded) RobotCheckView(
                 url = url,
                 genreKey = genre.key,
+                guide = "下のロボット確認を済ませてから、作成のボタンを押してください。入力した内容はそのまま送られます。",
                 onLoadScript = prefillFormScript(
                     "makeroom",
                     mapOf(
@@ -106,13 +109,15 @@ fun CreateRoomScreen(genre: Genre, onBack: () -> Unit, onCreated: (ChatRoomRef) 
                 ),
                 scriptPath = "/PreMakeRoom",
                 onRoomOpened = vm::onCreated,
-                modifier = modifier,
+                shown = showBrowser,
+                modifier = Modifier.fillMaxSize(),
             )
-        } else if (!state.isLoaded) {
-            // 前回の値を読み終えるまでは入力欄を出さない（読み込みで入力が上書きされないように）。
-            Box(modifier, contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-        } else {
-            CreateRoomForm(genre, state, vm, onContinue = { vm.saveInputs(); showBrowser = true }, modifier = modifier)
+            if (!showBrowser && !state.isLoaded) {
+                // 前回の値を読み終えるまでは入力欄を出さない（読み込みで入力が上書きされないように）。
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            } else if (!showBrowser) {
+                CreateRoomForm(genre, state, vm, onContinue = { vm.saveInputs(); showBrowser = true }, modifier = Modifier.fillMaxSize())
+            }
         }
     }
 }
@@ -195,7 +200,7 @@ private fun CreateRoomForm(genre: Genre, state: CreateRoomUiState, vm: CreateRoo
             QuietPanel {
                 Text("ロボット確認", style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "部屋の作成には毎回ロボット確認が必要です。ラブルームの作成画面を開くので、確認のあと作成ボタンを押してください。入力した内容は入力済みになります。",
+                    "部屋の作成には毎回ロボット確認が必要です。アプリの中にラブルームの確認だけを出すので、確認のあと作成ボタンを押してください。入力した内容は入力済みになります。",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Button(onClick = onContinue, enabled = state.canContinue, modifier = Modifier.fillMaxWidth()) {

@@ -52,7 +52,7 @@ import io.github.springthief1123.lovelyspace.ui.components.QuietTopBar
 import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
 import io.github.springthief1123.lovelyspace.core.SitePages
 import io.github.springthief1123.lovelyspace.ui.main.ProfilePresetPicker
-import io.github.springthief1123.lovelyspace.ui.web.SiteWebView
+import io.github.springthief1123.lovelyspace.ui.web.RobotCheckView
 import io.github.springthief1123.lovelyspace.ui.web.autoSubmitScript
 import io.github.springthief1123.lovelyspace.ui.web.prefillFormScript
 
@@ -104,39 +104,49 @@ fun EntryScreen(
         },
     ) { padding ->
         val modifier = Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)
-        when {
-            // 自動送信を付けるかは WebView を作るときに決まるので、設定を読めるまでは本家の画面を開かない。
-            showBrowser && entrySettings == null -> Box(modifier, contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-            showBrowser -> SiteWebView(
+        // ロボット確認が要る部屋は、入力画面を出している間に本家の入室画面を見せずに読み込んでおく。
+        // 本家の確認は読み込んだ時点で動き出すので、「ロボット確認へ進む」を押したときには通っていることが多い。
+        val preload = state.form?.requiresCaptcha == true && state.entered == null
+        Box(modifier) {
+            // 先読みから表示へ移っても同じ WebView を使い続けるよう、呼び出す場所は 1 つにする。
+            if (showBrowser || preload) RobotCheckView(
                 url = SitePages.preEnter(host, genreKey, roomId),
                 genreKey = genreKey,
+                guide = if (entrySettings?.autoSubmit == true) {
+                    "下のロボット確認を済ませてください。確認が通るとアプリが「入室する」を押します。"
+                } else {
+                    "下のロボット確認を済ませてから「入室する」を押してください。名前などは入力済みです。"
+                },
                 onLoadScript = prefillFormScript(
                     "entry",
                     mapOf("name" to state.name.trim(), "sex" to state.sex.toString(), "years" to state.yearsValue?.toString().orEmpty()),
                 ),
                 scriptPath = "/PreEnterRoom",
-                // 自動の送信は設定が有効なときだけ。
+                // 自動の送信は設定が有効なときだけ。設定を読み終える前は送らず、読み終えてから始める。
                 onceScript = autoSubmitScript("entry").takeIf { entrySettings?.autoSubmit == true },
                 onRoomOpened = vm::onEnteredInBrowser,
-                modifier = modifier,
+                shown = showBrowser,
+                modifier = Modifier.fillMaxSize(),
             )
-            // 公開ルームへ移るまでは、入室できない旨を出さずに読み込み中のままにする。
-            (state.isLoading && state.form == null) || state.becamePublic -> Box(modifier, contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+            val content = Modifier.fillMaxSize()
+            when {
+                showBrowser -> Unit
+                // 公開ルームへ移るまでは、入室できない旨を出さずに読み込み中のままにする。
+                (state.isLoading && state.form == null) || state.becamePublic -> Box(content, contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+                state.form == null -> Column(
+                    content.padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(state.loadError.orEmpty(), style = MaterialTheme.typography.bodyLarge)
+                    OutlinedButton(onClick = vm::load) { Text("もう一度読み込む") }
+                    OutlinedButton(onClick = onBack) { Text("一覧に戻る") }
+                }
+                else -> EntryFormContent(state, vm, autoSubmit = entrySettings?.autoSubmit == true,
+                    onOpenBrowser = { vm.saveProfile(); showBrowser = true }, modifier = content)
             }
-            state.form == null -> Column(
-                modifier.padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(state.loadError.orEmpty(), style = MaterialTheme.typography.bodyLarge)
-                OutlinedButton(onClick = vm::load) { Text("もう一度読み込む") }
-                OutlinedButton(onClick = onBack) { Text("一覧に戻る") }
-            }
-            else -> EntryFormContent(state, vm, autoSubmit = entrySettings?.autoSubmit == true,
-                onOpenBrowser = { vm.saveProfile(); showBrowser = true }, modifier = modifier)
         }
     }
 }
@@ -220,9 +230,9 @@ private fun EntryFormContent(state: EntryUiState, vm: EntryViewModel, autoSubmit
                     Text("ロボット確認", style = MaterialTheme.typography.titleSmall)
                     Text(
                         if (autoSubmit) {
-                            "この部屋に入るにはロボット確認が必要です。ラブルームの入室画面を開きます。名前などは入力済みになり、確認が通るとアプリが「入室」を押します。"
+                            "この部屋に入るにはロボット確認が必要です。アプリの中にラブルームの確認だけを出します。名前などは入力済みになり、確認が通るとアプリが「入室」を押します。"
                         } else {
-                            "この部屋に入るにはロボット確認が必要です。ラブルームの入室画面を開くので、確認のあと「入室」を押してください。名前などは入力済みになります。"
+                            "この部屋に入るにはロボット確認が必要です。アプリの中にラブルームの確認だけを出すので、確認のあと「入室」を押してください。名前などは入力済みになります。"
                         },
                         style = MaterialTheme.typography.bodyMedium,
                     )
