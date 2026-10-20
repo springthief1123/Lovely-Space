@@ -37,6 +37,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import io.github.springthief1123.lovelyspace.notify.AppNotifier
+import io.github.springthief1123.lovelyspace.notify.RequestNotificationPermissionOnFirstLaunch
 import io.github.springthief1123.lovelyspace.settings.RoomMessageLines
 import io.github.springthief1123.lovelyspace.settings.TextScale
 import io.github.springthief1123.lovelyspace.ui.rooms.LocalRoomMessageMaxLines
@@ -102,6 +103,8 @@ class MainActivity : FragmentActivity() {
                     LaunchedEffect(lock.locked) {
                         if (lock.locked) { focusManager.clearFocus(force = true); keyboard?.hide() }
                     }
+                    // 初回起動で通知の許可を求める（アプリロック中は解除してから）。
+                    RequestNotificationPermissionOnFirstLaunch(locked = lock.locked)
                     Box {
                         // ロック中は後ろの画面を読み上げの対象から外し、フォーカスも移せないようにする。
                         Box(

@@ -9,6 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,6 +41,25 @@ fun rememberNotificationPermissionRequest(onResult: (Boolean) -> Unit = {}): () 
                 context.startActivity(appNotificationSettingsIntent(context))
             else -> onResult(true)
         }
+    }
+}
+
+/**
+ * 初回起動で、Android 13 以降の通知の許可ダイアログを 1 回だけ出す。
+ * 機能の操作から求めたとき（[rememberNotificationPermissionRequest]）と同じ記録を使うので、
+ * どちらかで一度出したら、もう自動では出さない（断られた後は各機能の案内から端末の設定を開く）。
+ * アプリロックの解除前（[locked]）は出さず、解除してから出す。
+ */
+@Composable
+fun RequestNotificationPermissionOnFirstLaunch(locked: Boolean) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+    val context = LocalContext.current
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    LaunchedEffect(locked) {
+        if (locked || AppNotifier.hasPermission(context) || notificationPermissionWasRequested(context)) return@LaunchedEffect
+        // 画面の回転やプロセスの作り直しで再度出さないよう、起動前に永続化する。
+        markNotificationPermissionRequested(context)
+        launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 }
 
