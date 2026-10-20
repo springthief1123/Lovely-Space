@@ -82,6 +82,8 @@ class RadarSyncWorker(context: Context, params: WorkerParameters) : CoroutineWor
             // 順番待ちは待っている部屋のページだけを取得する。空きの通知は WaitlistRepository が出す。
             val used = (app.roomLists.fetchAttempts - attemptsBefore).toInt()
             app.waitlist.check((MAX_PAGES - used).coerceAtLeast(0))
+            // 読んだページでピンした部屋が空いた・似た部屋が建ったら、終わる前に知らせる。
+            app.pins.refresh()
             if (state == null) Result.retry() else Result.success()
         } catch (e: CancellationException) {
             throw e

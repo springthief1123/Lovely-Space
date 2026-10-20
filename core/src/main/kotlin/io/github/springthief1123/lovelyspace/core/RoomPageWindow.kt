@@ -74,11 +74,22 @@ data class RoomPageWindow(
      * 候補がちょうど 1 つのときだけ返す。2 つ以上なら、別の人の部屋を選ばないよう追わない。[claimed]（ほかの登録が追っている部屋）は候補にしない。
      */
     fun rebuildOf(old: Room, claimed: Set<String> = emptySet()): Room? {
-        val all = rooms
-        val oldKey = roomIdentity(old)
-        if (all.any { roomIdentity(it) == oldKey }) return null
-        if (pages.values.none { closedRange(it)?.contains(old.id) == true }) return null
-        return all.filter { roomIdentity(it) !in claimed && isRebuildOf(old, it) }.distinctBy(::roomIdentity).singleOrNull()
+        if (!isClosed(old)) return null
+        return rooms.filter { roomIdentity(it) !in claimed && isRebuildOf(old, it) }.distinctBy(::roomIdentity).singleOrNull()
+    }
+
+    /**
+     * [room] が閉じたと分かるか。この一覧に無く（消えたばかりで [carried] に残っている間は、まだあるものとみなす）、
+     * 読んだページの ID の範囲（[closedRange]）に [room] の ID が入っているとき。
+     * 最後のページまで読んでいて、[room] の ID が最後のページのいちばん古い部屋より [ID_MARGIN] 以上小さいときも閉じている
+     * （日をまたいだ前の部屋など。部屋は最長 8 時間で閉じ、一覧は立てた順に並ぶ）。
+     */
+    fun isClosed(room: Room): Boolean {
+        val key = roomIdentity(room)
+        if (rooms.any { roomIdentity(it) == key }) return false
+        if (pages.values.any { closedRange(it)?.contains(room.id) == true }) return true
+        val oldest = pages[lastPage]?.takeIf { it.size >= 3 }?.minOf { it.id } ?: return false
+        return room.id < oldest - ID_MARGIN
     }
 
     companion object {

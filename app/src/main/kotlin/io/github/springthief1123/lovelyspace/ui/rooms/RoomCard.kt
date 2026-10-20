@@ -61,9 +61,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Bookmark
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
@@ -242,7 +242,7 @@ fun RoomCard(
     var settleJob by remember(room.id, room.genreKey) { mutableStateOf<Job?>(null) }
     var settleTarget by remember(room.id, room.genreKey) { mutableFloatStateOf(0f) }
     var dragging by remember(room.id, room.genreKey) { mutableStateOf(false) }
-    // 確定後に戻り終わるまで、背後の文言を確定前（保存／保存を解除など）のままにする。
+    // 確定後に戻り終わるまで、背後の文言を確定前（ピン／ピンを外すなど）のままにする。
     var commitLabels by remember(room.id, room.genreKey) { mutableStateOf<Pair<Boolean, Boolean>?>(null) }
     // 開いた状態から始めた操作では反対側へ通り抜けさせない（戻しすぎ防止）。
     var gestureStartSide by remember(room.id, room.genreKey) { mutableFloatStateOf(0f) }
@@ -568,12 +568,12 @@ private fun BoxScope.SwipeActionBackground(
             ) {
                 if (isFavoriteSide) {
                     Icon(
-                        if (isFavorite) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
+                        if (isFavorite) Icons.Filled.PushPin else Icons.Outlined.PushPin,
                         contentDescription = null,
                         tint = if (armed) content else scheme.primary,
                     )
                     Text(
-                        if (isFavorite) "保存を解除" else "保存",
+                        if (isFavorite) "ピンを外す" else "ピン",
                         style = MaterialTheme.typography.labelLarge,
                         color = content,
                     )
@@ -614,8 +614,8 @@ private fun RoomCardSurface(
     val menuItems = buildList {
         detailsAction?.let { add(RoomMenuItem("部屋の詳細", Icons.Outlined.Info, onClick = it)) }
         favoriteAction?.let {
-            add(RoomMenuItem(if (isFavorite) "保存を解除" else "部屋を保存",
-                if (isFavorite) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder, enabled = actionsEnabled, onClick = it))
+            add(RoomMenuItem(if (isFavorite) "ピンを外す" else "ピンする",
+                if (isFavorite) Icons.Filled.PushPin else Icons.Outlined.PushPin, enabled = actionsEnabled, onClick = it))
         }
         addAll(extraMenuItems)
         hiddenAction?.let {
@@ -655,12 +655,12 @@ private fun RoomCardSurface(
                     )
                     .semantics {
                         if (a11yActions.isNotEmpty()) customActions = a11yActions
-                        if (isFavorite) stateDescription = "保存済み"
+                        if (isFavorite) stateDescription = "ピン済み"
                     }
                     .padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                // 保存済みの印と重ならないよう、見出しの行はその幅だけ内側で終える。
+                // ピンの印と重ならないよう、見出しの行はその幅だけ内側で終える。
                 Row(Modifier.padding(end = if (isFavorite) SAVED_RIBBON_CLEARANCE else 0.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(34.dp).clip(CircleShape).background(genderContainer), contentAlignment = Alignment.Center) {
@@ -732,7 +732,7 @@ private fun RoomCardSurface(
     }
 }
 
-/** 保存済みの部屋の右上に下げるしおり。読み上げはカード本体の状態（保存済み）で伝える。 */
+/** ピンした部屋の右上に下げるしおり。読み上げはカード本体の状態（ピン済み）で伝える。 */
 @Composable
 private fun SavedRibbon(modifier: Modifier = Modifier) {
     Box(

@@ -60,9 +60,9 @@ class RoomCardLayoutTest {
             }
         }
         compose.onAllNodesWithContentDescription("部屋の操作").assertCountEquals(0)
-        compose.onAllNodesWithContentDescription("部屋を保存").assertCountEquals(0)
+        compose.onAllNodesWithContentDescription("ピンする").assertCountEquals(0)
         compose.onNodeWithText("テスト").performTouchInput { longClick() }
-        compose.onNodeWithText("部屋を保存").assertIsDisplayed()
+        compose.onNodeWithText("ピンする").assertIsDisplayed()
         compose.onNodeWithText("非表示にする").assertIsDisplayed()
     }
 

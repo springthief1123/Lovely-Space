@@ -125,6 +125,24 @@ class AutoEntryControllerTest {
         assertTrue(c.offer(pinned))
     }
 
+    @Test fun aRebuiltPinKeepsItsAttemptCount() = runTest {
+        val (c, received) = controller()
+        startedAt = 0L
+        val pinKey = roomIdentity(full)
+        repeat(AutoEntryController.MAX_ATTEMPTS - 1) {
+            now += AutoEntryController.COOLDOWN_MS
+            assertTrue(c.offerPin(pinKey, full, open, always = true))
+        }
+        // 同じ内容で立て直された部屋へピンが移っても、残りは 1 回だけ。
+        val rebuilt = open.copy(id = 99)
+        c.moveTarget(AutoEntryController.pinTarget(pinKey), AutoEntryController.pinTarget(roomIdentity(rebuilt)))
+        now += AutoEntryController.COOLDOWN_MS
+        assertTrue(c.offerPin(roomIdentity(rebuilt), full, rebuilt, always = true))
+        now += AutoEntryController.COOLDOWN_MS
+        assertFalse(c.offerPin(roomIdentity(rebuilt), full, rebuilt, always = true))
+        assertEquals(AutoEntryController.MAX_ATTEMPTS, received.size)
+    }
+
     @Test fun aNamedPersonsNewRoomEntersOnlyForAnExactNameWhileEnabled() = runTest {
         val (c, received) = controller()
         startedAt = 0L

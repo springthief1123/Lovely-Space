@@ -82,7 +82,7 @@ fun RefreshSettingsScreen(onBack: () -> Unit) {
                 item {
                     IntervalPicker(
                         title = "新着の確認",
-                        description = "新しい部屋は必ず1ページ目に出るので、見つける画面・レーダー・順番待ちで見ているジャンルの1ページ目を、アプリを開いている間はこの間隔で読み直します（ジャンルが複数あるときや、通信の最小間隔が長いときは、通信の半分を超えないよう伸ばします）",
+                        description = "新しい部屋は必ず1ページ目に出るので、見つける画面・レーダー・ピンで見ているジャンルの1ページ目を、アプリを開いている間はこの間隔で読み直します（ジャンルが複数あるときや、通信の最小間隔が長いときは、通信の半分を超えないよう伸ばします）",
                         value = pacing.hotMs,
                         choices = RefreshPacing.HOT_CHOICES,
                         defaultValue = RefreshPacing.DEFAULT_HOT_MS,
@@ -112,7 +112,7 @@ fun RefreshSettingsScreen(onBack: () -> Unit) {
                 item {
                     IntervalPicker(
                         title = "空き枠の確認",
-                        description = "順番待ちの部屋が空いたかを、アプリを開いている間に確かめる間隔（閉じている間は15分ごと）",
+                        description = "知らせるピンの満室の部屋が空いたかを、アプリを開いている間に確かめる間隔（閉じている間は15分ごと）",
                         value = pacing.waitlistMs,
                         choices = RefreshPacing.WAITLIST_CHOICES,
                         defaultValue = RefreshPacing.DEFAULT_WAITLIST_MS,

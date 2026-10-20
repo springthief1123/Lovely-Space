@@ -48,6 +48,8 @@ data class WaitlistEntry(
     val rebuilds: Int = 0,
     /** 必ず入りたい部屋として、空いたら自動で入室する（設定の自動入室がオフでも。[AutoEntryController]）。 */
     val autoEnter: Boolean = false,
+    /** ピン（[PinRepository.fastWatch]）の空きを早く確かめるための登録。空きはピンの見張りが知らせるので、ここでは知らせない。 */
+    val forPin: Boolean = false,
 ) {
     val key: String get() = roomIdentity(room)
     fun active(now: Long): Boolean = status == WaitlistStatus.WATCHING && now < expiresAt
@@ -96,14 +98,14 @@ class WaitlistRepository(
     fun hasPendingWork(): Boolean = hasActive() || _entries.value.any { it.unnoticed }
 
     /** 満室の部屋を登録する。同じ部屋の古い登録は置き換える。 */
-    suspend fun register(room: Room, sourceQuery: RoomQuery? = null, hours: Int = DEFAULT_HOURS) = mutex.withLock {
+    suspend fun register(room: Room, sourceQuery: RoomQuery? = null, hours: Int = DEFAULT_HOURS, forPin: Boolean = false) = mutex.withLock {
         require(room.status == RoomStatus.FULL) { "満室の部屋だけ順番待ちに登録できます。" }
         val genre = requireNotNull(Genres[room.genreKey]) { "ジャンルを確認できませんでした。" }
         val at = now()
         val others = _entries.value.filterNot { it.key == roomIdentity(room) }
         require(others.count { it.active(at) } < MAX_ACTIVE) { "順番待ちは同時に${MAX_ACTIVE}件までです。" }
         val query = startQuery(room, sourceQuery) ?: RoomQuery(genre)
-        save(listOf(WaitlistEntry(room, query, at, at + hours * HOUR_MS, lastSeenAt = at)) + others)
+        save(listOf(WaitlistEntry(room, query, at, at + hours * HOUR_MS, lastSeenAt = at, forPin = forPin)) + others)
     }
 
     /**
@@ -122,6 +124,11 @@ class WaitlistRepository(
     suspend fun setAutoEnter(key: String, enabled: Boolean) = mutex.withLock {
         require(_entries.value.any { it.key == key }) { "順番待ちが見つかりません。" }
         save(_entries.value.map { if (it.key == key) it.copy(autoEnter = enabled) else it })
+    }
+
+    /** 以前の順番待ちの 1 件を、ピン用の登録に変える。確認していたページはそのまま引き継ぐ。 */
+    suspend fun markForPin(key: String) = mutex.withLock {
+        save(_entries.value.map { if (it.key == key) it.copy(forPin = true, autoEnter = false) else it })
     }
 
     suspend fun remove(key: String) = mutex.withLock {
@@ -302,7 +309,7 @@ class WaitlistStore(private val prefs: android.content.SharedPreferences) : Wait
         .put("registeredAt", e.registeredAt).put("expiresAt", e.expiresAt).put("status", e.status.name)
         .put("lastSeenAt", e.lastSeenAt).put("missed", e.missed).put("changedAt", e.changedAt)
         .put("openedRoom", e.openedRoom?.let(::waitlistRoomJson)).put("noticed", e.noticed).put("anchorPage", e.anchorPage).put("rebuilds", e.rebuilds)
-        .put("autoEnter", e.autoEnter)
+        .put("autoEnter", e.autoEnter).put("forPin", e.forPin)
 
     private fun decode(o: JSONObject): WaitlistEntry {
         val room = readWaitlistRoom(o.getJSONObject("room"))
@@ -322,6 +329,7 @@ class WaitlistStore(private val prefs: android.content.SharedPreferences) : Wait
             anchorPage = o.optInt("anchorPage", query.page),
             rebuilds = o.optInt("rebuilds"),
             autoEnter = o.optBoolean("autoEnter"),
+            forPin = o.optBoolean("forPin"),
         )
     }
 

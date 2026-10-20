@@ -2,8 +2,8 @@ package io.github.springthief1123.lovelyspace.ui.main
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Bookmark
-import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -61,7 +61,7 @@ internal fun observedRoom(observations: Collection<ObservedRoomPage>, genreKey: 
 
 /**
  * 部屋の中（トーク画面・公開ルーム）の右上に置くメニュー。長押しメニューと同じパネルで、
- * 部屋主の名前・待機メッセージと、保存・追跡・順番待ちを出す。部屋の情報は取得済みの一覧から探すので、一覧で見ていない部屋では選べない。
+ * 部屋主の名前・待機メッセージと、ピン・知らせ方を出す。部屋の情報は取得済みの一覧から探すので、一覧で見ていない部屋では選べない。
  */
 @Composable
 internal fun RoomMenuButton(genreKey: String, roomId: Long, fallbackTitle: String, onNotice: (String) -> Unit, waitingMessage: String? = null) {
@@ -78,13 +78,13 @@ internal fun RoomMenuButton(genreKey: String, roomId: Long, fallbackTitle: Strin
 
     val items = if (room == null) {
         listOf(
-            RoomMenuItem("部屋を保存", Icons.Outlined.BookmarkBorder, enabled = false) {},
+            RoomMenuItem("ピンする", Icons.Outlined.PushPin, enabled = false) {},
         )
     } else {
         val favorite = preferences.isFavorite(room)
         listOf(
-            RoomMenuItem(if (favorite) "保存を解除" else "部屋を保存",
-                if (favorite) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
+            RoomMenuItem(if (favorite) "ピンを外す" else "ピンする",
+                if (favorite) Icons.Filled.PushPin else Icons.Outlined.PushPin,
                 enabled = !preferences.loading && preferences.canEdit(room)) {
                 preferencesVm.toggleFavorite(room)
             },
@@ -99,7 +99,7 @@ internal fun RoomMenuButton(genreKey: String, roomId: Long, fallbackTitle: Strin
             title = room?.name?.let { "部屋主: $it" } ?: fallbackTitle,
             // 部屋の画面に出ている待機メッセージがあればそれを、無ければ一覧で見たものを出す。
             message = waitingMessage?.takeIf { it.isNotBlank() } ?: room?.message,
-            subtitle = if (room == null) "一覧で見かけた部屋だけ保存・追跡できます"
+            subtitle = if (room == null) "一覧で見かけた部屋だけピンできます"
                 // 状態は一覧で見たときのものなので出さない。
                 else listOfNotNull(when (room.gender) { Gender.FEMALE -> "女性"; Gender.MALE -> "男性"; Gender.UNKNOWN -> null },
                     room.age?.let { "${it}歳" }, room.area).joinToString(" · "),

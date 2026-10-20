@@ -24,19 +24,19 @@ import org.robolectric.annotation.LooperMode
 class RadarSectionTest {
     @get:Rule val compose = createComposeRule()
 
-    /** レーダーの 3 つの切り替えは最初は一致で、選んだものは画面の作り直しのあとも残る。 */
+    /** レーダーのピン・条件の切り替えは最初はピンで、選んだものは画面の作り直しのあとも残る。 */
     @Test fun selectedSectionSurvivesRecreation() {
         val restoration = StateRestorationTester(compose)
         restoration.setContent {
             LovelySpaceTheme {
                 var section by rememberRadarSection()
-                QuietTabs(listOf(RadarSection.MATCHES to "一致", RadarSection.WATCH to "見張り", RadarSection.HISTORY to "履歴"), section) { section = it }
+                QuietTabs(listOf(RadarSection.PINS to "ピン", RadarSection.CONDITIONS to "条件"), section) { section = it }
             }
         }
-        compose.onNodeWithText("一致").assertIsSelected()
-        compose.onNodeWithText("見張り").performClick()
+        compose.onNodeWithText("ピン").assertIsSelected()
+        compose.onNodeWithText("条件").performClick()
         restoration.emulateSavedInstanceStateRestore()
-        compose.onNodeWithText("見張り").assertIsSelected()
-        compose.onNodeWithText("一致").assertIsNotSelected()
+        compose.onNodeWithText("条件").assertIsSelected()
+        compose.onNodeWithText("ピン").assertIsNotSelected()
     }
 }

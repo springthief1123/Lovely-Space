@@ -142,7 +142,7 @@ fun NotificationSettingsScreen(onBack: () -> Unit) {
                 item {
                     Text(
                         "種類ごとの音やバイブは、行をタップして端末の設定で変えられます。" +
-                            "巡回の一致と順番待ちは、背景での確認で見つかったときに届きます。" +
+                            "条件の新着とピンの空きは、背景での確認で見つかったときに届きます。" +
                             "入室者ありの通知はまだ届きません（準備中）。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
