@@ -19,7 +19,7 @@ app   (Android)     画面（Compose）・端末内の保存（Room / DataStore�
 
 サイトに依存する処理（URL・フォーム項目・HTML の構造・JS 応答の形式）は `core` に置きます。本家の HTML が変わったときに直す場所を 1 か所にするためです。
 
-**現在の例外**: WebView で本家の画面を入力済みにする処理は app にあります。フォーム名・項目名・対象パスが `ui/entry/EntryScreen.kt`（`entry` フォーム、`/PreEnterRoom`）と `ui/create/CreateRoomScreen.kt`（`makeroom` フォーム、`/PreMakeRoom`）に、入力スクリプトが `ui/web/SiteWebView.kt`（`prefillFormScript`）に直接書かれています。本家の入室・部屋作成フォームが変わったときは core に加えてここも直してください。
+**現在の例外**: WebView で本家の画面を入力済みにする処理は app にあります。フォーム名・項目名・対象パスが `ui/entry/EntryScreen.kt`（`entry` フォーム、`/PreEnterRoom`）と `ui/create/CreateRoomScreen.kt`（`makeroom` フォーム、`/PreMakeRoom`）に、入力スクリプトが `ui/web/SiteWebView.kt`（`prefillFormScript`）に、確認欄だけを出すスクリプトの要素 ID（`#captcha_space`・`#submit_captcha`）が `ui/web/RobotCheckView.kt`（`captchaOnlyScript`）に直接書かれています。本家の入室・部屋作成フォームが変わったときは core に加えてここも直してください。
 
 ## core の主なクラス
 
@@ -72,7 +72,7 @@ AppNavHost / LovelyAppShell
 
 1. `ShaloveClient.openEntry` で入室前画面（`/PreEnterRoom`）を取得し、フォームとロボット確認の有無を読む。
 2. 確認が無ければ、アプリから `enter`（`POST /PreEnterRoom`）。302 の行き先 `2shot.php?room_id=..&pwd=..` から部屋の鍵 `pwd` を得る。
-3. 確認があれば `SiteWebView` で本家の入室前画面を開き、名前などを入力済みにする。利用者が確認を通して送信すると、WebView が `2shot.php` へ移る瞬間をアプリが捕まえ、会話画面へ引き継ぐ。
+3. 確認があれば `RobotCheckView`（中身は `SiteWebView`）で本家の入室前画面を開き、名前などを入力済みにする。既定では本家の確認欄（`#captcha_space`）と送信ボタン（`#submit_captcha`）、エラーらしい文言（`.ex` など）だけを残してほかを隠し、アプリの色で出す（`captchaOnlyScript`。確認の欄は本家のページ上で動くもので、アプリは表示を絞るだけ）。上のお知らせから本家の画面全体の表示に切り替えられる。利用者が確認を通して送信すると、WebView が `2shot.php` へ移る瞬間をアプリが捕まえ、会話画面へ引き継ぐ。
 4. `pwd` を含む `ChatRoomRef` は `ActiveRooms`（メモリ上）に置き、ナビゲーションの route には一時 ID だけを載せる。
 
 ### 会話
@@ -81,7 +81,7 @@ AppNavHost / LovelyAppShell
 
 ### 部屋作成
 
-アプリで名前・年齢・地域・待機メッセージを入力（プリセットから選べる）→ 本家の `/PreMakeRoom` を WebView で開き、スクリプトでフォームを埋める → 利用者がロボット確認と作成ボタンを押す → `2shot.php` への遷移を捕まえて会話画面へ。
+アプリで名前・年齢・地域・待機メッセージを入力（プリセットから選べる）→ 本家の `/PreMakeRoom` を WebView（`RobotCheckView`。入室と同じく確認欄とボタンだけを出す）で開き、スクリプトでフォームを埋める → 利用者がロボット確認と作成ボタンを押す → `2shot.php` への遷移を捕まえて会話画面へ。
 
 ## テスト
 

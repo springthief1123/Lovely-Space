@@ -60,12 +60,12 @@ import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
 import io.github.springthief1123.lovelyspace.ui.entry.MissingInputs
 import io.github.springthief1123.lovelyspace.ui.main.ProfilePresetPicker
 import io.github.springthief1123.lovelyspace.ui.main.MessagePresetPicker
-import io.github.springthief1123.lovelyspace.ui.web.SiteWebView
+import io.github.springthief1123.lovelyspace.ui.web.RobotCheckView
 import io.github.springthief1123.lovelyspace.ui.web.prefillFormScript
 
 /**
  * 部屋を作る。サイトの部屋作成は毎回ロボット確認が必要なので、アプリで項目を入力してから
- * 本家の作成画面を開き、入力済みにした状態で確認と作成ボタンを利用者に押してもらう。
+ * 本家の作成画面を開き、入力済みにした状態で確認と作成ボタンを利用者に押してもらう（既定では確認欄とボタンだけを出す。[RobotCheckView]）。
  */
 @Composable
 fun CreateRoomScreen(genre: Genre, onBack: () -> Unit, onCreated: (ChatRoomRef) -> Unit) {
@@ -91,9 +91,10 @@ fun CreateRoomScreen(genre: Genre, onBack: () -> Unit, onCreated: (ChatRoomRef) 
         if (showBrowser) {
             // kct はサイトのリンクと同じく開いた時刻。画面を開き直すまで変えない。
             val url = remember { SitePages.makeRoom(genre, System.currentTimeMillis() / 1000) }
-            SiteWebView(
+            RobotCheckView(
                 url = url,
                 genreKey = genre.key,
+                guide = "下のロボット確認を済ませてから、作成のボタンを押してください。入力した内容はそのまま送られます。",
                 onLoadScript = prefillFormScript(
                     "makeroom",
                     mapOf(
@@ -195,7 +196,7 @@ private fun CreateRoomForm(genre: Genre, state: CreateRoomUiState, vm: CreateRoo
             QuietPanel {
                 Text("ロボット確認", style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "部屋の作成には毎回ロボット確認が必要です。ラブルームの作成画面を開くので、確認のあと作成ボタンを押してください。入力した内容は入力済みになります。",
+                    "部屋の作成には毎回ロボット確認が必要です。アプリの中にラブルームの確認だけを出すので、確認のあと作成ボタンを押してください。入力した内容は入力済みになります。",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Button(onClick = onContinue, enabled = state.canContinue, modifier = Modifier.fillMaxWidth()) {

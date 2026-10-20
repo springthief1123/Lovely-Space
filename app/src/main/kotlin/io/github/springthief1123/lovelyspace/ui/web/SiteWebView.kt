@@ -41,12 +41,19 @@ fun SiteWebView(
      * 送信して本家が同じページを返した（入室できなかった）ときに、送り直しを繰り返さないよう 1 回にする。
      */
     onceScript: String? = null,
+    /**
+     * 渡すと、[scriptPath] のページでロボット確認の欄と送信ボタンだけを残して本家のほかの部分を隠す（[captchaOnlyScript]）。
+     * [captchaOnly] が false の間は本家の画面をそのまま出す。
+     */
+    captchaOnlyStyle: CaptchaOnlyStyle? = null,
+    captchaOnly: Boolean = false,
     onRoomOpened: ((ChatRoomRef) -> Unit)? = null,
 ) {
     require(Uri.parse(url).isShalove()) { "Only HTTPS shalove.net pages can be opened in SiteWebView" }
     val currentOnRoomOpened = rememberUpdatedState(onRoomOpened)
     val currentScript = rememberUpdatedState(onLoadScript)
     val currentOnceScript = rememberUpdatedState(onceScript)
+    val currentCaptchaOnly = rememberUpdatedState(captchaOnly)
     AndroidView(
         modifier = modifier,
         factory = { context ->
@@ -95,6 +102,7 @@ fun SiteWebView(
                         val path = scriptPath ?: return
                         if (!uri.isShalove() || uri.path?.endsWith(path) != true) return
                         currentScript.value?.let { view.evaluateJavascript(it, null) }
+                        captchaOnlyStyle?.let { view.evaluateJavascript(captchaOnlyScript(it, currentCaptchaOnly.value), null) }
                         val once = currentOnceScript.value
                         if (once != null && !onceRan) {
                             onceRan = true
@@ -103,6 +111,14 @@ fun SiteWebView(
                     }
                 }
                 loadUrl(url)
+            }
+        },
+        // 表示の切り替え。確認欄の無いページやラブルーム以外では何もしない。
+        update = { view ->
+            val style = captchaOnlyStyle ?: return@AndroidView
+            val uri = view.url?.let(Uri::parse) ?: return@AndroidView
+            if (uri.isShalove() && scriptPath != null && uri.path?.endsWith(scriptPath) == true) {
+                view.evaluateJavascript(captchaOnlyScript(style, captchaOnly), null)
             }
         },
         onRelease = { it.destroy() },

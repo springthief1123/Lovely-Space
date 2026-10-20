@@ -52,7 +52,7 @@ import io.github.springthief1123.lovelyspace.ui.components.QuietTopBar
 import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
 import io.github.springthief1123.lovelyspace.core.SitePages
 import io.github.springthief1123.lovelyspace.ui.main.ProfilePresetPicker
-import io.github.springthief1123.lovelyspace.ui.web.SiteWebView
+import io.github.springthief1123.lovelyspace.ui.web.RobotCheckView
 import io.github.springthief1123.lovelyspace.ui.web.autoSubmitScript
 import io.github.springthief1123.lovelyspace.ui.web.prefillFormScript
 
@@ -109,9 +109,14 @@ fun EntryScreen(
             showBrowser && entrySettings == null -> Box(modifier, contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
-            showBrowser -> SiteWebView(
+            showBrowser -> RobotCheckView(
                 url = SitePages.preEnter(host, genreKey, roomId),
                 genreKey = genreKey,
+                guide = if (entrySettings?.autoSubmit == true) {
+                    "下のロボット確認を済ませてください。確認が通るとアプリが「入室する」を押します。"
+                } else {
+                    "下のロボット確認を済ませてから「入室する」を押してください。名前などは入力済みです。"
+                },
                 onLoadScript = prefillFormScript(
                     "entry",
                     mapOf("name" to state.name.trim(), "sex" to state.sex.toString(), "years" to state.yearsValue?.toString().orEmpty()),
@@ -220,9 +225,9 @@ private fun EntryFormContent(state: EntryUiState, vm: EntryViewModel, autoSubmit
                     Text("ロボット確認", style = MaterialTheme.typography.titleSmall)
                     Text(
                         if (autoSubmit) {
-                            "この部屋に入るにはロボット確認が必要です。ラブルームの入室画面を開きます。名前などは入力済みになり、確認が通るとアプリが「入室」を押します。"
+                            "この部屋に入るにはロボット確認が必要です。アプリの中にラブルームの確認だけを出します。名前などは入力済みになり、確認が通るとアプリが「入室」を押します。"
                         } else {
-                            "この部屋に入るにはロボット確認が必要です。ラブルームの入室画面を開くので、確認のあと「入室」を押してください。名前などは入力済みになります。"
+                            "この部屋に入るにはロボット確認が必要です。アプリの中にラブルームの確認だけを出すので、確認のあと「入室」を押してください。名前などは入力済みになります。"
                         },
                         style = MaterialTheme.typography.bodyMedium,
                     )
