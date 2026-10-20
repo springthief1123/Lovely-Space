@@ -402,7 +402,8 @@ private fun ShortcutPreview(color: Int, symbol: DisguiseSymbol, label: String) {
 @Composable
 private fun SymbolGrid(selected: DisguiseSymbol, background: Int, onSelect: (DisguiseSymbol) -> Unit) {
     val scheme = MaterialTheme.colorScheme
-    val columns = 6
+    // 5 列にして、幅 320dp の端末でも 1 つが 48dp 以上の四角になるようにする。
+    val columns = 5
     Column(
         Modifier
             .fillMaxWidth()
