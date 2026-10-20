@@ -114,13 +114,13 @@ class LovelySpaceApp : Application() {
         }
         val state = radar.state.first { it.loaded || it.error != null }
         if (!state.loaded) return
-        state.targets.forEach { target ->
-            val room = target.identity
+        state.legacyTargets.forEach { target ->
+            val room = target.room
             if (Genres[room.genreKey] == null) return@forEach
             pins.pin(room)
             if (target.note.isNotBlank()) pins.setMemo(roomIdentity(room), target.note)
-            radar.removeTarget(target.room)
         }
+        if (state.legacyTargets.isNotEmpty()) radar.clearLegacyTargets()
         store.migrated = true
     }
 

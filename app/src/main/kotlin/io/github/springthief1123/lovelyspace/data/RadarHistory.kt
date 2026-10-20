@@ -2,15 +2,12 @@ package io.github.springthief1123.lovelyspace.data
 
 import org.json.JSONObject
 
+/** 一致の記録の種類。ROOM_STATUS・IDENTITY_WARNING・PROFILE_UNCONFIRMED と ROOM は以前の追跡の記録で、保存済みの記録を読むためだけに残す。 */
 enum class RadarEventKind { SEARCH_MATCH, CANDIDATE_MATCH, ROOM_STATUS, IDENTITY_WARNING, PROFILE_UNCONFIRMED, LEGACY }
 enum class RadarOriginType { PLAN, CANDIDATE, ROOM }
 data class RadarEventOrigin(val type: RadarOriginType, val id: String, val label: String, val description: String = "") {
     val key: String get() = "${type.name}/$id"
 }
-data class RadarHistoryFilter(val unreadOnly: Boolean = false, val kind: RadarEventKind? = null, val originKey: String? = null)
-
-fun RadarEvent.matches(filter: RadarHistoryFilter): Boolean = (!filter.unreadOnly || !read) &&
-    (filter.kind == null || kind == filter.kind) && (filter.originKey == null || origin?.key == filter.originKey)
 
 internal fun radarOriginJson(origin: RadarEventOrigin?): JSONObject? = origin?.let {
     JSONObject().put("type", it.type.name).put("id", it.id).put("label", it.label).put("description", it.description)

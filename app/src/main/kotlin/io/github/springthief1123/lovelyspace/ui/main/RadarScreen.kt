@@ -98,7 +98,6 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
     var editing by rememberSaveable(stateSaver = SearchPresetSaver) { mutableStateOf<SearchPreset?>(null) }
     var deleting by rememberSaveable(stateSaver = SearchPresetSaver) { mutableStateOf<SearchPreset?>(null) }
     var pauseConfirm by rememberSaveable { mutableStateOf(false) }
-    var showHistory by rememberSaveable { mutableStateOf(false) }
     var candidateDraft by rememberSaveable(stateSaver = CandidateRuleSaver) { mutableStateOf<CandidateRule?>(null) }
     var deletingCandidate by rememberSaveable(stateSaver = CandidateRuleSaver) { mutableStateOf<CandidateRule?>(null) }
     var expandedPin by rememberSaveable { mutableStateOf<String?>(null) }
@@ -167,7 +166,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
         item { QuietHeading("レーダー") }
         savedState.loadError?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error); TextButton(onClick = savedVm::reload) { Text("条件を読み直す") } } }
         item { RadarDashboard(state, pins.size, planCount, working,
-            onScan = ::scan, onPause = { pauseConfirm = true }, onAutomatic = app.radar::automatic, onHistory = { showHistory = true }) }
+            onScan = ::scan, onPause = { pauseConfirm = true }, onAutomatic = app.radar::automatic) }
         if (!state.loaded && state.error == null) item { CircularProgressIndicator() }
         // 読み込みの失敗は読み込み直し、操作の失敗は失敗した操作をやり直す「再試行」を、読み込み済みでも出す。
         // 操作の失敗は閉じることもできる。
@@ -355,13 +354,6 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
             confirmLabel = "削除", onConfirm = { action { app.radar.removeCandidate(rule.id); deletingCandidate = null } },
             onDismiss = { deletingCandidate = null }, destructive = true, enabled = !working, error = error)
     }
-    if (showHistory) RadarHistorySheet(state, working, onDismiss = { showHistory = false },
-        onRead = { ids -> action { app.radar.markEventsRead(ids) } },
-        onRoom = { event, room ->
-            val snapshot = RadarRoomSnapshot(room, event.at, event.page ?: 1, event.blocked, event.sourceQuery)
-            showHistory = false
-            if (event.read) selected = snapshot else action { app.radar.markEventsRead(setOf(event.id)); selected = snapshot }
-        })
     result?.let { found ->
         QuietSheet(onDismissRequest = { result = null }) {
             LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(start = LovelySpacing.screenHorizontal, end = LovelySpacing.screenHorizontal, top = 8.dp, bottom = 24.dp),
@@ -567,61 +559,6 @@ private fun ConditionCard(preset: SearchPreset, found: ConditionMatches, expande
         if (expanded) {
             HorizontalDivider(color = LocalLovelyColors.current.divider)
             content()
-        }
-    }
-}
-
-/** 変化の履歴。レーダーの右上から開く（いずれ通知ベルへ移す）。 */
-@Composable
-@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
-private fun RadarHistorySheet(state: RadarState, working: Boolean, onDismiss: () -> Unit, onRead: (Set<String>) -> Unit, onRoom: (RadarEvent, Room) -> Unit) {
-    var historyUnread by rememberSaveable { mutableStateOf(false) }
-    var historyKind by rememberSaveable { mutableStateOf("") }
-    var historyOrigin by rememberSaveable { mutableStateOf("") }
-    val historyFilter = RadarHistoryFilter(historyUnread, RadarEventKind.entries.firstOrNull { it.name == historyKind }, historyOrigin.ifBlank { null })
-    val visibleEvents = state.events.filter { it.matches(historyFilter) }
-    QuietSheet(onDismissRequest = onDismiss) {
-        LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(start = LovelySpacing.screenHorizontal, end = LovelySpacing.screenHorizontal, top = 8.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            item { QuietSheetHeader("変化の履歴", "未読 ${state.unreadEvents}件・表示 ${visibleEvents.size}件") }
-            item { Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    QuietFilterChip(historyUnread, { historyUnread = !historyUnread }, label = "未読のみ")
-                    Spacer(Modifier.weight(1f))
-                    TextButton(enabled = state.loaded && !working && state.unreadEvents > 0, onClick = {
-                        onRead(state.events.filterNot { it.read }.map { it.id }.toSet())
-                    }) { Text("すべて既読にする") }
-                }
-                QuietFieldPair(
-                    { m -> Box(m) { RadarDropdown("種類", historyKind, listOf("" to "すべて") + RadarEventKind.entries.map { it.name to it.historyLabel() }, true) { historyKind = it } } },
-                    { m -> Box(m) { RadarDropdown("条件・追跡先", historyOrigin, listOf("" to "すべて") + historyOriginOptions(state.events), true) { historyOrigin = it } } },
-                )
-            } }
-            if (visibleEvents.isEmpty()) item {
-                if (state.events.isEmpty()) RadarEmpty("変化の履歴はまだありません。初回確認以降の変化を端末内に記録します。")
-                else RadarEmpty("この絞り込みに合う履歴はありません。", "絞り込みを解除") { historyUnread = false; historyKind = ""; historyOrigin = "" }
-            }
-            items(visibleEvents, key = { it.id }) { event -> QuietListPanel {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (!event.read) Box(Modifier.padding(end = 6.dp).size(8.dp).background(MaterialTheme.colorScheme.primary, CircleShape))
-                    Text(listOfNotNull(event.kind.historyLabel(), event.origin?.historyLabel()).joinToString("・"),
-                        style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        color = if (event.read) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.weight(1f))
-                    Text(formatObservationTime(event.at), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    QuietOverflowMenu(listOfNotNull(
-                        if (!event.read) QuietMenuItem("既読にする", enabled = state.loaded && !working) { onRead(setOf(event.id)) } else null,
-                    ), contentDescription = "履歴の操作")
-                    if (event.read) Spacer(Modifier.width(10.dp))
-                }
-                Text(event.text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(end = 10.dp))
-                if (event.rooms.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    event.rooms.forEach { room ->
-                        QuietAssistChip(enabled = !working && (event.read || state.loaded), onClick = { onRoom(event, room) }, label = room.name ?: "記録の部屋")
-                    }
-                }
-                if (event.rooms.size == 20) Text("履歴には最大20件を保存しています。", style = MaterialTheme.typography.bodySmall)
-            } }
         }
     }
 }
