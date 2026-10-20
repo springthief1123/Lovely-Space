@@ -63,7 +63,7 @@ import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentTopPaddin
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalComposeUiApi::class)
 @Composable
-fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refreshKey: Int = 0, onGenreChanged: (Genre) -> Unit = {}, preset: SearchPreset? = null, onPresetConsumed: () -> Unit = {}, onOpenNgWords: () -> Unit = {}) {
+fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onQuickEnterRoom: (Room) -> Unit = onEnterRoom, refreshKey: Int = 0, onGenreChanged: (Genre) -> Unit = {}, preset: SearchPreset? = null, onPresetConsumed: () -> Unit = {}, onOpenNgWords: () -> Unit = {}) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val vm: SearchViewModel = viewModel(factory = viewModelFactory { initializer { SearchViewModel(app.roomLists, app.settings, pacing = { app.pacing.value }, hot = app.hotPages) } })
     val preferencesVm: RoomPreferenceViewModel = viewModel(
@@ -233,6 +233,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, refres
                 onFavoriteClick = { preferencesVm.toggleFavorite(room) },
                 onHideClick = { preferencesVm.hide(room) },
                 menuItems = remember(room, quickActions) { quickActions(room, null) },
+                onEnterChipClick = { onQuickEnterRoom(room) },
             )
         }
         val canReadNext = state.page in 1 until state.lastPage && state.error == null

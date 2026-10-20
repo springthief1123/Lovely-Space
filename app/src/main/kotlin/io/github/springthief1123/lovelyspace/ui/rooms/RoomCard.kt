@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -227,6 +228,8 @@ fun RoomCard(
     onDetailsClick: (() -> Unit)? = null,
     /** 長押しメニューで保存の次に並べる操作（追跡・順番待ちなど）。 */
     menuItems: List<RoomMenuItem> = emptyList(),
+    /** 「入室する」チップを押したときの動き（入室前の確認を飛ばして入る）。null ならチップは表示だけで、押すとカードと同じ。 */
+    onEnterChipClick: (() -> Unit)? = null,
 ) {
     val density = LocalDensity.current
     val haptics = LocalHapticFeedback.current
@@ -411,6 +414,18 @@ fun RoomCard(
         }
     } }
 
+    // 他のカードが開いている間のタップは、そのカードを閉じるだけにする。このカードが開いていれば閉じるだけ。
+    fun tap(action: () -> Unit) {
+        val other = coordinator.openToken
+        if (other != null && other !== swipeToken) {
+            coordinator.closeAll()
+        } else if (side != SwipeSide.NONE) {
+            launchSettle(0f)
+        } else if (enabled) {
+            action()
+        }
+    }
+
     Box(
         modifier
             .fillMaxWidth()
@@ -501,17 +516,8 @@ fun RoomCard(
                     isFavorite = isFavorite,
                     isHidden = isHidden,
                     enabled = enabled || side != SwipeSide.NONE,
-                    onClick = {
-                        val other = coordinator.openToken
-                        if (other != null && other !== swipeToken) {
-                            // 他のカードが開いている間のタップは、そのカードを閉じるだけにする。
-                            coordinator.closeAll()
-                        } else if (side != SwipeSide.NONE) {
-                            launchSettle(0f)
-                        } else if (enabled) {
-                            onClick()
-                        }
-                    },
+                    onClick = { tap(onClick) },
+                    onEnterChipClick = onEnterChipClick?.let { action -> { tap(action) } },
                 )
             }
         }
@@ -600,6 +606,7 @@ private fun RoomCardSurface(
     room: Room,
     enabled: Boolean,
     onClick: () -> Unit,
+    onEnterChipClick: (() -> Unit)?,
     actionsEnabled: Boolean,
     favoriteAction: (() -> Unit)?,
     hiddenAction: (() -> Unit)?,
@@ -707,7 +714,8 @@ private fun RoomCardSurface(
                     // 押したときの動き（入室する・覗く）を角丸のチップで先に示す。満室で非公開の部屋は詳細が開くだけなので付けない。
                     cardActionLabel(room.action)?.let { label ->
                         Box(Modifier.weight(1f).align(Alignment.CenterVertically), contentAlignment = Alignment.CenterEnd) {
-                            ActionChip(label, emphasized = room.action == RoomAction.ENTER)
+                            val enter = room.action == RoomAction.ENTER
+                            ActionChip(label, emphasized = enter, onClick = onEnterChipClick?.takeIf { enter && enabled })
                         }
                     }
                 }
@@ -785,34 +793,36 @@ private fun GenderIcon(gender: Gender, tint: Color, modifier: Modifier = Modifie
 private fun MetaChip(text: String, color: Color, filled: Boolean, icon: ImageVector? = null) {
     Row(
         Modifier
-            .heightIn(min = 22.dp)
+            .heightIn(min = CARD_CHIP_HEIGHT)
             .clip(RoundedCornerShape(6.dp))
             .then(if (filled) Modifier.background(color.copy(alpha = 0.12f)) else Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(6.dp)))
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        icon?.let { Icon(it, contentDescription = null, modifier = Modifier.size(12.dp), tint = color) }
+        icon?.let { Icon(it, contentDescription = null, modifier = Modifier.size(13.dp), tint = color) }
         Text(text, style = MaterialTheme.typography.labelSmall, color = color, maxLines = 1)
     }
 }
 
 /**
- * カードを押したときの動きを示す角丸のチップ。押す先はカード全体なので、チップ自体は押せない表示にとどめる。
+ * カードを押したときの動きを示す角丸のチップ。高さは隣の状態チップと揃え、文字だけ一段大きくする。
+ * [onClick] があればチップ自体を押せる（「入室する」で確認を飛ばして入る）。無ければ表示だけで、押すとカードと同じ。
  * 入れる部屋は `primary` で塗り、覗くだけの部屋は枠だけにして、遠目でも入れるかどうかを分ける。
  */
 @Composable
-private fun ActionChip(text: String, emphasized: Boolean) {
+private fun ActionChip(text: String, emphasized: Boolean, onClick: (() -> Unit)? = null) {
     val scheme = MaterialTheme.colorScheme
     Box(
         Modifier
-            .heightIn(min = 30.dp)
+            .heightIn(min = CARD_CHIP_HEIGHT)
             .clip(CircleShape)
+            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClickLabel = "確認せずに入室する", onClick = onClick) else Modifier)
             .then(if (emphasized) Modifier.background(scheme.primary) else Modifier.border(1.dp, scheme.outline, CircleShape))
-            .padding(horizontal = 14.dp),
+            .padding(horizontal = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, style = MaterialTheme.typography.labelLarge, fontWeight = if (emphasized) FontWeight.SemiBold else FontWeight.Medium,
+        Text(text, style = MaterialTheme.typography.labelMedium, fontWeight = if (emphasized) FontWeight.SemiBold else FontWeight.Medium,
             color = if (emphasized) scheme.onPrimary else scheme.onSurfaceVariant, maxLines = 1)
     }
 }
@@ -858,6 +868,8 @@ private const val SETTLE_STIFFNESS = 380f
 private const val MAX_REVEAL_FRACTION = 0.42f
 private const val COMMIT_FRACTION = 0.5f
 private val SWIPE_LABEL_SLIDE = 32.dp
+// 状態・公開設定・動きのチップに共通の高さ（状態チップの 22dp と旧来の動きのチップの 30dp の中間）。
+private val CARD_CHIP_HEIGHT = 26.dp
 private val SAVED_RIBBON_WIDTH = 14.dp
 private val SAVED_RIBBON_HEIGHT = 20.dp
 private val SAVED_RIBBON_END = 14.dp

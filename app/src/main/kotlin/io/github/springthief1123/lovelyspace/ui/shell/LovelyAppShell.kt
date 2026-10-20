@@ -170,10 +170,10 @@ private fun LovelyTopBar(onOpenNotificationSettings: () -> Unit, searchButton: S
 
 @Composable
 internal fun LovelyBottomNavigation(currentRoute: String?, onSelect: (MainDestination) -> Unit, modifier: Modifier = Modifier, onHeight: (Int) -> Unit = {}) {
-    Box(modifier.widthIn(max = 720.dp).fillMaxWidth().navigationBarsPadding().onSizeChanged { onHeight(it.height) }.padding(horizontal = 12.dp, vertical = 12.dp)) {
+    Box(modifier.widthIn(max = 720.dp).fillMaxWidth().navigationBarsPadding().onSizeChanged { onHeight(it.height) }.padding(horizontal = 12.dp, vertical = 10.dp)) {
         LovelyGlassSurface(Modifier.fillMaxWidth(), RoundedCornerShape(24.dp)) {
-            BoxWithConstraints(Modifier.fillMaxWidth().heightIn(min = 76.dp).padding(6.dp)) {
-                var rowHeight by remember { mutableStateOf(64.dp) }
+            BoxWithConstraints(Modifier.fillMaxWidth().heightIn(min = 68.dp).padding(6.dp)) {
+                var rowHeight by remember { mutableStateOf(56.dp) }
                 val density = LocalDensity.current
                 val itemWidth = maxWidth / MainDestinations.size
                 val index = MainDestinations.indexOfFirst { it.route == currentRoute }.coerceAtLeast(0)
@@ -187,10 +187,10 @@ internal fun LovelyBottomNavigation(currentRoute: String?, onSelect: (MainDestin
                         val interaction = remember { MutableInteractionSource() }
                         val pressed by interaction.collectIsPressedAsState()
                         val scale by animateFloatAsState(if (pressed) 0.96f else 1f, label = "nav-press")
-                        Column(Modifier.weight(1f).fillMaxHeight().heightIn(min = 64.dp).graphicsLayer { scaleX = scale; scaleY = scale }
+                        Column(Modifier.weight(1f).fillMaxHeight().heightIn(min = 56.dp).graphicsLayer { scaleX = scale; scaleY = scale }
                             .selectable(selected, interactionSource = interaction, indication = null, role = Role.Tab,
-                                onClick = { onSelect(destination) }).padding(vertical = 10.dp, horizontal = 2.dp),
-                            verticalArrangement = Arrangement.spacedBy(5.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                onClick = { onSelect(destination) }).padding(vertical = 7.dp, horizontal = 2.dp),
+                            verticalArrangement = Arrangement.spacedBy(3.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             val color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                             Icon(destination.icon, contentDescription = null, tint = color, modifier = Modifier.size(22.dp))
                             Text(destination.label, style = MaterialTheme.typography.labelSmall, color = color)
