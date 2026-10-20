@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="splash_background">#FFFBF8FA</color>
-    <color name="ic_launcher_background">#FFE0457B</color>
+    <!-- 元のアイコンの背景（グラデーションの中間色）。設定の見本など単色で塗る所に使う -->
+    <color name="ic_launcher_background">#FFA05872</color>
     <!-- アプリ一覧のカモフラージュ（LauncherPreset）の背景 -->
     <color name="disguise_calculator_background">#FF4A4F57</color>
     <color name="disguise_notes_background">#FFE8A317</color>

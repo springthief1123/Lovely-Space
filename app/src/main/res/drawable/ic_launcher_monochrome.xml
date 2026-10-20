@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- テーマアイコン（Android 13 以降）用の単色版。重なりは半透明にして、輪と見分けられるようにする -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillAlpha="0.55"
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M54,41.01A15,15 0,0 1,54 66.99A15,15 0,0 1,54 41.01z" />
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="3.6"
+        android:pathData="M31.5,54a15,15 0,1 0,30 0a15,15 0,1 0,-30 0z" />
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="3.6"
+        android:pathData="M46.5,54a15,15 0,1 0,30 0a15,15 0,1 0,-30 0z" />
+</vector>
