@@ -6,7 +6,10 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -29,6 +32,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import io.github.springthief1123.lovelyspace.lock.LocalAppLocked
+import io.github.springthief1123.lovelyspace.lock.hiddenWhileLocked
+import io.github.springthief1123.lovelyspace.lock.rememberShownWhileUnlocked
 import io.github.springthief1123.lovelyspace.ui.theme.LovelyShapes
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
 
@@ -52,9 +58,13 @@ fun QuietDialog(
     error: String? = null,
     content: @Composable ColumnScope.() -> Unit = {},
 ) {
+    // 別の窓に出るので、ロック中は中身を隠す（ロック画面の窓がこの上に重なる）。
+    if (!rememberShownWhileUnlocked()) return
+    val locked = LocalAppLocked.current
     val scheme = MaterialTheme.colorScheme
     AlertDialog(
         onDismissRequest = onDismissRequest,
+        modifier = Modifier.hiddenWhileLocked(locked),
         title = { Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() }) },
         text = {
             // 失敗の文は先頭に置く。本文がスクロールする高さいっぱいの入力欄でも、後ろへ押し出されて見えなくならない。
@@ -123,12 +133,14 @@ fun QuietEditorScreen(
     error: String? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    if (!rememberShownWhileUnlocked()) return
+    val locked = LocalAppLocked.current
     val scheme = MaterialTheme.colorScheme
     Dialog(
         onDismissRequest = { if (!working) onDismiss() },
         properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false),
     ) {
-        Surface(Modifier.fillMaxSize(), color = scheme.background, contentColor = scheme.onBackground) {
+        Surface(Modifier.fillMaxSize().hiddenWhileLocked(locked), color = scheme.background, contentColor = scheme.onBackground) {
             Column(Modifier.fillMaxSize()) {
                 QuietTopBar(
                     title = title,
@@ -146,9 +158,11 @@ fun QuietEditorScreen(
                     Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .imePadding()
+                        // Android 15 以降はダイアログの窓もナビゲーションバーの下まで広がるので、
+                        // 最後の行（削除など）がバーに隠れないよう、キーボードとバーの大きい方だけ空ける。
+                        .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
                         .verticalScroll(rememberScrollState())
-                        .padding(horizontal = LovelySpacing.screenHorizontal, vertical = 16.dp),
+                        .padding(start = LovelySpacing.screenHorizontal, end = LovelySpacing.screenHorizontal, top = 16.dp, bottom = 24.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     error?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = scheme.error) }
@@ -170,9 +184,12 @@ fun QuietSheet(
     sheetState: SheetState = rememberModalBottomSheetState(),
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    if (!rememberShownWhileUnlocked()) return
+    val locked = LocalAppLocked.current
     val scheme = MaterialTheme.colorScheme
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
+        modifier = Modifier.hiddenWhileLocked(locked),
         sheetState = sheetState,
         shape = QuietSheetShape,
         containerColor = scheme.surfaceContainerLow,

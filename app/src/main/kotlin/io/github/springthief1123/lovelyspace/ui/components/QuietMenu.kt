@@ -1,6 +1,7 @@
 package io.github.springthief1123.lovelyspace.ui.components
 
 import androidx.compose.foundation.BorderStroke
+import io.github.springthief1123.lovelyspace.lock.LocalAppLocked
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -57,7 +58,8 @@ fun QuietDropdownMenu(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     DropdownMenu(
-        expanded = expanded,
+        // 別の窓に出てロック画面より上に重なるので、ロック中は閉じる。
+        expanded = expanded && !LocalAppLocked.current,
         onDismissRequest = onDismissRequest,
         modifier = modifier,
         offset = offset,
@@ -79,7 +81,7 @@ fun ExposedDropdownMenuBoxScope.QuietExposedMenu(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     ExposedDropdownMenu(
-        expanded = expanded,
+        expanded = expanded && !LocalAppLocked.current,
         onDismissRequest = onDismissRequest,
         shape = LovelyShapes.menu,
         containerColor = QuietMenuDefaults.containerColor(),

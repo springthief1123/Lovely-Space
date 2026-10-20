@@ -8,6 +8,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -34,6 +36,7 @@ import io.github.springthief1123.lovelyspace.ui.components.QuietConfirmDialog
 import io.github.springthief1123.lovelyspace.ui.components.QuietEditorScreen
 import io.github.springthief1123.lovelyspace.ui.components.QuietFilterChip
 import io.github.springthief1123.lovelyspace.ui.components.QuietListPanel
+import io.github.springthief1123.lovelyspace.ui.components.QuietMenuRow
 import io.github.springthief1123.lovelyspace.ui.components.QuietSwitchRow
 import io.github.springthief1123.lovelyspace.ui.describeError
 import kotlinx.coroutines.CancellationException
@@ -246,10 +249,17 @@ private fun NgWordSetEditor(
             }
         }
 
-        if (builtIn != null) TextButton(onClick = { wordsText = builtIn.words.joinToString("\n"); amounts = builtIn.amounts; target = builtIn.target },
-            enabled = !working) { Text("初期の語に戻す") }
-        if (!isNew) TextButton(onClick = { confirmDelete = true }, enabled = !working,
-            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("このセットを削除") }
+        // セット全体への操作は区切り線の下にまとめ、行の幅いっぱいを押せるようにする。
+        if (builtIn != null || !isNew) {
+            HorizontalDivider(Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
+            Column {
+                if (builtIn != null) QuietMenuRow("初期の語に戻す",
+                    onClick = { wordsText = builtIn.words.joinToString("\n"); amounts = builtIn.amounts; target = builtIn.target },
+                    icon = Icons.Outlined.Restore, enabled = !working)
+                if (!isNew) QuietMenuRow("このセットを削除", onClick = { confirmDelete = true },
+                    icon = Icons.Outlined.Delete, enabled = !working, destructive = true)
+            }
+        }
     }
 
     if (confirmDelete) QuietConfirmDialog(
