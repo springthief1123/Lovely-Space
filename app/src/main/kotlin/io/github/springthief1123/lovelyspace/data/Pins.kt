@@ -203,7 +203,8 @@ class PinRepository(
         val events = mutableListOf<PinEvent>()
         mutex.withLock {
             val at = now()
-            val records = _records.value.toMutableMap()
+            val original = _records.value
+            val records = original.toMutableMap()
             val claimed = favs.mapTo(HashSet()) { it.pinKey() }
             val windows = favs.mapNotNull { Genres[it.genreKey] }.distinct().associateWith { observations.genreWindow(it) }
             val views = favs.map { pref ->
@@ -237,11 +238,12 @@ class PinRepository(
             // ピンを外して時間が経った記録は消す（外してすぐは「元に戻す」で知らせ方などを戻せるよう残す）。
             records.keys.filter { it !in claimed && records[it]?.removedAt == null }.forEach { key -> records[key] = records.getValue(key).copy(removedAt = at) }
             records.entries.removeAll { (key, r) -> key !in claimed && (r.removedAt ?: at) < at - PRUNE_MS }
+            // 知らせ終えてから様子を記録する。途中で止まった・知らせられなかったピンは記録を戻し、次に確かめたときに知らせ直す。
+            deliver(events).forEach { key -> original[key]?.let { records[key] = it } ?: records.remove(key) }
             if (records != _records.value) save(records)
             _pins.value = views.sortedWith(compareBy<PinView> { order(it) }.thenByDescending { it.record.stateAt ?: 0L })
             _loaded.value = true
         }
-        deliver(events)
     }
 
     private fun order(pin: PinView): Int = when {
@@ -252,10 +254,9 @@ class PinRepository(
         else -> 4
     }
 
-    private suspend fun deliver(events: List<PinEvent>) {
-        events.forEach { event ->
-            try { onEvent(event) } catch (e: CancellationException) { throw e } catch (_: Exception) { }
-        }
+    /** [events] を知らせ、知らせられなかったピンの [PinView.key] を返す。 */
+    private suspend fun deliver(events: List<PinEvent>): Set<String> = events.mapNotNullTo(HashSet()) { event ->
+        try { onEvent(event); null } catch (e: CancellationException) { throw e } catch (_: Exception) { event.pin.key }
     }
 
     private fun save(records: Map<String, PinRecord>) {

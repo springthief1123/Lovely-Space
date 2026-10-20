@@ -64,6 +64,13 @@ class AutoEntryController(
         if (pinned.remove(target) != null) save()
     }
 
+    /** 部屋が立て直されて [from] の数え方が [to] へ移ったとき（ピンの立て直し）。回数を引き継ぎ、数え直さない。 */
+    suspend fun moveTarget(from: String, to: String) = mutex.withLock {
+        val count = pinned.remove(from) ?: return@withLock
+        pinned[to] = maxOf(count, pinned[to] ?: 0)
+        save()
+    }
+
     private fun save() {
         runCatching { persistence.save(AutoEntryRecord(period, _attempts.value, lastRequested.toMap(), pinned.toMap())) }
     }

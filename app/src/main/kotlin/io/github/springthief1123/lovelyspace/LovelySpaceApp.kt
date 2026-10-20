@@ -17,6 +17,7 @@ import io.github.springthief1123.lovelyspace.notify.NotificationInbox
 import io.github.springthief1123.lovelyspace.notify.NotificationInboxStore
 import io.github.springthief1123.lovelyspace.notify.toOpenedNotification
 import io.github.springthief1123.lovelyspace.notify.toNotification
+import io.github.springthief1123.lovelyspace.data.AutoEntryController
 import io.github.springthief1123.lovelyspace.data.PinAlert
 import io.github.springthief1123.lovelyspace.data.PinEvent
 import io.github.springthief1123.lovelyspace.data.PinRepository
@@ -62,6 +63,13 @@ class LovelySpaceApp : Application() {
         appScope.launch { waitlist.deliverPending() }
         // 一覧を読むたびに、保存・非表示の部屋が立て直されていれば新しい部屋へ移す。
         appScope.launch { roomPreferences.followRebuilds(roomLists.observations) }
+        // ピンが立て直しで新しい部屋へ移っても、自動で入室の回数（5 回まで）は引き継ぐ。
+        appScope.launch {
+            roomPreferences.moved.collect { (from, to) ->
+                try { autoEntry.moveTarget(AutoEntryController.pinTarget(from), AutoEntryController.pinTarget(roomIdentity(to))) }
+                catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { }
+            }
+        }
         // 背景で巡回する計画か、待っている（または通知を出し終えていない）順番待ちがあるときだけ周期実行を登録し、
         // どちらも無くなれば解除する。順番待ちがあるときは最短の 15 分ごとに確認する。
         appScope.launch {
