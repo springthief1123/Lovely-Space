@@ -39,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -185,14 +186,15 @@ private fun BrightnessBar(hsv: Hsv, onPick: (Float) -> Unit) {
         Canvas(
             Modifier
                 .fillMaxWidth()
-                .height(32.dp)
+                // 見た目のバーは 32dp、押せる範囲は上下に広げて 48dp にする。
+                .height(48.dp)
                 .pointerInput(Unit) {
-                    val inset = size.height / 2f
+                    val inset = BRIGHTNESS_TRACK_HEIGHT.toPx() / 2f
                     fun valueAt(x: Float) = ((x - inset) / (size.width - inset * 2)).coerceIn(0f, 1f)
                     detectTapGestures { pick(valueAt(it.x)) }
                 }
                 .pointerInput(Unit) {
-                    val inset = size.height / 2f
+                    val inset = BRIGHTNESS_TRACK_HEIGHT.toPx() / 2f
                     fun valueAt(x: Float) = ((x - inset) / (size.width - inset * 2)).coerceIn(0f, 1f)
                     detectDragGestures(onDragStart = { pick(valueAt(it.x)) }) { change, _ ->
                         change.consume()
@@ -209,14 +211,18 @@ private fun BrightnessBar(hsv: Hsv, onPick: (Float) -> Unit) {
                     }
                 },
         ) {
-            val inset = size.height / 2f
+            val inset = BRIGHTNESS_TRACK_HEIGHT.toPx() / 2f
             val corner = CornerRadius(inset, inset)
-            drawRoundRect(Brush.horizontalGradient(listOf(Color.Black, full)), cornerRadius = corner)
-            drawRoundRect(outline, cornerRadius = corner, style = Stroke(1.dp.toPx()))
+            val top = Offset(0f, center.y - inset)
+            val track = Size(size.width, inset * 2)
+            drawRoundRect(Brush.horizontalGradient(listOf(Color.Black, full)), topLeft = top, size = track, cornerRadius = corner)
+            drawRoundRect(outline, topLeft = top, size = track, cornerRadius = corner, style = Stroke(1.dp.toPx()))
             drawThumb(Offset(inset + (size.width - inset * 2) * hsv.value, center.y), Color(hsv.toColor()))
         }
     }
 }
+
+private val BRIGHTNESS_TRACK_HEIGHT = 32.dp
 
 /** 選んでいる位置のつまみ。どの色の上でも見えるよう、白い輪の外側を細く黒で縁取る。 */
 private fun DrawScope.drawThumb(position: Offset, color: Color) {
