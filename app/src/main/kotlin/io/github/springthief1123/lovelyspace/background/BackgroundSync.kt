@@ -11,7 +11,6 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
-import io.github.springthief1123.lovelyspace.notify.toMatchNotification
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
@@ -73,11 +72,9 @@ class RadarSyncWorker(context: Context, params: WorkerParameters) : CoroutineWor
                 if (state.activeBackgroundPlans.isNotEmpty() && !state.running) {
                     radar.scan(latestFirst = true, force = false, maxPages = radarPages, backgroundOnly = true)
                 }
-                // 一致は履歴に「未通知」として保存されている。前回の実行が通知の途中で止まった分もここで出す
+                // 一致は「未通知」として保存されている。前回の実行が通知の途中で止まった分もここで出す
                 // （同じ ID の通知・お知らせは置き換わるので、二重には並ばない）。
-                val pending = radar.pendingNotices()
-                pending.forEach { event -> event.toMatchNotification()?.let { app.notifier.post(it) } }
-                radar.markNoticed(pending.map { it.id }.toSet())
+                app.radarNotices.deliver()
             }
             // 順番待ちは待っている部屋のページだけを取得する。空きの通知は WaitlistRepository が出す。
             val used = (app.roomLists.fetchAttempts - attemptsBefore).toInt()

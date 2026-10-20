@@ -247,12 +247,18 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                         switchEnabled = state.loaded && !working,
                         onEnabled = { enabled -> action { app.radar.setCandidateEnabled(rule.id, enabled) } },
                         status = (if (found == null) "まだ確認していません" else "${formatObservationTime(found.at)}・${found.pagesRead}/${found.lastPage}ページ分") +
-                            if (rule.autoEnterActive(now)) "・新しい部屋に自動で入室（${formatObservationTime(rule.autoEnterUntil)}まで）" else "",
+                            (if (rule.autoEnterActive(now)) "・新しい部屋に自動で入室（${formatObservationTime(rule.autoEnterUntil)}まで）" else "") +
+                            if (rule.notify) "" else "・通知しない",
                         matches = found?.rooms?.size,
                         onMatches = { found?.let { result = RadarRoomsDisplay("いま一致している部屋", it.at, it::pageOf, "${it.pagesRead}/${it.lastPage}ページ分の一覧情報", it.rooms) } },
                         menuLabel = "名前で待つ条件の操作",
                         menu = listOf(
                             QuietMenuItem("条件を編集", enabled = state.loaded && !working && !state.running) { error = null; candidateDraft = rule },
+                            // 知らせなくても、見つけた部屋はお知らせ（通知ベル）に残る。
+                            QuietMenuItem(if (rule.notify) "通知しない" else "通知する", enabled = state.loaded && !working) {
+                                if (!rule.notify) requestNotifications()
+                                action { app.radar.setCandidateNotify(rule.id, !rule.notify) }
+                            },
                         ) + (if (rule.mode != CandidateMode.EXACT_NAME) emptyList<QuietMenuItem>() else if (rule.autoEnterActive(now))
                             listOf(QuietMenuItem("自動入室をやめる", enabled = state.loaded && !working) { action { app.radar.setCandidateAutoEnter(rule.id, false) } })
                         else listOf(QuietMenuItem("新しい部屋に自動で入室する（${AutoEntryController.PINNED_MS / 3_600_000}時間）", enabled = state.loaded && !working && rule.enabled) {
@@ -317,7 +323,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                         }
                     }
                 }
-                if (saved.isNotEmpty()) item { RadarNote("条件を押すと、いま一致している部屋がその場で開きます。巡回する条件は画面を開いている間に全ページを回り、「新着を知らせる」をオンにすると、アプリを閉じていても新着の1ページ目を確認して通知します。") }
+                if (saved.isNotEmpty()) item { RadarNote("条件を押すと、いま一致している部屋がその場で開きます。巡回する条件は画面を開いている間に全ページを回り、「新着を知らせる」をオンにすると、新着をすぐ通知し、アプリを閉じていても新着の1ページ目を確認して通知します。見つけた一致は通知ベルに残ります。") }
                 if (state.activeBackgroundPlans.isNotEmpty()) item {
                     RadarDropdown("アプリを閉じている間に確認する間隔", state.backgroundIntervalMinutes.toString(),
                         RadarState.BACKGROUND_INTERVALS.map { it.toString() to if (it < 60) "${it}分ごと" else "${it / 60}時間ごと" },

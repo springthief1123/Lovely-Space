@@ -542,6 +542,7 @@ class RadarRepositoryTest {
             assertEquals(listOf(43L), events.single().rooms.map { it.id })
             // 通知を出す前に止まっても、未通知の一致として保存されている。
             assertTrue(events.single().pendingNotice)
+            assertTrue(events.single().alert)
             // 一度知らせた部屋は、次の再起動後にも新しい一致として出さない。
             clock += 15 * 60 * 1000L
             val third = RadarRepository(db.presets(), Lists().apply { rooms = listOf(added) }, searches, prefs, restart()) { clock }
@@ -551,6 +552,47 @@ class RadarRepositoryTest {
             assertTrue(third.pendingNotices().isEmpty())
             assertFalse(db.presets().state("radar_v1")!!.contains("\"pendingNotice\":true"))
             assertTrue(third.scan(latestFirst = true, force = false, backgroundOnly = true).isEmpty())
+        } finally { db.close() }
+    }
+    @Test fun foregroundMatchesGoToTheBellAndOnlyNotifyingConditionsAlert() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            searches.save(SearchPreset("quiet", "合成の巡回だけ", "zenkoku", RoomSearchCriteria()))
+            searches.save(SearchPreset("loud", "合成の知らせる", "zenkoku", RoomSearchCriteria()))
+            val lists = Lists().apply { rooms = listOf(room) }
+            val radar = RadarRepository(db.presets(), lists, searches, RoomPreferenceRepository(db), backgroundScope)
+            radar.state.first { it.loaded }
+            radar.setPlan("quiet", true); radar.setPlanBackground("loud", true)
+            val loud = CandidateRule("named", "合成の名前", "zenkoku", "追加の合成")
+            val silent = CandidateRule("silent", "合成の知らせない名前", "zenkoku", "追加の合成", notify = false)
+            radar.saveCandidate(loud); radar.saveCandidate(silent)
+            radar.scan()
+            lists.rooms = listOf(room, room.copy(id = 43, name = "追加の合成")); radar.scan()
+            // 前面の巡回で見つけた一致も、すべてお知らせに出す。端末通知は知らせる条件・名前だけ。
+            val pending = radar.pendingNotices().associateBy { it.origin!!.id }
+            assertEquals(setOf("quiet", "loud", "named", "silent"), pending.keys)
+            assertFalse(pending.getValue("quiet").alert)
+            assertTrue(pending.getValue("loud").alert)
+            assertTrue(pending.getValue("named").alert)
+            assertFalse(pending.getValue("silent").alert)
+            radar.markOriginRead(pending.getValue("loud").origin!!.key, pending.getValue("loud").at)
+            assertTrue(radar.state.value.events.single { it.origin?.id == "loud" }.read)
+            assertFalse(radar.state.value.events.single { it.origin?.id == "quiet" }.read)
+        } finally { db.close() }
+    }
+    @Test fun candidateNotifySettingSurvivesARestartAndOldRulesNotify() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            db.presets().put(LocalState("radar_v1", """{"plans":[],"targets":[],"events":[],"candidateRules":[{"id":"old","label":"合成","genre":"zenkoku","term":"合成","mode":"EXACT_NAME","enabled":true}]}"""))
+            val searches = SearchPresetRepository(db)
+            val radar = RadarRepository(db.presets(), Lists(), searches, RoomPreferenceRepository(db), backgroundScope)
+            radar.state.first { it.loaded }
+            assertTrue(radar.state.value.candidateRules.single().notify)
+            radar.setCandidateNotify("old", false)
+            val restored = RadarRepository(db.presets(), Lists(), searches, RoomPreferenceRepository(db), backgroundScope)
+            restored.state.first { it.loaded }
+            assertFalse(restored.state.value.candidateRules.single().notify)
         } finally { db.close() }
     }
     @Test fun anOldSavedBaselineIsRebuiltInsteadOfReportingEverythingAsNew() = runTest {

@@ -142,7 +142,8 @@ fun NotificationSettingsScreen(onBack: () -> Unit) {
                 item {
                     Text(
                         "種類ごとの音やバイブは、行をタップして端末の設定で変えられます。" +
-                            "条件の新着とピンの空きは、背景での確認で見つかったときに届きます。" +
+                            "ピンの空きと条件の新着は、アプリを開いている間も閉じている間も届きます。名前で待つ人の部屋は、アプリを開いている間に届きます。" +
+                            "会話の画面では、条件と名前で待つの通知を出さずにお知らせにだけ残します。" +
                             "入室者ありの通知はまだ届きません（準備中）。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,

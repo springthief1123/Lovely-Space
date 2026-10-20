@@ -46,7 +46,22 @@ class RadarMatchNotificationTest {
 
     @Test fun onlyNewMatchesAreNotified() {
         assertNull(event(room, kind = RadarEventKind.ROOM_STATUS).toMatchNotification())
-        assertNull(event(room, kind = RadarEventKind.CANDIDATE_MATCH).toMatchNotification())
         assertNull(event().toMatchNotification())
+    }
+
+    @Test fun namedMatchesUseTheirOwnKind() {
+        val n = event(room, kind = RadarEventKind.CANDIDATE_MATCH).toMatchNotification()!!
+        assertEquals(NotificationKind.NAME_MATCH, n.kind)
+        assertTrue("合成の条件" in n.title)
+    }
+
+    @Test fun eventsOfOneConditionAreMergedIntoOneNotification() {
+        val first = event(room)
+        val second = first.copy(id = "e-2", at = 2_000L, rooms = listOf(room.copy(id = 43), room))
+        val n = listOf(first, second).toMatchNotification("merged")!!
+        assertEquals("merged", n.id)
+        assertEquals("全国で2件", n.text)
+        assertEquals(NotificationTarget.Radar, n.target)
+        assertEquals(2_000L, n.at)
     }
 }

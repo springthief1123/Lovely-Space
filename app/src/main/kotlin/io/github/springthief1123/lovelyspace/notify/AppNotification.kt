@@ -5,11 +5,13 @@ import org.json.JSONObject
 
 /**
  * 端末通知の種類。種類ごとに通知チャンネルを分け、利用者が端末の設定で個別にオン・オフできるようにする。
- * [channelId] は一度出すと端末に残るので変えない。
+ * [channelId] は一度出すと端末に残るので変えない（重要度はアプリから上げられないので、上げるときだけ新しい ID にし、古いチャンネルは消す）。
  */
 // [delivered] はアプリがもう出している通知か。false は通知の種類だけ先に用意してあるもの（入室者あり #43）。
 enum class NotificationKind(val channelId: String, val label: String, val description: String, val logged: Boolean = true, val delivered: Boolean = true) {
-    RADAR_MATCH("radar_match", "巡回の一致", "レーダーの巡回で条件に合う部屋が見つかったとき"),
+    // 新しい部屋は秒単位で埋まるので、画面の上に出る重要度に上げた（2026-10-21。以前の ID は "radar_match"）。
+    RADAR_MATCH("radar_match_v2", "条件の新着", "「新着を知らせる」条件に合う部屋が見つかったとき"),
+    NAME_MATCH("name_match", "名前で待つ", "名前で待つ人の部屋が新しく建ったとき"),
     ROOM_ENTRY("room_entry", "入室者あり", "自分の部屋に相手が入ったとき", delivered = false),
     WAITLIST("waitlist", "ピン", "ピンした部屋が空いたとき・似た部屋が建ったとき"),
     /** 背景で巡回・待機している間の表示。状態を示すだけなので、お知らせの履歴には残さない。 */

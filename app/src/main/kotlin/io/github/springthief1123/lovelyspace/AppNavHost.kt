@@ -101,6 +101,12 @@ fun AppNavHost() {
         app.autoEntry.ready = autoEntryReady
         onDispose { app.autoEntry.ready = false }
     }
+    // 会話の画面を見ている間は、条件・名前で待つの一致を端末通知で鳴らさず、お知らせにだけ残す。
+    val chatting = lifecycleState.isAtLeast(Lifecycle.State.RESUMED) && currentRoute == Routes.CHAT
+    DisposableEffect(chatting) {
+        app.radarNotices.quiet = chatting
+        onDispose { app.radarNotices.quiet = false }
+    }
     LaunchedEffect(Unit) {
         app.autoEntry.requests.collect { target ->
             val origin = Routes.mainOrigin(nav.currentDestination?.route)

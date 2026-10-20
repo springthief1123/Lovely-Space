@@ -16,8 +16,13 @@ data class LegacyTarget(val room: Room, val note: String = "")
 data class RadarEvent(val at: Long, val text: String, val id: String = java.util.UUID.randomUUID().toString(),
     val rooms: List<Room> = emptyList(), val page: Int? = null, val blocked: Boolean = false, val sourceQuery: RoomQuery? = null,
     val kind: RadarEventKind = RadarEventKind.LEGACY, val origin: RadarEventOrigin? = null, val read: Boolean = false,
-    /** 背景の巡回で記録し、まだ端末通知に出していない。通知を出し終えるまで保存しておき、途中で止まっても次の実行で出す。 */
-    val pendingNotice: Boolean = false)
+    /**
+     * まだお知らせ（通知ベル）に出していない新しい一致。出し終えるまで保存しておき、途中で止まっても次の実行で出す
+     * （`RadarNotices.deliver`）。前面・背景のどちらで見つけた一致も同じ。
+     */
+    val pendingNotice: Boolean = false,
+    /** 端末通知も出す（「新着を知らせる」条件・知らせる名前で待つ）。false はベルに残すだけ。 */
+    val alert: Boolean = false)
 /**
  * 計画の一致。[rooms] は最後に読んだページ（[page]）だけでなく、手元にあるそのジャンルの一覧の全ページ（[pagesRead] ページ）に条件を掛けたもの。
  * 見つける画面・レーダーのどれが読んだページでも使う。
@@ -75,7 +80,7 @@ class RadarRepository(
     /** 自動入室をオンにした名前で追う 1 件に、新しい部屋が見つかったとき（[AutoEntryController.offerNamed]）。ロックの外で呼ぶ。 */
     private val onNamedRoom: suspend (CandidateRule, Room) -> Unit = { _, _ -> },
     private val now: () -> Long = System::currentTimeMillis,
-) {
+) : io.github.springthief1123.lovelyspace.notify.PendingRadarNotices {
     private val mutex = Mutex()
     private val sync = ListSync(lists)
     private val _state = MutableStateFlow(RadarState())
@@ -231,6 +236,11 @@ class RadarRepository(
         val until = if (enabled) now() + AutoEntryController.PINNED_MS else 0L
         state.copy(candidateRules = state.candidateRules.map { if (it.id == id) it.copy(autoEnterUntil = until) else it })
     }
+    /** 名前で待つ 1 件の新しい部屋を端末通知で知らせるか。知らせなくても、お知らせ（通知ベル）には残す。 */
+    suspend fun setCandidateNotify(id: String, enabled: Boolean) = edit { state ->
+        require(state.candidateRules.any { it.id == id }) { "候補条件が見つかりません。" }
+        state.copy(candidateRules = state.candidateRules.map { if (it.id == id) it.copy(notify = enabled) else it })
+    }
     suspend fun removeCandidate(id: String) = edit { state ->
         resetCandidate(id)
         state.copy(candidateRules = state.candidateRules.filterNot { it.id == id }, candidateResults = state.candidateResults - id, nextCandidatePages = state.nextCandidatePages - id)
@@ -273,10 +283,15 @@ class RadarRepository(
             persist()
         }
     }
-    /** 背景の巡回で記録し、まだ端末通知に出していない履歴。 */
-    fun pendingNotices(): List<RadarEvent> = _state.value.events.filter { it.pendingNotice }
-    /** 端末通知に出し終えた履歴を記録する。 */
-    suspend fun markNoticed(ids: Set<String>) = mutex.withLock {
+    /** お知らせ（通知ベル）で開いた、[originKey] の [since] 以降の一致を既読にする（条件の「新着」の印を消す）。 */
+    suspend fun markOriginRead(originKey: String, since: Long) {
+        val ids = _state.value.events.filter { !it.read && it.origin?.key == originKey && it.at >= since }.map { it.id }.toSet()
+        if (ids.isNotEmpty()) markEventsRead(ids)
+    }
+    /** まだお知らせに出していない新しい一致。 */
+    override fun pendingNotices(): List<RadarEvent> = _state.value.events.filter { it.pendingNotice }
+    /** お知らせに出し終えた一致を記録する。 */
+    override suspend fun markNoticed(ids: Set<String>): Unit = mutex.withLock {
         if (_state.value.events.none { it.id in ids && it.pendingNotice }) return@withLock
         transaction {
             _state.update { state -> state.copy(events = state.events.map { if (it.id in ids) it.copy(pendingNotice = false) else it }) }
@@ -368,7 +383,7 @@ class RadarRepository(
 
     /**
      * 新着の確認（[HotPagePoller]）が読んだ 1 ページ目を、そのジャンルの有効な計画・名前で追うに当てはめ、新しい一致を履歴に載せる。
-     * 巡回の位置（[nextPages]・[candidateNext]）は進めない。端末通知は今までどおり背景の巡回で見つけたときだけ出す。
+     * 巡回の位置（[nextPages]・[candidateNext]）は進めない。新しい一致は背景の巡回と同じくお知らせ・端末通知に出す（[RadarEvent.pendingNotice]）。
      * 一覧の観測の購読（[reload]）は計画を当てはめずに観測済みにするので、ここでは観測済みかどうか（[seen]）を見ずに当てはめる。
      * 同じ観測を 2 度当てはめないのは [process] の evaluatedPlans・evaluatedCandidates が防ぐ。
      */
@@ -500,7 +515,7 @@ class RadarRepository(
                 },
                 onResult = { query, outcome ->
                     when (outcome) {
-                        is ListSyncOutcome.Fetched -> applyFetched(query, scheduled.getValue(query), before[query] ?: 0, force, latestFirst, ::plansOf, notice = backgroundOnly)
+                        is ListSyncOutcome.Fetched -> applyFetched(query, scheduled.getValue(query), before[query] ?: 0, force, latestFirst, ::plansOf)
                         // 更新を続けて押したときなどに本家が部屋の表だけを出さないことがある。ブラウザで押し直すのと同じく、失敗の案内は出さずに次で取り直す。
                         is ListSyncOutcome.Failed -> if (outcome.error is RoomListUnavailableException) {
                             unreadablePage.set(true)
@@ -532,7 +547,7 @@ class RadarRepository(
         return _state.value.events.filter { it.id !in previousEvents }
     }
     /** 取得した1ページを各計画・候補へ反映する。 */
-    private suspend fun applyFetched(query: RoomQuery, request: ScheduledRadarQuery, before: Long, force: Boolean, latestFirst: Boolean, plansOf: (RadarState) -> Set<String>, notice: Boolean) {
+    private suspend fun applyFetched(query: RoomQuery, request: ScheduledRadarQuery, before: Long, force: Boolean, latestFirst: Boolean, plansOf: (RadarState) -> Set<String>) {
         val observation = lists.observation(query)
         if (observation == null || observation.query != query || (force && observation.revision <= before)) {
             updateCheck(query, RadarCheckStatus.FAILED, message = "新しい一覧を確認できませんでした。次の巡回で同じページを確認します。")
@@ -545,7 +560,7 @@ class RadarRepository(
                 val active = currentSaved.filter { it.id in _state.value.plans }
                 val scheduledPlans = active.filter { preset -> preset.id in plansOf(_state.value) && request.plans.any { planKey(it) == planKey(preset) } }
                 val scheduledCandidates = _state.value.candidateRules.filter { rule -> rule.enabled && request.candidates.any { it.key == rule.key } }
-                process(observation, scheduledPlans, scheduledCandidates, notice)
+                process(observation, scheduledPlans, scheduledCandidates)
                 seen[query] = maxOf(seen[query] ?: 0, observation.revision)
                 if (!latestFirst) scheduledPlans.forEach { preset ->
                     nextPages[planKey(preset)] = advance("plan/${planKey(preset)}", observation)
@@ -568,7 +583,7 @@ class RadarRepository(
             report.copy(pages = report.pages.map { if (it.query == query) it.copy(status = status, confirmedAt = at, matches = matches, message = message) else it })
         }, lastConfirmedAt = if (at != null) maxOf(state.lastConfirmedAt ?: at, at) else state.lastConfirmedAt) }
     }
-    private suspend fun process(o: ObservedRoomPage, presets: List<SearchPreset>, candidates: List<CandidateRule> = emptyList(), notice: Boolean = false) {
+    private suspend fun process(o: ObservedRoomPage, presets: List<SearchPreset>, candidates: List<CandidateRule> = emptyList()) {
         val fresh = (seen[o.query] ?: 0) < o.revision
         if (fresh) preferences.observe(o.page.rooms)
         val hidden = preferences.preferences.first().filter { it.hidden }
@@ -596,7 +611,8 @@ class RadarRepository(
                 val added = identities - previous - known
                 if (added.isNotEmpty()) events += RadarEvent(o.confirmedAt, "${preset.label}：${o.page.page}ページで新しい一致を${added.size}件確認",
                     rooms = matches.filter { matchIdentity(it) in added }.take(20), page = o.page.page, sourceQuery = o.query, kind = RadarEventKind.SEARCH_MATCH,
-                    origin = RadarEventOrigin(RadarOriginType.PLAN, preset.id, preset.label, radarPlanDescription(preset)), pendingNotice = notice)
+                    origin = RadarEventOrigin(RadarOriginType.PLAN, preset.id, preset.label, radarPlanDescription(preset)), pendingNotice = true,
+                    alert = preset.id in current.activeBackgroundPlans)
             }
             known.addAll(identities)
             baselines[key] = identities
@@ -624,7 +640,8 @@ class RadarRepository(
                         .forEach { namedArrivals += rule to it }
                     if (added.isNotEmpty()) events += RadarEvent(o.confirmedAt, "候補「${rule.label}」：${o.page.page}ページで新しい表示名の一致を${added.size}件確認",
                         rooms = matches.filter { "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" in added }.take(20), page = o.page.page, sourceQuery = o.query, kind = RadarEventKind.CANDIDATE_MATCH,
-                        origin = RadarEventOrigin(RadarOriginType.CANDIDATE, rule.id, rule.label, "${Genres[rule.genreKey]?.label ?: rule.genreKey} · ${if (rule.mode == CandidateMode.EXACT_NAME) "名前一致" else "表示名"}「${rule.term}」"))
+                        origin = RadarEventOrigin(RadarOriginType.CANDIDATE, rule.id, rule.label, "${Genres[rule.genreKey]?.label ?: rule.genreKey} · ${if (rule.mode == CandidateMode.EXACT_NAME) "名前一致" else "表示名"}「${rule.term}」"),
+                        pendingNotice = true, alert = rule.notify)
                 }
                 known.addAll(identities)
                 candidateBaselines[key] = identities
@@ -727,9 +744,9 @@ class RadarRepository(
         val json = JSONObject().put("plans", JSONArray(s.plans.toList()))
             // ピンへ移し終えるまで、以前の追跡を同じ形（identity・note）で残す。
             .put("targets", JSONArray(s.legacyTargets.map { t -> JSONObject().put("room", roomJson(t.room)).put("identity", roomJson(t.room)).put("note", t.note) }))
-            .put("events", JSONArray(s.events.map { JSONObject().put("at", it.at).put("text", it.text).put("id", it.id).put("rooms", JSONArray(it.rooms.map(::roomJson))).put("page", it.page).put("blocked", it.blocked).put("sourceQuery", radarQueryJson(it.sourceQuery)).put("kind", it.kind.name).put("origin", radarOriginJson(it.origin)).put("read", it.read).put("pendingNotice", it.pendingNotice) }))
+            .put("events", JSONArray(s.events.map { JSONObject().put("at", it.at).put("text", it.text).put("id", it.id).put("rooms", JSONArray(it.rooms.map(::roomJson))).put("page", it.page).put("blocked", it.blocked).put("sourceQuery", radarQueryJson(it.sourceQuery)).put("kind", it.kind.name).put("origin", radarOriginJson(it.origin)).put("read", it.read).put("pendingNotice", it.pendingNotice).put("alert", it.alert) }))
         json.put("candidateRules", JSONArray(s.candidateRules.map { rule -> JSONObject().put("id", rule.id).put("label", rule.label).put("genre", rule.genreKey)
-            .put("term", rule.term).put("mode", rule.mode.name).put("enabled", rule.enabled).put("autoEnterUntil", rule.autoEnterUntil) }))
+            .put("term", rule.term).put("mode", rule.mode.name).put("enabled", rule.enabled).put("autoEnterUntil", rule.autoEnterUntil).put("notify", rule.notify) }))
         json.put("backgroundPlans", JSONArray(s.backgroundPlans.toList())).put("backgroundInterval", s.backgroundIntervalMinutes)
         // 背景の巡回は実行ごとにプロセスが作り直されるので、背景で巡回する計画の比較基準だけを、ページを取得した時刻つきで残す。
         // 古い基準は再起動時に捨て（[BASELINE_TTL_MS]）、久しぶりの起動で大量の「新しい一致」を出さない。巡回位置は残さない。
@@ -778,8 +795,10 @@ class RadarRepository(
                 rooms = it.optJSONArray("rooms")?.let { r -> (0 until r.length()).map { i -> readRoom(r.getJSONObject(i)) } } ?: emptyList(),
                 page = if (it.isNull("page")) null else it.getInt("page").coerceAtLeast(1), blocked = it.optBoolean("blocked"), sourceQuery = readRadarQuery(it.optJSONObject("sourceQuery")),
                 kind = RadarEventKind.entries.firstOrNull { kind -> kind.name == it.optString("kind") } ?: RadarEventKind.LEGACY,
-                origin = readRadarOrigin(it.optJSONObject("origin")), read = if (it.has("read")) it.getBoolean("read") else true, pendingNotice = it.optBoolean("pendingNotice")) } },
-            candidateRules = (0 until candidates.length()).map { i -> candidates.getJSONObject(i).let { CandidateRule(it.getString("id"), it.getString("label"), it.getString("genre"), it.getString("term"), CandidateMode.valueOf(it.getString("mode")), it.optBoolean("enabled", true), it.optLong("autoEnterUntil")) } },
+                origin = readRadarOrigin(it.optJSONObject("origin")), read = if (it.has("read")) it.getBoolean("read") else true, pendingNotice = it.optBoolean("pendingNotice"),
+                // 以前の保存の未通知は、背景の巡回で見つけた端末通知を出す一致だけだった。
+                alert = it.optBoolean("alert", true)) } },
+            candidateRules = (0 until candidates.length()).map { i -> candidates.getJSONObject(i).let { CandidateRule(it.getString("id"), it.getString("label"), it.getString("genre"), it.getString("term"), CandidateMode.valueOf(it.getString("mode")), it.optBoolean("enabled", true), it.optLong("autoEnterUntil"), it.optBoolean("notify", true)) } },
             backgroundPlans = json.optJSONArray("backgroundPlans")?.let { b -> (0 until b.length()).map(b::getString).toSet() } ?: emptySet(),
             backgroundIntervalMinutes = json.optInt("backgroundInterval").takeIf { it in RadarState.BACKGROUND_INTERVALS } ?: RadarState.BACKGROUND_INTERVALS.first())
         _state.update { restored.copy(automatic = it.automatic) }
