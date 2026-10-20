@@ -72,7 +72,7 @@ AppNavHost / LovelyAppShell
 
 1. `ShaloveClient.openEntry` で入室前画面（`/PreEnterRoom`）を取得し、フォームとロボット確認の有無を読む。
 2. 確認が無ければ、アプリから `enter`（`POST /PreEnterRoom`）。302 の行き先 `2shot.php?room_id=..&pwd=..` から部屋の鍵 `pwd` を得る。
-3. 確認があれば `RobotCheckView`（中身は `SiteWebView`）で本家の入室前画面を開き、名前などを入力済みにする。既定では本家の確認欄（`#captcha_space`）と送信ボタン（`#submit_captcha`）、エラーらしい文言（`.ex` など）だけを残してほかを隠し、アプリの色で出す（`captchaOnlyScript`。確認の欄は本家のページ上で動くもので、アプリは表示を絞るだけ）。上のお知らせから本家の画面全体の表示に切り替えられる。利用者が確認を通して送信すると、WebView が `2shot.php` へ移る瞬間をアプリが捕まえ、会話画面へ引き継ぐ。
+3. 確認があれば `RobotCheckView`（中身は `SiteWebView`）で本家の入室前画面を開き、名前などを入力済みにする。既定では本家の確認欄（`#captcha_space`）と送信ボタン（`#submit_captcha`）、エラーらしい文言（`.ex` など）だけを残してほかを隠し、アプリの色で出す（`captchaOnlyScript`。確認の欄は本家のページ上で動くもので、アプリは表示を絞るだけ）。上のお知らせから本家の画面全体の表示に切り替えられる。確認があるとわかった時点で、入力画面の後ろで WebView を見せずに読み込み始める（先読み。触れない・読み上げない・自動送信しない）。「ロボット確認へ進む」で同じ WebView を表示し、最新の入力を入れ直してから自動送信を始める。WebView の初回作成の遅れは `MainActivity` が手の空いたときに 1 度作って捨てることで縮める。利用者が確認を通して送信すると、WebView が `2shot.php` へ移る瞬間をアプリが捕まえ、会話画面へ引き継ぐ。
 4. `pwd` を含む `ChatRoomRef` は `ActiveRooms`（メモリ上）に置き、ナビゲーションの route には一時 ID だけを載せる。
 
 ### 会話

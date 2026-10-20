@@ -4,7 +4,9 @@ import android.content.Intent
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.os.Looper
 import android.view.WindowManager
+import android.webkit.WebView
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -72,6 +74,16 @@ class MainActivity : FragmentActivity() {
         // 見ているジャンルの 1 ページ目を、アプリが見えている間は設定の間隔で読み直す（新しい部屋は必ず 1 ページ目に出る）。
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) { app.hotPages.run() }
+        }
+        // WebView の初回作成は Chromium の起動で 1 秒近くかかることがあるので、手が空いたときに 1 度作って捨てておく。
+        // ロボット確認が要る入室で、本家の入室画面を開くまでの待ちを縮める（通信はしない）。
+        Looper.myQueue().addIdleHandler {
+            try {
+                WebView(this).destroy()
+            } catch (_: Exception) {
+                // WebView の更新中などで作れない端末では、入室画面を開くときに作る。
+            }
+            false
         }
         setContent {
             val themeMode by app.settings.themeMode.collectAsStateWithLifecycle(initialValue = ThemeMode.SYSTEM)

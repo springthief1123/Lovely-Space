@@ -5,11 +5,13 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
+import android.view.View
 import android.webkit.WebSettings
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
@@ -24,7 +26,8 @@ import org.json.JSONObject
  * [onRoomOpened] を渡すと、サイトが `2shot.php?room_id=..&pwd=..`（入室・部屋作成の完了）へ移るところで止め、
  * アプリのチャット画面へ引き継ぐ。ラブルーム以外へのリンクは端末のブラウザで開く。
  */
-@SuppressLint("SetJavaScriptEnabled")
+// 先読み中に触れさせないための OnTouchListener は、押す操作を持たないので performClick を呼ばない。
+@SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
 @Composable
 fun SiteWebView(
     url: String,
@@ -39,8 +42,14 @@ fun SiteWebView(
     /**
      * [scriptPath] のページを最初に読み終えたときだけ、[onLoadScript] の後に実行する JavaScript（入室の自動送信）。
      * 送信して本家が同じページを返した（入室できなかった）ときに、送り直しを繰り返さないよう 1 回にする。
+     * [shown] が false の間は実行せず、表示されたときに実行する。
      */
     onceScript: String? = null,
+    /**
+     * false の間は、ページを読み込むが見せない（ロボット確認の先読み）。触れず、読み上げにも出さず、[onceScript] も実行しない。
+     * true になったら最新の [onLoadScript] で入力し直してから [onceScript] を実行する。
+     */
+    shown: Boolean = true,
     /**
      * 渡すと、[scriptPath] のページでロボット確認の欄と送信ボタンだけを残して本家のほかの部分を隠す（[captchaOnlyScript]）。
      * [captchaOnly] が false の間は本家の画面をそのまま出す。
@@ -54,6 +63,8 @@ fun SiteWebView(
     val currentScript = rememberUpdatedState(onLoadScript)
     val currentOnceScript = rememberUpdatedState(onceScript)
     val currentCaptchaOnly = rememberUpdatedState(captchaOnly)
+    val currentShown = rememberUpdatedState(shown)
+    val page = remember { PageProgress() }
     AndroidView(
         modifier = modifier,
         factory = { context ->
@@ -66,7 +77,6 @@ fun SiteWebView(
                 settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                 webViewClient = object : WebViewClient() {
                     private var done = false
-                    private var onceRan = false
 
                     /** チャット画面へ引き継いだら true。 */
                     private fun interceptRoom(uri: Uri?): Boolean {
@@ -103,26 +113,52 @@ fun SiteWebView(
                         if (!uri.isShalove() || uri.path?.endsWith(path) != true) return
                         currentScript.value?.let { view.evaluateJavascript(it, null) }
                         captchaOnlyStyle?.let { view.evaluateJavascript(captchaOnlyScript(it, currentCaptchaOnly.value), null) }
-                        val once = currentOnceScript.value
-                        if (once != null && !onceRan) {
-                            onceRan = true
-                            view.evaluateJavascript(once, null)
+                        page.ready = true
+                        if (currentShown.value) {
+                            page.filledWhileShown = true
+                            page.runOnce(view, currentOnceScript.value)
                         }
                     }
                 }
                 loadUrl(url)
             }
         },
-        // 表示の切り替え。確認欄の無いページやラブルーム以外では何もしない。
         update = { view ->
-            val style = captchaOnlyStyle ?: return@AndroidView
+            // 先読み中は見せず、触れさせず、読み上げにも出さない。
+            view.alpha = if (shown) 1f else 0f
+            view.importantForAccessibility =
+                if (shown) View.IMPORTANT_FOR_ACCESSIBILITY_AUTO else View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            view.setOnTouchListener(if (shown) null else View.OnTouchListener { _, _ -> true })
+            view.isFocusable = shown
+            view.isFocusableInTouchMode = shown
             val uri = view.url?.let(Uri::parse) ?: return@AndroidView
-            if (uri.isShalove() && scriptPath != null && uri.path?.endsWith(scriptPath) == true) {
-                view.evaluateJavascript(captchaOnlyScript(style, captchaOnly), null)
+            if (!uri.isShalove() || scriptPath == null || uri.path?.endsWith(scriptPath) != true) return@AndroidView
+            // 表示の切り替え。確認欄の無いページでは何もしない。
+            captchaOnlyStyle?.let { view.evaluateJavascript(captchaOnlyScript(it, captchaOnly), null) }
+            // 先読みしたページを見せるとき。先読みの後に変えた入力を入れ直してから、自動送信を始める。
+            if (shown && page.ready && !page.filledWhileShown) {
+                page.filledWhileShown = true
+                onLoadScript?.let { view.evaluateJavascript(it, null) }
             }
+            if (shown && page.ready) page.runOnce(view, onceScript)
         },
         onRelease = { it.destroy() },
     )
+}
+
+/** WebView の読み込みの進み具合。先読み（[SiteWebView] の shown = false）から表示へ移るときに使う。 */
+private class PageProgress {
+    /** [scriptPath] のページを読み終えた。 */
+    var ready = false
+    /** 表示している間に入力済みにした。 */
+    var filledWhileShown = false
+    private var onceRan = false
+
+    fun runOnce(view: WebView, script: String?) {
+        if (script == null || onceRan) return
+        onceRan = true
+        view.evaluateJavascript(script, null)
+    }
 }
 
 private fun Uri.isShalove(): Boolean =

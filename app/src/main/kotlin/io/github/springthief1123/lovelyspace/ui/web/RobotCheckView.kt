@@ -11,6 +11,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
 import io.github.springthief1123.lovelyspace.ui.components.QuietNotice
@@ -33,15 +34,22 @@ fun RobotCheckView(
     onRoomOpened: (ChatRoomRef) -> Unit,
     modifier: Modifier = Modifier,
     onceScript: String? = null,
+    /**
+     * false なら見せずに読み込みだけ進める（先読み）。本家の確認は読み込んだ時点で動き出すので、
+     * 利用者が入力を確かめている間に済むことが多い。自動送信は表示してから始める。
+     */
+    shown: Boolean = true,
 ) {
     var captchaOnly by rememberSaveable { mutableStateOf(true) }
-    Column(modifier) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-            QuietNotice(
-                text = if (captchaOnly) guide else "ラブルームの画面をそのまま表示しています。",
-                actionLabel = if (captchaOnly) "ラブルームの画面をすべて表示" else "確認だけを表示",
-                onAction = { captchaOnly = !captchaOnly },
-            )
+    Column(if (shown) modifier else modifier.clearAndSetSemantics {}) {
+        if (shown) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                QuietNotice(
+                    text = if (captchaOnly) guide else "ラブルームの画面をそのまま表示しています。",
+                    actionLabel = if (captchaOnly) "ラブルームの画面をすべて表示" else "確認だけを表示",
+                    onAction = { captchaOnly = !captchaOnly },
+                )
+            }
         }
         SiteWebView(
             url = url,
@@ -51,6 +59,7 @@ fun RobotCheckView(
             onceScript = onceScript,
             captchaOnlyStyle = captchaOnlyStyle(),
             captchaOnly = captchaOnly,
+            shown = shown,
             onRoomOpened = onRoomOpened,
             modifier = Modifier.fillMaxWidth().weight(1f),
         )
