@@ -39,6 +39,21 @@ internal object Routes {
     fun mainOrigin(value: String?): String = when (value) { RADAR -> RADAR; SEARCH -> SEARCH; PROFILE -> PROFILE; else -> ROOMS }
 }
 
+/** 下のタブの並び（見つける・レーダー・マイルーム）での位置。検索は見つけるの位置。タブでなければ null。 */
+internal fun mainTabIndex(route: String?): Int? = when (route) {
+    Routes.ROOMS, Routes.SEARCH -> 0
+    Routes.RADAR -> 1
+    Routes.PROFILE -> 2
+    else -> null
+}
+
+/** タブを移るときの向き。右のタブへは 1、左のタブへは -1、タブ同士の移動でなければ 0。 */
+internal fun mainTabDirection(from: String?, to: String?): Int {
+    val start = mainTabIndex(from) ?: return 0
+    val end = mainTabIndex(to) ?: return 0
+    return end.compareTo(start)
+}
+
 /** 入室フォームだけを閉じ、元の一覧のViewModel・取得済みページを残す。 */
 internal fun NavController.navigateToChat(sessionId: String, origin: String = Routes.ROOMS) {
     val target = Routes.mainOrigin(origin)
