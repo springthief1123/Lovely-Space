@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.selection.selectable
@@ -59,6 +60,7 @@ import io.github.springthief1123.lovelyspace.disguise.Hsv
 import io.github.springthief1123.lovelyspace.disguise.formatHexColor
 import io.github.springthief1123.lovelyspace.disguise.parseHexColor
 import io.github.springthief1123.lovelyspace.disguise.symbolColorOn
+import io.github.springthief1123.lovelyspace.ui.theme.LovelyShapes
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
@@ -68,12 +70,13 @@ import kotlin.math.sin
 /**
  * 色の見本を [columns] 個ずつ並べた選択。読み上げではラジオボタンとして `#RRGGBB` と選択状態を伝える。
  * 白など背景に溶ける色も見分けられるよう、見本はすべて境界線で囲む。
+ * 押せる範囲は見本の円ではなく列の幅いっぱい（高さ 48dp 以上）にし、隣の見本との間に押せない隙間を作らない。
  */
 @Composable
 internal fun ColorSwatchGrid(colors: List<Int>, columns: Int, selected: Int, onSelect: (Int) -> Unit) {
-    Column(Modifier.fillMaxWidth().selectableGroup(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxWidth().selectableGroup()) {
         colors.chunked(columns).forEach { row ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth()) {
                 row.forEach { color ->
                     ColorSwatch(color, selected = color == selected, onClick = { onSelect(color) }, Modifier.weight(1f))
                 }
@@ -89,17 +92,23 @@ private fun ColorSwatch(color: Int, selected: Boolean, onClick: () -> Unit, modi
     val scheme = MaterialTheme.colorScheme
     Box(
         modifier
-            .widthIn(max = 48.dp)
-            .aspectRatio(1f)
-            .clip(CircleShape)
-            .background(Color(color))
-            .border(if (selected) 3.dp else 1.dp, if (selected) scheme.primary else scheme.outlineVariant, CircleShape)
+            .heightIn(min = 52.dp)
+            .clip(LovelyShapes.control)
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
             .semantics { contentDescription = formatHexColor(color) },
         contentAlignment = Alignment.Center,
     ) {
-        if (selected) {
-            Icon(Icons.Outlined.Check, contentDescription = null, tint = Color(symbolColorOn(color)), modifier = Modifier.size(20.dp))
+        Box(
+            Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(Color(color))
+                .border(if (selected) 3.dp else 1.dp, if (selected) scheme.primary else scheme.outlineVariant, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (selected) {
+                Icon(Icons.Outlined.Check, contentDescription = null, tint = Color(symbolColorOn(color)), modifier = Modifier.size(20.dp))
+            }
         }
     }
 }

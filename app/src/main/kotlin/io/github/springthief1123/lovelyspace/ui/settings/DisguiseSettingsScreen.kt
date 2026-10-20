@@ -260,7 +260,7 @@ fun DisguiseSettingsScreen(onBack: () -> Unit) {
                         QuietTabs(ColorTab.entries.map { it to it.label }, colorTab) { colorTab = it }
                         when (colorTab) {
                             ColorTab.PRESET -> ColorSwatchGrid(DisguisePresetColors, columns = 6, selected = color) { color = it }
-                            ColorTab.PALETTE -> ColorSwatchGrid(DisguisePaletteColors, columns = 8, selected = color) { color = it }
+                            ColorTab.PALETTE -> ColorSwatchGrid(DisguisePaletteColors, columns = 6, selected = color) { color = it }
                             ColorTab.WHEEL -> ColorWheelPicker(color) { color = it }
                         }
                     }

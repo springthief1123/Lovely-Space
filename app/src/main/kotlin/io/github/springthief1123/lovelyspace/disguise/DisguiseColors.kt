@@ -9,7 +9,7 @@ val DisguisePresetColors: List<Int> = listOf(
     0xFF4FA3E0, 0xFF1E8E3E, 0xFFF29900, 0xFFD93025, 0xFF8E5CD9, 0xFFE0457B,
 ).map { it.toInt() }
 
-/** パレット。色相ごとに明るい順の 4 段（Material の 300・500・700・900）を並べる。 */
+/** パレット。色相ごとに明るい順の 4 段（Material の 300・500・700・900）を並べる（画面では 6 列で折り返す）。 */
 val DisguisePaletteColors: List<Int> = listOf(
     0xFFE57373, 0xFFF44336, 0xFFD32F2F, 0xFFB71C1C, // 赤
     0xFFF06292, 0xFFE91E63, 0xFFC2185B, 0xFF880E4F, // ピンク
