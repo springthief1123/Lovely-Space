@@ -3,6 +3,7 @@ package io.github.springthief1123.lovelyspace.disguise
 import android.app.Application
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ShortcutManager
 import androidx.core.content.pm.ShortcutManagerCompat
@@ -45,19 +46,25 @@ class LauncherDisguiseTest {
         assertEquals(PackageManager.COMPONENT_ENABLED_STATE_DISABLED, state(LauncherPreset.CALCULATOR))
     }
 
-    /** ショートカットは有効な alias を開き、アプリ一覧を切り替えると付け替わる。 */
-    @Test fun pinnedShortcutFollowsTheEnabledAlias() {
+    /** ショートカットは有効な alias を、アプリ一覧のアイコンと同じ intent で開く。 */
+    @Test fun pinnedShortcutOpensTheEnabledAlias() {
         shadowOf(context.getSystemService(ShortcutManager::class.java)).setIsRequestPinShortcutSupported(true)
         assertFalse(disguise.isShortcutPinned())
         assertTrue(disguise.pinShortcut(ShortcutDisguise(color = 0xFF1A73E8.toInt(), symbol = DisguiseSymbol.MAP, label = "地図")))
         val pinned = ShortcutManagerCompat.getShortcuts(context, ShortcutManagerCompat.FLAG_MATCH_PINNED).single()
         assertEquals("地図", pinned.shortLabel.toString())
         assertEquals(LauncherPreset.DEFAULT.aliasName, pinned.intent.component?.className?.substringAfterLast('.'))
+    }
 
-        disguise.applyPreset(LauncherPreset.WEATHER)
-        val moved = ShortcutManagerCompat.getShortcuts(context, ShortcutManagerCompat.FLAG_MATCH_PINNED).single()
-        assertEquals(LauncherPreset.WEATHER.aliasName, moved.intent.component?.className?.substringAfterLast('.'))
-        assertEquals("地図", moved.shortLabel.toString())
+    /**
+     * alias を切り替えたときの付け替え先。Robolectric の ShortcutManager は更新したピン留めを残さないので、
+     * 付け替えそのもの（updateShortcuts）は実機で確かめる。
+     */
+    @Test fun launchIntentMatchesTheLauncherIcon() {
+        val intent = disguise.launchIntent(LauncherPreset.WEATHER)
+        assertEquals(Intent.ACTION_MAIN, intent.action)
+        assertTrue(intent.hasCategory(Intent.CATEGORY_LAUNCHER))
+        assertEquals("${context.packageName}.${LauncherPreset.WEATHER.aliasName}", intent.component?.className)
     }
 
     @Test fun rendersAnAdaptiveIconSizedBitmap() {

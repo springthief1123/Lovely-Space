@@ -159,7 +159,7 @@ class LauncherDisguise(context: Context) {
      * アプリ一覧のアイコンと同じ起動の仕方にする。同じ alias・同じ intent にしておくと、開いているアプリへ戻るだけで、
      * 画面が二重に開かない。
      */
-    private fun launchIntent(preset: LauncherPreset): Intent = Intent(Intent.ACTION_MAIN)
+    internal fun launchIntent(preset: LauncherPreset): Intent = Intent(Intent.ACTION_MAIN)
         .addCategory(Intent.CATEGORY_LAUNCHER)
         .setComponent(component(preset))
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
