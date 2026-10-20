@@ -30,11 +30,11 @@ data class UiLine(val id: Long, val line: ChatLine, val isMine: Boolean)
 
 /**
  * 吹き出しの色に使う部屋主の性別。一覧で見た性別（[listed]）を優先する。
- * 一覧で分からなければ部屋主側の発言を見る。本家は女性の名前だけを色付きで出すので、分かるのは女性だけ。
+ * 一覧で分からなければ部屋主と分かっている発言（[isOwnerLine]）を見る。本家は女性の名前だけを色付きで出すので、分かるのは女性だけ。
  */
-internal fun ownerGender(lines: List<UiLine>, ownerIsMine: Boolean, listed: Gender?): Gender = when {
+internal fun ownerGender(lines: List<UiLine>, isOwnerLine: (UiLine) -> Boolean, listed: Gender?): Gender = when {
     listed != null && listed != Gender.UNKNOWN -> listed
-    lines.any { it.isMine == ownerIsMine && !it.line.isNotice && it.line.speakerIsFemale } -> Gender.FEMALE
+    lines.any { !it.line.isNotice && it.line.speakerIsFemale && isOwnerLine(it) } -> Gender.FEMALE
     else -> Gender.UNKNOWN
 }
 

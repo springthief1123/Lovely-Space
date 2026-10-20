@@ -106,6 +106,8 @@ fun ChatScreen(room: ChatRoomRef, vm: ChatController, onBrowse: () -> Unit, onEx
     val observations by app.roomLists.observations.collectAsStateWithLifecycle()
     val listedGender = observedRoom(observations.values, room.genreKey, room.roomId,
         app.roomLists.lastNamed(room.genreKey, room.roomId))?.gender
+    // 作成者なら自分の発言、入室者なら相手の発言が部屋主のもの。
+    val isOwnerLine: (UiLine) -> Boolean = { it.isMine == state.isOwner }
     // 見えている間は新着を「会話に戻る」の帯に数えない。
     DisposableEffect(vm) {
         vm.setVisible(true)
@@ -310,8 +312,8 @@ fun ChatScreen(room: ChatRoomRef, vm: ChatController, onBrowse: () -> Unit, onEx
                         OutlinedButton(onClick = vm::open) { Text("もう一度読み込む") }
                     }
                 }
-                else -> ChatLog(state.lines, Modifier.weight(1f), emptyText = chatEmptyText(state), ownerIsMine = state.isOwner,
-                    ownerGender = ownerGender(state.lines, ownerIsMine = state.isOwner, listed = listedGender))
+                else -> ChatLog(state.lines, Modifier.weight(1f), emptyText = chatEmptyText(state), isOwnerLine = isOwnerLine,
+                    ownerGender = ownerGender(state.lines, isOwnerLine, listed = listedGender))
             }
         }
     }
@@ -390,8 +392,8 @@ internal fun ChatLog(
     lines: List<UiLine>,
     modifier: Modifier,
     nameOnBothSides: Boolean = false,
-    /** 部屋主の発言が右側（isMine）か。公開ルームでは右側が入室者なので false。 */
-    ownerIsMine: Boolean = false,
+    /** 部屋主の発言か。分からない発言は入室者と同じグレーにする。 */
+    isOwnerLine: (UiLine) -> Boolean = { false },
     ownerGender: Gender = Gender.UNKNOWN,
     emptyText: Pair<String, String> = "まだ発言はありません" to "メッセージが届くとここに表示されます",
 ) {
@@ -419,7 +421,7 @@ internal fun ChatLog(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             items(lines, key = { it.id }) { ui ->
-                if (ui.line.isNotice) Notice(ui) else Bubble(ui, nameOnBothSides, isOwnerSide = ui.isMine == ownerIsMine, ownerGender = ownerGender)
+                if (ui.line.isNotice) Notice(ui) else Bubble(ui, nameOnBothSides, isOwnerSide = isOwnerLine(ui), ownerGender = ownerGender)
             }
         }
         if (!reading.atLatest && lines.isNotEmpty()) {

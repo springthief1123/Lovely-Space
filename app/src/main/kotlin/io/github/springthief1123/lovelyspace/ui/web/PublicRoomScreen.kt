@@ -13,6 +13,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.ui.chat.ChatLog
+import io.github.springthief1123.lovelyspace.ui.chat.UiLine
 import io.github.springthief1123.lovelyspace.ui.chat.ownerGender
 import io.github.springthief1123.lovelyspace.ui.components.ForegroundPolling
 import io.github.springthief1123.lovelyspace.ui.components.QuietTopBar
@@ -63,8 +64,12 @@ fun PublicRoomScreen(host: String, genreKey: String, roomId: Long, onBack: () ->
                 style = MaterialTheme.typography.bodySmall)
             if (state.loading && !state.opened) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
-            } else if (state.opened) ChatLog(state.lines, Modifier.weight(1f), nameOnBothSides = true,
-                ownerGender = ownerGender(state.lines, ownerIsMine = false, listed = room?.gender))
+            } else if (state.opened) {
+                // 左側には役割の分からない発言も入るので、部屋主と判定できた発言だけを部屋主の色にする。
+                val isOwnerLine: (UiLine) -> Boolean = { state.roles.isGuest(it.line) == false }
+                ChatLog(state.lines, Modifier.weight(1f), nameOnBothSides = true, isOwnerLine = isOwnerLine,
+                    ownerGender = ownerGender(state.lines, isOwnerLine, listed = room?.gender))
+            }
         }
     }
 }
