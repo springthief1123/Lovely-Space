@@ -1,6 +1,7 @@
 package io.github.springthief1123.lovelyspace.ui.rooms
 
 import androidx.compose.animation.AnimatedVisibility
+import io.github.springthief1123.lovelyspace.lock.LocalAppLocked
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -104,6 +105,10 @@ internal fun RoomActionMenu(
     onDismiss: () -> Unit,
     message: String? = null,
 ) {
+    // 別の窓に出てロック画面より上に重なるので、ロック中は閉じ、出さない。
+    val locked = LocalAppLocked.current
+    LaunchedEffect(locked) { if (locked && visible) onDismiss() }
+    if (locked) return
     val transition = remember { MutableTransitionState(false) }
     LaunchedEffect(visible) { transition.targetState = visible }
     if (!transition.currentState && !transition.targetState) return

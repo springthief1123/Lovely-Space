@@ -35,16 +35,20 @@ class NgWordRepositoryTest {
             repo.save(money.copy(words = listOf(" 合成語 ", "販売", "合成語", "")))
             repo.setEnabled("builtin-media", false)
             repo.save(NgWordSet("mine", "  自分のセット ", listOf("合成ワード"), target = NgTarget.NAME))
-            repo.delete("builtin-media")
+            // 最初からのセットは削除できない（オフにして使わない）。自分で足したセットは削除できる。
+            assertTrue(runCatching { repo.delete("builtin-media") }.exceptionOrNull() is IllegalArgumentException)
+            repo.save(NgWordSet("extra", "消すセット", listOf("合成")))
+            repo.delete("extra")
             db.close()
 
             db = open(name)
             repo = NgWordRepository(db, backgroundScope)
             val sets = repo.sets.first()
-            // 消した最初からのセットは入れ直さない。並びは足した順。
-            assertEquals(listOf("builtin-money", "builtin-newhalf", "mine"), sets.map { it.id })
+            // 並びは足した順。オフにしたセットはオフのまま残る。
+            assertEquals(listOf("builtin-money", "builtin-media", "builtin-newhalf", "mine"), sets.map { it.id })
             assertEquals(listOf("合成語", "販売"), sets[0].words)
-            assertEquals(NgWordSet("mine", "自分のセット", listOf("合成ワード"), target = NgTarget.NAME), sets[2])
+            assertFalse(sets[1].enabled)
+            assertEquals(NgWordSet("mine", "自分のセット", listOf("合成ワード"), target = NgTarget.NAME), sets[3])
             val filter = NgWordFilter.of(sets)
             assertTrue(filter.matches(room.copy(message = "合成語あり")))
             assertTrue(filter.matches(room.copy(name = "合成ワード")))
