@@ -1,5 +1,6 @@
 package io.github.springthief1123.lovelyspace.ui.chat
 
+import io.github.springthief1123.lovelyspace.core.Gender
 import io.github.springthief1123.lovelyspace.core.ShaloveClient
 import io.github.springthief1123.lovelyspace.core.messageWidth
 import io.github.springthief1123.lovelyspace.core.chat.ChatLine
@@ -26,6 +27,21 @@ import kotlinx.coroutines.launch
 
 /** 画面に出すログ 1 行。[id] は LazyColumn のキー（届いた順の連番）。 */
 data class UiLine(val id: Long, val line: ChatLine, val isMine: Boolean)
+
+/**
+ * 吹き出しの色に使う部屋主の性別。部屋主と分かっている発言（[isOwnerLine]）があればそれで決める。
+ * 本家は女性の名前だけを色付きで出すので、色付きなら女性、なければ女性ではない（男性か不明）。
+ * 部屋主がまだ発言していなければ、一覧で見た性別（[listed]）を使う。部屋の ID は使い回されるので、
+ * 一覧の古い部屋の性別より、いまの発言を優先する。
+ */
+internal fun ownerGender(lines: List<UiLine>, isOwnerLine: (UiLine) -> Boolean, listed: Gender?): Gender {
+    val owner = lines.filter { !it.line.isNotice && isOwnerLine(it) }
+    return when {
+        owner.any { it.line.speakerIsFemale } -> Gender.FEMALE
+        owner.isNotEmpty() -> Gender.UNKNOWN
+        else -> listed ?: Gender.UNKNOWN
+    }
+}
 
 enum class Connection { CONNECTED, RECONNECTING, FAILED }
 

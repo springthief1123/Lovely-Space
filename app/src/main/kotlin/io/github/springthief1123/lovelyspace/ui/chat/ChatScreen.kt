@@ -63,6 +63,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
@@ -72,6 +73,8 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.springthief1123.lovelyspace.LovelySpaceApp
+import io.github.springthief1123.lovelyspace.core.Gender
 import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
 import io.github.springthief1123.lovelyspace.core.messageWidth
 import io.github.springthief1123.lovelyspace.ui.components.QuietConfirmDialog
@@ -79,6 +82,8 @@ import io.github.springthief1123.lovelyspace.ui.components.QuietDialog
 import io.github.springthief1123.lovelyspace.ui.components.QuietMenuItem
 import io.github.springthief1123.lovelyspace.ui.components.QuietTopBar
 import io.github.springthief1123.lovelyspace.ui.components.QuietOverflowMenu
+import io.github.springthief1123.lovelyspace.ui.main.observedRoom
+import io.github.springthief1123.lovelyspace.ui.theme.LocalLovelyColors
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import java.time.format.DateTimeFormatter
@@ -96,6 +101,14 @@ private val ReadingSaver = mapSaver(
 @Composable
 fun ChatScreen(room: ChatRoomRef, vm: ChatController, onBrowse: () -> Unit, onExit: () -> Unit, onEnded: () -> Unit = {}) {
     val state by vm.state.collectAsStateWithLifecycle()
+    // 吹き出しの色に使う部屋主の性別。部屋主の発言から読み、まだ発言がなければ一覧で見た性別を使う。
+    val app = LocalContext.current.applicationContext as LovelySpaceApp
+    val observations by app.roomLists.observations.collectAsStateWithLifecycle()
+    val listed = observedRoom(observations.values, room.genreKey, room.roomId, app.roomLists.lastNamed(room.genreKey, room.roomId))
+    // 作った直後は、一覧に同じ ID の以前の部屋しか無いことがある。作成者は自分の名前と一致する部屋だけを使う。
+    val listedGender = listed?.takeIf { !state.isOwner || (it.name != null && it.name == state.myName?.trim()) }?.gender
+    // 作成者なら自分の発言、入室者なら相手の発言が部屋主のもの。
+    val isOwnerLine: (UiLine) -> Boolean = { it.isMine == state.isOwner }
     // 見えている間は新着を「会話に戻る」の帯に数えない。
     DisposableEffect(vm) {
         vm.setVisible(true)
@@ -300,7 +313,8 @@ fun ChatScreen(room: ChatRoomRef, vm: ChatController, onBrowse: () -> Unit, onEx
                         OutlinedButton(onClick = vm::open) { Text("もう一度読み込む") }
                     }
                 }
-                else -> ChatLog(state.lines, Modifier.weight(1f), emptyText = chatEmptyText(state))
+                else -> ChatLog(state.lines, Modifier.weight(1f), emptyText = chatEmptyText(state), isOwnerLine = isOwnerLine,
+                    ownerGender = ownerGender(state.lines, isOwnerLine, listed = listedGender))
             }
         }
     }
@@ -379,6 +393,9 @@ internal fun ChatLog(
     lines: List<UiLine>,
     modifier: Modifier,
     nameOnBothSides: Boolean = false,
+    /** 部屋主の発言か。分からない発言は入室者と同じグレーにする。 */
+    isOwnerLine: (UiLine) -> Boolean = { false },
+    ownerGender: Gender = Gender.UNKNOWN,
     emptyText: Pair<String, String> = "まだ発言はありません" to "メッセージが届くとここに表示されます",
 ) {
     val listState = rememberLazyListState()
@@ -405,7 +422,7 @@ internal fun ChatLog(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             items(lines, key = { it.id }) { ui ->
-                if (ui.line.isNotice) Notice(ui) else Bubble(ui, nameOnBothSides)
+                if (ui.line.isNotice) Notice(ui) else Bubble(ui, nameOnBothSides, isOwnerSide = isOwnerLine(ui), ownerGender = ownerGender)
             }
         }
         if (!reading.atLatest && lines.isNotEmpty()) {
@@ -446,13 +463,18 @@ private fun Notice(ui: UiLine) {
 }
 
 @Composable
-/** [ui] の isMine は右側に出すこと。公開ルームでは入室者の発言で、[showName] で右側にも名前を出す。 */
-private fun Bubble(ui: UiLine, showName: Boolean = false) {
+/**
+ * [ui] の isMine は右側に出すこと。公開ルームでは入室者の発言で、[showName] で右側にも名前を出す。
+ * 入室者の吹き出しはグレー。部屋主の吹き出しは、部屋主が女性なら薄いピンク、男性・不明はグレー
+ * （本家は女性の名前だけを色付きにするので、それに合わせる。2026-10-20 Yuya）。
+ */
+private fun Bubble(ui: UiLine, showName: Boolean = false, isOwnerSide: Boolean, ownerGender: Gender) {
     val line = ui.line
     val uriHandler = LocalUriHandler.current
     val colors = MaterialTheme.colorScheme
-    val container = if (ui.isMine) colors.primaryContainer else colors.surface
-    val content = if (ui.isMine) colors.onPrimaryContainer else colors.onSurface
+    val lovely = LocalLovelyColors.current
+    val container = if (isOwnerSide && ownerGender == Gender.FEMALE) lovely.femaleContainer else colors.surfaceVariant
+    val content = colors.onSurface
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val bubbleWidth = (maxWidth * 0.84f).coerceAtMost(560.dp)
         Column(Modifier.fillMaxWidth(), horizontalAlignment = if (ui.isMine) Alignment.End else Alignment.Start,

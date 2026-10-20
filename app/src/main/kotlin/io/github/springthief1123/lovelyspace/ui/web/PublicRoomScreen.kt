@@ -13,6 +13,8 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.ui.chat.ChatLog
+import io.github.springthief1123.lovelyspace.ui.chat.UiLine
+import io.github.springthief1123.lovelyspace.ui.chat.ownerGender
 import io.github.springthief1123.lovelyspace.ui.components.ForegroundPolling
 import io.github.springthief1123.lovelyspace.ui.components.QuietTopBar
 import io.github.springthief1123.lovelyspace.ui.main.RoomMenuButton
@@ -27,7 +29,12 @@ import kotlinx.coroutines.launch
 fun PublicRoomScreen(host: String, genreKey: String, roomId: Long, onBack: () -> Unit) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val vm: PublicRoomViewModel = viewModel(factory = viewModelFactory {
-        initializer { PublicRoomViewModel { manual -> app.client.openPublicRoom(host, genreKey, roomId, manual) } }
+        initializer {
+            PublicRoomViewModel(
+                // 会話中になると一覧から部屋主の名前が消えるので、待機中に見えた名前を取得済みの一覧から補う（通信はしない）。
+                listedOwner = { observedRoom(app.roomLists.observations.value.values, genreKey, roomId, app.roomLists.lastNamed(genreKey, roomId))?.name },
+            ) { manual -> app.client.openPublicRoom(host, genreKey, roomId, manual) }
+        }
     })
     // 画面の切り替えの動きが終わる（RESUMED になる）のを待たずに読み始める。
     LaunchedEffect(vm) { vm.open() }
@@ -62,7 +69,12 @@ fun PublicRoomScreen(host: String, genreKey: String, roomId: Long, onBack: () ->
                 style = MaterialTheme.typography.bodySmall)
             if (state.loading && !state.opened) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
-            } else if (state.opened) ChatLog(state.lines, Modifier.weight(1f), nameOnBothSides = true)
+            } else if (state.opened) {
+                // 左側には役割の分からない発言も入るので、部屋主と判定できた発言だけを部屋主の色にする。
+                val isOwnerLine: (UiLine) -> Boolean = { state.roles.isGuest(it.line) == false }
+                ChatLog(state.lines, Modifier.weight(1f), nameOnBothSides = true, isOwnerLine = isOwnerLine,
+                    ownerGender = ownerGender(state.lines, isOwnerLine, listed = room?.gender))
+            }
         }
     }
 }

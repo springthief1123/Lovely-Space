@@ -21,6 +21,8 @@ data class PublicRoomUiState(
     val lines: List<UiLine> = emptyList(), val information: String = "", val error: String? = null,
     /** 部屋主・入室者の名前。読み直しても引き継ぎ、入室者の発言を右に出す。 */
     val roles: RoomRoles = RoomRoles(),
+    /** 部屋主・入室者が分からない間に左に出す人（最初に発言した人）。名前の違う人は右に出す。 */
+    val leftSpeaker: String? = null,
     /** 一度も読めないまま、開いてから [PublicRoomViewModel.FRESH_RETRY_MS] の間は読み直している（入室された直後の部屋）。 */
     val waitingForLog: Boolean = false,
 )
@@ -28,9 +30,11 @@ data class PublicRoomUiState(
 /**
  * [fetch] の引数は利用者が押した読み込みか（「覗く」で開いた最初の読み込み・「再読み込み」）。押した読み込みは間隔を空けずに取る。
  * [clock] は前回の読み込みからの経過時間の計測用（ミリ秒）。
+ * [listedOwner] は一覧で待機中に見えた部屋主の名前（会話中になると一覧から消えるので、取得済みの一覧から補う）。
  */
 class PublicRoomViewModel(
     private val clock: () -> Long = { System.nanoTime() / 1_000_000 },
+    private val listedOwner: () -> String? = { null },
     private val fetch: suspend (manual: Boolean) -> PublicRoomPage,
 ) : ViewModel() {
     private val _state = MutableStateFlow(PublicRoomUiState())
@@ -75,13 +79,14 @@ class PublicRoomViewModel(
             currentCoroutineContext().ensureActive()
             // 同文・同時刻の発言も行数分保持し、更新後も既存のスクロール位置を維持する。
             val existing = _state.value.lines.groupBy { it.line }.mapValues { it.value.asReversed().toMutableList() }
-            val roles = _state.value.roles.learn(page.lines)
+            val roles = _state.value.roles.learn(page.lines).withListedOwner(listedOwner(), page.lines)
+            val leftSpeaker = roles.firstSpeaker(page.lines, _state.value.leftSpeaker)
             val lines = page.lines.asReversed().map { line ->
-                val isGuest = roles.isGuest(line) == true
-                existing[line]?.removeFirstOrNull()?.copy(isMine = isGuest) ?: UiLine(nextId++, line, isGuest)
+                val isRight = roles.isRight(line, leftSpeaker)
+                existing[line]?.removeFirstOrNull()?.copy(isMine = isRight) ?: UiLine(nextId++, line, isRight)
             }.asReversed()
             // 閉じられた後に「再読み込み」で読めたら、自動の読み直しへ戻す。
-            _state.update { it.copy(opened = true, automatic = true, roles = roles, lines = lines, information = page.information, error = null, waitingForLog = false) }
+            _state.update { it.copy(opened = true, automatic = true, roles = roles, leftSpeaker = leftSpeaker, lines = lines, information = page.information, error = null, waitingForLog = false) }
             seen = true
         } catch (e: CancellationException) { throw e }
         catch (e: PublicRoomUnavailableException) {
