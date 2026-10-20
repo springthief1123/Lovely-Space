@@ -32,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -47,7 +48,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -184,8 +189,17 @@ internal fun LockChallenge(
     }
     val fallbackLabel = if (method == LockMethod.PASSCODE) "パスコードで解除" else "パターンで解除"
     val biometric: (() -> Unit)? = if (canUseBiometric) ({ showBiometricPrompt(activity!!, fallbackLabel) { onBiometricSuccess!!() } }) else null
-    // 入力欄が出たら、まず生体認証を出す。
-    LaunchedEffect(Unit) { biometric?.invoke() }
+    // 入力欄が出たら、まず生体認証を出す。アプリが背景に回ると端末が生体認証の画面を閉じるので、
+    // 入力欄を出したまま前面に戻ったときも出し直す。前面に出る前（onSaveInstanceState の後）に出そうとすると
+    // 端末に無視されるので、操作できる状態（RESUMED）になってから出す。
+    val currentBiometric by rememberUpdatedState(biometric)
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            lifecycle.currentStateFlow.first { it.isAtLeast(Lifecycle.State.RESUMED) }
+            currentBiometric?.invoke()
+        }
+    }
 
     fun attempt(secret: String) {
         if (checking) return

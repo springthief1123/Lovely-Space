@@ -60,7 +60,8 @@ class MainActivity : FragmentActivity() {
         if (savedInstanceState == null || AppNotifier.notificationId(intent) != handledNotificationId) {
             openNotification(intent)
         }
-        // アプリロックを使うときは、最近のアプリ一覧に画面の中身を出さない。
+        // アプリロックを使うときは、最近のアプリ一覧に画面の中身を出さない。最初の描画より前に掛けておく。
+        hideFromRecents(app.appLock.state.value.config.enabled)
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.CREATED) {
                 app.appLock.state.map { it.config.enabled }.distinctUntilChanged().collect(::hideFromRecents)
@@ -156,16 +157,20 @@ class MainActivity : FragmentActivity() {
     }
 
     /**
-     * Android 13 以降は最近のアプリ一覧のスクリーンショットだけを止める（利用者のスクリーンショットは撮れる）。
-     * それより前の端末には同じ仕組みが無いので、画面全体を保護する（スクリーンショットも撮れなくなる）。
+     * 画面全体を保護する（FLAG_SECURE）。最近のアプリ一覧に入った時点から、カードの中身が黒く隠れる。
+     * Android 13 以降の setRecentsScreenshotEnabled(false) だけでは、一覧に入ってからしばらくカードに
+     * 中身が見えたままになる（One UI で確認）ので、それだけに頼らない。代わりに利用者のスクリーンショットも撮れなくなる。
+     * ダイアログ・シート・メニューの窓は、開くときにこの窓の FLAG_SECURE を引き継ぐ（Compose の既定）。
      */
     private fun hideFromRecents(enabled: Boolean) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            setRecentsScreenshotEnabled(!enabled)
-        } else if (enabled) {
+        if (enabled) {
             window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         } else {
             window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            // 一覧の縮小画像も取らせない（FLAG_SECURE と重ねて、機種ごとの差を減らす）。
+            setRecentsScreenshotEnabled(!enabled)
         }
     }
 
