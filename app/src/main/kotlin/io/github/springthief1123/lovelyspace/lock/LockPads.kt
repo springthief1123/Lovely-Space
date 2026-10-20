@@ -1,5 +1,7 @@
 package io.github.springthief1123.lovelyspace.lock
 
+import android.view.HapticFeedbackConstants
+import android.view.View
 import android.view.accessibility.AccessibilityManager
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -37,6 +39,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -80,10 +83,11 @@ internal fun PasscodeKeypad(onDigit: (Char) -> Unit, onDelete: () -> Unit, onBio
 
 @Composable
 private fun KeypadKey(enabled: Boolean, text: String?, description: String? = null, onClick: () -> Unit, icon: @Composable () -> Unit = {}) {
+    val view = LocalView.current
     Box(
         Modifier.size(KEY_SIZE).clip(CircleShape)
             .background(MaterialTheme.colorScheme.surfaceContainer)
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .clickable(enabled = enabled, role = Role.Button) { view.lockPadHaptic(); onClick() }
             .semantics { if (description != null) contentDescription = description },
         contentAlignment = Alignment.Center,
     ) {
@@ -119,6 +123,7 @@ internal fun PatternPad(onComplete: (List<Int>) -> Unit, enabled: Boolean = true
     val dots = remember { mutableStateListOf<Int>() }
     val complete by rememberUpdatedState(onComplete)
     var finger by remember { mutableStateOf<Offset?>(null) }
+    val view = LocalView.current
     val primary = if (error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
     val idle = MaterialTheme.colorScheme.outline
     Canvas(
@@ -132,6 +137,7 @@ internal fun PatternPad(onComplete: (List<Int>) -> Unit, enabled: Boolean = true
                     if (dot in dots) return
                     dots.lastOrNull()?.let { last -> patternDotBetween(last, dot, dots)?.let(dots::add) }
                     dots.add(dot)
+                    view.lockPadHaptic()
                 }
                 detectDragGestures(
                     onDragStart = { dots.clear(); finger = it; add(it) },
@@ -162,6 +168,7 @@ internal fun PatternPad(onComplete: (List<Int>) -> Unit, enabled: Boolean = true
 private fun AccessiblePatternPad(onComplete: (List<Int>) -> Unit, enabled: Boolean, error: Boolean) {
     val dots = remember { mutableStateListOf<Int>() }
     val scheme = MaterialTheme.colorScheme
+    val view = LocalView.current
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("点を順に選び、「決定」を押します", style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
         repeat(3) { row ->
@@ -176,6 +183,7 @@ private fun AccessiblePatternPad(onComplete: (List<Int>) -> Unit, enabled: Boole
                             .clickable(enabled = enabled && !selected, role = Role.Button) {
                                 dots.lastOrNull()?.let { last -> patternDotBetween(last, dot, dots)?.let(dots::add) }
                                 dots.add(dot)
+                                view.lockPadHaptic()
                             }
                             .semantics { contentDescription = patternDotLabel(dot) + if (selected) "、${order + 1}番目に選択済み" else "" },
                         contentAlignment = Alignment.Center,
@@ -190,6 +198,14 @@ private fun AccessiblePatternPad(onComplete: (List<Int>) -> Unit, enabled: Boole
             Button(onClick = { val result = dots.toList(); dots.clear(); onComplete(result) }, enabled = enabled && dots.isNotEmpty()) { Text("決定") }
         }
     }
+}
+
+/**
+ * キーを押したとき・パターンの点をつないだときの触覚フィードバック。端末のロック画面と同じくキー入力の振動を使う。
+ * 解除画面と設定画面のどちらもこのファイルの入力欄を使うので、両方で同じように鳴る。端末の「タッチ操作時のバイブ」に従う。
+ */
+private fun View.lockPadHaptic() {
+    performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY, HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING)
 }
 
 /** 点の位置の読み上げ。例: 「上の段の左の点」。 */
