@@ -52,4 +52,17 @@ class RoomRolesTest {
         // 役割が分かればそちらに従う。
         assertFalse(RoomRoles(owner = "タロウ").isRight(say("タロウ"), left))
     }
+
+    @Test fun listedOwnerNameIsUsedOnlyWhenItSpoke() {
+        val log = listOf(say("ミナ◆合成"), say("タロウ"))
+        val roles = RoomRoles().withListedOwner("ミナ", log)
+        assertEquals("ミナ", roles.owner)
+        assertTrue(roles.isRight(say("タロウ"), leftSpeaker = "タロウ"))
+        assertFalse(roles.isRight(say("ミナ◆合成"), leftSpeaker = "タロウ"))
+        // ログにその名前の発言が無ければ（ID の再利用など）使わない。
+        assertNull(RoomRoles().withListedOwner("ハナ", log).owner)
+        // お知らせで分かった部屋主を優先し、入室者と同じ名前なら使わない。
+        assertEquals("タロウ", RoomRoles(owner = "タロウ").withListedOwner("ミナ", log).owner)
+        assertNull(RoomRoles(guest = "ミナ").withListedOwner("ミナ", log).owner)
+    }
 }

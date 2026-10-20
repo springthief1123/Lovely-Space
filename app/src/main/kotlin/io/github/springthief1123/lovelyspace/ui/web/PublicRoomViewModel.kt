@@ -30,9 +30,11 @@ data class PublicRoomUiState(
 /**
  * [fetch] の引数は利用者が押した読み込みか（「覗く」で開いた最初の読み込み・「再読み込み」）。押した読み込みは間隔を空けずに取る。
  * [clock] は前回の読み込みからの経過時間の計測用（ミリ秒）。
+ * [listedOwner] は一覧で待機中に見えた部屋主の名前（会話中になると一覧から消えるので、取得済みの一覧から補う）。
  */
 class PublicRoomViewModel(
     private val clock: () -> Long = { System.nanoTime() / 1_000_000 },
+    private val listedOwner: () -> String? = { null },
     private val fetch: suspend (manual: Boolean) -> PublicRoomPage,
 ) : ViewModel() {
     private val _state = MutableStateFlow(PublicRoomUiState())
@@ -77,7 +79,7 @@ class PublicRoomViewModel(
             currentCoroutineContext().ensureActive()
             // 同文・同時刻の発言も行数分保持し、更新後も既存のスクロール位置を維持する。
             val existing = _state.value.lines.groupBy { it.line }.mapValues { it.value.asReversed().toMutableList() }
-            val roles = _state.value.roles.learn(page.lines)
+            val roles = _state.value.roles.learn(page.lines).withListedOwner(listedOwner(), page.lines)
             val leftSpeaker = roles.firstSpeaker(page.lines, _state.value.leftSpeaker)
             val lines = page.lines.asReversed().map { line ->
                 val isRight = roles.isRight(line, leftSpeaker)

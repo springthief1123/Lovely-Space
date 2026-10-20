@@ -65,6 +65,18 @@ class PublicRoomViewModelTest {
             assertEquals(listOf(false, true), vm.state.value.lines.map { it.isMine })
         } finally { Dispatchers.resetMain() }
     }
+    @Test fun ownerNameSeenInListPlacesSidesAfterNoticesScrolledOut() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val guest = ChatLine("タロウ", false, "合成の返事", null)
+            val owner = ChatLine("ミナ", true, "合成の発言", null)
+            // 入室者が先に発言していても、一覧で見た部屋主の名前で左右を決める。
+            val vm = PublicRoomViewModel(listedOwner = { "ミナ" }) { PublicRoomPage("合成", listOf(owner, guest), "") }
+            vm.refresh(); runCurrent()
+            assertEquals(listOf(false, true), vm.state.value.lines.map { it.isMine })
+            assertEquals("ミナ", vm.state.value.roles.owner)
+        } finally { Dispatchers.resetMain() }
+    }
     @Test fun leavingCancelsManualPublicRead() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {

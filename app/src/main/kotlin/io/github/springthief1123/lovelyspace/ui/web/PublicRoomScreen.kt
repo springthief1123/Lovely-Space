@@ -29,7 +29,12 @@ import kotlinx.coroutines.launch
 fun PublicRoomScreen(host: String, genreKey: String, roomId: Long, onBack: () -> Unit) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val vm: PublicRoomViewModel = viewModel(factory = viewModelFactory {
-        initializer { PublicRoomViewModel { manual -> app.client.openPublicRoom(host, genreKey, roomId, manual) } }
+        initializer {
+            PublicRoomViewModel(
+                // 会話中になると一覧から部屋主の名前が消えるので、待機中に見えた名前を取得済みの一覧から補う（通信はしない）。
+                listedOwner = { observedRoom(app.roomLists.observations.value.values, genreKey, roomId, app.roomLists.lastNamed(genreKey, roomId))?.name },
+            ) { manual -> app.client.openPublicRoom(host, genreKey, roomId, manual) }
+        }
     })
     // 画面の切り替えの動きが終わる（RESUMED になる）のを待たずに読み始める。
     LaunchedEffect(vm) { vm.open() }

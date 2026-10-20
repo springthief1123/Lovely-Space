@@ -7,6 +7,7 @@ package io.github.springthief1123.lovelyspace.core.chat
  * 「〇〇(男)さん(…)が入室しましたので、…」から入室者の名前を覚える。
  * 覗き画面のログは直近の行だけなので、一度覚えた名前は読み直しても引き継ぐ。
  * どちらの名前も分からない間は見分けない（どちらとも決めつけない）。
+ * お知らせが流れた後でも、一覧で待機中に見えた部屋主の名前があれば使う（[withListedOwner]）。
  * 表示の左右だけは、最初に発言した人を左、名前の違う人を右に分ける（[isRight]）。
  */
 data class RoomRoles(val owner: String? = null, val guest: String? = null) {
@@ -20,6 +21,19 @@ data class RoomRoles(val owner: String? = null, val guest: String? = null) {
             roles = if (match.groupValues[2].startsWith("新規部屋を作成")) roles.copy(owner = name) else roles.copy(guest = name)
         }
         return roles
+    }
+
+    /**
+     * 一覧で見た部屋主の名前（[name]、満室になる前に見えたもの）を部屋主として覚える。
+     * お知らせで部屋主が分かっていればそちらを使う。部屋の ID は使い回されるので、
+     * ログ（[lines]）にその名前の発言があり、入室者の名前と違うときだけ使う。
+     */
+    fun withListedOwner(name: String?, lines: List<ChatLine>): RoomRoles {
+        if (owner != null) return this
+        val listed = name?.let(::key)?.takeIf { it.isNotEmpty() } ?: return this
+        if (guest != null && (matches(listed, guest) || matches(guest, listed))) return this
+        val spoke = lines.any { line -> !line.isNotice && line.speaker?.let(::key)?.let { matches(it, listed) } == true }
+        return if (spoke) copy(owner = listed) else this
     }
 
     /** 入室者の発言なら true、部屋主なら false、分からなければ null。 */
