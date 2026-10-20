@@ -4,11 +4,16 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- 吹き出しの中にハート -->
+    <!-- ふたつの輪。重なった部分だけ淡いローズで塗る -->
     <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M34,32h40a8,8 0,0 1,8 8v24a8,8 0,0 1,-8 8H50l-10,9v-9h-6a8,8 0,0 1,-8 -8V40a8,8 0,0 1,8 -8z" />
+        android:fillColor="#FFF2CAD5"
+        android:pathData="M54,41.01A15,15 0,0 1,54 66.99A15,15 0,0 1,54 41.01z" />
     <path
-        android:fillColor="#FFE0457B"
-        android:pathData="M54,63c-1,-1 -11,-7.5 -11,-14.5c0,-3.6 2.8,-6.5 6.2,-6.5c2.2,0 3.8,1.1 4.8,2.6c1,-1.5 2.6,-2.6 4.8,-2.6c3.4,0 6.2,2.9 6.2,6.5c0,7 -10,13.5 -11,14.5z" />
+        android:strokeColor="#FFFBF3F1"
+        android:strokeWidth="3.6"
+        android:pathData="M31.5,54a15,15 0,1 0,30 0a15,15 0,1 0,-30 0z" />
+    <path
+        android:strokeColor="#FFFBF3F1"
+        android:strokeWidth="3.6"
+        android:pathData="M46.5,54a15,15 0,1 0,30 0a15,15 0,1 0,-30 0z" />
 </vector>

@@ -67,6 +67,12 @@
 - 下部ナビの選択中の背景（18dp）は、Glass ナビ（24dp）の内側 6dp に収まる同心の角丸なので変えない。
 - 新しいコードで角丸が必要なら `LovelyShapes.*` か `MaterialTheme.shapes.*` を使い、`RoundedCornerShape(…dp)` を画面に書き足さない。
 
+### 2.2.1 アプリアイコン（2026-10-20）
+
+- 元のアイコンは「ふたつの輪」。くすんだローズのグラデーション（`#B66C83` → `#8A4560`、`drawable/ic_launcher_background.xml`）に、生成り `#FBF3F1` の輪 2 つと、重なりだけ淡いローズ `#F2CAD5` を置く。ハートや蛍光色は使わない（ホーム画面に置いても目立ちすぎないため）。
+- 単色の場面は形をそろえる。テーマアイコンは `ic_launcher_monochrome`、通知は `ic_notification` で、どちらも重なりを半透明にする。設定の見本など単色で塗る背景は `@color/ic_launcher_background`（グラデーションの中間色 `#A05872`）。
+- 輪は中央 66dp の安全域に収める（幅 約 49dp）。
+
 ### 2.3 後続フェーズで使う API
 
 - メニュー（Phase B、#74 で実装）: `ui/components/QuietMenu.kt`。
