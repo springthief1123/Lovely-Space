@@ -21,6 +21,7 @@ internal object Routes {
     const val SETTINGS_NG_WORDS = "settings/ngwords"
     const val SETTINGS_NOTIFICATIONS = "settings/notifications"
     const val SETTINGS_LOCK = "settings/lock"
+    const val SETTINGS_DISGUISE = "settings/disguise"
     /** [auto] は入力済みのまま入室まで進める（順番待ちの通知・自動入室から開いたとき）。 */
     const val ENTRY = "entry/{host}/{genre}/{roomId}?origin={origin}&auto={auto}&public={public}"
     /** pwdはrouteに載せず、ActiveRoomsの一時IDだけを渡す。 */

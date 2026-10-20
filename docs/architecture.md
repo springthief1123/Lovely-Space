@@ -50,13 +50,15 @@ AppNavHost / LovelyAppShell
   ├─ ui/chat    会話（ActiveRooms が持つ ChatController が ChatSession を使う）
   ├─ ui/web     WebView（SiteWebView）、公開ルームの閲覧
   ├─ ui/settings 表示・部屋一覧・非表示の管理
-  └─ lock        アプリロック（MainActivity が全画面の上にロック画面をかぶせる）
+  ├─ lock        アプリロック（MainActivity が全画面の上にロック画面をかぶせる）
+  └─ disguise    アイコンと名前のカモフラージュ（アプリ一覧の activity-alias・ホーム画面のショートカット）
 ```
 
 | パッケージ | 内容 |
 | --- | --- |
 | `data` | Room DB（`PresetDatabase`、現在 version 4）。プロフィール / 待機メッセージのプリセット、検索条件、部屋のお気に入り・非表示、レーダーの状態（`LocalState` に JSON で保存）。`RoomListRepository` は発見・巡回・追跡が同じ一覧の取得結果を共有するための層 |
 | `lock` | アプリロック。設定とパスコード・パターンのハッシュ（塩つき PBKDF2）は起動直後に同期で読めるよう SharedPreferences（`app_lock`）に置く。`MainActivity` の `onStop` / `onStart` で背景にいた時間を測り、選んだ時間を過ぎていればロックする |
+| `disguise` | アイコンと名前のカモフラージュ。ランチャーのアイコンは実行時に描けないため 2 つに分ける。アプリ一覧は、マニフェストの `MainActivity` を指す activity-alias（`LauncherDefault` ほか。`LauncherPreset`）のどれか 1 つだけを有効にする（起動の入口は alias だけで、`MainActivity` 自体は LAUNCHER を持たない）。ホーム画面は、色・シンボル・名前から描いたアダプティブアイコンのピン留めショートカット（`ShortcutManagerCompat`、ID `disguise`）を置き、有効な alias を開く。alias を切り替えるときは新しい alias を有効にし、ショートカットを付け替えてから他を止める。最近のアプリの一覧の名前とアイコンは `MainActivity.onStart` で alias に合わせる。通知と端末の設定画面のアプリ名は変えられない |
 | `settings` | DataStore の設定（テーマ・文字サイズ・起動カテゴリなど）、WebView の Cookie 保管 |
 | `ui/components`, `ui/theme` | デザインの部品とトークン（Quiet Rose。[quiet-rose-redesign.md](quiet-rose-redesign.md)） |
 

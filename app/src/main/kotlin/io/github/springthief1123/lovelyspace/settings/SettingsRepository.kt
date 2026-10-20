@@ -11,6 +11,8 @@ import androidx.datastore.preferences.preferencesDataStore
 import io.github.springthief1123.lovelyspace.core.Genres
 import io.github.springthief1123.lovelyspace.core.RefreshPacing
 import io.github.springthief1123.lovelyspace.core.chat.EntryProfile
+import io.github.springthief1123.lovelyspace.disguise.DisguiseSymbol
+import io.github.springthief1123.lovelyspace.disguise.ShortcutDisguise
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -86,6 +88,9 @@ class SettingsRepository(private val context: Context) : RoomListPreferenceStore
     private val entryFromNotificationKey = booleanPreferencesKey("entry_from_notification")
     private val entryAutoSubmitKey = booleanPreferencesKey("entry_auto_submit")
     private val autoEntryStartedAtKey = longPreferencesKey("auto_entry_started_at")
+    private val disguiseColorKey = intPreferencesKey("disguise_color")
+    private val disguiseSymbolKey = stringPreferencesKey("disguise_symbol")
+    private val disguiseLabelKey = stringPreferencesKey("disguise_label")
 
     val themeMode: Flow<ThemeMode> = context.dataStore.data.map { prefs ->
         prefs[themeKey]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.SYSTEM
@@ -196,6 +201,24 @@ class SettingsRepository(private val context: Context) : RoomListPreferenceStore
     /** 順番待ちの自動入室を [startedAt]（0 で止める）から有効にする。 */
     suspend fun setAutoEntryStartedAt(startedAt: Long) {
         context.dataStore.edit { it[autoEntryStartedAtKey] = startedAt }
+    }
+
+    /** ホーム画面のショートカット（カモフラージュ）の色・シンボル・名前。最後に置いた・更新したときの値。 */
+    val shortcutDisguise: Flow<ShortcutDisguise> = context.dataStore.data.map { prefs ->
+        val default = ShortcutDisguise()
+        ShortcutDisguise(
+            color = prefs[disguiseColorKey] ?: default.color,
+            symbol = prefs[disguiseSymbolKey]?.let { runCatching { DisguiseSymbol.valueOf(it) }.getOrNull() } ?: default.symbol,
+            label = prefs[disguiseLabelKey] ?: default.label,
+        )
+    }
+
+    suspend fun setShortcutDisguise(design: ShortcutDisguise) {
+        context.dataStore.edit {
+            it[disguiseColorKey] = design.color
+            it[disguiseSymbolKey] = design.symbol.name
+            it[disguiseLabelKey] = design.label
+        }
     }
 
     /** 前回入室したときの名前・性別・年齢。既定のプリセットが無い場合の入力補助。 */

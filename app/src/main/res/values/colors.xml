@@ -2,4 +2,10 @@
 <resources>
     <color name="splash_background">#FFFBF8FA</color>
     <color name="ic_launcher_background">#FFE0457B</color>
+    <!-- アプリ一覧のカモフラージュ（LauncherPreset）の背景 -->
+    <color name="disguise_calculator_background">#FF4A4F57</color>
+    <color name="disguise_notes_background">#FFE8A317</color>
+    <color name="disguise_weather_background">#FF3F97D6</color>
+    <color name="disguise_calendar_background">#FF3B6FD8</color>
+    <color name="disguise_clock_background">#FF263238</color>
 </resources>
