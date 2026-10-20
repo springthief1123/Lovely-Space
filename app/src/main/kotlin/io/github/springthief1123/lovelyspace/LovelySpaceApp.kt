@@ -220,7 +220,9 @@ class LovelySpaceApp : Application() {
     }
     /** 条件・名前で待つの新しい一致を、お知らせと端末通知に出す（前面でも背景でも）。 */
     val radarNotices: RadarNotices by lazy {
-        RadarNotices(radar, notificationInbox, post = { notification, silent, alertAgain -> notifier.post(notification, silent = silent, alertAgain = alertAgain) })
+        RadarNotices(radar, notificationInbox, post = { notification, silent, alertAgain -> notifier.post(notification, silent = silent, alertAgain = alertAgain) },
+            persistence = io.github.springthief1123.lovelyspace.notify.RadarNoticeStore(
+                getSharedPreferences(io.github.springthief1123.lovelyspace.notify.RadarNoticeStore.PREFS, MODE_PRIVATE)))
     }
 
     /** 入室中の部屋（pwd を route に載せないための置き場）。進行中の部屋は暗号化して端末に残す。 */

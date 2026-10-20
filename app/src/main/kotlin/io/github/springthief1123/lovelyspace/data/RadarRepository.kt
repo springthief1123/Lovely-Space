@@ -294,9 +294,12 @@ class RadarRepository(
     }
     /** お知らせ（通知ベル）で開いた、[originKey] の [since] 以降の一致を既読にする（条件の「新着」の印を消す）。 */
     suspend fun markOriginRead(originKey: String, since: Long) {
+        // 通知から起動した直後は、保存した一致をまだ読み込んでいないことがある。読み込みを待ってから既読にする。
+        if (!_state.first { it.loaded || it.error != null }.loaded) return
         val ids = _state.value.events.filter { !it.read && it.origin?.key == originKey && it.at >= since }.map { it.id }.toSet()
         if (ids.isNotEmpty()) markEventsRead(ids)
     }
+    override fun events(ids: Set<String>): List<RadarEvent> = _state.value.events.filter { it.id in ids }
     /** まだお知らせに出していない新しい一致。 */
     override fun pendingNotices(): List<RadarEvent> = _state.value.events.filter { it.pendingNotice }
     /** お知らせに出し終えた一致を記録する。 */
@@ -707,11 +710,13 @@ class RadarRepository(
             .sortedBy { it.revision }
     }
 
-    /** [rooms]（新しい一致）のうち、[key] の条件で前に一致して閉じた部屋の立て直しと分かるもの。いま一覧（[window]）に載っている部屋は閉じていない。 */
+    /**
+     * [rooms]（新しい一致）のうち、[key] の条件で前に一致した部屋の立て直しと分かるもの。元の部屋は、読んだページの ID の範囲から
+     * 閉じたと分かる（[RoomPageWindow.isClosed]）ものだけ。背景の実行で 1 ページ目しか読んでいなくても、後ろのページにある部屋を閉じたとはしない。
+     */
     private fun rebuildsOf(rooms: List<Room>, key: String, window: RoomPageWindow): Set<String> {
         val matches = recent[key] ?: return emptySet()
-        val present = window.rooms.mapTo(HashSet(), ::roomIdentity)
-        return rooms.filter { matches.rebuildOf(it, present) != null }.mapTo(HashSet(), ::roomIdentity)
+        return rooms.filter { matches.rebuildOf(it, window::isClosed) != null }.mapTo(HashSet(), ::roomIdentity)
     }
     private fun matchIdentity(room: Room) = "${roomIdentity(room)}/${room.name}/${room.gender}/${room.age}"
     private fun planScope(at: Long, window: RoomPageWindow, matches: Int) =

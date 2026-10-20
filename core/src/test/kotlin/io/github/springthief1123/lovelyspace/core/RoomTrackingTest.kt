@@ -44,11 +44,11 @@ class RoomTrackingTest {
     @Test fun recentMatchesFindTheClosedRoomARebuildCameFrom() {
         val recent = RecentMatches().add(1_000L, listOf(target, target.copy(id = 43, name = "別の合成", message = "別の本文")))
         val rebuilt = target.copy(id = 50)
-        // 元の部屋がまだ一覧にあれば立て直しではない。
-        assertNull(recent.rebuildOf(rebuilt, present = setOf(roomIdentity(target))))
-        assertEquals(target, recent.rebuildOf(rebuilt, present = emptySet()))
+        // 元の部屋が閉じたと分からなければ（まだ一覧にある・読んでいないページにあるかもしれない）立て直しではない。
+        assertNull(recent.rebuildOf(rebuilt) { false })
+        assertEquals(target, recent.rebuildOf(rebuilt) { true })
         // 名前も募集文も違えば別の部屋。
-        assertNull(recent.rebuildOf(target.copy(id = 51, name = "新しい合成", message = "新しい本文"), emptySet()))
+        assertNull(recent.rebuildOf(target.copy(id = 51, name = "新しい合成", message = "新しい本文")) { true })
     }
     @Test fun recentMatchesKeepTheVisibleNameAndForgetOldMatches() {
         val recent = RecentMatches().add(1_000L, listOf(target)).add(2_000L, listOf(target.copy(name = null, gender = Gender.UNKNOWN, age = null, status = RoomStatus.FULL)))
@@ -57,6 +57,6 @@ class RoomTrackingTest {
     }
     @Test fun twoPossibleOriginalsAreNotGuessed() {
         val recent = RecentMatches().add(1_000L, listOf(target, target.copy(id = 43)))
-        assertNull(recent.rebuildOf(target.copy(id = 50), emptySet()))
+        assertNull(recent.rebuildOf(target.copy(id = 50)) { true })
     }
 }

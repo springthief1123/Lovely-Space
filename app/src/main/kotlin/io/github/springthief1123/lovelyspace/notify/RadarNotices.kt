@@ -3,11 +3,31 @@ package io.github.springthief1123.lovelyspace.notify
 import io.github.springthief1123.lovelyspace.data.RadarEvent
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.json.JSONArray
+import org.json.JSONObject
 
 /** [RadarNotices] が読む・書く、まだお知らせに出していない一致の置き場（`RadarRepository`）。 */
 interface PendingRadarNotices {
     fun pendingNotices(): List<RadarEvent>
     suspend fun markNoticed(ids: Set<String>)
+    /** 記録に残っている一致のうち [ids] のもの（まとめたお知らせを作り直すのに使う）。 */
+    fun events(ids: Set<String>): List<RadarEvent>
+}
+
+/** まとめているお知らせ（[RadarNotices]）を端末内に残す先。背景の実行・プロセスの作り直しをまたいで、まとめと音の間隔を守る。 */
+interface RadarNoticePersistence {
+    fun load(): String?
+    fun save(value: String)
+}
+
+/** まとめているお知らせを SharedPreferences に JSON で残す。 */
+class RadarNoticeStore(private val prefs: android.content.SharedPreferences) : RadarNoticePersistence {
+    override fun load(): String? = prefs.getString(KEY, null)
+    override fun save(value: String) { prefs.edit().putString(KEY, value).apply() }
+    companion object {
+        const val PREFS = "radar_notices"
+        private const val KEY = "bursts"
+    }
 }
 
 /**
@@ -23,14 +43,16 @@ class RadarNotices(
     private val inbox: NotificationInbox,
     private val post: suspend (AppNotification, silent: Boolean, alertAgain: Boolean) -> Unit,
     private val now: () -> Long = System::currentTimeMillis,
+    private val persistence: RadarNoticePersistence? = null,
 ) {
     /** 会話の画面を見ている。端末通知を出さず、お知らせにだけ残す。 */
     @Volatile var quiet: Boolean = false
 
-    private class Burst(val id: String, val startedAt: Long, val events: List<RadarEvent>, val alertedAt: Long?)
+    /** まとめているお知らせ。[eventIds] はまとめた一致（記録から作り直す）、[alertedAt] は最後に音を鳴らした時刻。 */
+    private class Burst(val id: String, val startedAt: Long, val eventIds: List<String>, val alertedAt: Long?)
 
     private val mutex = Mutex()
-    private val bursts = HashMap<String, Burst>()
+    private val bursts: HashMap<String, Burst> = runCatching { persistence?.load()?.let(::decode) }.getOrNull() ?: HashMap()
 
     suspend fun deliver() = mutex.withLock {
         val pending = source.pendingNotices()
@@ -40,7 +62,8 @@ class RadarNotices(
         pending.sortedBy { it.at }.groupBy { it.origin?.key ?: it.id }.forEach { (key, events) ->
             val previous = bursts[key]?.takeIf { inbox[it.id]?.read == false }
             val id = previous?.id ?: "$ID_PREFIX$key$SEPARATOR${events.first().at}"
-            val all = previous?.events.orEmpty() + events
+            val earlier = previous?.let { burst -> source.events(burst.eventIds.toSet()).sortedBy { it.at } }.orEmpty()
+            val all = earlier + events
             val notification = all.toMatchNotification(id)
             if (notification == null) {
                 source.markNoticed(events.mapTo(HashSet()) { it.id })
@@ -55,9 +78,30 @@ class RadarNotices(
             } else {
                 inbox.add(notification)
             }
-            bursts[key] = Burst(id, previous?.startedAt ?: at, all.takeLast(MAX_BURST_EVENTS), alertedAt)
+            bursts[key] = Burst(id, previous?.startedAt ?: at, all.takeLast(MAX_BURST_EVENTS).map { it.id }, alertedAt)
+            save()
             source.markNoticed(events.mapTo(HashSet()) { it.id })
         }
+    }
+
+    private fun save() {
+        val store = persistence ?: return
+        val json = JSONObject()
+        bursts.forEach { (key, b) ->
+            json.put(key, JSONObject().put("id", b.id).put("startedAt", b.startedAt).put("events", JSONArray(b.eventIds)).put("alertedAt", b.alertedAt))
+        }
+        runCatching { store.save(json.toString()) }
+    }
+
+    private fun decode(value: String): HashMap<String, Burst> {
+        val json = JSONObject(value)
+        val result = HashMap<String, Burst>()
+        json.keys().forEach { key ->
+            val b = json.optJSONObject(key) ?: return@forEach
+            val ids = b.optJSONArray("events")?.let { a -> (0 until a.length()).map(a::getString) }.orEmpty()
+            result[key] = Burst(b.getString("id"), b.getLong("startedAt"), ids, if (b.isNull("alertedAt")) null else b.getLong("alertedAt"))
+        }
+        return result
     }
 
     companion object {

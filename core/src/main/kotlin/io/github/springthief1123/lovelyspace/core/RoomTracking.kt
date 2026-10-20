@@ -54,11 +54,12 @@ data class RecentMatches(val entries: Map<String, Pair<Long, Room>> = emptyMap()
     }
 
     /**
-     * [room] が、前に一致した部屋の立て直し（[isRebuildOf]）なら、その元の部屋。[present]（いま一覧に載っている部屋の [roomIdentity]）にある部屋は
-     * まだ閉じていないので元にしない。候補が 2 つ以上なら、どれの立て直しか決められないので null。
+     * [room] が、前に一致した部屋の立て直し（[isRebuildOf]）なら、その元の部屋。元の部屋は閉じたと分かる（[closed]、
+     * ふつうは [RoomPageWindow.isClosed]）ものだけ。一覧に見当たらないだけ（読んでいない後ろのページにあるかもしれない）では元にしない。
+     * 候補が 2 つ以上なら、どれの立て直しか決められないので null。
      */
-    fun rebuildOf(room: Room, present: Set<String>): Room? = entries.values.map { it.second }
-        .filter { old -> roomIdentity(old) != roomIdentity(room) && roomIdentity(old) !in present && isRebuildOf(old, room) }
+    fun rebuildOf(room: Room, closed: (Room) -> Boolean): Room? = entries.values.map { it.second }
+        .filter { old -> roomIdentity(old) != roomIdentity(room) && isRebuildOf(old, room) && closed(old) }
         .singleOrNull()
 
     companion object {

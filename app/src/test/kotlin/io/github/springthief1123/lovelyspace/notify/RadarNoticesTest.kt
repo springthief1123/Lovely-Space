@@ -14,7 +14,13 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+// 保存（org.json）を使うので Robolectric で動かす。
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [28], application = android.app.Application::class)
 class RadarNoticesTest {
     // 合成データ。本家の実データは使わない。
     private val room = Room(42, "zenkoku", RoomStatus.WAITING, RoomAction.ENTER, null, "合成の名前", Gender.FEMALE, 25, null, "合成の待機メッセージ")
@@ -26,6 +32,13 @@ class RadarNoticesTest {
         override suspend fun markNoticed(ids: Set<String>) {
             events.replaceAll { if (it.id in ids) it.copy(pendingNotice = false) else it }
         }
+        override fun events(ids: Set<String>) = events.filter { it.id in ids }
+    }
+
+    private class Memory : RadarNoticePersistence {
+        var value: String? = null
+        override fun load() = value
+        override fun save(value: String) { this.value = value }
     }
 
     private data class Posted(val notification: AppNotification, val silent: Boolean, val alertAgain: Boolean)
@@ -99,6 +112,22 @@ class RadarNoticesTest {
         notices.deliver()
         assertTrue(posted.single().silent)
         assertTrue("立て直し" in posted.single().notification.text)
+    }
+
+    @Test fun mergingAndTheSoundGapSurviveARestart() = runTest {
+        var now = 10_000L
+        val (source, inbox, posted) = setUp()
+        val memory = Memory()
+        fun notices() = RadarNotices(source, inbox, post = { n, silent, again -> inbox.add(n); posted += Posted(n, silent, again) }, now = { now }, persistence = memory)
+        source.events += event("a", now)
+        notices().deliver()
+        now += 5_000
+        source.events += event("b", now, rooms = listOf(room.copy(id = 43)))
+        // プロセスが作り直されても、同じお知らせに足し、30 秒たつまでは鳴らさない。
+        notices().deliver()
+        assertEquals(posted[0].notification.id, posted[1].notification.id)
+        assertTrue(posted[1].silent)
+        assertEquals("全国で2件", posted[1].notification.text)
     }
 
     @Test fun theOriginCanBeReadBackFromTheId() = runTest {
