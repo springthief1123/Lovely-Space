@@ -15,6 +15,7 @@ interface PendingRadarNotices {
  *
  * - 一致はすべてお知らせに残す（レーダーの履歴の代わり）。端末通知は「新着を知らせる」条件・知らせる名前で待つ（[RadarEvent.alert]）だけ。
  * - 同じ条件で続けて見つけた一致は、そのお知らせが未読で [BURST_MS] 以内なら 1 件にまとめて差し替える（新着の確認は数秒ごとなので）。
+ * - 立て直しだけの条件の一致（[RadarEvent.onlyRebuilds]）は音を鳴らさない。
  * - 音・バイブは同じお知らせで [ALERT_GAP_MS] に 1 回まで。会話中（[quiet]）は端末通知を出さずにお知らせにだけ残す。
  */
 class RadarNotices(
@@ -47,7 +48,8 @@ class RadarNotices(
             }
             var alertedAt = previous?.alertedAt
             if (events.any { it.alert } && !quiet) {
-                val sound = (alertedAt == null || at - alertedAt >= ALERT_GAP_MS)
+                // 立て直しだけの条件の一致は鳴らさずに出す。名前で待つは同じ人を待っているので鳴らす。
+                val sound = events.any { it.alert && !it.onlyRebuilds } && (alertedAt == null || at - alertedAt >= ALERT_GAP_MS)
                 post(notification, !sound, sound && previous != null)
                 if (sound) alertedAt = at
             } else {

@@ -52,7 +52,8 @@ import kotlin.math.roundToInt
 private data class RadarRoomsDisplay(val title: String, val at: Long, val pageOf: (Room) -> Int, val scope: String, val rooms: List<Room>)
 
 /** 条件の 1 件に、手元の一覧（全ページ）でいま一致している部屋と、まだ見ていない新しい一致。 */
-private data class ConditionMatches(val rooms: List<Room>, val fresh: List<Room>, val pageOf: Map<String, Int>)
+/** [rebuilt] は [fresh] のうち、前に一致して閉じた部屋の立て直しと分かった部屋（[roomIdentity]）。 */
+private data class ConditionMatches(val rooms: List<Room>, val fresh: List<Room>, val pageOf: Map<String, Int>, val rebuilt: Set<String> = emptySet())
 
 /**
  * レーダー。気になる部屋（ピン）と保存した条件の 2 つを見張る（Yuya の決定、2026-10-19。案 A「レーダーに一本化」）。
@@ -81,9 +82,10 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
         saved.associate { preset ->
             val window = Genres[preset.genreKey]?.let(windows::get)
             val rooms = window?.let { w -> searchRooms(w.rooms.filter { !preferences.isHidden(it) && !ng.matches(it) }, preset.criteria) }.orEmpty()
-            val unseen = state.events.filter { !it.read && it.kind == RadarEventKind.SEARCH_MATCH && it.origin?.let { o -> o.type == RadarOriginType.PLAN && o.id == preset.id } == true }
-                .flatMap { it.rooms }.mapTo(HashSet(), ::roomIdentity)
-            preset.id to ConditionMatches(rooms, rooms.filter { roomIdentity(it) in unseen }, window?.roomPages.orEmpty())
+            val unseenEvents = state.events.filter { !it.read && it.kind == RadarEventKind.SEARCH_MATCH && it.origin?.let { o -> o.type == RadarOriginType.PLAN && o.id == preset.id } == true }
+            val unseen = unseenEvents.flatMap { it.rooms }.mapTo(HashSet(), ::roomIdentity)
+            preset.id to ConditionMatches(rooms, rooms.filter { roomIdentity(it) in unseen }, window?.roomPages.orEmpty(),
+                unseenEvents.flatMapTo(HashSet()) { it.rebuilds })
         }
     }
     val scope = rememberCoroutineScope()
@@ -312,7 +314,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                                 onClick = { openRoom(room) },
                                 onDetailsClick = { details = room }, isFavorite = preferences.isFavorite(room),
                                 actionsEnabled = preferences.canEdit(room), onFavoriteClick = { preferencesVm.toggleFavorite(room) }, onHideClick = { preferencesVm.hide(room) })
-                            if (roomIdentity(room) in freshKeys) Text("新着", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary,
+                            if (roomIdentity(room) in freshKeys) Text(if (roomIdentity(room) in found.rebuilt) "立て直し" else "新着", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.padding(start = 4.dp))
                         }
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

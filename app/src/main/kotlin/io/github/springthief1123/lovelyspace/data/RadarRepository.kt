@@ -22,7 +22,12 @@ data class RadarEvent(val at: Long, val text: String, val id: String = java.util
      */
     val pendingNotice: Boolean = false,
     /** 端末通知も出す（「新着を知らせる」条件・知らせる名前で待つ）。false はベルに残すだけ。 */
-    val alert: Boolean = false)
+    val alert: Boolean = false,
+    /** [rooms] のうち、前に一致して閉じた部屋の立て直し（同じ名前・募集文で作り直した部屋）と分かったもの（[roomIdentity]）。 */
+    val rebuilds: Set<String> = emptySet()) {
+    /** 条件の新しい一致がすべて立て直し（新しい人の部屋ではない）。音を鳴らさずに知らせる。 */
+    val onlyRebuilds: Boolean get() = kind == RadarEventKind.SEARCH_MATCH && rooms.isNotEmpty() && rooms.all { roomIdentity(it) in rebuilds }
+}
 /**
  * 計画の一致。[rooms] は最後に読んだページ（[page]）だけでなく、手元にあるそのジャンルの一覧の全ページ（[pagesRead] ページ）に条件を掛けたもの。
  * 見つける画面・レーダーのどれが読んだページでも使う。
@@ -103,6 +108,8 @@ class RadarRepository(
      */
     private val candidateNewestId = mutableMapOf<String, Long>()
     private val candidateNext = mutableMapOf<String, Int>()
+    /** 計画（"plan/" + planKey）・候補条件（"candidate/" + key）ごとの最近の一致。新しい一致が立て直しかを照合する元。 */
+    private val recent = mutableMapOf<String, RecentMatches>()
     /** 自動巡回で、計画・候補条件ごとに 1 ページ目を読み始めた時刻（周の始まり）。 */
     private val lapStartedAt = mutableMapOf<String, Long>()
     /** 計画・候補条件ごとの、後ろのページを回る位置。 */
@@ -123,7 +130,7 @@ class RadarRepository(
                 mutex.withLock {
                     val saved = dao.state(KEY)
                     saved?.let(::restore)
-                    seen.clear(); baselines.clear(); baselineAt.clear(); knownMatches.clear(); nextPages.clear(); planKeys.clear(); candidateBaselines.clear(); candidateKnown.clear(); candidateNewestId.clear(); candidateNext.clear(); evaluatedPlans.clear(); evaluatedCandidates.clear(); lapStartedAt.clear(); cursors.clear()
+                    seen.clear(); baselines.clear(); baselineAt.clear(); knownMatches.clear(); nextPages.clear(); planKeys.clear(); candidateBaselines.clear(); candidateKnown.clear(); candidateNewestId.clear(); candidateNext.clear(); recent.clear(); evaluatedPlans.clear(); evaluatedCandidates.clear(); lapStartedAt.clear(); cursors.clear()
                     backgroundTriedAt.clear()
                     saved?.let(::restoreBaselines)
                     // 背景の巡回は loaded を待って始まるので、NG ワードを読み終えるまで読み込み済みにしない。
@@ -251,6 +258,7 @@ class RadarRepository(
         candidateNewestId.keys.removeAll { it.startsWith("$id/") }
         candidateNext.keys.removeAll { it.startsWith("$id/") }
         evaluatedCandidates.keys.removeAll { it.startsWith("$id/") }
+        recent.keys.removeAll { it.startsWith("candidate/$id/") }
         lapStartedAt.remove("candidate/$id")
         cursors.keys.removeAll { it.startsWith("candidate/$id/") }
     }
@@ -260,6 +268,7 @@ class RadarRepository(
         knownMatches.keys.removeAll { it.startsWith("$id/") }
         nextPages.keys.removeAll { it.startsWith("$id/") }
         evaluatedPlans.keys.removeAll { it.startsWith("$id/") }
+        recent.keys.removeAll { it.startsWith("plan/$id/") }
         lapStartedAt.remove("plan/$id")
         cursors.keys.removeAll { it.startsWith("plan/$id/") }
     }
@@ -321,6 +330,7 @@ class RadarRepository(
         val oldCandidateKnown = candidateKnown.mapValues { it.value.toMutableSet() }
         val oldCandidateNewestId = candidateNewestId.toMap()
         val oldCandidateNext = candidateNext.toMap()
+        val oldRecent = recent.toMap()
         val oldLapStartedAt = lapStartedAt.toMap()
         val oldCursors = cursors.toMap()
         val oldEvaluatedPlans = evaluatedPlans.toMap()
@@ -339,6 +349,7 @@ class RadarRepository(
             candidateKnown.clear(); candidateKnown.putAll(oldCandidateKnown)
             candidateNewestId.clear(); candidateNewestId.putAll(oldCandidateNewestId)
             candidateNext.clear(); candidateNext.putAll(oldCandidateNext)
+            recent.clear(); recent.putAll(oldRecent)
             lapStartedAt.clear(); lapStartedAt.putAll(oldLapStartedAt)
             cursors.clear(); cursors.putAll(oldCursors)
             evaluatedPlans.clear(); evaluatedPlans.putAll(oldEvaluatedPlans)
@@ -607,13 +618,18 @@ class RadarRepository(
             val identities = matches.map(::matchIdentity).toSet()
             val known = knownMatches.getOrPut(scopeKey) { mutableSetOf() }
             val previous = baselines[key]
+            val recentKey = "plan/$scopeKey"
             if (previous != null) {
                 val added = identities - previous - known
-                if (added.isNotEmpty()) events += RadarEvent(o.confirmedAt, "${preset.label}：${o.page.page}ページで新しい一致を${added.size}件確認",
-                    rooms = matches.filter { matchIdentity(it) in added }.take(20), page = o.page.page, sourceQuery = o.query, kind = RadarEventKind.SEARCH_MATCH,
+                val rooms = matches.filter { matchIdentity(it) in added }.take(20)
+                val rebuilds = rebuildsOf(rooms, recentKey, window)
+                if (added.isNotEmpty()) events += RadarEvent(o.confirmedAt, "${preset.label}：${o.page.page}ページで新しい一致を${added.size}件確認" +
+                    if (rebuilds.isEmpty()) "" else "（立て直し${rebuilds.size}件）",
+                    rooms = rooms, page = o.page.page, sourceQuery = o.query, kind = RadarEventKind.SEARCH_MATCH,
                     origin = RadarEventOrigin(RadarOriginType.PLAN, preset.id, preset.label, radarPlanDescription(preset)), pendingNotice = true,
-                    alert = preset.id in current.activeBackgroundPlans)
+                    alert = preset.id in current.activeBackgroundPlans, rebuilds = rebuilds)
             }
+            recent[recentKey] = (recent[recentKey] ?: RecentMatches()).add(o.confirmedAt, matches)
             known.addAll(identities)
             baselines[key] = identities
             baselineAt[key] = now()
@@ -638,11 +654,15 @@ class RadarRepository(
                     // 自動入室は、前に読んだどの部屋より後に立った部屋だけ（満室で隠れていた名前が出ただけの部屋には入らない）。
                     if (rule.autoEnterActive(now()) && newest != null) matches.filter { it.id > newest && "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" in added }
                         .forEach { namedArrivals += rule to it }
-                    if (added.isNotEmpty()) events += RadarEvent(o.confirmedAt, "候補「${rule.label}」：${o.page.page}ページで新しい表示名の一致を${added.size}件確認",
-                        rooms = matches.filter { "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" in added }.take(20), page = o.page.page, sourceQuery = o.query, kind = RadarEventKind.CANDIDATE_MATCH,
+                    val rooms = matches.filter { "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" in added }.take(20)
+                    val rebuilds = rebuildsOf(rooms, "candidate/${rule.key}", window)
+                    if (added.isNotEmpty()) events += RadarEvent(o.confirmedAt, "候補「${rule.label}」：${o.page.page}ページで新しい表示名の一致を${added.size}件確認" +
+                        if (rebuilds.isEmpty()) "" else "（立て直し${rebuilds.size}件）",
+                        rooms = rooms, page = o.page.page, sourceQuery = o.query, kind = RadarEventKind.CANDIDATE_MATCH, rebuilds = rebuilds,
                         origin = RadarEventOrigin(RadarOriginType.CANDIDATE, rule.id, rule.label, "${Genres[rule.genreKey]?.label ?: rule.genreKey} · ${if (rule.mode == CandidateMode.EXACT_NAME) "名前一致" else "表示名"}「${rule.term}」"),
                         pendingNotice = true, alert = rule.notify)
                 }
+                recent["candidate/${rule.key}"] = (recent["candidate/${rule.key}"] ?: RecentMatches()).add(o.confirmedAt, matches)
                 known.addAll(identities)
                 candidateBaselines[key] = identities
                 o.page.rooms.maxOfOrNull { it.id }?.let { id -> candidateNewestId[rule.key] = maxOf(newest ?: id, id) }
@@ -670,6 +690,8 @@ class RadarRepository(
                 .map { "${roomIdentity(it)}/${it.name}/${it.gender}/${it.age}" }.toSet()
             candidateBaselines[key] = identities
             candidateKnown.getOrPut(rule.key) { mutableSetOf() }.addAll(identities)
+            recent["candidate/${rule.key}"] = (recent["candidate/${rule.key}"] ?: RecentMatches())
+                .add(o.confirmedAt, o.page.rooms.filter { room -> rule.matches(room) && !hidden.hides(room) })
             o.page.rooms.maxOfOrNull { it.id }?.let { id -> candidateNewestId[rule.key] = maxOf(candidateNewestId[rule.key] ?: id, id) }
             evaluatedCandidates[key] = o.revision
         }
@@ -685,6 +707,12 @@ class RadarRepository(
             .sortedBy { it.revision }
     }
 
+    /** [rooms]（新しい一致）のうち、[key] の条件で前に一致して閉じた部屋の立て直しと分かるもの。いま一覧（[window]）に載っている部屋は閉じていない。 */
+    private fun rebuildsOf(rooms: List<Room>, key: String, window: RoomPageWindow): Set<String> {
+        val matches = recent[key] ?: return emptySet()
+        val present = window.rooms.mapTo(HashSet(), ::roomIdentity)
+        return rooms.filter { matches.rebuildOf(it, present) != null }.mapTo(HashSet(), ::roomIdentity)
+    }
     private fun matchIdentity(room: Room) = "${roomIdentity(room)}/${room.name}/${room.gender}/${room.age}"
     private fun planScope(at: Long, window: RoomPageWindow, matches: Int) =
         "${formatObservationTime(at)} · ${window.pages.size}/${window.lastPage}ページ分 · 一致${matches}件"
@@ -722,7 +750,9 @@ class RadarRepository(
         val window = pages.fold(RoomPageWindow()) { w, o -> w.observe(o.page, o.revision) }
         pages.filter { window.pages[it.query.page] != null }.forEach { o ->
             val key = "$scopeKey/${o.query.page}"
-            val identities = matchesOf(o.page.rooms).map(::matchIdentity).toSet()
+            val matched = matchesOf(o.page.rooms)
+            val identities = matched.map(::matchIdentity).toSet()
+            recent["plan/$scopeKey"] = (recent["plan/$scopeKey"] ?: RecentMatches()).add(o.confirmedAt, matched)
             baselines[key] = identities
             baselineAt[key] = now()
             knownMatches.getOrPut(scopeKey) { mutableSetOf() }.addAll(identities)
@@ -744,7 +774,7 @@ class RadarRepository(
         val json = JSONObject().put("plans", JSONArray(s.plans.toList()))
             // ピンへ移し終えるまで、以前の追跡を同じ形（identity・note）で残す。
             .put("targets", JSONArray(s.legacyTargets.map { t -> JSONObject().put("room", roomJson(t.room)).put("identity", roomJson(t.room)).put("note", t.note) }))
-            .put("events", JSONArray(s.events.map { JSONObject().put("at", it.at).put("text", it.text).put("id", it.id).put("rooms", JSONArray(it.rooms.map(::roomJson))).put("page", it.page).put("blocked", it.blocked).put("sourceQuery", radarQueryJson(it.sourceQuery)).put("kind", it.kind.name).put("origin", radarOriginJson(it.origin)).put("read", it.read).put("pendingNotice", it.pendingNotice).put("alert", it.alert) }))
+            .put("events", JSONArray(s.events.map { JSONObject().put("at", it.at).put("text", it.text).put("id", it.id).put("rooms", JSONArray(it.rooms.map(::roomJson))).put("page", it.page).put("blocked", it.blocked).put("sourceQuery", radarQueryJson(it.sourceQuery)).put("kind", it.kind.name).put("origin", radarOriginJson(it.origin)).put("read", it.read).put("pendingNotice", it.pendingNotice).put("alert", it.alert).put("rebuilds", JSONArray(it.rebuilds.toList())) }))
         json.put("candidateRules", JSONArray(s.candidateRules.map { rule -> JSONObject().put("id", rule.id).put("label", rule.label).put("genre", rule.genreKey)
             .put("term", rule.term).put("mode", rule.mode.name).put("enabled", rule.enabled).put("autoEnterUntil", rule.autoEnterUntil).put("notify", rule.notify) }))
         json.put("backgroundPlans", JSONArray(s.backgroundPlans.toList())).put("backgroundInterval", s.backgroundIntervalMinutes)
@@ -758,6 +788,10 @@ class RadarRepository(
             put("pages", JSONObject().apply { baselines.filterKeys(::ownedByBackground).forEach { (key, ids) ->
                 val at = baselineAt[key] ?: return@forEach
                 put(key, JSONObject().put("at", at).put("ids", JSONArray(ids.toList())))
+            } })
+            // 背景の巡回は実行ごとにプロセスが作り直されるので、立て直しの照合の元も残す（部屋の最長の長さまで）。
+            put("recent", JSONObject().apply { recent.filterKeys { it.startsWith("plan/") && ownedByBackground(it.removePrefix("plan/")) }.forEach { (key, matches) ->
+                put(key, JSONArray(matches.entries.values.map { (at, room) -> JSONObject().put("at", at).put("room", roomJson(room)) }))
             } })
             put("known", JSONObject().apply { knownMatches.filterKeys(::ownedByBackground).forEach { (key, ids) ->
                 // 一度一致した部屋は、その計画のいずれかのページを最後に取得した時刻で期限を判断する。
@@ -781,6 +815,12 @@ class RadarRepository(
         }
         saved.optJSONObject("pages")?.fresh()?.forEach { (key, at, ids) -> baselines[key] = ids.toSet(); baselineAt[key] = at }
         saved.optJSONObject("known")?.fresh()?.forEach { (key, _, ids) -> knownMatches[key] = ids.toMutableSet() }
+        saved.optJSONObject("recent")?.let { all -> all.keys().forEach { key ->
+            val list = all.optJSONArray(key) ?: return@forEach
+            val rooms = (0 until list.length()).mapNotNull { i -> runCatching { list.getJSONObject(i).let { it.getLong("at") to readRoom(it.getJSONObject("room")) } }.getOrNull() }
+                .filter { (at, _) -> current - at in 0 until RecentMatches.MAX_AGE_MS }
+            recent[key] = rooms.sortedBy { it.first }.fold(RecentMatches()) { acc, (at, room) -> acc.add(at, listOf(room)) }
+        } }
     }
     private fun restore(value: String) {
         val json = JSONObject(value)
@@ -797,7 +837,8 @@ class RadarRepository(
                 kind = RadarEventKind.entries.firstOrNull { kind -> kind.name == it.optString("kind") } ?: RadarEventKind.LEGACY,
                 origin = readRadarOrigin(it.optJSONObject("origin")), read = if (it.has("read")) it.getBoolean("read") else true, pendingNotice = it.optBoolean("pendingNotice"),
                 // 以前の保存の未通知は、背景の巡回で見つけた端末通知を出す一致だけだった。
-                alert = it.optBoolean("alert", true)) } },
+                alert = it.optBoolean("alert", true),
+                rebuilds = it.optJSONArray("rebuilds")?.let { r -> (0 until r.length()).mapTo(HashSet()) { i -> r.getString(i) } }.orEmpty()) } },
             candidateRules = (0 until candidates.length()).map { i -> candidates.getJSONObject(i).let { CandidateRule(it.getString("id"), it.getString("label"), it.getString("genre"), it.getString("term"), CandidateMode.valueOf(it.getString("mode")), it.optBoolean("enabled", true), it.optLong("autoEnterUntil"), it.optBoolean("notify", true)) } },
             backgroundPlans = json.optJSONArray("backgroundPlans")?.let { b -> (0 until b.length()).map(b::getString).toSet() } ?: emptySet(),
             backgroundIntervalMinutes = json.optInt("backgroundInterval").takeIf { it in RadarState.BACKGROUND_INTERVALS } ?: RadarState.BACKGROUND_INTERVALS.first())

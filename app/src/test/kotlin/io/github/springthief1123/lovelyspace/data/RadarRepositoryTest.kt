@@ -581,6 +581,26 @@ class RadarRepositoryTest {
             assertFalse(radar.state.value.events.single { it.origin?.id == "quiet" }.read)
         } finally { db.close() }
     }
+    @Test fun aClosedMatchRebuiltWithTheSameNameAndMessageIsMarkedAsARebuild() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            searches.save(SearchPreset("a", "合成条件", "zenkoku", RoomSearchCriteria()))
+            fun other(id: Long) = room.copy(id = id, name = "別の合成$id", message = "別の本文$id")
+            val old = room.copy(id = 500)
+            val lists = Lists().apply { rooms = listOf(other(1000), other(900), old, other(100), other(10)) }
+            val radar = RadarRepository(db.presets(), lists, searches, RoomPreferenceRepository(db), backgroundScope)
+            radar.state.first { it.loaded }; radar.setPlan("a", true); radar.scan()
+            // 部屋 500 が閉じ、同じ名前・募集文の部屋 1100 が立った。1050 は別の人の新しい部屋。
+            val rebuilt = room.copy(id = 1100)
+            lists.rooms = listOf(rebuilt, other(1050), other(1000), other(900), other(100), other(10)); radar.scan()
+            val event = radar.state.value.events.single { it.kind == RadarEventKind.SEARCH_MATCH }
+            assertEquals(setOf(1100L, 1050L), event.rooms.map { it.id }.toSet())
+            assertEquals(setOf(roomIdentity(rebuilt)), event.rebuilds)
+            assertFalse(event.onlyRebuilds)
+            assertTrue("立て直し1件" in event.text)
+        } finally { db.close() }
+    }
     @Test fun candidateNotifySettingSurvivesARestartAndOldRulesNotify() = runTest {
         val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
         try {

@@ -91,6 +91,16 @@ class RadarNoticesTest {
         assertTrue(source.pendingNotices().isEmpty())
     }
 
+    @Test fun aConditionMatchThatIsOnlyARebuildDoesNotRing() = runTest {
+        val now = 10_000L
+        val (source, inbox, posted) = setUp()
+        val notices = RadarNotices(source, inbox, post = { n, silent, again -> inbox.add(n); posted += Posted(n, silent, again) }, now = { now })
+        source.events += event("a", now).copy(rebuilds = setOf(io.github.springthief1123.lovelyspace.core.roomIdentity(room)))
+        notices.deliver()
+        assertTrue(posted.single().silent)
+        assertTrue("立て直し" in posted.single().notification.text)
+    }
+
     @Test fun theOriginCanBeReadBackFromTheId() = runTest {
         val now = 10_000L
         val (source, inbox, _) = setUp()
