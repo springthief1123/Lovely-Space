@@ -13,6 +13,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.ui.chat.ChatLog
+import io.github.springthief1123.lovelyspace.ui.chat.ownerGender
 import io.github.springthief1123.lovelyspace.ui.components.ForegroundPolling
 import io.github.springthief1123.lovelyspace.ui.components.QuietTopBar
 import io.github.springthief1123.lovelyspace.ui.main.RoomMenuButton
@@ -62,7 +63,8 @@ fun PublicRoomScreen(host: String, genreKey: String, roomId: Long, onBack: () ->
                 style = MaterialTheme.typography.bodySmall)
             if (state.loading && !state.opened) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
-            } else if (state.opened) ChatLog(state.lines, Modifier.weight(1f), nameOnBothSides = true)
+            } else if (state.opened) ChatLog(state.lines, Modifier.weight(1f), nameOnBothSides = true,
+                ownerGender = ownerGender(state.lines, ownerIsMine = false, listed = room?.gender))
         }
     }
 }

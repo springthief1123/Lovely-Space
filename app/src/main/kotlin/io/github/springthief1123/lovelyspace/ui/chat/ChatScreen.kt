@@ -63,6 +63,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
@@ -72,6 +73,8 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.springthief1123.lovelyspace.LovelySpaceApp
+import io.github.springthief1123.lovelyspace.core.Gender
 import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
 import io.github.springthief1123.lovelyspace.core.messageWidth
 import io.github.springthief1123.lovelyspace.ui.components.QuietConfirmDialog
@@ -79,6 +82,8 @@ import io.github.springthief1123.lovelyspace.ui.components.QuietDialog
 import io.github.springthief1123.lovelyspace.ui.components.QuietMenuItem
 import io.github.springthief1123.lovelyspace.ui.components.QuietTopBar
 import io.github.springthief1123.lovelyspace.ui.components.QuietOverflowMenu
+import io.github.springthief1123.lovelyspace.ui.main.observedRoom
+import io.github.springthief1123.lovelyspace.ui.theme.LocalLovelyColors
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import java.time.format.DateTimeFormatter
@@ -96,6 +101,11 @@ private val ReadingSaver = mapSaver(
 @Composable
 fun ChatScreen(room: ChatRoomRef, vm: ChatController, onBrowse: () -> Unit, onExit: () -> Unit, onEnded: () -> Unit = {}) {
     val state by vm.state.collectAsStateWithLifecycle()
+    // 吹き出しの色に使う部屋主の性別。一覧で見た性別を優先し、なければ部屋主側の発言から読む。
+    val app = LocalContext.current.applicationContext as LovelySpaceApp
+    val observations by app.roomLists.observations.collectAsStateWithLifecycle()
+    val listedGender = observedRoom(observations.values, room.genreKey, room.roomId,
+        app.roomLists.lastNamed(room.genreKey, room.roomId))?.gender
     // 見えている間は新着を「会話に戻る」の帯に数えない。
     DisposableEffect(vm) {
         vm.setVisible(true)
@@ -300,7 +310,8 @@ fun ChatScreen(room: ChatRoomRef, vm: ChatController, onBrowse: () -> Unit, onEx
                         OutlinedButton(onClick = vm::open) { Text("もう一度読み込む") }
                     }
                 }
-                else -> ChatLog(state.lines, Modifier.weight(1f), emptyText = chatEmptyText(state))
+                else -> ChatLog(state.lines, Modifier.weight(1f), emptyText = chatEmptyText(state), ownerIsMine = state.isOwner,
+                    ownerGender = ownerGender(state.lines, ownerIsMine = state.isOwner, listed = listedGender))
             }
         }
     }
@@ -379,6 +390,9 @@ internal fun ChatLog(
     lines: List<UiLine>,
     modifier: Modifier,
     nameOnBothSides: Boolean = false,
+    /** 部屋主の発言が右側（isMine）か。公開ルームでは右側が入室者なので false。 */
+    ownerIsMine: Boolean = false,
+    ownerGender: Gender = Gender.UNKNOWN,
     emptyText: Pair<String, String> = "まだ発言はありません" to "メッセージが届くとここに表示されます",
 ) {
     val listState = rememberLazyListState()
@@ -405,7 +419,7 @@ internal fun ChatLog(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             items(lines, key = { it.id }) { ui ->
-                if (ui.line.isNotice) Notice(ui) else Bubble(ui, nameOnBothSides)
+                if (ui.line.isNotice) Notice(ui) else Bubble(ui, nameOnBothSides, isOwnerSide = ui.isMine == ownerIsMine, ownerGender = ownerGender)
             }
         }
         if (!reading.atLatest && lines.isNotEmpty()) {
@@ -446,13 +460,22 @@ private fun Notice(ui: UiLine) {
 }
 
 @Composable
-/** [ui] の isMine は右側に出すこと。公開ルームでは入室者の発言で、[showName] で右側にも名前を出す。 */
-private fun Bubble(ui: UiLine, showName: Boolean = false) {
+/**
+ * [ui] の isMine は右側に出すこと。公開ルームでは入室者の発言で、[showName] で右側にも名前を出す。
+ * 入室者の吹き出しはグレー、部屋主の吹き出しは部屋主の性別の色（女性は薄いピンク、男性は薄いブルー、不明はグレー）。
+ */
+private fun Bubble(ui: UiLine, showName: Boolean = false, isOwnerSide: Boolean, ownerGender: Gender) {
     val line = ui.line
     val uriHandler = LocalUriHandler.current
     val colors = MaterialTheme.colorScheme
-    val container = if (ui.isMine) colors.primaryContainer else colors.surface
-    val content = if (ui.isMine) colors.onPrimaryContainer else colors.onSurface
+    val lovely = LocalLovelyColors.current
+    val container = when {
+        !isOwnerSide -> colors.surfaceVariant
+        ownerGender == Gender.FEMALE -> lovely.femaleContainer
+        ownerGender == Gender.MALE -> lovely.maleContainer
+        else -> colors.surfaceVariant
+    }
+    val content = colors.onSurface
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val bubbleWidth = (maxWidth * 0.84f).coerceAtMost(560.dp)
         Column(Modifier.fillMaxWidth(), horizontalAlignment = if (ui.isMine) Alignment.End else Alignment.Start,
