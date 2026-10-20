@@ -250,13 +250,16 @@ private fun NgWordSetEditor(
         }
 
         // セット全体への操作は区切り線の下にまとめ、行の幅いっぱいを押せるようにする。
-        if (builtIn != null || !isNew) {
+        // 最初から入っているセットは削除できない（使わないときは一覧でオフにする）。
+        val deletable = !isNew && initial.builtInKey == null
+        if (builtIn != null || deletable) {
             HorizontalDivider(Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
             Column {
                 if (builtIn != null) QuietMenuRow("初期の語に戻す",
                     onClick = { wordsText = builtIn.words.joinToString("\n"); amounts = builtIn.amounts; target = builtIn.target },
-                    icon = Icons.Outlined.Restore, enabled = !working)
-                if (!isNew) QuietMenuRow("このセットを削除", onClick = { confirmDelete = true },
+                    icon = Icons.Outlined.Restore, enabled = !working,
+                    supporting = "最初から入っているセットは削除できません。使わないときは一覧でオフにします。")
+                if (deletable) QuietMenuRow("このセットを削除", onClick = { confirmDelete = true },
                     icon = Icons.Outlined.Delete, enabled = !working, destructive = true)
             }
         }
@@ -264,7 +267,7 @@ private fun NgWordSetEditor(
 
     if (confirmDelete) QuietConfirmDialog(
         title = "セットを削除しますか？",
-        text = "「${initial.label}」と、その語をすべて削除します。" + if (builtIn != null) "最初から入っていたセットは、削除すると元に戻せません。" else "",
+        text = "「${initial.label}」と、その語をすべて削除します。",
         confirmLabel = "削除",
         onConfirm = { confirmDelete = false; onDelete() },
         onDismiss = { confirmDelete = false },
