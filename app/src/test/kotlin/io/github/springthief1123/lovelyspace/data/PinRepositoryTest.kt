@@ -65,6 +65,31 @@ class PinRepositoryTest {
     /** 少し待っても知らせが来ないこと。 */
     private fun assertNoEvent() = runBlocking { assertNull(withTimeoutOrNull(300) { events.receive() }) }
 
+    @Test fun aPinWithoutANameBorrowsTheNameSeenInTheListAndRemembersIt() {
+        val waiting = room(500)
+        // 満室の一覧では名前・性別・年齢が出ない。
+        val full = waiting.copy(status = RoomStatus.FULL, action = RoomAction.NONE, name = null, gender = Gender.UNKNOWN, age = null)
+        val named = MutableStateFlow<Map<String, Room>>(emptyMap())
+        pins = PinRepository(Memory(), prefs, lists, onEvent = { events.send(it) }, moved = prefs.moved, scope = scope,
+            named = { named.value[roomIdentity(it)] }, namedRevision = named.map { it.size.toLong() })
+        wait { pins.pin(full) }
+        lists.publish(genre, listOf(room(600), full, room(400)))
+        assertNull(awaitPins { it.singleOrNull()?.state == PinState.FULL }.single().room.name)
+        // 待機中に一覧で見た姿が分かると、名前・性別を補い、保存の記録の照合用の値にも残す。
+        named.value = mapOf(roomIdentity(waiting) to waiting)
+        val pin = awaitPins { it.singleOrNull()?.room?.name != null }.single()
+        assertEquals("合成500", pin.name)
+        assertEquals(Gender.FEMALE, pin.room.gender)
+        assertTrue(pin.listed)
+        val saved = wait { prefs.preferences.first { list -> list.single().identityName != null } }.single()
+        assertEquals("合成500", saved.identityName)
+        assertEquals(Gender.FEMALE.name, saved.identityGender)
+        assertEquals(25, saved.identityAge)
+        // 部屋の番号が別の人に使い回されていれば（待機メッセージが違う）補わない。
+        val reused = waiting.copy(id = 400, name = "別の人", message = "まったく別の募集文です、よろしく")
+        assertNull(borrowNamed(room(400, RoomStatus.FULL, name = null), reused))
+    }
+
     @Test fun aFullPinThatOpensIsNotifiedOnceAndItsVacancyIsRecorded() {
         val full = room(500, RoomStatus.FULL)
         wait { pins.pin(full, PinAlert.NOTIFY) }

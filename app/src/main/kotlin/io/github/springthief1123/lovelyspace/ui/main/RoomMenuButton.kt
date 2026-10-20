@@ -27,6 +27,7 @@ import io.github.springthief1123.lovelyspace.core.roomIdentity
 import io.github.springthief1123.lovelyspace.core.roomIdentityEvidence
 import io.github.springthief1123.lovelyspace.data.ObservedRoomPage
 import io.github.springthief1123.lovelyspace.data.RoomListRepository
+import io.github.springthief1123.lovelyspace.data.borrowNamed
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomActionMenu
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomMenuItem
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomPreferenceViewModel
@@ -54,9 +55,7 @@ internal fun observedRoom(observations: Collection<ObservedRoomPage>, genreKey: 
         if (roomIdentityEvidence(newest, older) == RoomIdentityEvidence.REUSED) return newest
         if (older.name != null) return borrow(older)
     }
-    if (named != null && roomIdentity(named) == key && named.name != null && newest.message.isNotBlank() && named.message == newest.message &&
-        roomIdentityEvidence(newest, named) != RoomIdentityEvidence.REUSED) return borrow(named)
-    return newest
+    return borrowNamed(newest, named) ?: newest
 }
 
 /**

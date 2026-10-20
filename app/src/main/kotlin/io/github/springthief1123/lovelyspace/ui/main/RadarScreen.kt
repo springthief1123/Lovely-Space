@@ -35,6 +35,14 @@ import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.core.*
 import io.github.springthief1123.lovelyspace.data.*
 import io.github.springthief1123.lovelyspace.ui.components.*
+import io.github.springthief1123.lovelyspace.ui.rooms.ActionChip
+import io.github.springthief1123.lovelyspace.ui.rooms.LocalRoomMessageMaxLines
+import io.github.springthief1123.lovelyspace.ui.rooms.MetaChip
+import io.github.springthief1123.lovelyspace.ui.rooms.RoomCardHeading
+import io.github.springthief1123.lovelyspace.ui.rooms.RoomCardPanel
+import io.github.springthief1123.lovelyspace.ui.rooms.cardActionLabel
+import io.github.springthief1123.lovelyspace.ui.rooms.roomStatusColor
+import io.github.springthief1123.lovelyspace.ui.rooms.statusLabel
 import io.github.springthief1123.lovelyspace.ui.theme.*
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -52,7 +60,8 @@ private data class ConditionMatches(val rooms: List<Room>, val fresh: List<Room>
  */
 @Composable
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
-fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onApplyPreset: (SearchPreset) -> Unit) {
+fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onApplyPreset: (SearchPreset) -> Unit,
+    onQuickEnterRoom: (Room) -> Unit = onEnterRoom) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val state by app.radar.state.collectAsStateWithLifecycle()
     val savedVm: SavedSearchViewModel = viewModel(factory = viewModelFactory { initializer { SavedSearchViewModel(app.searchPresets) } })
@@ -215,7 +224,8 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                                 app.pins.setAlert(pin.key, alert)
                             }
                         },
-                        onOpen = { openRoom(pin.room) },
+                        onEnter = { onQuickEnterRoom(pin.room) },
+                        onPeek = { onPeekRoom(pin.room) },
                         onDetails = { details = pin.room },
                         onMemo = { memoPin = pin.key; error = null },
                         onUnpin = { preferencesVm.clearFavorite(pin.preference) })
@@ -408,72 +418,82 @@ internal fun pinStateLabel(state: PinState): String = when (state) {
     PinState.UNSEEN -> "未確認"
 }
 
-/** ピンの様子の小さな札。空き・満室は一覧の状態と同じ色にする。 */
+/** ピンの様子のチップの文言と色。空いていれば一覧と同じ状態（待機中・公開待機）で出す。 */
 @Composable
-private fun PinStateTag(state: PinState) {
-    val lovely = LocalLovelyColors.current
-    val color = when (state) {
-        PinState.OPEN -> lovely.waiting
-        PinState.FULL -> lovely.full
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    Text(pinStateLabel(state), style = MaterialTheme.typography.labelMedium, color = color, maxLines = 1,
-        modifier = Modifier.background(color.copy(alpha = 0.12f), RoundedCornerShape(50)).padding(horizontal = 10.dp, vertical = 3.dp))
+private fun pinStateChip(pin: PinView): Pair<String, androidx.compose.ui.graphics.Color> = when (pin.state) {
+    PinState.OPEN -> statusLabel(pin.room.status) to roomStatusColor(pin.room.status)
+    PinState.FULL -> pinStateLabel(PinState.FULL) to LocalLovelyColors.current.full
+    else -> pinStateLabel(pin.state) to MaterialTheme.colorScheme.onSurfaceVariant
 }
 
 /**
- * ピンの 1 件。見出しを押すと、空いた時間帯・最後に空いた時刻と、入室・メモ・ピンを外すを開く。
- * 知らせ方はカードの下のチップから選ぶ。
+ * ピンの 1 件。見た目は見つける画面の部屋カード（[RoomCardPanel]・[RoomCardHeading]）にそろえ、レーダーで要らないもの（公開設定・スワイプ）は省く。
+ * 下の段に知らせ方（「空いたら知らせる」）と、空いていれば見つける画面と同じ「入室する」チップ（確認なしで入室）を置く。
+ * カードを押すと、空いた時間帯・最後に空いた時刻と、詳細・メモ・ピンを外すを開く。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PinCard(pin: PinView, expanded: Boolean, enabled: Boolean, now: Long, onToggle: () -> Unit, onAlert: (PinAlert) -> Unit,
-    onOpen: () -> Unit, onDetails: () -> Unit, onMemo: () -> Unit, onUnpin: () -> Unit) {
+    onEnter: () -> Unit, onPeek: () -> Unit, onDetails: () -> Unit, onMemo: () -> Unit, onUnpin: () -> Unit) {
     val room = pin.room
     val record = pin.record
-    QuietListPanel {
-        Row(Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = if (expanded) "閉じる" else "詳しく見る", onClick = onToggle)
-            .semantics { stateDescription = if (expanded) "開いています" else "閉じています" },
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Column(Modifier.weight(1f)) {
-                Text(pin.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(listOfNotNull(Genres[room.genreKey]?.label,
-                    when (room.gender) { Gender.FEMALE -> "女性"; Gender.MALE -> "男性"; Gender.UNKNOWN -> null },
-                    room.age?.let { "${it}歳" }, room.area, pin.page?.let { "${it}ページ" }).joinToString(" · "),
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    // 一覧に載っていない（閉じた・まだ確かめていない）ピンの状態や経過時間は古いので、押して動ける表示は出さない。
+    val current = pin.listed && pin.state != PinState.CLOSED
+    RoomCardPanel(full = pin.state != PinState.OPEN) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clickable(role = Role.Button, onClickLabel = if (expanded) "閉じる" else "詳しく見る", onClick = onToggle)
+                .semantics { stateDescription = if (expanded) "開いています" else "閉じています" }
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            RoomCardHeading(room, placeholder = "名前の見えない部屋", elapsed = room.elapsed?.takeIf { current })
+            if (room.message.isNotBlank()) Text(room.message, style = MaterialTheme.typography.bodyMedium,
+                color = if (pin.state == PinState.OPEN) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = if (expanded) 6 else LocalRoomMessageMaxLines.current, overflow = TextOverflow.Ellipsis)
+            if (record.memo.isNotBlank()) Text("メモ：${record.memo}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary,
+                maxLines = if (expanded) 6 else 1, overflow = TextOverflow.Ellipsis)
+            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                val (label, color) = pinStateChip(pin)
+                MetaChip(label, color, filled = true)
+                Genres[room.genreKey]?.let { MetaChip(it.label, MaterialTheme.colorScheme.onSurfaceVariant, filled = false) }
+                pin.page?.takeIf { current }?.let { MetaChip("${it}ページ", MaterialTheme.colorScheme.onSurfaceVariant, filled = false) }
             }
-            PinStateTag(pin.state)
-        }
-        if (room.message.isNotBlank()) Text(room.message, style = MaterialTheme.typography.bodyMedium, maxLines = if (expanded) 6 else 2, overflow = TextOverflow.Ellipsis)
-        if (record.memo.isNotBlank()) Text("メモ：${record.memo}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary,
-            maxLines = if (expanded) 6 else 1, overflow = TextOverflow.Ellipsis)
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PinAlertChip(record.alert, record.autoActive(now), enabled, onAlert)
-            Text(listOfNotNull(
-                record.vacancies.size.takeIf { it > 0 }?.let { "空き${it}回" },
-                record.rebuilds.takeIf { it > 0 }?.let { "立て直し${it}回" },
-                if (record.alert == PinAlert.AUTO && record.autoActive(now)) record.autoUntil?.let { "${formatObservationTime(it)}まで自動" } else null,
-            ).joinToString("・"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            if (!expanded && pin.state == PinState.OPEN && room.action != RoomAction.NONE) Button(onClick = onOpen) { Text(if (room.action == RoomAction.PEEK) "覗く" else "入室") }
-        }
-        if (expanded) {
-            HorizontalDivider(color = LocalLovelyColors.current.divider)
-            val stats = VacancyStats.of(record.vacancies, now)
-            if (stats.count == 0) RadarNote("まだ空いた記録はありません。満室・閉じた部屋が待機中になると、時刻を記録します。")
-            else {
-                Text("空いた時間帯（直近${VacancyStats.DAYS}日）" + (stats.peakHour?.let { "・多いのは${it}時台" } ?: ""), style = MaterialTheme.typography.labelMedium)
-                VacancyHistogram(stats.hours)
-                Text("最後に空いた：${stats.last?.let(::formatObservationTime) ?: "-"}・これまでに${stats.count}回", style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PinAlertChip(record.alert, record.autoActive(now), enabled, onAlert)
+                Text(listOfNotNull(
+                    record.vacancies.size.takeIf { it > 0 }?.let { "空き${it}回" },
+                    record.rebuilds.takeIf { it > 0 }?.let { "立て直し${it}回" },
+                    if (record.alert == PinAlert.AUTO && record.autoActive(now)) record.autoUntil?.let { "${formatObservationTime(it)}まで自動" } else null,
+                ).joinToString("・"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                // 見つける画面のカードと同じ「入室する」チップ。押せる範囲は 48dp を取る。
+                if (current) cardActionLabel(room.action)?.let { label ->
+                    val enter = room.action == RoomAction.ENTER
+                    ActionChip(label, emphasized = enter, onClick = if (enter) onEnter else onPeek,
+                        onClickLabel = if (enter) "確認せずに入室する" else "覗く", modifier = Modifier.minimumInteractiveComponentSize())
+                }
             }
-            if (pin.state == PinState.CLOSED) RadarNote("閉じています。同じ名前・待機メッセージで立て直されたら、ピンを新しい部屋へ移します。")
-            if (pin.state == PinState.UNSEEN) RadarNote("まだ一覧で確かめていません。そのジャンルの一覧を読むと分かります。")
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (pin.state == PinState.OPEN && room.action != RoomAction.NONE) Button(onClick = onOpen) { Text(if (room.action == RoomAction.PEEK) "覗く" else "入室") }
-                TextButton(onClick = onDetails) { Text("詳細") }
-                TextButton(onClick = onMemo, enabled = enabled) { Text("メモ") }
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = onUnpin, enabled = enabled) { Text("ピンを外す") }
+            if (expanded) {
+                HorizontalDivider(color = LocalLovelyColors.current.divider)
+                val stats = VacancyStats.of(record.vacancies, now)
+                if (stats.count == 0) RadarNote("まだ空いた記録はありません。満室・閉じた部屋が待機中になると、時刻を記録します。")
+                else {
+                    Text("空いた時間帯（直近${VacancyStats.DAYS}日）" + (stats.peakHour?.let { "・多いのは${it}時台" } ?: ""), style = MaterialTheme.typography.labelMedium)
+                    VacancyHistogram(stats.hours)
+                    Text("最後に空いた：${stats.last?.let(::formatObservationTime) ?: "-"}・これまでに${stats.count}回", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (pin.state == PinState.CLOSED) RadarNote("閉じています。同じ名前・待機メッセージで立て直されたら、ピンを新しい部屋へ移します。")
+                if (pin.state == PinState.UNSEEN) RadarNote("まだ一覧で確かめていません。そのジャンルの一覧を読むと分かります。")
+                if (room.name == null) RadarNote("満室の部屋は一覧に名前が出ません。待機中の姿を一覧で見ると、名前・性別を覚えて表示します。")
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = onDetails) { Text("詳細") }
+                    TextButton(onClick = onMemo, enabled = enabled) { Text("メモ") }
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = onUnpin, enabled = enabled) { Text("ピンを外す") }
+                }
             }
         }
     }

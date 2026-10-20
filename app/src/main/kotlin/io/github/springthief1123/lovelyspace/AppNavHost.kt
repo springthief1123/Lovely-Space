@@ -194,6 +194,10 @@ fun AppNavHost() {
                     onEnterRoom = { room -> Genres[room.genreKey]?.host?.let { host ->
                         nav.navigate(Routes.entry(host, room.genreKey, room.id, Routes.RADAR, listedPublic = room.isPublic)) { launchSingleTop = true }
                     } },
+                    // ピンの「入室する」チップは見つける画面と同じく入室前の確認を飛ばす。
+                    onQuickEnterRoom = { room -> Genres[room.genreKey]?.host?.let { host ->
+                        nav.navigate(Routes.entry(host, room.genreKey, room.id, Routes.RADAR, auto = true, listedPublic = room.isPublic)) { launchSingleTop = true }
+                    } },
                     onPeekRoom = { room -> Genres[room.genreKey]?.host?.let { host ->
                         nav.navigate(Routes.public(host, room.genreKey, room.id)) { launchSingleTop = true }
                     } })

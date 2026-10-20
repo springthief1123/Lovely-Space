@@ -53,10 +53,11 @@ data class PinRecord(
 }
 
 /**
- * レーダーに出すピン 1 件。[room] は一覧で見た最新の姿（満室で隠れた名前などはピンしたときの値で補う）、
- * [page] はその部屋が載っていたページ、[similar] は閉じた部屋に似た新しい部屋の候補。
+ * レーダーに出すピン 1 件。[room] は一覧で見た最新の姿（満室で隠れた名前などは、ピンしたときの値や一覧で名前が見えていた姿で補う）、
+ * [page] はその部屋が載っていたページ、[similar] は閉じた部屋に似た新しい部屋の候補。[listed] は [room] がいま手元の一覧に載っているか。
  */
-data class PinView(val preference: RoomPreference, val record: PinRecord, val state: PinState, val room: Room, val page: Int?, val similar: SimilarRoom?) {
+data class PinView(val preference: RoomPreference, val record: PinRecord, val state: PinState, val room: Room, val page: Int?, val similar: SimilarRoom?,
+    val listed: Boolean = false) {
     val key: String get() = record.key
     val name: String get() = room.name ?: preference.identityName ?: preference.snapshotName ?: "名前の見えない部屋"
 }
@@ -89,6 +90,8 @@ private fun RoomPreference.pinKey(): String = "$host/$roomId"
  * 空き・満室・閉じたを追い、空いた時刻を残す。知らせるピンは空いたとき・閉じた部屋に似た部屋が建ったときに [onEvent] を呼ぶ。
  * 同じ名前・募集文の立て直しは保存の記録ごと新しい部屋へ移り（[RoomPreferenceRepository.followRebuilds]）、ここでは記録を引き継ぐ。
  * 通信はしない。満室のピンの空きを早く知るための確認は、順番待ち（[WaitlistRepository]）に頼む（[fastWatch]）。
+ * 満室でピンした部屋など名前の記録がないピンは、一覧で名前が見えていた姿（[named]、[RoomListRepository.lastNamed]）から補い、
+ * 保存の記録の照合用の値（[RoomPreferenceStore.rememberIdentity]）にも残して、立て直しの照合に使えるようにする。
  */
 class PinRepository(
     private val persistence: PinPersistence,
@@ -96,6 +99,8 @@ class PinRepository(
     private val lists: ObservedRoomListSource,
     private val onEvent: suspend (PinEvent) -> Unit,
     moved: Flow<Pair<String, Room>> = emptyFlow(),
+    private val named: (Room) -> Room? = { null },
+    namedRevision: Flow<Long> = flowOf(0L),
     scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     private val now: () -> Long = System::currentTimeMillis,
 ) {
@@ -118,7 +123,7 @@ class PinRepository(
 
     init {
         scope.launch {
-            combine(favorites.filterNotNull(), lists.observations, _records) { favs, obs, _ -> favs to obs }
+            combine(favorites.filterNotNull(), lists.observations, _records, namedRevision) { favs, obs, _, _ -> favs to obs }
                 .conflate()
                 .collect { (favs, obs) ->
                     try { process(favs, obs) } catch (e: CancellationException) { throw e } catch (_: Exception) { }
@@ -201,6 +206,7 @@ class PinRepository(
 
     private suspend fun process(favs: List<RoomPreference>, observations: Map<RoomQuery, ObservedRoomPage>) {
         val events = mutableListOf<PinEvent>()
+        val learned = mutableListOf<Pair<RoomPreference, Room>>()
         mutex.withLock {
             val at = now()
             val original = _records.value
@@ -209,7 +215,9 @@ class PinRepository(
             val windows = favs.mapNotNull { Genres[it.genreKey] }.distinct().associateWith { observations.genreWindow(it) }
             val views = favs.map { pref ->
                 val key = pref.pinKey()
-                val identity = pref.identityRoom()
+                val stored = pref.identityRoom()
+                // 満室でピンした部屋は名前の記録がない。一覧で名前が見えていた姿から、同じ部屋と分かるときだけ補う。
+                val identity = if (stored.name != null) stored else borrowNamed(stored, named(stored)) ?: stored
                 val window = Genres[pref.genreKey]?.let(windows::get)
                 val (seen, observed) = window?.pinState(identity) ?: (PinState.UNSEEN to null)
                 val before = records[key] ?: PinRecord(key)
@@ -224,7 +232,8 @@ class PinRepository(
                 val room = observed?.let { o ->
                     o.copy(name = o.name ?: identity.name, gender = if (o.gender == Gender.UNKNOWN) identity.gender else o.gender, age = o.age ?: identity.age)
                 } ?: identity
-                val view = PinView(pref, record, state, room, window?.roomPages?.get(key), similar)
+                if (pref.identityName == null) (observed?.takeIf { it.name != null } ?: identity.takeIf { it.name != null })?.let { learned += pref to it }
+                val view = PinView(pref, record, state, room, window?.roomPages?.get(key), similar, listed = observed != null)
                 if (record.notifies && seen == PinState.OPEN && before.state != null && before.state != PinState.OPEN && observed != null) {
                     events += PinEvent.Opened(view, identity, record.autoActive(at))
                 }
@@ -243,6 +252,10 @@ class PinRepository(
             if (records != _records.value) save(records)
             _pins.value = views.sortedWith(compareBy<PinView> { order(it) }.thenByDescending { it.record.stateAt ?: 0L })
             _loaded.value = true
+        }
+        // 補った名前は保存の記録にも残す（記録が変わると一覧を作り直すので、ロックの外で）。
+        learned.forEach { (pref, room) ->
+            try { preferences.rememberIdentity(pref, room) } catch (e: CancellationException) { throw e } catch (_: Exception) { }
         }
     }
 

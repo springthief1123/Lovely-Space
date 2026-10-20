@@ -224,4 +224,30 @@ class RoomPreferenceRepositoryTest {
             db.close()
         }
     }
+
+    @Test fun aRoomPinnedWhileFullLearnsItsOwnerWhenSeenWaiting() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        val db = Room.inMemoryDatabaseBuilder(context, PresetDatabase::class.java).allowMainThreadQueries().build()
+        try {
+            val repo = RoomPreferenceRepository(db)
+            // 合成データ。満室でピンすると、名前・性別・年齢の記録がない。
+            val waiting = room(700, "zenkoku", "合成の部屋主", message = "合成の満室の募集文")
+            val full = waiting.copy(status = RoomStatus.FULL, action = RoomAction.NONE, name = null, gender = Gender.UNKNOWN, age = null)
+            repo.setFavorite(full, true)
+            assertNull(repo.preferences.first().single().identityName)
+            // 待機中の姿を一覧で見ると、照合用の値に残る。満室に戻っても消えない。
+            repo.observe(listOf(waiting))
+            repo.observe(listOf(full))
+            val saved = repo.preferences.first().single()
+            assertEquals("合成の部屋主", saved.identityName)
+            assertEquals(Gender.FEMALE.name, saved.identityGender)
+            assertEquals(25, saved.identityAge)
+            assertNull(saved.snapshotName)
+            // 一覧で名前が見えていた姿から補うときも、記録済みの値は書き換えない。
+            repo.rememberIdentity(saved, waiting.copy(name = "別の名前"))
+            assertEquals("合成の部屋主", repo.preferences.first().single().identityName)
+        } finally {
+            db.close()
+        }
+    }
 }
