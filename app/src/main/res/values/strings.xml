@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Lovely Space</string>
+    <!-- アプリ一覧のカモフラージュ（LauncherPreset）の名前 -->
+    <string name="disguise_calculator">電卓</string>
+    <string name="disguise_notes">メモ</string>
+    <string name="disguise_weather">天気</string>
+    <string name="disguise_calendar">カレンダー</string>
+    <string name="disguise_clock">時計</string>
 </resources>

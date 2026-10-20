@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Masks
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Timer
@@ -49,6 +50,7 @@ fun SettingsScreen(
     onOpenNgWords: () -> Unit,
     onOpenNotifications: () -> Unit,
     onOpenLock: () -> Unit,
+    onOpenDisguise: () -> Unit,
     onBack: () -> Unit,
 ) {
     val bottomContentPadding = 18.dp +
@@ -67,7 +69,7 @@ fun SettingsScreen(
         ) {
             item {
                 Text(
-                    "アプリの表示・部屋一覧・更新の間隔・入室・NGワード・通知・ロックの設定を、用途ごとに整理しています。",
+                    "アプリの表示・部屋一覧・更新の間隔・入室・NGワード・通知・ロック・アイコンの見た目の設定を、用途ごとに整理しています。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 4.dp, end = 4.dp, bottom = 6.dp),
@@ -135,6 +137,14 @@ fun SettingsScreen(
                     title = "アプリロック",
                     description = "パスコード・パターン・生体認証、ロックまでの時間",
                     onClick = onOpenLock,
+                )
+            }
+            item {
+                SettingsCategoryCard(
+                    icon = Icons.Outlined.Masks,
+                    title = "アイコンと名前",
+                    description = "ホーム画面のアイコンの色・シンボル・名前、アプリ一覧の見た目（カモフラージュ）",
+                    onClick = onOpenDisguise,
                 )
             }
         }

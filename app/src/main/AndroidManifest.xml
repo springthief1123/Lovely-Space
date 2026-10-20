@@ -18,11 +18,88 @@
             android:exported="true"
             android:launchMode="singleTop"
             android:screenOrientation="portrait"
-            android:windowSoftInputMode="adjustResize">
+            android:windowSoftInputMode="adjustResize" />
+        <!--
+            アプリ一覧のアイコンと名前（カモフラージュ）。どれか 1 つだけを有効にする（LauncherDisguise）。
+            ランチャーのアイコンは実行時に自由に描けないので、用意した組み合わせを切り替える。
+        -->
+        <activity-alias
+            android:name=".LauncherDefault"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/app_name"
+            android:roundIcon="@mipmap/ic_launcher"
+            android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherCalculator"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_disguise_calculator"
+            android:label="@string/disguise_calculator"
+            android:roundIcon="@mipmap/ic_disguise_calculator"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherNotes"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_disguise_notes"
+            android:label="@string/disguise_notes"
+            android:roundIcon="@mipmap/ic_disguise_notes"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherWeather"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_disguise_weather"
+            android:label="@string/disguise_weather"
+            android:roundIcon="@mipmap/ic_disguise_weather"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherCalendar"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_disguise_calendar"
+            android:label="@string/disguise_calendar"
+            android:roundIcon="@mipmap/ic_disguise_calendar"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherClock"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_disguise_clock"
+            android:label="@string/disguise_clock"
+            android:roundIcon="@mipmap/ic_disguise_clock"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
     </application>
 </manifest>

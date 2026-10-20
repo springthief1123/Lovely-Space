@@ -40,6 +40,7 @@ import io.github.springthief1123.lovelyspace.ui.main.SearchScreen
 import io.github.springthief1123.lovelyspace.ui.main.RadarScreen
 import io.github.springthief1123.lovelyspace.ui.main.SearchPresetSaver
 import io.github.springthief1123.lovelyspace.data.SearchPreset
+import io.github.springthief1123.lovelyspace.ui.settings.DisguiseSettingsScreen
 import io.github.springthief1123.lovelyspace.ui.settings.DisplaySettingsScreen
 import io.github.springthief1123.lovelyspace.ui.settings.EntrySettingsScreen
 import io.github.springthief1123.lovelyspace.ui.settings.HiddenRoomsScreen
@@ -199,6 +200,7 @@ fun AppNavHost() {
                     onOpenNgWords = { nav.navigate(Routes.SETTINGS_NG_WORDS) { launchSingleTop = true } },
                     onOpenNotifications = { nav.navigate(Routes.SETTINGS_NOTIFICATIONS) { launchSingleTop = true } },
                     onOpenLock = { nav.navigate(Routes.SETTINGS_LOCK) { launchSingleTop = true } },
+                    onOpenDisguise = { nav.navigate(Routes.SETTINGS_DISGUISE) { launchSingleTop = true } },
                     onBack = { nav.popBackStack() },
                 )
             }
@@ -222,6 +224,9 @@ fun AppNavHost() {
             }
             composable(Routes.SETTINGS_LOCK) {
                 io.github.springthief1123.lovelyspace.lock.AppLockSettingsScreen(onBack = { nav.popBackStack() })
+            }
+            composable(Routes.SETTINGS_DISGUISE) {
+                DisguiseSettingsScreen(onBack = { nav.popBackStack() })
             }
             composable(Routes.SETTINGS_NOTIFICATIONS) {
                 NotificationSettingsScreen(onBack = { nav.popBackStack() })

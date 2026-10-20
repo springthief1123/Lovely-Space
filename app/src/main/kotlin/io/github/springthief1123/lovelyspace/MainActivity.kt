@@ -29,6 +29,7 @@ import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import io.github.springthief1123.lovelyspace.disguise.applyDisguiseTaskDescription
 import io.github.springthief1123.lovelyspace.lock.LocalAppLocked
 import io.github.springthief1123.lovelyspace.lock.LockScreen
 import io.github.springthief1123.lovelyspace.lock.LockWindow
@@ -123,6 +124,8 @@ class MainActivity : FragmentActivity() {
 
     override fun onStart() {
         super.onStart()
+        // 最近のアプリの一覧の名前・アイコンを、アプリ一覧のカモフラージュに合わせる。
+        applyDisguiseTaskDescription()
         (application as LovelySpaceApp).appLock.onForeground()
         // 入室中の部屋は、アプリが前面にある間だけ新着を取りに行く（一覧を見ている間も続ける）。
         (application as LovelySpaceApp).activeRooms.setForeground(true)
