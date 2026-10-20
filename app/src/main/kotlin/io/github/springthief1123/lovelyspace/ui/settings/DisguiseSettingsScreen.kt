@@ -42,6 +42,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -79,8 +80,13 @@ import io.github.springthief1123.lovelyspace.ui.describeError
 import io.github.springthief1123.lovelyspace.ui.theme.LovelyShapes
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+/** ショートカットの状態。[known] は読み終えたか（読む前に「対応していない」と出さないため）。 */
+private data class ShortcutState(val supported: Boolean = true, val pinned: Boolean = false, val known: Boolean = false)
 
 private enum class ColorTab(val label: String) {
     PRESET("おすすめ"),
@@ -123,11 +129,19 @@ fun DisguiseSettingsScreen(onBack: () -> Unit) {
         refresh++
         onPauseOrDispose { }
     }
-    val pinned = remember(refresh) { disguise.isShortcutPinned() }
-    val pinSupported = remember(refresh) { disguise.isPinSupported() }
+    // ShortcutManager はホーム画面アプリとのやり取りで時間がかかることがあるので、読み書きはメインスレッドの外で行う。
+    val shortcutState by produceState(ShortcutState(), refresh) {
+        value = withContext(Dispatchers.IO) {
+            ShortcutState(supported = disguise.isPinSupported(), pinned = disguise.isShortcutPinned(), known = true)
+        }
+    }
+    val pinned = shortcutState.pinned
+    val pinSupported = shortcutState.supported
     var preset by remember { mutableStateOf(disguise.currentPreset()) }
     var pendingPreset by remember { mutableStateOf<LauncherPreset?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
+    // 切り替え・追加の途中に重ねて押されないようにする。
+    var busy by remember { mutableStateOf(false) }
 
     fun show(message: String) {
         scope.launch {
@@ -136,50 +150,60 @@ fun DisguiseSettingsScreen(onBack: () -> Unit) {
         }
     }
 
-    fun placeShortcut() {
-        val design = ShortcutDisguise(color = color, symbol = symbol, label = label.trim())
+    /** [block] をメインスレッドの外で実行し、終わったら状態を読み直す。失敗したら [failure] に理由を付けて出す。 */
+    fun run(failure: String, block: suspend () -> Unit) {
+        if (busy) return
+        busy = true
         scope.launch {
             try {
-                app.settings.setShortcutDisguise(design)
-                val wasPinned = disguise.isShortcutPinned()
-                when {
-                    !disguise.pinShortcut(design) -> show("ホーム画面に追加できませんでした。ホーム画面アプリが対応していない可能性があります。")
-                    wasPinned -> show("ホーム画面のアイコンを変えました")
-                    else -> show("ホーム画面アプリの確認で「追加」を選んでください")
-                }
-                refresh++
+                block()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                show("ホーム画面に追加できませんでした：${describeError(e)}")
+                show("$failure：${describeError(e)}")
+            } finally {
+                preset = withContext(Dispatchers.IO) { disguise.currentPreset() }
+                (context as? Activity)?.applyDisguiseTaskDescription(preset)
+                refresh++
+                busy = false
+            }
+        }
+    }
+
+    fun placeShortcut() {
+        val design = ShortcutDisguise(color = color, symbol = symbol, label = label.trim())
+        run("ホーム画面に追加できませんでした") {
+            app.settings.setShortcutDisguise(design)
+            val (wasPinned, placed) = withContext(Dispatchers.IO) {
+                val wasPinned = disguise.isShortcutPinned()
+                wasPinned to disguise.pinShortcut(design)
+            }
+            when {
+                !placed -> show("ホーム画面に追加できませんでした。ホーム画面アプリが対応していない可能性があります。")
+                wasPinned -> show("ホーム画面のアイコンを変えました")
+                else -> show("ホーム画面アプリの確認で「追加」を選んでください")
             }
         }
     }
 
     fun switchPreset(next: LauncherPreset) {
-        try {
-            disguise.applyPreset(next)
-            preset = disguise.currentPreset()
-            (context as? Activity)?.applyDisguiseTaskDescription(preset)
+        run("切り替えられませんでした") {
+            withContext(Dispatchers.IO) { disguise.applyPreset(next) }
             show("アプリ一覧を「${context.getString(next.label)}」にしました。反映まで少しかかることがあります。")
-        } catch (e: Exception) {
-            show("切り替えられませんでした：${describeError(e)}")
         }
     }
 
     fun resetToOriginal() {
-        try {
-            val hadShortcut = disguise.isShortcutPinned()
-            disguise.resetToOriginal()
-            preset = disguise.currentPreset()
-            (context as? Activity)?.applyDisguiseTaskDescription(preset)
-            refresh++
+        run("元に戻せませんでした") {
+            val hadShortcut = withContext(Dispatchers.IO) {
+                val hadShortcut = disguise.isShortcutPinned()
+                disguise.resetToOriginal()
+                hadShortcut
+            }
             show(
                 if (hadShortcut) "元に戻しました。置いてあるアイコンも Lovely Space にしました（要らなければホーム画面から外してください）。"
                 else "元のアイコンと名前に戻しました。反映まで少しかかることがあります。",
             )
-        } catch (e: Exception) {
-            show("元に戻せませんでした：${describeError(e)}")
         }
     }
 
@@ -196,7 +220,7 @@ fun DisguiseSettingsScreen(onBack: () -> Unit) {
                 item {
                     OutlinedButton(
                         onClick = { confirmReset = true },
-                        enabled = preset != LauncherPreset.DEFAULT || pinned,
+                        enabled = !busy && (preset != LauncherPreset.DEFAULT || pinned),
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = LovelySpacing.screenHorizontal, vertical = 6.dp),
@@ -248,12 +272,12 @@ fun DisguiseSettingsScreen(onBack: () -> Unit) {
                     ) {
                         Button(
                             onClick = { placeShortcut() },
-                            enabled = loaded && pinSupported,
+                            enabled = loaded && shortcutState.known && pinSupported && !busy,
                             modifier = Modifier.fillMaxWidth(),
                         ) { Text(if (pinned) "ホーム画面のアイコンを変える" else "ホーム画面に追加") }
                         Text(
                             when {
-                                !pinSupported -> "使っているホーム画面アプリが、アプリからのアイコンの追加に対応していません。"
+                                shortcutState.known && !pinSupported -> "使っているホーム画面アプリが、アプリからのアイコンの追加に対応していません。"
                                 pinned -> "置いてあるアイコンの色・シンボル・名前が変わります。"
                                 else -> "追加したら、元の Lovely Space のアイコンはホーム画面から外してください（アプリ一覧には残ります）。" +
                                     "ホーム画面アプリによっては、アイコンの隅に小さくアプリ一覧のアイコンが付きます。下でアプリ一覧の見た目も変えると目立ちません。"
@@ -279,7 +303,7 @@ fun DisguiseSettingsScreen(onBack: () -> Unit) {
                 item {
                     SettingsChoiceGroup {
                         LauncherPreset.entries.forEach { option ->
-                            PresetRow(option, selected = option == preset, onClick = { if (option != preset) pendingPreset = option })
+                            PresetRow(option, selected = option == preset, onClick = { if (option != preset && !busy) pendingPreset = option })
                         }
                     }
                 }

@@ -16,6 +16,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.ColorUtils
+import androidx.core.graphics.drawable.toBitmap
 import androidx.core.graphics.drawable.IconCompat
 import io.github.springthief1123.lovelyspace.R
 
@@ -98,22 +99,29 @@ class LauncherDisguise(context: Context) {
     /**
      * アプリ一覧の見た目を [preset] に切り替える。先に新しい alias を有効にしてから他を止め、起動できる入口が無い瞬間を作らない。
      * ホーム画面のショートカットは有効な alias を開くので、切り替えた先へ付け替える。
+     * ShortcutManager はホーム画面アプリとやり取りするので、メインスレッドの外から呼ぶ。
      */
-    fun applyPreset(preset: LauncherPreset) {
-        setEnabled(preset, true)
-        // 止める前に付け替える。止めた alias に結び付いたままだと、ホーム画面アプリがショートカットを無効にすることがある。
-        pinnedShortcut()?.let { ShortcutManagerCompat.updateShortcuts(context, listOf(it.rebuild(preset))) }
-        LauncherPreset.entries.filter { it != preset }.forEach { setEnabled(it, false) }
-    }
+    fun applyPreset(preset: LauncherPreset) = switchTo(preset) { it.rebuild(preset) }
 
     /**
      * アイコンと名前を元の Lovely Space に戻す。アプリ一覧を元のアイコンにし、置いてあるショートカットも元の名前とアイコンにする
      * （アプリからはショートカットを外せないので、要らなければ利用者がホーム画面から外す）。編集中・保存済みの見た目は残す。
      */
-    fun resetToOriginal() {
-        setEnabled(LauncherPreset.DEFAULT, true)
-        if (isShortcutPinned()) ShortcutManagerCompat.updateShortcuts(context, listOf(originalShortcut()))
-        LauncherPreset.entries.filter { it != LauncherPreset.DEFAULT }.forEach { setEnabled(it, false) }
+    fun resetToOriginal() = switchTo(LauncherPreset.DEFAULT) { originalShortcut() }
+
+    /**
+     * [preset] の alias を有効にし、置いてあるショートカットを [shortcut] に付け替えてから他の alias を止める。
+     * 付け替えに失敗したら（更新の回数制限など）、ショートカットが止めた alias を指して開けなくならないよう、元の状態に戻して失敗にする。
+     */
+    private fun switchTo(preset: LauncherPreset, shortcut: (ShortcutInfoCompat) -> ShortcutInfoCompat) {
+        val previous = currentPreset()
+        setEnabled(preset, true)
+        val pinned = pinnedShortcut()
+        if (pinned != null && !ShortcutManagerCompat.updateShortcuts(context, listOf(shortcut(pinned)))) {
+            if (previous != preset) setEnabled(preset, false)
+            throw IllegalStateException("ホーム画面のアイコンを付け替えられませんでした。少し待ってからもう一度試してください")
+        }
+        LauncherPreset.entries.filter { it != preset }.forEach { setEnabled(it, false) }
     }
 
     private fun originalShortcut(): ShortcutInfoCompat {
@@ -219,7 +227,10 @@ fun Activity.applyDisguiseTaskDescription(preset: LauncherPreset = LauncherDisgu
             ActivityManager.TaskDescription.Builder().setLabel(label).setIcon(preset.icon).build()
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.P ->
             @Suppress("DEPRECATION") ActivityManager.TaskDescription(label, preset.icon, 0)
-        else -> @Suppress("DEPRECATION") ActivityManager.TaskDescription(label)
+        // Android 8.x にはアイコンの resource を渡す形が無いので、alias のアイコンを画像にして渡す。
+        else -> @Suppress("DEPRECATION") ActivityManager.TaskDescription(label, ContextCompat.getDrawable(this, preset.icon)?.toBitmap(TASK_ICON_PX, TASK_ICON_PX))
     }
     setTaskDescription(description)
 }
+
+private const val TASK_ICON_PX = 192
