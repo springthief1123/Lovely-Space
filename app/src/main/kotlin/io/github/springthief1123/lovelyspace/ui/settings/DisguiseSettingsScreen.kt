@@ -42,7 +42,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -130,8 +129,9 @@ fun DisguiseSettingsScreen(onBack: () -> Unit) {
         onPauseOrDispose { }
     }
     // ShortcutManager はホーム画面アプリとのやり取りで時間がかかることがあるので、読み書きはメインスレッドの外で行う。
-    val shortcutState by produceState(ShortcutState(), refresh) {
-        value = withContext(Dispatchers.IO) {
+    var shortcutState by remember { mutableStateOf(ShortcutState()) }
+    LaunchedEffect(refresh) {
+        shortcutState = withContext(Dispatchers.IO) {
             ShortcutState(supported = disguise.isPinSupported(), pinned = disguise.isShortcutPinned(), known = true)
         }
     }
