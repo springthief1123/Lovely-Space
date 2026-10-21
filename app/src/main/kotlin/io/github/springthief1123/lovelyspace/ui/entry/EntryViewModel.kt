@@ -92,6 +92,7 @@ class EntryViewModel(
     private var inputsLoaded = false
     private var autoPending = auto
     @Volatile private var closed = false
+    private var enteredConsumed = false
 
     init {
         load()
@@ -183,11 +184,11 @@ class EntryViewModel(
                 // withContext は戻るときに取り消しを確かめて結果を捨てるので、閉じた後の引き継ぎはこの中で済ませる。
                 val result = withContext(NonCancellable) {
                     client.enter(form, profile).also { result ->
-                        if (closed && result is EntryResult.Entered) onEnteredAfterClose(result.room)
+                        if (result is EntryResult.Entered) entered(result.room)
                     }
                 }
                 when (result) {
-                    is EntryResult.Entered -> _state.update { it.copy(isEntering = false, entered = result.room) }
+                    is EntryResult.Entered -> Unit
                     is EntryResult.Rejected -> {
                         _state.update { it.copy(isEntering = false, autoEntering = false, entryError = result.message) }
                         // トークンは 1 回きりなので、入室前画面を取り直して再挑戦できるようにする。
@@ -218,10 +219,27 @@ class EntryViewModel(
         }
     }
 
+    /** 入室できた部屋。画面が閉じていれば進行中の部屋として引き継ぎ、開いていれば画面がチャットへ移る（[consumeEntered]）。 */
+    private fun entered(room: ChatRoomRef) {
+        synchronized(this) {
+            if (closed) onEnteredAfterClose(room)
+            else _state.update { it.copy(isEntering = false, entered = room) }
+        }
+    }
+
+    /** 画面が [EntryUiState.entered] の部屋をチャットへ引き継いだ。 */
+    fun consumeEntered() {
+        synchronized(this) { enteredConsumed = true }
+    }
+
     override fun onCleared() {
-        closed = true
+        synchronized(this) {
+            closed = true
+            // 入室できた直後、画面がチャットへ移る前に閉じられたときも、部屋を捨てずに引き継ぐ。
+            if (!enteredConsumed) _state.value.entered?.let(onEnteredAfterClose)
+        }
     }
 
     /** ブラウザ画面（ロボット確認）で入室できたとき。 */
-    fun onEnteredInBrowser(room: ChatRoomRef) = _state.update { it.copy(entered = room) }
+    fun onEnteredInBrowser(room: ChatRoomRef) = entered(room)
 }

@@ -95,7 +95,10 @@ fun EntryScreen(
     BackHandler(enabled = showBrowser) { showBrowser = false }
 
     LaunchedEffect(state.entered) {
-        state.entered?.let(onEntered)
+        state.entered?.let { room ->
+            vm.consumeEntered()
+            onEntered(room)
+        }
     }
     LaunchedEffect(state.becamePublic) {
         if (state.becamePublic) onPeek()
