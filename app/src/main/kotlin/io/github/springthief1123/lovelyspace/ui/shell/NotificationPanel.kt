@@ -130,13 +130,15 @@ internal fun NotificationPanel(
 ) {
     val shape = LovelyShapes.menu
     val configuration = LocalConfiguration.current
-    // 画面の左右に 12dp ずつ残し、タブレット・横向きでは読みやすい幅で止める。高さは画面の 3 分の 2 まで。
-    val width = (configuration.screenWidthDp.dp - 24.dp).coerceIn(260.dp, 440.dp)
-    val maxListHeight = (configuration.screenHeightDp.dp * 0.66f).coerceAtLeast(160.dp)
+    // 画面の左右に 12dp ずつ残し、タブレット・横向きでは読みやすい幅で止める。
+    val width = (configuration.screenWidthDp.dp - 24.dp).coerceAtMost(440.dp)
+    // パネル全体（見出し・設定ボタン込み）を、ベル（上のバー）より下の空きに収める。横向き・分割画面・文字拡大では一覧の部分だけ縮めてスクロールする。
+    val maxHeight = (configuration.screenHeightDp.dp - PANEL_TOP_RESERVE).coerceAtLeast(160.dp)
     Column(
         Modifier
             .padding(bottom = 12.dp)
             .width(width)
+            .heightIn(max = maxHeight)
             .shadow(QuietMenuDefaults.shadowElevation, shape, clip = false)
             .clip(shape)
             .background(QuietMenuDefaults.containerColor())
@@ -152,7 +154,7 @@ internal fun NotificationPanel(
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp))
         } else {
             LazyColumn(
-                Modifier.fillMaxWidth().heightIn(max = maxListHeight),
+                Modifier.fillMaxWidth().weight(1f, fill = false),
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -169,6 +171,9 @@ internal fun NotificationPanel(
         TextButton(onClick = onOpenSettings, modifier = Modifier.padding(start = 6.dp)) { Text("通知の設定") }
     }
 }
+
+/** 上のバー（ステータスバー込み）とパネルの下の余白の分。パネルの高さはこれを引いた画面の高さまで。 */
+private val PANEL_TOP_RESERVE = 120.dp
 
 /** 左右どちらへスワイプしても [onRemove] する。スワイプできない読み上げでは、操作の一覧から消せる。 */
 @OptIn(ExperimentalMaterial3Api::class)
