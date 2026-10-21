@@ -12,12 +12,14 @@ import io.github.springthief1123.lovelyspace.data.PresetRepository
 import io.github.springthief1123.lovelyspace.data.ProfilePreset
 import io.github.springthief1123.lovelyspace.ui.describeError
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class EntryUiState(
     val isLoading: Boolean = true,
@@ -79,11 +81,17 @@ class EntryViewModel(
      * 確かめるための取得はしない（公開ルームの画面が最初に読み、まだ読めなければ読み直す）。
      */
     private val listedPublic: Boolean = false,
+    /**
+     * 入室の送信中に画面が閉じられ、その後に入室できた部屋を渡す（進行中の部屋として残し、「会話に戻る」から戻れるようにする）。
+     * 本家では入室が済んでいるので、捨てると相手からは黙ったままの入室者に見えてしまう。
+     */
+    private val onEnteredAfterClose: (ChatRoomRef) -> Unit = {},
 ) : ViewModel() {
     private val _state = MutableStateFlow(EntryUiState(autoEntering = auto))
     val state: StateFlow<EntryUiState> = _state.asStateFlow()
     private var inputsLoaded = false
     private var autoPending = auto
+    @Volatile private var closed = false
 
     init {
         load()
@@ -171,7 +179,14 @@ class EntryViewModel(
         viewModelScope.launch {
             saveProfileQuietly(profile)
             try {
-                when (val result = client.enter(form, profile)) {
+                // 送信を始めたら、画面が閉じられても応答まで待つ（取り消すと、本家では入室済みなのに結果だけを失う）。
+                // withContext は戻るときに取り消しを確かめて結果を捨てるので、閉じた後の引き継ぎはこの中で済ませる。
+                val result = withContext(NonCancellable) {
+                    client.enter(form, profile).also { result ->
+                        if (closed && result is EntryResult.Entered) onEnteredAfterClose(result.room)
+                    }
+                }
+                when (result) {
                     is EntryResult.Entered -> _state.update { it.copy(isEntering = false, entered = result.room) }
                     is EntryResult.Rejected -> {
                         _state.update { it.copy(isEntering = false, autoEntering = false, entryError = result.message) }
@@ -201,6 +216,10 @@ class EntryViewModel(
             throw e
         } catch (_: Exception) {
         }
+    }
+
+    override fun onCleared() {
+        closed = true
     }
 
     /** ブラウザ画面（ロボット確認）で入室できたとき。 */

@@ -72,7 +72,12 @@ fun EntryScreen(
 ) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val vm: EntryViewModel = viewModel(
-        factory = viewModelFactory { initializer { EntryViewModel(app.client, app.settings, app.presets, host, genreKey, roomId, auto, listedPublic) } },
+        factory = viewModelFactory {
+            initializer {
+                EntryViewModel(app.client, app.settings, app.presets, host, genreKey, roomId, auto, listedPublic,
+                    onEnteredAfterClose = { room -> app.activeRooms.register(room) })
+            }
+        },
     )
     val state by vm.state.collectAsStateWithLifecycle()
     val entrySettings by app.settings.entrySettings.collectAsStateWithLifecycle(initialValue = null)
