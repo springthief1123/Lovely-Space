@@ -86,7 +86,9 @@ internal fun NavController.navigateMain(route: String) {
 internal fun NavController.openNotification(notification: AppNotification, enterFromWaitlist: Boolean = false, resumeChat: () -> String?) {
     when (val target = notification.target) {
         is NotificationTarget.Room -> {
-            val origin = if (notification.kind == NotificationKind.RADAR_MATCH) Routes.RADAR else Routes.ROOMS
+            // 条件・名前で待つの一致はレーダーの機能なので、戻るとレーダーに戻す。
+            val fromRadar = notification.kind == NotificationKind.RADAR_MATCH || notification.kind == NotificationKind.NAME_MATCH
+            val origin = if (fromRadar) Routes.RADAR else Routes.ROOMS
             showMain(origin)
             // 順番待ちの空きは取り合いなので、設定が有効なら入力済みのまま入室まで進める。
             // 待機メッセージが登録時と違う（別の部屋かもしれない）ときは、入室画面で確かめてもらう。
