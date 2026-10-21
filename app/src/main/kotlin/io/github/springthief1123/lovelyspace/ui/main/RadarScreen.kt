@@ -44,7 +44,9 @@ import io.github.springthief1123.lovelyspace.ui.rooms.cardActionLabel
 import io.github.springthief1123.lovelyspace.ui.rooms.roomStatusColor
 import io.github.springthief1123.lovelyspace.ui.rooms.statusLabel
 import io.github.springthief1123.lovelyspace.ui.theme.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 /** 一致の一覧のシート。[scope] は見出しの下に出す範囲（「3/5ページの一覧情報」など）。 */
@@ -90,7 +92,10 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
     }
     val scope = rememberCoroutineScope()
     var scanJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    ForegroundPolling(state.automatic, onStop = { scanJob?.cancel() }) { app.radar.monitor { app.pacing.value } }
+    // 巡回はページごとに一致の照合と保存をするので、画面のメインスレッドでは動かさない（監査 C-43）。
+    ForegroundPolling(state.automatic, onStop = { scanJob?.cancel() }) {
+        withContext(Dispatchers.Default) { app.radar.monitor { app.pacing.value } }
+    }
     var working by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var section by rememberRadarSection()
@@ -123,7 +128,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
     fun scan() {
         val active = scanJob?.isActive == true
         val job = scope.launch {
-            try { app.radar.scanNow() }
+            try { withContext(Dispatchers.Default) { app.radar.scanNow() } }
             catch (e: kotlinx.coroutines.CancellationException) { throw e }
             catch (e: Exception) { fail("レーダーの状態を確認できませんでした。もう一度お試しください。", again = { scan() }) }
         }
