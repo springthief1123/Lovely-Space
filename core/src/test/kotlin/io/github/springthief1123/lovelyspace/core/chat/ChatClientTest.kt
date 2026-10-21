@@ -68,12 +68,15 @@ class ChatClientTest {
             header("Location", "/2shot.php?room_id=900000002&pwd=aaaabbbbccccddddaaaabbbbccccdddd&redirect=1")
         }
         val entry = client.openEntry(host, 900000002, "chah")!!
-        val result = client.enter(entry, EntryProfile("タロウ", sex = 1, years = 30))
+        var delivered: EntryResult? = null
+        val result = client.enter(entry, EntryProfile("タロウ", sex = 1, years = 30)) { delivered = it }
 
         assertEquals(
             EntryResult.Entered(ChatRoomRef(host, 900000002, "aaaabbbbccccddddaaaabbbbccccdddd", "chah")),
             result,
         )
+        // 呼び出し元が取り消されても引き継げるよう、応答を読んだ時点で同じ結果を渡す。
+        assertEquals(result, delivered)
         val (req, body) = requests.last()
         assertEquals("POST", req.method)
         assertEquals("/PreEnterRoom", req.url.encodedPath)

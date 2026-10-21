@@ -69,6 +69,18 @@ class ActiveRoomsTest {
         assertEquals(second, rooms.resumable.value?.sessionId)
     }
 
+    @Test fun lateEntryResultDoesNotReplaceARoomEnteredSince() {
+        val rooms = ActiveRooms(MemoryPersistence())
+        val mark = rooms.registrations()
+        val newer = rooms.register(room.copy(roomId = 900000002L))
+        assertNull(rooms.registerIfNoneSince(room, mark))
+        assertEquals(newer, rooms.resumable.value?.sessionId)
+        // 間に登録が無ければ引き継ぐ。
+        val late = rooms.registerIfNoneSince(room, rooms.registrations())
+        assertNotNull(late)
+        assertEquals(late, rooms.resumable.value?.sessionId)
+    }
+
     @Test fun failedSaveDoesNotLeaveThePreviousRoomResumable() {
         val disk = object : ActiveRoomPersistence {
             var value: ResumableRoom? = null

@@ -79,11 +79,23 @@ class EntryViewModel(
      * 確かめるための取得はしない（公開ルームの画面が最初に読み、まだ読めなければ読み直す）。
      */
     private val listedPublic: Boolean = false,
+    /**
+     * 入室の送信中に画面が閉じられ、その後に入室できた部屋を渡す（進行中の部屋として残し、「会話に戻る」から戻れるようにする）。
+     * 本家では入室が済んでいるので、捨てると相手からは黙ったままの入室者に見えてしまう。
+     * 2 つめは入室を試み始めた時点の [registrationMark]。その後に別の部屋へ入っていたら、受け取った側は古い部屋から退室する。
+     */
+    private val onEnteredAfterClose: (ChatRoomRef, Long) -> Unit = { _, _ -> },
+    /** 進行中の部屋を登録した回数（[io.github.springthief1123.lovelyspace.ui.chat.ActiveRooms.registrations]）。 */
+    private val registrationMark: () -> Long = { 0L },
 ) : ViewModel() {
     private val _state = MutableStateFlow(EntryUiState(autoEntering = auto))
     val state: StateFlow<EntryUiState> = _state.asStateFlow()
     private var inputsLoaded = false
     private var autoPending = auto
+    @Volatile private var closed = false
+    private var enteredConsumed = false
+    /** 入室を試み始めた時点の [registrationMark]。ブラウザ画面での入室は、この画面を開いた時点のもの。 */
+    @Volatile private var attemptMark = registrationMark()
 
     init {
         load()
@@ -168,11 +180,17 @@ class EntryViewModel(
         if (!s.canEnter) return
         val profile = EntryProfile(name = s.name.trim(), sex = s.sex, years = s.yearsValue)
         _state.update { it.copy(isEntering = true, entryError = null) }
+        attemptMark = registrationMark()
         viewModelScope.launch {
             saveProfileQuietly(profile)
             try {
-                when (val result = client.enter(form, profile)) {
-                    is EntryResult.Entered -> _state.update { it.copy(isEntering = false, entered = result.room) }
+                // 送信を始めた後に画面が閉じられても、本家では入室が済んでいることがある。戻り値は取り消しで捨てられるので、
+                // 入室できた部屋は応答を読んだ時点（onResult）で受け取って引き継ぐ。送信前の順番待ちの間に閉じたら何も送らない。
+                val result = client.enter(form, profile) { result ->
+                    if (result is EntryResult.Entered) entered(result.room)
+                }
+                when (result) {
+                    is EntryResult.Entered -> Unit
                     is EntryResult.Rejected -> {
                         _state.update { it.copy(isEntering = false, autoEntering = false, entryError = result.message) }
                         // トークンは 1 回きりなので、入室前画面を取り直して再挑戦できるようにする。
@@ -203,6 +221,27 @@ class EntryViewModel(
         }
     }
 
+    /** 入室できた部屋。画面が閉じていれば進行中の部屋として引き継ぎ、開いていれば画面がチャットへ移る（[consumeEntered]）。 */
+    private fun entered(room: ChatRoomRef) {
+        synchronized(this) {
+            if (closed) onEnteredAfterClose(room, attemptMark)
+            else _state.update { it.copy(isEntering = false, entered = room) }
+        }
+    }
+
+    /** 画面が [EntryUiState.entered] の部屋をチャットへ引き継いだ。 */
+    fun consumeEntered() {
+        synchronized(this) { enteredConsumed = true }
+    }
+
+    override fun onCleared() {
+        synchronized(this) {
+            closed = true
+            // 入室できた直後、画面がチャットへ移る前に閉じられたときも、部屋を捨てずに引き継ぐ。
+            if (!enteredConsumed) _state.value.entered?.let { onEnteredAfterClose(it, attemptMark) }
+        }
+    }
+
     /** ブラウザ画面（ロボット確認）で入室できたとき。 */
-    fun onEnteredInBrowser(room: ChatRoomRef) = _state.update { it.copy(entered = room) }
+    fun onEnteredInBrowser(room: ChatRoomRef) = entered(room)
 }

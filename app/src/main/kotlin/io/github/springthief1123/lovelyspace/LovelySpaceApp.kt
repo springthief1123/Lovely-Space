@@ -231,6 +231,22 @@ class LovelySpaceApp : Application() {
                 getSharedPreferences(io.github.springthief1123.lovelyspace.notify.RadarNoticeStore.PREFS, MODE_PRIVATE)))
     }
 
+    /**
+     * 入室画面を閉じた後に入室できた部屋を、進行中の部屋として引き継ぐ。入室を試み始めた後（[mark] の後）に別の部屋へ入っていたら、
+     * 新しい部屋を置き換えず、古い部屋から退室する（本家では入室が済んでいるので、残すと黙ったままの入室者になる）。
+     */
+    fun adoptEnteredAfterClose(room: io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef, mark: Long) {
+        if (activeRooms.registerIfNoneSince(room, mark) != null) return
+        appScope.launch {
+            try {
+                client.leave(room)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
+        }
+    }
+
     /** 入室中の部屋（pwd を route に載せないための置き場）。進行中の部屋は暗号化して端末に残す。 */
     val activeRooms: ActiveRooms by lazy {
         ActiveRooms(io.github.springthief1123.lovelyspace.data.ActiveRoomStore(

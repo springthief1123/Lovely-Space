@@ -190,7 +190,9 @@ class RoomPreferenceRepository(private val db: PresetDatabase) : RoomPreferenceS
                     existing.identityName == null && room.name != null && room.message != existing.snapshotMessage -> existing
                     else -> existing.refreshed(room)
                 }
-                if (next != existing) dao.put(next)
+                // 経過時間（「◯分前」）は取得のたびに変わる。それだけの違いで書き直すと、取得のたびに保存の一覧が流れ直して
+                // 画面が計算し直すので、ほかの項目が変わったときだけ書く（経過時間もそのとき更新する。監査 C-45）。
+                if (next.copy(snapshotElapsedSeconds = existing.snapshotElapsedSeconds) != existing) dao.put(next)
             }
         }
     }

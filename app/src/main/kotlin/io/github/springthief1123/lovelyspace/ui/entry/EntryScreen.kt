@@ -72,7 +72,12 @@ fun EntryScreen(
 ) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val vm: EntryViewModel = viewModel(
-        factory = viewModelFactory { initializer { EntryViewModel(app.client, app.settings, app.presets, host, genreKey, roomId, auto, listedPublic) } },
+        factory = viewModelFactory {
+            initializer {
+                EntryViewModel(app.client, app.settings, app.presets, host, genreKey, roomId, auto, listedPublic,
+                    onEnteredAfterClose = app::adoptEnteredAfterClose, registrationMark = app.activeRooms::registrations)
+            }
+        },
     )
     val state by vm.state.collectAsStateWithLifecycle()
     val entrySettings by app.settings.entrySettings.collectAsStateWithLifecycle(initialValue = null)
@@ -90,7 +95,10 @@ fun EntryScreen(
     BackHandler(enabled = showBrowser) { showBrowser = false }
 
     LaunchedEffect(state.entered) {
-        state.entered?.let(onEntered)
+        state.entered?.let { room ->
+            vm.consumeEntered()
+            onEntered(room)
+        }
     }
     LaunchedEffect(state.becamePublic) {
         if (state.becamePublic) onPeek()

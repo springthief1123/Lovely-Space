@@ -141,8 +141,11 @@ class RadarRepository(
                     mutex.withLock {
                         // NG ワードが変わったら、有効な計画の一致と比較基準を作り直す。比較基準を捨てずに一致だけ変えると、
                         // NG を外して出てきた前からある部屋を新着として知らせてしまう。
+                        // 一覧の取得のたびに全体を書かないよう、変わったときだけ保存する（監査 C-44）。
+                        var dirty = false
                         if (filter !== ng) {
                             ng = filter
+                            dirty = true
                             val active = searches.presets.first().filter { it.id in _state.value.plans }
                             val hidden = hiddenRooms()
                             active.forEach { preset -> planKey(preset).let { key -> baselines.keys.removeAll { it.startsWith("$key/") } } }
@@ -154,7 +157,11 @@ class RadarRepository(
                         val saved = searches.presets.first()
                         val observations = lists.observations.value
                         // 条件を変えた計画は、共有の一覧からすぐ一致を出し直す。
-                        val edited = reconcilePlans(saved).let { changed -> saved.filter { it.id in changed && it.id in _state.value.plans } }
+                        val plansBefore = _state.value.plans to _state.value.backgroundPlans
+                        val changed = reconcilePlans(saved)
+                        // 削除された条件の計画は、一覧を読まなくても計画の一覧から外れるので保存する。
+                        if (changed.isNotEmpty() || plansBefore != (_state.value.plans to _state.value.backgroundPlans)) dirty = true
+                        val edited = saved.filter { it.id in changed && it.id in _state.value.plans }
                         if (edited.isNotEmpty()) {
                             val hidden = hiddenRooms()
                             _state.update { state -> edited.fold(state) { acc, preset -> seedPlan(preset, hidden, acc) } }
@@ -162,10 +169,11 @@ class RadarRepository(
                         observations.values.sortedBy { it.revision }.forEach { observation ->
                             if ((seen[observation.query] ?: 0) >= observation.revision) return@forEach
                             process(observation, emptyList())
+                            dirty = true
                             seen[observation.query] = observation.revision
                             _state.update { state -> state.copy(lastConfirmedAt = maxOf(state.lastConfirmedAt ?: observation.confirmedAt, observation.confirmedAt)) }
                         }
-                        persist()
+                        if (dirty) persist()
                     }
                 }
             } catch (e: CancellationException) { throw e }
@@ -774,6 +782,8 @@ class RadarRepository(
         return (cursors[key] ?: PageCursor()).after(o.page.page, window).also { cursors[key] = it }.next
     }
     private fun planKey(preset: SearchPreset): String = "${preset.id}/${preset.genreKey}/${preset.criteria}"
+    /** 最後に保存できた内容。同じ内容なら DB へ書き直さない（新着の確認は 1 ページ目を数秒ごとに読むので、そのたびに書かない）。 */
+    private var persisted: String? = null
     private suspend fun persist() {
         val s = _state.value
         val json = JSONObject().put("plans", JSONArray(s.plans.toList()))
@@ -804,7 +814,10 @@ class RadarRepository(
                 put(key, JSONObject().put("at", at).put("ids", JSONArray(ids.toList().takeLast(MAX_KNOWN))))
             } })
         })
-        dao.put(LocalState(KEY, json.toString()))
+        val value = json.toString()
+        if (value == persisted) return
+        dao.put(LocalState(KEY, value))
+        persisted = value
     }
     private fun restoreBaselines(value: String) {
         JSONObject(value).optJSONObject("backgroundTried")?.let { tried -> tried.keys().forEach { key -> backgroundTriedAt[key] = tried.getLong(key) } }

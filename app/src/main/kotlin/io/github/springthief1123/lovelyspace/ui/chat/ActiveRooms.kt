@@ -75,7 +75,22 @@ class ActiveRooms(
         connections.values.forEach { it.setForeground(value) }
     }
 
+    /** これまでに [register] した回数。入室を試み始めた時点の値を [registerIfNoneSince] に渡す。 */
+    fun registrations(): Long = registerCount
+
+    @Volatile private var registerCount = 0L
+
+    /**
+     * [mark]（[registrations] の値）の後に別の部屋が登録されていなければ [room] を登録して一時 ID を返す。登録されていれば null。
+     * 画面を閉じた後に届いた古い入室結果で、その間に入った新しい部屋を置き換えないために使う。
+     */
+    @Synchronized
+    fun registerIfNoneSince(room: ChatRoomRef, mark: Long): String? =
+        if (registerCount == mark) register(room) else null
+
+    @Synchronized
     fun register(room: ChatRoomRef): String {
+        registerCount++
         // 入室できる部屋は 1 つ。一覧から別の部屋に入ったら、前の部屋は退室（作成者は閉じる）して接続を止める。
         connections.keys.toList().forEach { id -> connections.remove(id)?.leaveAndClose() }
         _collapsed.value = null
