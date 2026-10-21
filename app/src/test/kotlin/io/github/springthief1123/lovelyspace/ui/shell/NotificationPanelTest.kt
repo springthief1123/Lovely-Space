@@ -28,8 +28,9 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.LooperMode
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = Application::class)
+@Config(sdk = [34], application = Application::class, qualifiers = "w411dp-h891dp")
 @LooperMode(LooperMode.Mode.PAUSED)
+// パネルは画面の高さの 6 割までなので、実機に近い大きさの画面で確かめる（既定の小さな画面では「入室する」が一覧の外に出る）。
 class NotificationPanelTest {
     @get:Rule val compose = createComposeRule()
 
