@@ -3,6 +3,7 @@ package io.github.springthief1123.lovelyspace.notify
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Notification
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
@@ -15,6 +16,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import io.github.springthief1123.lovelyspace.MainActivity
 import io.github.springthief1123.lovelyspace.R
+import io.github.springthief1123.lovelyspace.settings.NoticeRetention
 import io.github.springthief1123.lovelyspace.settings.NotificationPreview
 import org.json.JSONObject
 
@@ -69,6 +71,24 @@ class AppNotifier(
     fun dismiss(id: String) {
         inbox.remove(id)
         manager.cancel(id, NOTIFICATION_ID)
+    }
+
+    /**
+     * お知らせを残す時間（設定）を変える。時間を過ぎて消えたお知らせは端末通知も消し、
+     * 出ているままの端末通知は新しい時間で消えるよう、音を鳴らさずに出し直す（出したときの時間のままにしない）。
+     */
+    @SuppressLint("MissingPermission") // canPost() で権限を確かめてから出し直す
+    suspend fun applyRetention(retention: Map<NotificationKind, NoticeRetention>) {
+        val before = inbox.entries.value.map { it.id }.toSet()
+        inbox.retention = retention
+        val kept = inbox.entries.value.associateBy { it.id }
+        (before - kept.keys).forEach(::cancel)
+        if (!canPost()) return
+        val shown = context.getSystemService(NotificationManager::class.java)?.activeNotifications.orEmpty()
+            .filter { it.id == NOTIFICATION_ID }.mapNotNull { it.tag }
+        if (shown.none { it in kept }) return
+        val preview = preview()
+        shown.mapNotNull { kept[it] }.forEach { manager.notify(it.id, NOTIFICATION_ID, build(it, preview, silent = true)) }
     }
 
     /** お知らせを開く（既読にして画面側へ渡し、残っている端末通知を消す）。[enter] は確認を飛ばして入室する（お知らせの「入室する」）。 */

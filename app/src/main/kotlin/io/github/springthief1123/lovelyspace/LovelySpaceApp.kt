@@ -51,8 +51,12 @@ class LovelySpaceApp : Application() {
         notifier.ensureChannels()
         // 通信の間隔の設定を、通信のたびに読める置き場へ写す。
         appScope.launch { settings.refreshPacing.collect { pacing.value = it } }
-        // お知らせを残す時間の設定を写し、過ぎたお知らせを消す。
-        appScope.launch { settings.noticeRetention.collect { notificationInbox.retention = it } }
+        // お知らせを残す時間の設定を写し、過ぎたお知らせを消す（出ている端末通知の消える時間も合わせる）。
+        appScope.launch {
+            settings.noticeRetention.collect {
+                try { notifier.applyRetention(it) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { notificationInbox.retention = it }
+            }
+        }
         // レーダー・順番待ちが見ているジャンルの 1 ページ目を、新着の確認で読み直す（見つける画面は画面側で登録する）。
         appScope.launch { radar.hotGenres.distinctUntilChanged().collect { hotPages.want("radar", it) } }
         appScope.launch { waitlist.genres.distinctUntilChanged().collect { hotPages.want("waitlist", it) } }
