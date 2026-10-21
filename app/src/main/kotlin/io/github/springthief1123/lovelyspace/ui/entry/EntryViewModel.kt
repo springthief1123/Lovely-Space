@@ -12,14 +12,12 @@ import io.github.springthief1123.lovelyspace.data.PresetRepository
 import io.github.springthief1123.lovelyspace.data.ProfilePreset
 import io.github.springthief1123.lovelyspace.ui.describeError
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 data class EntryUiState(
     val isLoading: Boolean = true,
@@ -180,12 +178,10 @@ class EntryViewModel(
         viewModelScope.launch {
             saveProfileQuietly(profile)
             try {
-                // 送信を始めたら、画面が閉じられても応答まで待つ（取り消すと、本家では入室済みなのに結果だけを失う）。
-                // withContext は戻るときに取り消しを確かめて結果を捨てるので、閉じた後の引き継ぎはこの中で済ませる。
-                val result = withContext(NonCancellable) {
-                    client.enter(form, profile).also { result ->
-                        if (result is EntryResult.Entered) entered(result.room)
-                    }
+                // 送信を始めた後に画面が閉じられても、本家では入室が済んでいることがある。戻り値は取り消しで捨てられるので、
+                // 入室できた部屋は応答を読んだ時点（onResult）で受け取って引き継ぐ。送信前の順番待ちの間に閉じたら何も送らない。
+                val result = client.enter(form, profile) { result ->
+                    if (result is EntryResult.Entered) entered(result.room)
                 }
                 when (result) {
                     is EntryResult.Entered -> Unit

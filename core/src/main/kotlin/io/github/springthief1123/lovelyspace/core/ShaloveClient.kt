@@ -228,8 +228,10 @@ class ShaloveClient(
     /**
      * 入室する。成功するとサイトが本人用の pwd を付けた `2shot.php` へ転送するので、その URL から部屋を特定する。
      * [captchaToken] はロボット除け認証が求められたとき（[EntryForm.requiresCaptcha]）に WebView で得た値。
+     * [onResult] は本家の応答を読んだ時点で必ず呼ぶ。送信を始めた後に呼び出し元が取り消されると戻り値は捨てられるが、
+     * 本家では入室が済んでいることがあるので、結果をここで受け取って引き継ぐ。送信を始める前（順番待ちの間）の取り消しでは何も送らない。
      */
-    suspend fun enter(form: EntryForm, profile: EntryProfile, captchaToken: String? = null): EntryResult {
+    suspend fun enter(form: EntryForm, profile: EntryProfile, captchaToken: String? = null, onResult: (EntryResult) -> Unit = {}): EntryResult {
         val charset = runCatching { Charset.forName(form.formCharset) }.getOrDefault(Charsets.UTF_8)
         val body = FormBody.Builder(charset)
             .add("room_id", form.roomId.toString())
@@ -262,7 +264,7 @@ class ShaloveClient(
                 }
                 if (!res.isSuccessful) throw HttpStatusException(res.code, url)
                 EntryResult.Rejected(EntryFormParser.errorMessage(decodeBody(res)))
-            }
+            }.also(onResult)
         }
     }
 
