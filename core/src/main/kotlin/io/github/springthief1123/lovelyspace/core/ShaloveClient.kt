@@ -91,10 +91,13 @@ class ShaloveClient(
             val requestUrl = pagerLinks[firstUrl]?.get(query.page)?.takeIf { isListUrl(it, query.genre) && query.matchesPagerUrl(it) } ?: url
             val html = if (manual) gated(operation = true, minIntervalMs = 0) { request(requestUrl) }
                 else gated(priority = priority) { request(requestUrl) }
-            val page = RoomListParser.parse(html, query.genre.key, query.page, requestUrl)
             // 一覧として読めない応答（連続で取り直したときなど）は、0 件の一覧として扱わずに取得の失敗にする。
             // キャッシュもページャも更新しないので、手元の一覧は前回のまま残る。
-            if (!RoomListParser.isReadable(page)) throw RoomListUnavailableException(RoomListParser.describePage(html))
+            val page = parsing {
+                RoomListParser.parse(html, query.genre.key, query.page, requestUrl).also { page ->
+                    if (!RoomListParser.isReadable(page)) throw RoomListUnavailableException(RoomListParser.describePage(html))
+                }
+            }
             val links = page.pageUrls.filterValues { isListUrl(it, query.genre) }
             // 1 ページ目のページャがいちばん新しい全体像なので、そのときは置き換える。
             synchronized(pagerLinks) { pagerLinks[firstUrl] = if (query.page == 1) links else pagerLinks[firstUrl].orEmpty() + links }
@@ -183,6 +186,12 @@ class ShaloveClient(
         }
     }
 
+    /**
+     * 本家の HTML の解析。90KB 前後の一覧を数秒ごとに読むので、呼び出し元（画面の ViewModel など）のメインスレッドで動かさない。
+     * 通信ゲートの外で行うので、解析の間も次の通信の順番は進む。
+     */
+    private suspend fun <T> parsing(block: () -> T): T = withContext(Dispatchers.Default) { block() }
+
     private suspend fun acquire(operation: Boolean, priority: Boolean = false) {
         if (operation) {
             waitingOperations.incrementAndGet()
@@ -270,7 +279,7 @@ class ShaloveClient(
 
     /** 待機画面・チャット画面を開き、初期状態（直近のログ・読み出し位置など）を得る。 */
     suspend fun openChat(room: ChatRoomRef): ChatPage =
-        ChatPageParser.parse(gated(operation = true, minIntervalMs = 0) { request(room.pageUrl) }, room)
+        gated(operation = true, minIntervalMs = 0) { request(room.pageUrl) }.let { html -> parsing { ChatPageParser.parse(html, room) } }
 
     /**
      * 公開閲覧は入室・発言・退室を送信しない。ページ通信と同じ制限を共有する。
@@ -282,10 +291,10 @@ class ShaloveClient(
         val url = SitePages.publicRoom(host, genreKey, roomId)
         val gap = if (manual) 0L else null
         val page = gated(operation = true, minIntervalMs = gap) { requestPage(url) }
-        val frame = io.github.springthief1123.lovelyspace.core.chat.PublicRoomParser.chatFrameUrl(page.body, page.finalUrl, roomId)
-            ?: return io.github.springthief1123.lovelyspace.core.chat.PublicRoomParser.parse(page.body, url, page.finalUrl)
+        val frame = parsing { io.github.springthief1123.lovelyspace.core.chat.PublicRoomParser.chatFrameUrl(page.body, page.finalUrl, roomId) }
+            ?: return parsing { io.github.springthief1123.lovelyspace.core.chat.PublicRoomParser.parse(page.body, url, page.finalUrl) }
         val inner = gated(operation = true, minIntervalMs = gap) { requestPage(frame) }
-        return io.github.springthief1123.lovelyspace.core.chat.PublicRoomParser.parse(inner.body, frame, inner.finalUrl)
+        return parsing { io.github.springthief1123.lovelyspace.core.chat.PublicRoomParser.parse(inner.body, frame, inner.finalUrl) }
     }
 
     /**
@@ -330,8 +339,8 @@ class ShaloveClient(
     suspend fun setPublic(room: ChatRoomRef, public: Boolean): ChatPage? =
         postRoomForm(room, "set_is_public" to if (public) "1" else "0").asRoomPage(room)
 
-    private fun String?.asRoomPage(room: ChatRoomRef): ChatPage? =
-        this?.let { runCatching { ChatPageParser.parse(it, room) }.getOrNull() }
+    private suspend fun String?.asRoomPage(room: ChatRoomRef): ChatPage? =
+        this?.let { html -> parsing { runCatching { ChatPageParser.parse(html, room) }.getOrNull() } }
 
     /**
      * `2shot.php` へ部屋の hidden 項目と [fields] を送る。成功した応答の本文を返す（転送なら null）。

@@ -2,11 +2,13 @@ package io.github.springthief1123.lovelyspace.core.chat
 
 import io.github.springthief1123.lovelyspace.core.HttpStatusException
 import io.github.springthief1123.lovelyspace.core.ShaloveClient
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.FormBody
@@ -149,8 +151,9 @@ class ChatSession internal constructor(
         }
     }
 
-    private fun apply(body: String): ChatUpdate {
-        val update = ChatUpdateParser.parse(body, state, room.pageUrl)
+    /** 応答を読んで読み出し位置を進める。解析は呼び出し元（画面）のメインスレッドで動かさない。 */
+    private suspend fun apply(body: String): ChatUpdate {
+        val update = withContext(Dispatchers.Default) { ChatUpdateParser.parse(body, state, room.pageUrl) }
         state = update.state
         return update
     }
