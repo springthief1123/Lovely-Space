@@ -95,7 +95,9 @@ internal fun NavController.openNotification(notification: AppNotification, enter
             // 順番待ちの空きは取り合いなので、設定が有効なら入力済みのまま入室まで進める。
             // 待機メッセージが登録時と違う（別の部屋かもしれない）ときは、入室画面で確かめてもらう。
             // お知らせの「入室する」は、見つける・レーダーの「入室する」と同じく確認を飛ばして入る（利用者が押した 1 回だけ）。
-            val auto = enterNow || (enterFromWaitlist && notification.kind == NotificationKind.WAITLIST && target.verified)
+            // ただし待機メッセージが違う空き（「待機メッセージ変更」のお知らせ）は、「入室する」でも入室画面で確かめてもらう。
+            val unverified = notification.kind == NotificationKind.WAITLIST && !target.verified
+            val auto = !unverified && (enterNow || (enterFromWaitlist && notification.kind == NotificationKind.WAITLIST))
             navigate(Routes.entry(target.host, target.genreKey, target.roomId, origin, auto)) { launchSingleTop = true }
         }
         NotificationTarget.ActiveChat -> resumeChat()?.let { navigateToChat(it, Routes.ROOMS) } ?: showMain(Routes.ROOMS)

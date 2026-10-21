@@ -33,6 +33,11 @@ class AppNotifier(
 ) {
     private val manager = NotificationManagerCompat.from(context)
 
+    init {
+        // 時間でお知らせから消えた通知は、端末からも消す（押しても開く先が無いため）。
+        inbox.onExpired = { ids -> ids.forEach(::cancel) }
+    }
+
     /** 種類ごとの通知チャンネルを用意する。何度呼んでも既存の設定は変わらない。 */
     fun ensureChannels() {
         RETIRED_CHANNELS.forEach(manager::deleteNotificationChannel)
@@ -74,16 +79,14 @@ class AppNotifier(
     }
 
     /**
-     * お知らせを残す時間（設定）を変える。時間を過ぎて消えたお知らせは端末通知も消し、
+     * お知らせを残す時間（設定）を変える。時間を過ぎて消えたお知らせは端末通知も消え（[NotificationInbox.onExpired]）、
      * 出ているままの端末通知は新しい時間で消えるよう、音を鳴らさずに出し直す（出したときの時間のままにしない）。
      */
     @SuppressLint("MissingPermission") // canPost() で権限を確かめてから出し直す
     suspend fun applyRetention(retention: Map<NotificationKind, NoticeRetention>) {
-        val before = inbox.entries.value.map { it.id }.toSet()
         inbox.retention = retention
-        val kept = inbox.entries.value.associateBy { it.id }
-        (before - kept.keys).forEach(::cancel)
         if (!canPost()) return
+        val kept = inbox.entries.value.associateBy { it.id }
         val shown = context.getSystemService(NotificationManager::class.java)?.activeNotifications.orEmpty()
             .filter { it.id == NOTIFICATION_ID }.mapNotNull { it.tag }
         if (shown.none { it in kept }) return

@@ -38,6 +38,10 @@ class NotificationInbox(
     /** 残す時間を過ぎたお知らせか。 */
     fun isExpired(notification: AppNotification, now: Long = this.now()): Boolean =
         retentionMillis(notification.kind)?.let { now - notification.at >= it } ?: false
+
+    /** 残す時間を過ぎて消したお知らせの ID を受け取る（端末に残っている同じ通知も消すため）。 */
+    @Volatile var onExpired: ((Set<String>) -> Unit)? = null
+
     val entries: StateFlow<List<AppNotification>> = _entries.asStateFlow()
 
     private val _opened = MutableStateFlow<AppNotification?>(null)
@@ -51,15 +55,20 @@ class NotificationInbox(
     fun add(notification: AppNotification) {
         if (!notification.kind.logged) return
         val at = now()
-        change { entries -> (listOf(notification) + entries.filterNot { it.id == notification.id || isExpired(it, at) }).take(MAX_ENTRIES) }
+        val expired = expiredIds(at) - notification.id
+        change { entries -> (listOf(notification) + entries.filterNot { it.id == notification.id || it.id in expired }).take(MAX_ENTRIES) }
+        if (expired.isNotEmpty()) onExpired?.invoke(expired)
     }
 
     /** 残す時間を過ぎたお知らせを消す（ベルを開いたとき・画面を見ている間は 1 分ごと）。 */
     fun removeExpired() {
-        val at = now()
-        if (_entries.value.none { isExpired(it, at) }) return
-        change { entries -> entries.filterNot { isExpired(it, at) } }
+        val expired = expiredIds(now())
+        if (expired.isEmpty()) return
+        change { entries -> entries.filterNot { it.id in expired } }
+        onExpired?.invoke(expired)
     }
+
+    private fun expiredIds(at: Long): Set<String> = _entries.value.filter { isExpired(it, at) }.map { it.id }.toSet()
 
     operator fun get(id: String): AppNotification? = _entries.value.firstOrNull { it.id == id }
 

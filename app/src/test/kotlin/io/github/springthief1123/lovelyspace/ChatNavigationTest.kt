@@ -181,6 +181,18 @@ class ChatNavigationTest {
         assertTrue(nav.currentBackStackEntry!!.arguments!!.getBoolean("auto"))
     }
 
+    @Test fun enterButtonStillConfirmsAnOpeningWhoseMessageChanged() {
+        // 待機メッセージがピンしたときと違う空きは、別の人の部屋かもしれないので「入室する」でも入室画面で確かめる。
+        val nav = controller()
+        nav.openNotification(notification(NotificationKind.WAITLIST, NotificationTarget.Room("chat.shalove.net", "zenkoku", 88)), enterNow = true) { null }
+        assertEquals(Routes.ENTRY, nav.currentDestination!!.route)
+        assertFalse(nav.currentBackStackEntry!!.arguments!!.getBoolean("auto"))
+
+        val same = controller()
+        same.openNotification(notification(NotificationKind.WAITLIST, NotificationTarget.Room("chat.shalove.net", "zenkoku", 88, verified = true)), enterNow = true) { null }
+        assertTrue(same.currentBackStackEntry!!.arguments!!.getBoolean("auto"))
+    }
+
     @Test fun roomEntryNotificationResumesTheActiveChat() {
         val nav = controller()
         nav.openNotification(notification(NotificationKind.ROOM_ENTRY, NotificationTarget.ActiveChat)) { "owner-session" }

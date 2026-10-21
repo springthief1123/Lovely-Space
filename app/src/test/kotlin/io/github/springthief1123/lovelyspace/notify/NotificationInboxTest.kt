@@ -82,6 +82,8 @@ class NotificationInboxTest {
         var now = 0L
         val disk = MemoryPersistence()
         val inbox = NotificationInbox(disk) { now }
+        val expired = mutableListOf<Set<String>>()
+        inbox.onExpired = { expired += it }
         inbox.add(entry("pin", NotificationKind.WAITLIST, at = 0))
         inbox.add(entry("match", NotificationKind.RADAR_MATCH, at = 0))
         inbox.add(entry("entry", NotificationKind.ROOM_ENTRY, at = 0))
@@ -96,6 +98,8 @@ class NotificationInboxTest {
         now = 3 * 60 * 60_000L
         inbox.removeExpired()
         assertEquals(listOf("entry"), inbox.entries.value.map { it.id })
+        // 消した ID を渡す（端末に残っている同じ通知も消すため）。
+        assertEquals(listOf(setOf("pin"), setOf("match")), expired)
     }
 
     @Test fun openingAnUnknownEntryDoesNothing() {
