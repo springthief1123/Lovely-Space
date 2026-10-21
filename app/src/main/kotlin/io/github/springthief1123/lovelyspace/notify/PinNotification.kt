@@ -19,11 +19,12 @@ fun PinEvent.toNotification(at: Long = System.currentTimeMillis()): AppNotificat
                 id = "pin-${pin.key}-$at",
                 kind = NotificationKind.WAITLIST,
                 title = "ピンした部屋が空きました",
-                text = "${genre.label}の部屋に入室できます。" +
-                    if (sameMessage) "待機メッセージはピンしたときと同じです。" else "待機メッセージがピンしたときと違うため、同じ部屋かを入室画面で確かめてください。",
+                // 同じ待機メッセージなら知らせることは無いので、ジャンルだけにする。違うときだけ確かめるよう添える。
+                text = genre.label + if (sameMessage) "" else "・待機メッセージがピンしたときと違います",
                 target = NotificationTarget.Room(genre.host, opened.genreKey, opened.id, verified = sameMessage),
                 at = at,
                 message = listOfNotNull(opened.name, opened.message.takeIf { it.isNotBlank() }).joinToString("\n").ifBlank { null },
+                room = opened,
             )
         }
         is PinEvent.Similar -> AppNotification(
@@ -34,6 +35,7 @@ fun PinEvent.toNotification(at: Long = System.currentTimeMillis()): AppNotificat
             target = NotificationTarget.Radar,
             at = at,
             message = listOfNotNull(similar.room.name, similar.room.message.takeIf { it.isNotBlank() }).joinToString("\n").ifBlank { null },
+            room = similar.room,
         )
     }
 }

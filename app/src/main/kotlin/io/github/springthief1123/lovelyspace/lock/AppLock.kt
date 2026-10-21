@@ -38,8 +38,16 @@ data class AppLockConfig(
     val passcodeLength: Int = 0,
     val biometric: Boolean = false,
     val delay: LockDelay = LockDelay.IMMEDIATE,
+    /**
+     * ロック中もスクリーンショットを撮れるようにする（FLAG_SECURE を掛けない）。
+     * 代わりに最近のアプリ一覧のカードに、しばらく中身が残ることがある（One UI で確認）。
+     */
+    val allowScreenshots: Boolean = false,
 ) {
     val enabled: Boolean get() = method != null
+
+    /** 画面に FLAG_SECURE を掛けるか（スクリーンショット・画面録画も黒くなる）。 */
+    val secureWindow: Boolean get() = enabled && !allowScreenshots
 }
 
 /** パスコード・パターンをハッシュにする。平文は保存しない。 */
@@ -88,6 +96,7 @@ class AppLockStore(private val prefs: SharedPreferences) : AppLockPersistence {
         passcodeLength = prefs.getInt(KEY_LENGTH, 0),
         biometric = prefs.getBoolean(KEY_BIOMETRIC, false),
         delay = prefs.getString(KEY_DELAY, null)?.let { runCatching { LockDelay.valueOf(it) }.getOrNull() } ?: LockDelay.IMMEDIATE,
+        allowScreenshots = prefs.getBoolean(KEY_SCREENSHOTS, false),
     )
 
     override fun secret(): Pair<String, String>? {
@@ -102,6 +111,7 @@ class AppLockStore(private val prefs: SharedPreferences) : AppLockPersistence {
             putInt(KEY_LENGTH, config.passcodeLength)
             putBoolean(KEY_BIOMETRIC, config.biometric)
             putString(KEY_DELAY, config.delay.name)
+            putBoolean(KEY_SCREENSHOTS, config.allowScreenshots)
             if (config.method == null) { remove(KEY_SALT); remove(KEY_HASH) }
             else if (salt != null && hash != null) { putString(KEY_SALT, salt); putString(KEY_HASH, hash) }
         }.commit()
@@ -121,6 +131,7 @@ class AppLockStore(private val prefs: SharedPreferences) : AppLockPersistence {
         private const val KEY_LENGTH = "passcode_length"
         private const val KEY_BIOMETRIC = "biometric"
         private const val KEY_DELAY = "delay"
+        private const val KEY_SCREENSHOTS = "allow_screenshots"
         private const val KEY_SALT = "salt"
         private const val KEY_HASH = "hash"
     }
@@ -213,7 +224,7 @@ class AppLockController(
     }
 
     fun disable() {
-        val config = _state.value.config.copy(method = null, passcodeLength = 0, biometric = false)
+        val config = _state.value.config.copy(method = null, passcodeLength = 0, biometric = false, allowScreenshots = false)
         store.save(config, null, null)
         store.saveAttempts(0, 0)
         _state.update { it.copy(config = config, locked = false, failures = 0, lockedOutUntil = 0) }
@@ -221,6 +232,7 @@ class AppLockController(
 
     fun setBiometric(enabled: Boolean) = updateConfig { it.copy(biometric = enabled) }
     fun setDelay(delay: LockDelay) = updateConfig { it.copy(delay = delay) }
+    fun setAllowScreenshots(allowed: Boolean) = updateConfig { it.copy(allowScreenshots = allowed) }
 
     private fun updateConfig(change: (AppLockConfig) -> AppLockConfig) {
         val config = change(_state.value.config)

@@ -56,6 +56,27 @@ class NotificationInboxTest {
         assertNull(inbox.opened.value)
     }
 
+    @Test fun enteringFromTheBellIsHandedToTheScreenOnce() {
+        val inbox = NotificationInbox()
+        inbox.add(entry("a"))
+        inbox.open("a", enter = true)
+        assertTrue(inbox.openedToEnter)
+        inbox.consumeOpened()
+        assertFalse(inbox.openedToEnter)
+        inbox.open("a")
+        assertFalse(inbox.openedToEnter)
+    }
+
+    @Test fun removingOneEntryKeepsTheOthers() {
+        val disk = MemoryPersistence()
+        val inbox = NotificationInbox(disk)
+        inbox.add(entry("a"))
+        inbox.add(entry("b"))
+        inbox.remove("a")
+        assertNull(inbox["a"])
+        assertEquals(listOf("b"), disk.saved.map { it.id })
+    }
+
     @Test fun openingAnUnknownEntryDoesNothing() {
         val inbox = NotificationInbox()
         assertNull(inbox.open("missing"))

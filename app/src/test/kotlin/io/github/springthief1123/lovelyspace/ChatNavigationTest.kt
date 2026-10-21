@@ -172,6 +172,15 @@ class ChatNavigationTest {
         assertFalse(changed.currentBackStackEntry!!.arguments!!.getBoolean("auto"))
     }
 
+    @Test fun enterButtonInTheBellSkipsTheConfirmation() {
+        val target = NotificationTarget.Room("chat.shalove.net", "zenkoku", 88)
+        // 利用者が「入室する」を押したので、照合できない部屋・レーダーの一致でも確認を飛ばす（見つける画面の「入室する」と同じ）。
+        val nav = controller()
+        nav.openNotification(notification(NotificationKind.RADAR_MATCH, target), enterNow = true) { null }
+        assertEquals(Routes.ENTRY, nav.currentDestination!!.route)
+        assertTrue(nav.currentBackStackEntry!!.arguments!!.getBoolean("auto"))
+    }
+
     @Test fun roomEntryNotificationResumesTheActiveChat() {
         val nav = controller()
         nav.openNotification(notification(NotificationKind.ROOM_ENTRY, NotificationTarget.ActiveChat)) { "owner-session" }

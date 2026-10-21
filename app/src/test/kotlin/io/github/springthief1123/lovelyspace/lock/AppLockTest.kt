@@ -148,6 +148,20 @@ class AppLockTest {
         assertFalse(controller.state.value.locked)
     }
 
+    @Test fun screenshotsAreBlockedWhileLockedUnlessAllowed() {
+        val store = MemoryStore()
+        val controller = AppLockController(store, { 0 }, { 0 })
+        assertFalse(controller.state.value.config.secureWindow)
+        controller.enable(LockMethod.PASSCODE, "2468")
+        assertTrue(controller.state.value.config.secureWindow)
+        controller.setAllowScreenshots(true)
+        assertFalse(controller.state.value.config.secureWindow)
+        assertTrue(store.config.allowScreenshots)
+        // ロックを切ったら許可も戻す（次に有効にしたときは隠す側から始める）。
+        controller.disable()
+        assertFalse(store.config.allowScreenshots)
+    }
+
     @Test fun biometricVerificationClearsEarlierMistakesWithoutUnlocking() {
         val controller = AppLockController(MemoryStore(), { 0 }, { 0 })
         controller.enable(LockMethod.PASSCODE, "2468")

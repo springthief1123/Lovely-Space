@@ -1,5 +1,6 @@
 package io.github.springthief1123.lovelyspace.notify
 
+import io.github.springthief1123.lovelyspace.core.Room
 import io.github.springthief1123.lovelyspace.settings.NotificationPreview
 import org.json.JSONObject
 
@@ -49,6 +50,7 @@ internal fun notificationTarget(o: JSONObject): NotificationTarget = when (val t
 /**
  * 端末通知とお知らせ（通知ベル）の 1 件。
  * [message] は他の利用者の待機メッセージなど、利用者の設定によっては通知に出さない本文。
+ * [room] は 1 部屋についてのお知らせのその部屋。お知らせ（ベル）のカードで、誰のどんな部屋かを部屋カードと同じ形で出す。
  */
 data class AppNotification(
     val id: String,
@@ -59,6 +61,7 @@ data class AppNotification(
     val at: Long,
     val message: String? = null,
     val read: Boolean = false,
+    val room: Room? = null,
 ) {
     /** 端末通知に出す本文。 */
     fun body(preview: NotificationPreview): String =

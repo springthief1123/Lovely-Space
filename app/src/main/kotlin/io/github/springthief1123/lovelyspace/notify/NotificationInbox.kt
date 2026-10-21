@@ -22,6 +22,10 @@ class NotificationInbox(private val persistence: NotificationInboxPersistence? =
     private val _opened = MutableStateFlow<AppNotification?>(null)
     val opened: StateFlow<AppNotification?> = _opened.asStateFlow()
 
+    /** [opened] をお知らせの「入室する」で開いた（入室前の確認を飛ばして入る）。[consumeOpened] で戻す。 */
+    var openedToEnter: Boolean = false
+        private set
+
     /** 履歴に加える。常駐通知など履歴に残さない種類は何もしない。 */
     fun add(notification: AppNotification) {
         if (!notification.kind.logged) return
@@ -37,19 +41,28 @@ class NotificationInbox(private val persistence: NotificationInboxPersistence? =
 
     fun markAllRead() = markRead(_entries.value.map { it.id }.toSet())
 
-    /** お知らせを開く。既読にして、画面側に開く先を渡す。履歴に無いものは何もしない。 */
-    fun open(id: String): AppNotification? {
+    /** お知らせを開く。既読にして、画面側に開く先を渡す。履歴に無いものは何もしない。[enter] は確認を飛ばして入室する。 */
+    fun open(id: String, enter: Boolean = false): AppNotification? {
         val entry = get(id) ?: return null
         markRead(setOf(id))
+        openedToEnter = enter
         return entry.copy(read = true).also { _opened.value = it }
+    }
+
+    /** お知らせを 1 件消す（ベルで横にスワイプしたとき）。 */
+    fun remove(id: String) {
+        if (get(id) == null) return
+        change { entries -> entries.filterNot { it.id == id } }
     }
 
     /** 履歴に残していない通知（常駐など）を開く。開く先だけを画面側に渡す。 */
     fun show(notification: AppNotification) {
+        openedToEnter = false
         _opened.value = notification
     }
 
     fun consumeOpened() {
+        openedToEnter = false
         _opened.value = null
     }
 

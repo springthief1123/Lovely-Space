@@ -81,9 +81,11 @@ internal fun NavController.navigateMain(route: String) {
 /**
  * 通知・お知らせから該当の画面を開く。部屋は元のタブの上に入室画面を重ね、戻ると元のタブに戻る。
  * [enterFromWaitlist] は順番待ちの通知から開いたら入室まで進めるか（設定の「通知から開いたらすぐ入室する」）。
+ * [enterNow] はお知らせの「入室する」から開いた（部屋なら確認を飛ばして入室する）。
  * [resumeChat] は進行中の部屋の一時 ID を返す（無ければ null）。
  */
-internal fun NavController.openNotification(notification: AppNotification, enterFromWaitlist: Boolean = false, resumeChat: () -> String?) {
+internal fun NavController.openNotification(notification: AppNotification, enterFromWaitlist: Boolean = false, enterNow: Boolean = false,
+    resumeChat: () -> String?) {
     when (val target = notification.target) {
         is NotificationTarget.Room -> {
             // 条件・名前で待つの一致はレーダーの機能なので、戻るとレーダーに戻す。
@@ -92,7 +94,8 @@ internal fun NavController.openNotification(notification: AppNotification, enter
             showMain(origin)
             // 順番待ちの空きは取り合いなので、設定が有効なら入力済みのまま入室まで進める。
             // 待機メッセージが登録時と違う（別の部屋かもしれない）ときは、入室画面で確かめてもらう。
-            val auto = enterFromWaitlist && notification.kind == NotificationKind.WAITLIST && target.verified
+            // お知らせの「入室する」は、見つける・レーダーの「入室する」と同じく確認を飛ばして入る（利用者が押した 1 回だけ）。
+            val auto = enterNow || (enterFromWaitlist && notification.kind == NotificationKind.WAITLIST && target.verified)
             navigate(Routes.entry(target.host, target.genreKey, target.roomId, origin, auto)) { launchSingleTop = true }
         }
         NotificationTarget.ActiveChat -> resumeChat()?.let { navigateToChat(it, Routes.ROOMS) } ?: showMain(Routes.ROOMS)

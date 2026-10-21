@@ -65,9 +65,15 @@ class AppNotifier(
         manager.cancel(id, NOTIFICATION_ID)
     }
 
-    /** お知らせを開く（既読にして画面側へ渡し、残っている端末通知を消す）。 */
-    fun open(id: String) {
-        val opened = inbox.open(id) ?: return
+    /** お知らせを 1 件消す（ベルでスワイプしたとき）。端末に残っている同じ通知も消す。 */
+    fun dismiss(id: String) {
+        inbox.remove(id)
+        manager.cancel(id, NOTIFICATION_ID)
+    }
+
+    /** お知らせを開く（既読にして画面側へ渡し、残っている端末通知を消す）。[enter] は確認を飛ばして入室する（お知らせの「入室する」）。 */
+    fun open(id: String, enter: Boolean = false) {
+        val opened = inbox.open(id, enter) ?: return
         manager.cancel(id, NOTIFICATION_ID)
         onOpened(opened)
     }

@@ -88,9 +88,10 @@ fun AppNavHost() {
     val openedNotification by app.notificationInbox.opened.collectAsStateWithLifecycle()
     LaunchedEffect(openedNotification) {
         val notification = openedNotification ?: return@LaunchedEffect
+        val enterNow = app.notificationInbox.openedToEnter
         app.notificationInbox.consumeOpened()
         val fromNotification = try { app.settings.entrySettings.first().fromNotification } catch (e: CancellationException) { throw e } catch (_: Exception) { false }
-        nav.openNotification(notification, enterFromWaitlist = fromNotification) { app.activeRooms.resume() }
+        nav.openNotification(notification, enterFromWaitlist = fromNotification, enterNow = enterNow) { app.activeRooms.resume() }
     }
 
     // 順番待ちの自動入室は、前面で主画面を見ていて、会話中でもロックもされていないときだけ受け付ける。

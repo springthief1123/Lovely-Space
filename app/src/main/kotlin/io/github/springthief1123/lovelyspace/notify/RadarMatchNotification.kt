@@ -42,6 +42,7 @@ fun List<RadarEvent>.toMatchNotification(id: String): AppNotification? {
         target = target,
         at = matches.maxOf { it.at },
         message = if (single != null) listOf(names, single.message).filter { it.isNotBlank() }.joinToString("\n") else names,
+        room = single,
     )
 }
 

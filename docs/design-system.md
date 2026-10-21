@@ -79,7 +79,7 @@
   - `QuietDropdownMenu`（︙・通知・ボタンから開く選択）と `QuietExposedMenu`（読み取り専用の入力欄から開く選択。`ExposedDropdownMenuBox` の中で使う）。標準の `DropdownMenu` / `ExposedDropdownMenu` に `QuietMenuDefaults` の外観を渡したもの: 面 `surfaceContainerLow`、形 `LovelyShapes.menu`（20dp）、境界 `glassBorder` 1dp、影 16dp、色の重ね（tonal elevation）なし。
   - `QuietMenuRow`: 行。左右 6dp 空けた 14dp の角丸を押せる範囲にし、文字は 18dp の位置（見出しとそろう）、本文は `bodyLarge`・2 行まで。アイコンは `primary`、`destructive` は文字とアイコンを `error`、無効は 38%。`supporting` で 2 行目の補足、`selected` で右端に印を付け、読み上げでも選択中と伝える（選択の意味がない行には付けない）。
   - 標準の `DropdownMenu` を使い続ける理由: 引数（`shape` / `containerColor` / `border` / `shadowElevation`）で外観は合わせられ、アンカー位置・画面端での反転・Back・外側タップ・キーボード操作・スクロールを自前で作り直さずに済むため。`Popup` で作るのは `RoomActionMenu` のように指の位置から開く・見出しを持つ場合に限る。
-  - `RoomActionMenu` も `QuietMenuDefaults` と `LovelyShapes` を使う（値は変えていない）。お知らせ一覧（`NotificationPanel`）の行も同じ押せる範囲にする。
+  - `RoomActionMenu` も `QuietMenuDefaults` と `LovelyShapes` を使う（値は変えていない）。お知らせ（`NotificationPopup` / `NotificationPanel`）は `RoomActionMenu` と同じく Popup に同じ面を描き、ベルの真下・画面の左右中央に開く。中の 1 件は部屋カードと同じ `RoomCardPanel`・`RoomCardHeading`・`MetaChip`・`ActionChip`（「入室する」）で描き、左右へのスワイプで消す。
 - チップ・入力・トグル（Phase C、#75 で実装）: `ui/components/QuietControls.kt`。形は `LovelyShapes.control`。
 
   | 部品 | 標準の既定 | Quiet Rose | 共通部品 |
