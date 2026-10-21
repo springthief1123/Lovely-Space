@@ -64,4 +64,12 @@ class RadarMatchNotificationTest {
         assertEquals(NotificationTarget.Radar, n.target)
         assertEquals(2_000L, n.at)
     }
+
+    @Test fun aReusedIdShowsTheNewerRoom() {
+        val first = event(room)
+        val reused = room.copy(name = "合成の別の名前", age = 30, message = "合成の別の待機メッセージ")
+        val n = listOf(first, first.copy(id = "e-2", at = 2_000L, rooms = listOf(reused))).toMatchNotification("merged")!!
+        assertEquals("全国で1件", n.text)
+        assertEquals("合成の別の名前\n合成の別の待機メッセージ", n.message)
+    }
 }

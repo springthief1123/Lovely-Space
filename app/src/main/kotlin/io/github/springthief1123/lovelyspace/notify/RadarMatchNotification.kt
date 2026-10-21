@@ -16,7 +16,9 @@ import io.github.springthief1123.lovelyspace.data.RadarEventKind
 fun List<RadarEvent>.toMatchNotification(id: String): AppNotification? {
     val matches = filter { it.kind == RadarEventKind.SEARCH_MATCH || it.kind == RadarEventKind.CANDIDATE_MATCH }
     val first = matches.firstOrNull() ?: return null
-    val rooms = matches.flatMap { it.rooms }.distinctBy(::roomIdentity)
+    // 同じ ID が続けて出たら新しい方を残す（閉じた部屋の ID が別の人の部屋に使い回されたら、古い人は数えない）。
+    val found = matches.flatMap { event -> event.rooms.map { event to it } }.asReversed().distinctBy { roomIdentity(it.second) }.asReversed()
+    val rooms = found.map { it.second }
     if (rooms.isEmpty()) return null
     val named = first.kind == RadarEventKind.CANDIDATE_MATCH
     val single = rooms.singleOrNull()
@@ -26,7 +28,7 @@ fun List<RadarEvent>.toMatchNotification(id: String): AppNotification? {
     val names = rooms.take(MAX_NAMES).joinToString("、") { it.name ?: "名前なし" } +
         if (rooms.size > MAX_NAMES) " ほか" else ""
     val genre = Genres[rooms.first().genreKey]?.label ?: rooms.first().genreKey
-    val rebuilt = rooms.count { room -> matches.any { roomIdentity(room) in it.rebuilds } }
+    val rebuilt = found.count { (event, room) -> roomIdentity(room) in event.rebuilds }
     val where = matches.singleOrNull()?.let { "${genre}の${it.page ?: 1}ページで" } ?: "${genre}で"
     return AppNotification(
         id = id,
