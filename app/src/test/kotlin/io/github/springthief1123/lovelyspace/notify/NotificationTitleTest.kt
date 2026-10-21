@@ -8,6 +8,7 @@ import io.github.springthief1123.lovelyspace.settings.NotificationPreview
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NotificationTitleTest {
@@ -36,6 +37,7 @@ class NotificationTitleTest {
         assertEquals("テスト", pin.room?.name)
         // 押しても本家の部屋を開かない。
         assertFalse(pin.target is NotificationTarget.Room)
+        assertTrue(NotificationSamples.isSample(pin))
         assertEquals("全国で1件", NotificationSamples.of(NotificationKind.RADAR_MATCH).text)
     }
 }

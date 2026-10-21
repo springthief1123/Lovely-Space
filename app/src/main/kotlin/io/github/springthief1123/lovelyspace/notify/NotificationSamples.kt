@@ -10,14 +10,19 @@ import java.util.UUID
 /**
  * 設定画面の「テスト通知を送る」で出す通知。見出し・本文・お知らせのカードは実際の通知（`PinEvent.toNotification`・
  * `toMatchNotification`）と同じ形にし、部屋主の名前を「テスト」にして見分ける。本家の実データは使わない。
- * 押しても本家に通信しないよう、開く先は部屋ではなく一覧・レーダーにする（そのためカードに「入室する」は出ない）。
+ * 押しても本家に通信しないよう、開く先は部屋ではなく一覧・レーダーにする。カードの「入室する」は見た目だけ（[isSample]）。
  */
 object NotificationSamples {
+    private const val ID_PREFIX = "sample-"
+
+    /** テスト通知か。お知らせのカードでは、部屋に入れなくても「入室する」を見た目だけ出す。 */
+    fun isSample(notification: AppNotification): Boolean = notification.id.startsWith(ID_PREFIX)
+
     private const val NAME = "テスト"
     private const val MESSAGE = "（テスト用の待機メッセージ）"
 
     fun of(kind: NotificationKind, now: Long = System.currentTimeMillis()): AppNotification {
-        val id = UUID.randomUUID().toString()
+        val id = ID_PREFIX + UUID.randomUUID().toString()
         val room = Room(0, Genres.all.first().key, RoomStatus.WAITING, RoomAction.ENTER, null, NAME, Gender.FEMALE, 25, null, MESSAGE)
         val genre = Genres.all.first().label
         return when (kind) {

@@ -72,6 +72,7 @@ import io.github.springthief1123.lovelyspace.data.formatObservationTime
 import io.github.springthief1123.lovelyspace.lock.LocalAppLocked
 import io.github.springthief1123.lovelyspace.notify.AppNotification
 import io.github.springthief1123.lovelyspace.notify.NotificationKind
+import io.github.springthief1123.lovelyspace.notify.NotificationSamples
 import io.github.springthief1123.lovelyspace.notify.NotificationTarget
 import io.github.springthief1123.lovelyspace.notify.unreadCount
 import io.github.springthief1123.lovelyspace.ui.components.QuietMenuDefaults
@@ -268,8 +269,12 @@ private fun NotificationCard(entry: AppNotification, onClick: () -> Unit, onEnte
                     }
                     Spacer(Modifier.weight(1f))
                     // 見つける画面・レーダーと同じ「入室する」チップ。押せる範囲は 48dp を取る。
+                    // テスト通知は見た目だけ出し、押してもカードと同じ（本家の部屋は開かない）。
                     if (roomTarget != null) {
                         ActionChip("入室する", emphasized = true, onClick = onEnter, modifier = Modifier.minimumInteractiveComponentSize())
+                    } else if (NotificationSamples.isSample(entry)) {
+                        ActionChip("入室する", emphasized = true, onClick = onClick, onClickLabel = "開く（テスト通知）",
+                            modifier = Modifier.minimumInteractiveComponentSize())
                     }
                 }
             }
