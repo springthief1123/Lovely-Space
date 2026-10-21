@@ -9,6 +9,8 @@ object NotificationSamples {
         return when (kind) {
             NotificationKind.RADAR_MATCH -> AppNotification(id, kind, "テスト：条件に合う部屋があります",
                 "全国の一覧で 1 件見つかりました", NotificationTarget.Radar, now, message = "（テスト用の待機メッセージ）")
+            NotificationKind.NAME_MATCH -> AppNotification(id, kind, "テスト：名前で待つ人の部屋が建ちました",
+                "全国の一覧で見つかりました", NotificationTarget.Radar, now, message = "（テスト用の待機メッセージ）")
             NotificationKind.ROOM_ENTRY -> AppNotification(id, kind, "テスト：相手が入室しました",
                 "進行中の部屋に戻って会話を始められます", NotificationTarget.ActiveChat, now)
             NotificationKind.WAITLIST -> AppNotification(id, kind, "テスト：順番待ちの部屋に空きが出ました",

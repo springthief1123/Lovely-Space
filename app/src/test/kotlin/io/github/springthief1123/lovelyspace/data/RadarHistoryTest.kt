@@ -28,22 +28,6 @@ class RadarHistoryTest {
             return page
         }
     }
-    @Test fun historyFiltersUseStableOriginsAndDoNotMixIdenticalNames() {
-        val a = RadarEvent(1, "合成", kind = RadarEventKind.SEARCH_MATCH, origin = RadarEventOrigin(RadarOriginType.PLAN, "a", "同名"))
-        val b = a.copy(id = "b", origin = a.origin!!.copy(id = "b"))
-        val filter = RadarHistoryFilter(unreadOnly = true, kind = RadarEventKind.SEARCH_MATCH, originKey = a.origin!!.key)
-        assertTrue(a.matches(filter)); assertFalse(b.matches(filter)); assertFalse(a.copy(read = true).matches(filter))
-        assertFalse(a.copy(kind = RadarEventKind.CANDIDATE_MATCH).matches(filter))
-    }
-    @Test fun identicalOriginLabelsHaveDistinctVisibleOptionsAndStableKeys() {
-        val a = RadarEvent(1, "合成", origin = RadarEventOrigin(RadarOriginType.PLAN, "a", "同名"))
-        val b = a.copy(id = "b", origin = a.origin!!.copy(id = "b"))
-        val options = io.github.springthief1123.lovelyspace.ui.main.historyOriginOptions(listOf(b, a))
-        assertEquals(listOf(a.origin!!.key, b.origin!!.key), options.map { it.first })
-        assertEquals(2, options.map { it.second }.distinct().size)
-        val detailed = io.github.springthief1123.lovelyspace.ui.main.historyOriginOptions(listOf(a, b.copy(origin = b.origin!!.copy(description = "女性のみ"))))
-        assertTrue(detailed.last().second.contains("女性のみ"))
-    }
     @Test fun arrivalsAfterTheReadSnapshotStayUnreadAndSurviveRestart() = runTest {
         val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
         try {

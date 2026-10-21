@@ -33,3 +33,38 @@ fun isRebuildOf(old: Room, new: Room): Boolean {
 
 /** 名前が分からないとき、募集文だけで立て直しと見る最短の長さ（[KeywordFolding.fold] 後の文字数）。 */
 const val REBUILD_MESSAGE_ONLY_MIN = 10
+
+/**
+ * 条件ごとに、最近一致した部屋（新しい一致が立て直しかを照合する元）。部屋は最長 8 時間で閉じるので、[MAX_AGE_MS] より前の一致は捨てる。
+ * [entries] は部屋（[roomIdentity]）ごとに最後に一致した時刻と姿。多すぎるときは古いものから [MAX_ROOMS] 件まで残す。
+ */
+data class RecentMatches(val entries: Map<String, Pair<Long, Room>> = emptyMap()) {
+    /** [at] に一致した [rooms] を加え、古い一致を捨てる。名前の見えない姿（満室）は、前に見えた名前・性別・年齢を残す。 */
+    fun add(at: Long, rooms: List<Room>): RecentMatches {
+        val next = entries.toMutableMap()
+        rooms.forEach { room ->
+            val key = roomIdentity(room)
+            val before = next[key]?.second
+            val kept = if (before != null && room.name == null) room.copy(name = before.name,
+                gender = room.gender.takeUnless { it == Gender.UNKNOWN } ?: before.gender, age = room.age ?: before.age) else room
+            next[key] = at to kept
+        }
+        return RecentMatches(next.filterValues { (seen, _) -> at - seen < MAX_AGE_MS }.entries
+            .sortedByDescending { it.value.first }.take(MAX_ROOMS).associate { it.key to it.value })
+    }
+
+    /**
+     * [room] が、前に一致した部屋の立て直し（[isRebuildOf]）なら、その元の部屋。元の部屋は閉じたと分かる（[closed]、
+     * ふつうは [RoomPageWindow.isClosed]）ものだけ。一覧に見当たらないだけ（読んでいない後ろのページにあるかもしれない）では元にしない。
+     * 候補が 2 つ以上なら、どれの立て直しか決められないので null。
+     */
+    fun rebuildOf(room: Room, closed: (Room) -> Boolean): Room? = entries.values.map { it.second }
+        .filter { old -> roomIdentity(old) != roomIdentity(room) && isRebuildOf(old, room) && closed(old) }
+        .singleOrNull()
+
+    companion object {
+        /** 部屋の最長の長さ（本家は 8 時間で部屋を閉じる）。 */
+        const val MAX_AGE_MS = 8 * 60 * 60_000L
+        const val MAX_ROOMS = 300
+    }
+}

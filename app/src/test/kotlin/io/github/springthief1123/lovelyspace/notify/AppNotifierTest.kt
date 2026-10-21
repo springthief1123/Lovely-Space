@@ -46,6 +46,14 @@ class AppNotifierTest {
         assertEquals(NotificationManager.IMPORTANCE_LOW, manager.getNotificationChannel(NotificationKind.ONGOING.channelId).importance)
     }
 
+    @Test fun theOldLowImportanceRadarChannelIsReplaced() {
+        manager.createNotificationChannel(android.app.NotificationChannel("radar_match", "巡回の一致", NotificationManager.IMPORTANCE_DEFAULT))
+        notifier.ensureChannels()
+        assertNull(manager.getNotificationChannel("radar_match"))
+        assertEquals(NotificationManager.IMPORTANCE_HIGH, manager.getNotificationChannel(NotificationKind.RADAR_MATCH.channelId).importance)
+        assertEquals(NotificationManager.IMPORTANCE_HIGH, manager.getNotificationChannel(NotificationKind.NAME_MATCH.channelId).importance)
+    }
+
     @Test fun postsToTheKindsChannelAndHidesContentOnTheLockScreen() = runTest {
         grant()
         notifier.post(match)

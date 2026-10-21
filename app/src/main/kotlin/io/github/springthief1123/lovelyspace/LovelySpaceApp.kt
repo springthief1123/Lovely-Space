@@ -16,6 +16,7 @@ import io.github.springthief1123.lovelyspace.settings.WebViewCookieStore
 import io.github.springthief1123.lovelyspace.notify.AppNotifier
 import io.github.springthief1123.lovelyspace.notify.NotificationInbox
 import io.github.springthief1123.lovelyspace.notify.NotificationInboxStore
+import io.github.springthief1123.lovelyspace.notify.RadarNotices
 import io.github.springthief1123.lovelyspace.notify.toOpenedNotification
 import io.github.springthief1123.lovelyspace.notify.toNotification
 import io.github.springthief1123.lovelyspace.data.AutoEntryController
@@ -39,6 +40,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 class LovelySpaceApp : Application() {
@@ -62,6 +64,12 @@ class LovelySpaceApp : Application() {
         }
         // 前回の実行が空きの通知を出す前に止まっていれば、起動時に出し直す。
         appScope.launch { waitlist.deliverPending() }
+        // 条件・名前で待つの新しい一致は、見つけたらすぐ（アプリを開いている間も）お知らせ・端末通知に出す。
+        appScope.launch {
+            radar.state.map { state -> state.events.filter { it.pendingNotice }.map { it.id } }.distinctUntilChanged().collect { pending ->
+                if (pending.isNotEmpty()) try { radarNotices.deliver() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { }
+            }
+        }
         // 一覧を読むたびに、保存・非表示の部屋が立て直されていれば新しい部屋へ移す。
         appScope.launch { roomPreferences.followRebuilds(roomLists.observations) }
         // ピンが立て直しで新しい部屋へ移っても、自動で入室の回数（5 回まで）は引き継ぐ。
@@ -114,13 +122,13 @@ class LovelySpaceApp : Application() {
         }
         val state = radar.state.first { it.loaded || it.error != null }
         if (!state.loaded) return
-        state.targets.forEach { target ->
-            val room = target.identity
+        state.legacyTargets.forEach { target ->
+            val room = target.room
             if (Genres[room.genreKey] == null) return@forEach
             pins.pin(room)
             if (target.note.isNotBlank()) pins.setMemo(roomIdentity(room), target.note)
-            radar.removeTarget(target.room)
         }
+        if (state.legacyTargets.isNotEmpty()) radar.clearLegacyTargets()
         store.migrated = true
     }
 
@@ -202,7 +210,20 @@ class LovelySpaceApp : Application() {
             moved = roomPreferences.moved,
             named = { roomLists.lastNamed(it) }, namedRevision = roomLists.namedRevision)
     }
-    val notifier: AppNotifier by lazy { AppNotifier(this, notificationInbox) { settings.notificationPreview.first() } }
+    val notifier: AppNotifier by lazy {
+        AppNotifier(this, notificationInbox, preview = { settings.notificationPreview.first() }, onOpened = { opened ->
+            // 条件・名前で待つの一致のお知らせを開いたら、その条件の「新着」の印も消す。
+            RadarNotices.originOf(opened.id)?.let { (origin, since) ->
+                appScope.launch { try { radar.markOriginRead(origin, since) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { } }
+            }
+        })
+    }
+    /** 条件・名前で待つの新しい一致を、お知らせと端末通知に出す（前面でも背景でも）。 */
+    val radarNotices: RadarNotices by lazy {
+        RadarNotices(radar, notificationInbox, post = { notification, silent, alertAgain -> notifier.post(notification, silent = silent, alertAgain = alertAgain) },
+            persistence = io.github.springthief1123.lovelyspace.notify.RadarNoticeStore(
+                getSharedPreferences(io.github.springthief1123.lovelyspace.notify.RadarNoticeStore.PREFS, MODE_PRIVATE)))
+    }
 
     /** 入室中の部屋（pwd を route に載せないための置き場）。進行中の部屋は暗号化して端末に残す。 */
     val activeRooms: ActiveRooms by lazy {

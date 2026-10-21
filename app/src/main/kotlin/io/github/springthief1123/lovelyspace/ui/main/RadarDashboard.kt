@@ -17,11 +17,11 @@ import androidx.compose.ui.Alignment
 
 /**
  * レーダーの見張りの様子。自動の見張りの切り替え・ピンと条件の数・最終取得を上の2行に収め、
- * 履歴・巡回の結果と確認範囲の説明は必要なときだけ開く。
+ * 巡回の結果と確認範囲の説明は必要なときだけ開く。見つけた一致の記録は通知ベルに残す。
  */
 @Composable
 internal fun RadarDashboard(state: RadarState, pins: Int, plans: Int, working: Boolean, onScan: () -> Unit, onPause: () -> Unit,
-    onAutomatic: (Boolean) -> Unit, onHistory: () -> Unit) {
+    onAutomatic: (Boolean) -> Unit) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     val candidates = state.candidateRules.count { it.enabled }
     val report = state.lastScan
@@ -52,7 +52,6 @@ internal fun RadarDashboard(state: RadarState, pins: Int, plans: Int, working: B
                     else -> "今すぐ新着を確認"
                 })
             }
-            TextButton(onClick = onHistory) { Text(if (state.unreadEvents == 0) "履歴" else "履歴 ${state.unreadEvents}") }
             QuietOverflowMenu(listOf(
                 QuietMenuItem(if (expanded) "確認範囲を閉じる" else "確認範囲と使い方") { expanded = !expanded },
                 QuietMenuItem("条件の巡回をすべて止める", enabled = state.loaded && !working && plans + candidates > 0, destructive = true, onClick = onPause),

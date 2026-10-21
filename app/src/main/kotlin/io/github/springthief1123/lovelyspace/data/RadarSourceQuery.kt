@@ -19,5 +19,3 @@ internal fun readRadarQuery(json: JSONObject?): RoomQuery? {
         ageBand = text("ageBand"), publicOnly = flag("publicOnly"), waitingOnly = flag("waitingOnly"),
         name = text("name"), message = text("message"), page = json.optInt("page", 1).coerceAtLeast(1))
 }
-internal fun TrackedRoom.sourceQueryOrLegacy(): RoomQuery? = sourceQuery?.takeIf { it.genre.key == room.genreKey }
-    ?: Genres[room.genreKey]?.let { RoomQuery(it, page = observedPage) }

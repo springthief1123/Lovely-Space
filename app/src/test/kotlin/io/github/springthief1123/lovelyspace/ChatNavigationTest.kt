@@ -141,6 +141,15 @@ class ChatNavigationTest {
         assertEquals(Routes.RADAR, nav.currentDestination!!.route)
     }
 
+    @Test fun nameMatchOpensTheEntryOverRadarToo() {
+        val nav = controller()
+        nav.openNotification(notification(NotificationKind.NAME_MATCH,
+            NotificationTarget.Room("chat.shalove.net", "zenkoku", 78))) { null }
+        assertEquals(Routes.RADAR, nav.currentBackStackEntry!!.arguments!!.getString("origin"))
+        nav.popBackStack()
+        assertEquals(Routes.RADAR, nav.currentDestination!!.route)
+    }
+
     @Test fun waitlistNotificationEntersAutomaticallyOnlyWhenEnabled() {
         val target = NotificationTarget.Room("chat.shalove.net", "zenkoku", 88, verified = true)
         val nav = controller()

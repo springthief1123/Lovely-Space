@@ -9,9 +9,11 @@ enum class CandidateMode { EXACT_NAME, DISPLAY_TEXT }
 /**
  * 一覧に出ている名前・文字列の候補。人の同一性や現在の在室を判定する機能ではない。
  * [autoEnterUntil] は、名前が完全に一致する新しい部屋に自動で入室する期限（0 は無効。[AutoEntryController.offerNamed]）。
+ * [notify] は新しい部屋を端末通知で知らせるか（オフでもお知らせには残す）。
  */
 data class CandidateRule(val id: String = UUID.randomUUID().toString(), val label: String, val genreKey: String,
-    val term: String, val mode: CandidateMode = CandidateMode.EXACT_NAME, val enabled: Boolean = true, val autoEnterUntil: Long = 0L) {
+    val term: String, val mode: CandidateMode = CandidateMode.EXACT_NAME, val enabled: Boolean = true, val autoEnterUntil: Long = 0L,
+    val notify: Boolean = true) {
     /** 自動入室が [now] の時点で有効か。名前の完全一致で、候補を探している間だけ。 */
     fun autoEnterActive(now: Long): Boolean = enabled && mode == CandidateMode.EXACT_NAME && now < autoEnterUntil
     fun matches(room: Room): Boolean {

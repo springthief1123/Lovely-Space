@@ -12,8 +12,6 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.core.Room
 import io.github.springthief1123.lovelyspace.core.Genres
-import io.github.springthief1123.lovelyspace.core.RoomIdentityEvidence
-import io.github.springthief1123.lovelyspace.core.roomIdentity
 import io.github.springthief1123.lovelyspace.data.*
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomPreferenceViewModel
 import kotlinx.coroutines.CancellationException
@@ -30,7 +28,7 @@ internal fun RadarRoomSheet(snapshot: RadarRoomSnapshot, onDismiss: () -> Unit, 
     var inspection by remember(snapshot) { mutableStateOf<RadarRoomInspection?>(null) }
     var checking by remember(snapshot) { mutableStateOf(false) }
     val room = inspection?.room ?: snapshot.room
-    val blocked = snapshot.blocked || radar.targets.any { roomIdentity(it.room) == roomIdentity(snapshot.room) && it.evidence == RoomIdentityEvidence.REUSED } ||
+    val blocked = snapshot.blocked ||
         preferences.preferences.any { it.host == Genres[snapshot.room.genreKey]?.host && it.roomId == snapshot.room.id && it.stale }
     val allowed = inspection?.room != null && !blocked && !checking && !preferences.loading && preferences.error == null && radar.loaded
     RoomDetailsSheet(room, preferences.isFavorite(room), allowed && !preferences.loading && preferences.canEdit(room),

@@ -25,12 +25,15 @@ import org.json.JSONObject
 class AppNotifier(
     private val context: Context,
     private val inbox: NotificationInbox,
+    /** お知らせ・通知を開いたとき（条件の一致なら、その条件の「新着」を既読にする）。 */
+    private val onOpened: (AppNotification) -> Unit = {},
     private val preview: suspend () -> NotificationPreview,
 ) {
     private val manager = NotificationManagerCompat.from(context)
 
     /** 種類ごとの通知チャンネルを用意する。何度呼んでも既存の設定は変わらない。 */
     fun ensureChannels() {
+        RETIRED_CHANNELS.forEach(manager::deleteNotificationChannel)
         manager.createNotificationChannelsCompat(NotificationKind.entries.map { kind ->
             NotificationChannelCompat.Builder(kind.channelId, importance(kind))
                 .setName(kind.label)
@@ -46,11 +49,15 @@ class AppNotifier(
     fun channelEnabled(kind: NotificationKind): Boolean =
         manager.getNotificationChannelCompat(kind.channelId)?.importance != NotificationManagerCompat.IMPORTANCE_NONE
 
+    /**
+     * 端末通知を出し、お知らせにも残す。[silent] は音・バイブなしで出す（出ている通知の中身を差し替えるときなど）。
+     * 同じ [AppNotification.id] の通知を出し直すと、既定では音を鳴らさない。[alertAgain] なら鳴らし直す。
+     */
     @SuppressLint("MissingPermission") // canPost() で権限を確かめてから出す
-    suspend fun post(notification: AppNotification, timeoutAfterMs: Long? = null) {
+    suspend fun post(notification: AppNotification, timeoutAfterMs: Long? = null, silent: Boolean = false, alertAgain: Boolean = false) {
         inbox.add(notification)
         if (!canPost()) return
-        manager.notify(notification.id, NOTIFICATION_ID, build(notification, preview(), timeoutAfterMs))
+        manager.notify(notification.id, NOTIFICATION_ID, build(notification, preview(), timeoutAfterMs, silent, alertAgain))
     }
 
     /** 処理終了時などに、指定した端末通知を明示的に消す。常駐通知はこの経路で解除する。 */
@@ -60,8 +67,9 @@ class AppNotifier(
 
     /** お知らせを開く（既読にして画面側へ渡し、残っている端末通知を消す）。 */
     fun open(id: String) {
-        inbox.open(id) ?: return
+        val opened = inbox.open(id) ?: return
         manager.cancel(id, NOTIFICATION_ID)
+        onOpened(opened)
     }
 
     /** 通知のタップで起動したときに開く。履歴に残さない種類は intent に載せた開く先を使う。 */
@@ -76,6 +84,8 @@ class AppNotifier(
         notification: AppNotification,
         preview: NotificationPreview,
         timeoutAfterMs: Long? = null,
+        silent: Boolean = false,
+        alertAgain: Boolean = false,
     ): Notification {
         val body = notification.body(preview)
         val builder = NotificationCompat.Builder(context, notification.kind.channelId)
@@ -87,7 +97,8 @@ class AppNotifier(
             .setShowWhen(true)
             .setAutoCancel(notification.kind != NotificationKind.ONGOING)
             .setOngoing(notification.kind == NotificationKind.ONGOING)
-            .setOnlyAlertOnce(true)
+            .setOnlyAlertOnce(!alertAgain)
+            .setSilent(silent)
             .setContentIntent(contentIntent(notification))
         if (notification.kind == NotificationKind.ONGOING) {
             builder.setCategory(NotificationCompat.CATEGORY_STATUS)
@@ -118,8 +129,7 @@ class AppNotifier(
     )
 
     private fun importance(kind: NotificationKind) = when (kind) {
-        NotificationKind.ROOM_ENTRY, NotificationKind.WAITLIST -> NotificationManagerCompat.IMPORTANCE_HIGH
-        NotificationKind.RADAR_MATCH -> NotificationManagerCompat.IMPORTANCE_DEFAULT
+        NotificationKind.ROOM_ENTRY, NotificationKind.WAITLIST, NotificationKind.RADAR_MATCH, NotificationKind.NAME_MATCH -> NotificationManagerCompat.IMPORTANCE_HIGH
         NotificationKind.ONGOING -> NotificationManagerCompat.IMPORTANCE_LOW
     }
 
@@ -127,6 +137,8 @@ class AppNotifier(
         const val ACTION_OPEN = "io.github.springthief1123.lovelyspace.OPEN_NOTIFICATION"
         const val EXTRA_ID = "notification_id"
         private const val NOTIFICATION_ID = 1
+        /** 重要度を上げるために作り直した、以前のチャンネル。 */
+        private val RETIRED_CHANNELS = listOf("radar_match")
         const val LOCKED_TITLE = "Lovely Space"
         const val LOCKED_TEXT = "新しいお知らせがあります"
 

@@ -132,29 +132,25 @@ class RadarRepositoryTest {
         assertNull(state.resultFor(original.copy(criteria = RoomSearchCriteria(name = "別条件"))))
         assertNull(state.resultFor(original.copy(genreKey = "talk")))
     }
-    @Test fun trackingKeepsTheObservedPageAndFiltersAcrossRestartAndScan() = runTest {
+    @Test fun legacyTargetsLoadOnlyForTheMoveToPinsAndAreClearedAfterwards() = runTest {
         val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
         try {
+            // 以前の追跡は、照合に使っていた姿（identity）とメモだけを読む。
+            val target = """{"id":42,"genre":"zenkoku","status":"FULL","action":"ENTER","name":null,"gender":"UNKNOWN","age":null,"area":null,"message":"本文"}"""
+            val identity = """{"id":42,"genre":"zenkoku","status":"WAITING","action":"ENTER","name":"合成","gender":"FEMALE","age":25,"area":null,"message":"本文"}"""
+            db.presets().put(LocalState("radar_v1", """{"plans":[],"targets":[{"room":$target,"identity":$identity,"at":null,"evidence":"MATCH","note":"合成のメモ"}],"events":[]}"""))
             val searches = SearchPresetRepository(db)
-            val query = RoomQuery(Genres[room.genreKey]!!, sex = Gender.FEMALE, prefecture = 13,
-                ageBand = "20-29", publicOnly = false, waitingOnly = true, name = "合成", message = "本文", page = 3)
-            val lists = Lists().apply { rooms = listOf(room); lastPage = 3 }
-            lists.fetch(query, force = true)
-            val job = SupervisorJob(backgroundScope.coroutineContext[Job])
-            val radar = RadarRepository(db.presets(), lists, searches, RoomPreferenceRepository(db), CoroutineScope(backgroundScope.coroutineContext + job))
-            radar.state.first { it.loaded }; radar.track(room)
-            assertEquals(query, radar.state.value.targets.single().sourceQuery)
-            assertEquals(3, radar.state.value.targets.single().observedPage)
-            job.cancelAndJoin()
-            val fresh = Lists().apply { rooms = listOf(room); lastPage = 3 }
-            val restored = RadarRepository(db.presets(), fresh, searches, RoomPreferenceRepository(db), backgroundScope)
+            val lists = Lists()
+            val radar = RadarRepository(db.presets(), lists, searches, RoomPreferenceRepository(db), backgroundScope)
+            radar.state.first { it.loaded }
+            assertEquals(listOf(LegacyTarget(room, "合成のメモ")), radar.state.value.legacyTargets)
+            // 追跡は見張らないので、巡回しても取得しない。
+            radar.scan()
+            assertTrue(lists.calls.isEmpty())
+            radar.clearLegacyTargets()
+            val restored = RadarRepository(db.presets(), Lists(), searches, RoomPreferenceRepository(db), backgroundScope)
             restored.state.first { it.loaded }
-            assertEquals(query, restored.state.value.targets.single().sourceQuery)
-            restored.scan()
-            assertEquals(listOf(query), fresh.calls)
-            fresh.rooms = listOf(room.copy(status = RoomStatus.PUBLIC_WAITING, action = RoomAction.PEEK))
-            restored.scan()
-            assertEquals(query, restored.state.value.events.single().sourceQuery)
+            assertTrue(restored.state.value.legacyTargets.isEmpty())
         } finally { db.close() }
     }
     @Test fun legacyTextOnlyHistoryStillLoads() = runTest {
@@ -165,43 +161,6 @@ class RadarRepositoryTest {
             radar.state.first { it.loaded }
             assertEquals("合成の旧履歴", radar.state.value.events.single().text)
             assertTrue(radar.state.value.events.single().rooms.isEmpty())
-        } finally { db.close() }
-    }
-    @Test fun clockRollbackAndRestoredFutureTimestampsDoNotBlockNewObservations() = runTest {
-        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
-        try {
-            val searches = SearchPresetRepository(db)
-            val prefs = RoomPreferenceRepository(db)
-            val lists = Lists().apply { rooms = listOf(room); clock = 10_000 }
-            val firstJob = SupervisorJob(backgroundScope.coroutineContext[Job])
-            val radar = RadarRepository(db.presets(), lists, searches, prefs, CoroutineScope(backgroundScope.coroutineContext + firstJob))
-            radar.state.first { it.loaded }
-            radar.track(room)
-            radar.scan()
-            assertEquals(10_000L, radar.state.value.targets.single().observedAt)
-
-            lists.clock = 1_000 // 時計を戻しても、新しい取得結果は反映する。
-            lists.rooms = listOf(room.copy(status = RoomStatus.PUBLIC_WAITING))
-            radar.scan()
-            assertEquals(RoomStatus.PUBLIC_WAITING, radar.state.value.targets.single().room.status)
-            assertEquals(1_000L, radar.state.value.targets.single().observedAt)
-            assertEquals(2L, radar.state.value.targets.single().observationRevision)
-            assertEquals(1, radar.state.value.events.size)
-
-            firstJob.cancelAndJoin() // 保存済み時刻の書き換え中に旧監視が保存しないよう終了する。
-            val json = org.json.JSONObject(db.presets().state("radar_v1")!!)
-            json.getJSONArray("targets").getJSONObject(0).put("observedAt", 50_000L)
-            db.presets().put(LocalState("radar_v1", json.toString()))
-            // 再起動で取得順序が1に戻り、保存時刻が未来でもID再利用の検出を継続する。
-            val freshLists = Lists().apply { rooms = listOf(room.copy(name = "別の合成")); clock = 500 }
-            val restored = RadarRepository(db.presets(), freshLists, searches, prefs, backgroundScope)
-            restored.state.first { it.loaded }
-            assertEquals(50_000L, restored.state.value.targets.single().observedAt)
-            assertEquals(0L, restored.state.value.targets.single().observationRevision)
-            restored.scan()
-            assertEquals(RoomIdentityEvidence.REUSED, restored.state.value.targets.single().evidence)
-            assertEquals(500L, restored.state.value.targets.single().observedAt)
-            assertTrue(restored.state.value.events.any { "追跡を停止" in it.text })
         } finally { db.close() }
     }
     @Test fun ngWordsKeepRoomsOutOfPlanMatchesAndTurningThemOffDoesNotNotifyOldRooms() = runTest {
@@ -329,7 +288,7 @@ class RadarRepositoryTest {
             val lists = Lists().apply { rooms = listOf(room) }
             val job = SupervisorJob(backgroundScope.coroutineContext[Job])
             val radar = RadarRepository(db.presets(), lists, searches, prefs, CoroutineScope(backgroundScope.coroutineContext + job))
-            radar.state.first { it.loaded }; radar.setPlan("a", true); radar.track(room)
+            radar.state.first { it.loaded }; radar.setPlan("a", true)
             val rule = CandidateRule("candidate", "合成の候補", "zenkoku", "合成")
             radar.saveCandidate(rule); radar.scan()
             assertEquals(1, lists.calls.size)
@@ -502,7 +461,7 @@ class RadarRepositoryTest {
             assertTrue(radar.state.value.events.isEmpty())
         } finally { db.close() }
     }
-    @Test fun sharedPlansBaselineDedupPartialPageIdentityReuseAndPersistence() = runTest {
+    @Test fun sharedPlansShareOnePageAndPersist() = runTest {
         val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
         try {
             val searches = SearchPresetRepository(db)
@@ -512,32 +471,14 @@ class RadarRepositoryTest {
             val lists = Lists()
             val radar = RadarRepository(db.presets(), lists, searches, prefs, backgroundScope)
             radar.state.first { it.loaded }
-            radar.setPlan("a", true); radar.setPlan("b", true); radar.track(room)
+            radar.setPlan("a", true); radar.setPlan("b", true)
             lists.rooms = listOf(room)
             radar.scan()
             assertEquals(1, lists.calls.size)
             assertTrue(radar.state.value.events.isEmpty())
-            assertNotNull(radar.state.value.targets.single().confirmedAt)
-            val confirmedAt = radar.state.value.targets.single().confirmedAt
-            lists.rooms = emptyList(); radar.scan()
-            assertEquals(confirmedAt, radar.state.value.targets.single().confirmedAt)
-            assertEquals(RoomIdentityEvidence.MATCH, radar.state.value.targets.single().evidence)
-            lists.rooms = listOf(room.copy(name = null, status = RoomStatus.FULL)); radar.scan()
-            assertEquals(RoomIdentityEvidence.AMBIGUOUS, radar.state.value.targets.single().evidence)
-            assertEquals(confirmedAt, radar.state.value.targets.single().confirmedAt)
-            assertTrue(radar.state.value.targets.single().observedAt!! > confirmedAt!!)
-            lists.rooms = listOf(room.copy(name = "別の合成")); radar.scan()
-            assertEquals(RoomIdentityEvidence.REUSED, radar.state.value.targets.single().evidence)
-            assertTrue(radar.state.value.events.any { "追跡を停止" in it.text })
-            val persisted = db.presets().state("radar_v1")!!
-            assertTrue(persisted.contains("REUSED"))
-            assertTrue(persisted.contains("条件"))
             val restored = RadarRepository(db.presets(), lists, searches, prefs, backgroundScope)
             restored.state.first { it.loaded }
             assertEquals(setOf("a", "b"), restored.state.value.plans)
-            assertEquals(RoomIdentityEvidence.REUSED, restored.state.value.targets.single().evidence)
-            assertEquals(room.name, restored.state.value.targets.single().identity.name)
-            assertEquals(radar.state.value.targets.single().observedAt, restored.state.value.targets.single().observedAt)
         } finally { db.close() }
     }
     @Test fun pageLimitDefersTheRestAndAConcurrentScanDoesNotFetchTwice() = runTest {
@@ -560,7 +501,7 @@ class RadarRepositoryTest {
             assertEquals(3, lists.calls.size)
         } finally { db.close() }
     }
-    @Test fun backgroundScanChecksOnlyBackgroundPlansAndLeavesCandidatesAndTargetsToTheForeground() = runTest {
+    @Test fun backgroundScanChecksOnlyBackgroundPlansAndLeavesCandidatesToTheForeground() = runTest {
         val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
         try {
             val searches = SearchPresetRepository(db)
@@ -571,7 +512,6 @@ class RadarRepositoryTest {
             radar.state.first { it.loaded }
             radar.setPlanBackground("bg", true); radar.setPlan("fg", true)
             radar.saveCandidate(CandidateRule("c", "合成の候補", "game", "合成"))
-            radar.track(room.copy(genreKey = "cosplay"), RoomQuery(Genres["cosplay"]!!, page = 2))
             assertEquals(setOf("bg", "fg"), radar.state.value.plans)
             assertEquals(setOf("bg"), radar.state.value.activeBackgroundPlans)
             radar.scan(latestFirst = true, force = false, backgroundOnly = true)
@@ -602,6 +542,7 @@ class RadarRepositoryTest {
             assertEquals(listOf(43L), events.single().rooms.map { it.id })
             // 通知を出す前に止まっても、未通知の一致として保存されている。
             assertTrue(events.single().pendingNotice)
+            assertTrue(events.single().alert)
             // 一度知らせた部屋は、次の再起動後にも新しい一致として出さない。
             clock += 15 * 60 * 1000L
             val third = RadarRepository(db.presets(), Lists().apply { rooms = listOf(added) }, searches, prefs, restart()) { clock }
@@ -611,6 +552,67 @@ class RadarRepositoryTest {
             assertTrue(third.pendingNotices().isEmpty())
             assertFalse(db.presets().state("radar_v1")!!.contains("\"pendingNotice\":true"))
             assertTrue(third.scan(latestFirst = true, force = false, backgroundOnly = true).isEmpty())
+        } finally { db.close() }
+    }
+    @Test fun foregroundMatchesGoToTheBellAndOnlyNotifyingConditionsAlert() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            searches.save(SearchPreset("quiet", "合成の巡回だけ", "zenkoku", RoomSearchCriteria()))
+            searches.save(SearchPreset("loud", "合成の知らせる", "zenkoku", RoomSearchCriteria()))
+            val lists = Lists().apply { rooms = listOf(room) }
+            val radar = RadarRepository(db.presets(), lists, searches, RoomPreferenceRepository(db), backgroundScope)
+            radar.state.first { it.loaded }
+            radar.setPlan("quiet", true); radar.setPlanBackground("loud", true)
+            val loud = CandidateRule("named", "合成の名前", "zenkoku", "追加の合成")
+            val silent = CandidateRule("silent", "合成の知らせない名前", "zenkoku", "追加の合成", notify = false)
+            radar.saveCandidate(loud); radar.saveCandidate(silent)
+            radar.scan()
+            lists.rooms = listOf(room, room.copy(id = 43, name = "追加の合成")); radar.scan()
+            // 前面の巡回で見つけた一致も、すべてお知らせに出す。端末通知は知らせる条件・名前だけ。
+            val pending = radar.pendingNotices().associateBy { it.origin!!.id }
+            assertEquals(setOf("quiet", "loud", "named", "silent"), pending.keys)
+            assertFalse(pending.getValue("quiet").alert)
+            assertTrue(pending.getValue("loud").alert)
+            assertTrue(pending.getValue("named").alert)
+            assertFalse(pending.getValue("silent").alert)
+            radar.markOriginRead(pending.getValue("loud").origin!!.key, pending.getValue("loud").at)
+            assertTrue(radar.state.value.events.single { it.origin?.id == "loud" }.read)
+            assertFalse(radar.state.value.events.single { it.origin?.id == "quiet" }.read)
+        } finally { db.close() }
+    }
+    @Test fun aClosedMatchRebuiltWithTheSameNameAndMessageIsMarkedAsARebuild() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val searches = SearchPresetRepository(db)
+            searches.save(SearchPreset("a", "合成条件", "zenkoku", RoomSearchCriteria()))
+            fun other(id: Long) = room.copy(id = id, name = "別の合成$id", message = "別の本文$id")
+            val old = room.copy(id = 500)
+            val lists = Lists().apply { rooms = listOf(other(1000), other(900), old, other(100), other(10)) }
+            val radar = RadarRepository(db.presets(), lists, searches, RoomPreferenceRepository(db), backgroundScope)
+            radar.state.first { it.loaded }; radar.setPlan("a", true); radar.scan()
+            // 部屋 500 が閉じ、同じ名前・募集文の部屋 1100 が立った。1050 は別の人の新しい部屋。
+            val rebuilt = room.copy(id = 1100)
+            lists.rooms = listOf(rebuilt, other(1050), other(1000), other(900), other(100), other(10)); radar.scan()
+            val event = radar.state.value.events.single { it.kind == RadarEventKind.SEARCH_MATCH }
+            assertEquals(setOf(1100L, 1050L), event.rooms.map { it.id }.toSet())
+            assertEquals(setOf(roomIdentity(rebuilt)), event.rebuilds)
+            assertFalse(event.onlyRebuilds)
+            assertTrue("立て直し1件" in event.text)
+        } finally { db.close() }
+    }
+    @Test fun candidateNotifySettingSurvivesARestartAndOldRulesNotify() = runTest {
+        val db = RoomDb.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            db.presets().put(LocalState("radar_v1", """{"plans":[],"targets":[],"events":[],"candidateRules":[{"id":"old","label":"合成","genre":"zenkoku","term":"合成","mode":"EXACT_NAME","enabled":true}]}"""))
+            val searches = SearchPresetRepository(db)
+            val radar = RadarRepository(db.presets(), Lists(), searches, RoomPreferenceRepository(db), backgroundScope)
+            radar.state.first { it.loaded }
+            assertTrue(radar.state.value.candidateRules.single().notify)
+            radar.setCandidateNotify("old", false)
+            val restored = RadarRepository(db.presets(), Lists(), searches, RoomPreferenceRepository(db), backgroundScope)
+            restored.state.first { it.loaded }
+            assertFalse(restored.state.value.candidateRules.single().notify)
         } finally { db.close() }
     }
     @Test fun anOldSavedBaselineIsRebuiltInsteadOfReportingEverythingAsNew() = runTest {
