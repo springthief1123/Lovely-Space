@@ -116,6 +116,15 @@ fun AppLockSettingsScreen(onBack: () -> Unit) {
                         enabled = biometricReady,
                     )
                 }
+                item {
+                    QuietSwitchRow(
+                        checked = config.allowScreenshots,
+                        onCheckedChange = controller::setAllowScreenshots,
+                        title = "スクリーンショットを許可する",
+                        description = "オフの間は、最近のアプリ一覧で画面の中身をすぐ隠すため、スクリーンショット・画面録画が黒くなります。" +
+                            "オンにすると撮れるようになりますが、機種によっては一覧のカードにしばらく中身が見えることがあります。",
+                    )
+                }
                 item { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(vertical = 10.dp)) }
                 item { SettingsSectionTitle("ロックするまでの時間") }
                 item {

@@ -16,11 +16,11 @@ fun WaitlistEntry.toOpenedNotification(): AppNotification? {
         id = "waitlist-$key-${changedAt ?: registeredAt}",
         kind = NotificationKind.WAITLIST,
         title = "順番待ちの部屋に空きが出ました",
-        text = "${genre}の部屋に入室できます。" +
-            (if (rebuilds > 0) "部屋が同じ名前・待機メッセージで立て直されたので、新しい部屋を知らせています。" else "") +
-            if (sameMessage) "待機メッセージは登録時と同じです。" else "待機メッセージが登録時と違うため、同じ部屋かを入室画面で確かめてください。",
+        namedTitle = opened.ownerLabel()?.let { "${it}の部屋が空きました" },
+        text = genre + (if (rebuilds > 0) "・立て直した新しい部屋" else "") + if (sameMessage) "" else "・待機メッセージが登録時と違います",
         target = NotificationTarget.Room(host, opened.genreKey, opened.id, verified = sameMessage),
         at = changedAt ?: System.currentTimeMillis(),
         message = listOfNotNull(opened.name, opened.message.takeIf { it.isNotBlank() }).joinToString("\n").ifBlank { null },
+        room = opened,
     )
 }

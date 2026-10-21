@@ -3,6 +3,7 @@ package io.github.springthief1123.lovelyspace.notify
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Notification
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
@@ -15,6 +16,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import io.github.springthief1123.lovelyspace.MainActivity
 import io.github.springthief1123.lovelyspace.R
+import io.github.springthief1123.lovelyspace.settings.NoticeRetention
 import io.github.springthief1123.lovelyspace.settings.NotificationPreview
 import org.json.JSONObject
 
@@ -30,6 +32,12 @@ class AppNotifier(
     private val preview: suspend () -> NotificationPreview,
 ) {
     private val manager = NotificationManagerCompat.from(context)
+
+    init {
+        // 時間でお知らせから消えた通知は、端末からも消す（押しても開く先が無いため）。
+        // 消した直後に同じ ID で出し直した通知は残す。
+        inbox.onExpired = { ids -> ids.filter { inbox[it] == null }.forEach(::cancel) }
+    }
 
     /** 種類ごとの通知チャンネルを用意する。何度呼んでも既存の設定は変わらない。 */
     fun ensureChannels() {
@@ -65,9 +73,31 @@ class AppNotifier(
         manager.cancel(id, NOTIFICATION_ID)
     }
 
-    /** お知らせを開く（既読にして画面側へ渡し、残っている端末通知を消す）。 */
-    fun open(id: String) {
-        val opened = inbox.open(id) ?: return
+    /** お知らせを 1 件消す（ベルでスワイプしたとき）。端末に残っている同じ通知も消す。 */
+    fun dismiss(id: String) {
+        inbox.remove(id)
+        manager.cancel(id, NOTIFICATION_ID)
+    }
+
+    /**
+     * お知らせを残す時間（設定）を変える。時間を過ぎて消えたお知らせは端末通知も消え（[NotificationInbox.onExpired]）、
+     * 出ているままの端末通知は新しい時間で消えるよう、音を鳴らさずに出し直す（出したときの時間のままにしない）。
+     */
+    @SuppressLint("MissingPermission") // canPost() で権限を確かめてから出し直す
+    suspend fun applyRetention(retention: Map<NotificationKind, NoticeRetention>) {
+        inbox.retention = retention
+        if (!canPost()) return
+        val kept = inbox.entries.value.associateBy { it.id }
+        val shown = context.getSystemService(NotificationManager::class.java)?.activeNotifications.orEmpty()
+            .filter { it.id == NOTIFICATION_ID }.mapNotNull { it.tag }
+        if (shown.none { it in kept }) return
+        val preview = preview()
+        shown.mapNotNull { kept[it] }.forEach { manager.notify(it.id, NOTIFICATION_ID, build(it, preview, silent = true)) }
+    }
+
+    /** お知らせを開く（既読にして画面側へ渡し、残っている端末通知を消す）。[enter] は確認を飛ばして入室する（お知らせの「入室する」）。 */
+    fun open(id: String, enter: Boolean = false) {
+        val opened = inbox.open(id, enter) ?: return
         manager.cancel(id, NOTIFICATION_ID)
         onOpened(opened)
     }
@@ -90,7 +120,7 @@ class AppNotifier(
         val body = notification.body(preview)
         val builder = NotificationCompat.Builder(context, notification.kind.channelId)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(notification.title)
+            .setContentTitle(notification.title(preview))
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setWhen(notification.at)
@@ -103,7 +133,9 @@ class AppNotifier(
         if (notification.kind == NotificationKind.ONGOING) {
             builder.setCategory(NotificationCompat.CATEGORY_STATUS)
         }
-        timeoutAfterMs?.let { builder.setTimeoutAfter(it) }
+        // お知らせから時間で消す種類は、端末通知も同じ時間で消す（押しても開く先が無くなるため）。
+        (timeoutAfterMs ?: inbox.retentionMillis(notification.kind)?.let { (notification.at + it - System.currentTimeMillis()).coerceAtLeast(1) })
+            ?.let { builder.setTimeoutAfter(it) }
         if (notification.publicOnLockScreen(preview)) {
             builder.setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
         } else {

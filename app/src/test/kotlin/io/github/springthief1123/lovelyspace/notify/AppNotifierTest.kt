@@ -7,6 +7,7 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import androidx.test.core.app.ApplicationProvider
+import io.github.springthief1123.lovelyspace.settings.NoticeRetention
 import io.github.springthief1123.lovelyspace.settings.NotificationPreview
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -181,5 +182,23 @@ class AppNotifierTest {
         assertEquals(NotificationKind.entries.map { it.channelId }.toSet(), posted().map { it.channelId }.toSet())
         // 常駐通知はお知らせの履歴に残さない。
         assertEquals(NotificationKind.entries.size - 1, inbox.entries.value.size)
+    }
+
+    @Test fun changingTheRetentionUpdatesNotificationsAlreadyShown() = runTest {
+        grant()
+        val now = System.currentTimeMillis()
+        inbox.retention = NoticeRetention.kinds.associateWith { NoticeRetention.KEEP }
+        notifier.post(match.copy(id = "old", at = now - 20 * 60_000L))
+        notifier.post(match.copy(id = "new", at = now))
+        // 「消さない」で出した通知は、端末でも時間で消えない。
+        assertTrue(posted().all { it.timeoutAfter == 0L })
+
+        notifier.applyRetention(NoticeRetention.kinds.associateWith { NoticeRetention.MINUTES_10 })
+
+        // 時間を過ぎたお知らせは端末通知も消え、残る通知は新しい時間で消えるよう出し直される。
+        assertEquals(listOf("new"), inbox.entries.value.map { it.id })
+        val shown = manager.activeNotifications.single()
+        assertEquals("new", shown.tag)
+        assertTrue(shown.notification.timeoutAfter in 1..10 * 60_000L)
     }
 }

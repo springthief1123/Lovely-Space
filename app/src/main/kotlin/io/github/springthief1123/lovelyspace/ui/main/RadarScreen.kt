@@ -458,7 +458,6 @@ private fun PinCard(pin: PinView, expanded: Boolean, enabled: Boolean, now: Long
                 val (label, color) = pinStateChip(pin)
                 MetaChip(label, color, filled = true)
                 Genres[room.genreKey]?.let { MetaChip(it.label, MaterialTheme.colorScheme.onSurfaceVariant, filled = false) }
-                pin.page?.takeIf { current }?.let { MetaChip("${it}ページ", MaterialTheme.colorScheme.onSurfaceVariant, filled = false) }
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 PinAlertChip(record.alert, record.autoActive(now), enabled, onAlert)

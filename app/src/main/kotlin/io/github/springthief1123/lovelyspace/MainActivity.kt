@@ -32,6 +32,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import io.github.springthief1123.lovelyspace.disguise.applyDisguiseTaskDescription
+import io.github.springthief1123.lovelyspace.lock.AppLockConfig
 import io.github.springthief1123.lovelyspace.lock.LocalAppLocked
 import io.github.springthief1123.lovelyspace.lock.LockScreen
 import io.github.springthief1123.lovelyspace.lock.LockWindow
@@ -61,10 +62,11 @@ class MainActivity : FragmentActivity() {
             openNotification(intent)
         }
         // アプリロックを使うときは、最近のアプリ一覧に画面の中身を出さない。最初の描画より前に掛けておく。
-        hideFromRecents(app.appLock.state.value.config.enabled)
+        hideFromRecents(app.appLock.state.value.config)
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.CREATED) {
-                app.appLock.state.map { it.config.enabled }.distinctUntilChanged().collect(::hideFromRecents)
+                app.appLock.state.map { it.config.enabled to it.config.secureWindow }.distinctUntilChanged()
+                    .collect { (enabled, secure) -> hideFromRecents(enabled, secure) }
             }
         }
         // 順番待ちの部屋があれば、アプリが見えている間は設定の間隔で空きを確認する（背景では WorkManager が 15 分ごと）。
@@ -161,9 +163,12 @@ class MainActivity : FragmentActivity() {
      * Android 13 以降の setRecentsScreenshotEnabled(false) だけでは、一覧に入ってからしばらくカードに
      * 中身が見えたままになる（One UI で確認）ので、それだけに頼らない。代わりに利用者のスクリーンショットも撮れなくなる。
      * ダイアログ・シート・メニューの窓は、開くときにこの窓の FLAG_SECURE を引き継ぐ（Compose の既定）。
+     * 利用者がスクリーンショットを許可したとき（[secure] が false）は FLAG_SECURE を掛けず、一覧の縮小画像を止めるだけにする。
      */
-    private fun hideFromRecents(enabled: Boolean) {
-        if (enabled) {
+    private fun hideFromRecents(config: AppLockConfig) = hideFromRecents(config.enabled, config.secureWindow)
+
+    private fun hideFromRecents(enabled: Boolean, secure: Boolean) {
+        if (secure) {
             window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         } else {
             window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
