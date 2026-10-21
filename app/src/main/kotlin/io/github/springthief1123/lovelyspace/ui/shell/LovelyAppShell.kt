@@ -10,6 +10,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -36,7 +37,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.notify.unreadCount
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.RectangleShape
@@ -67,6 +72,7 @@ val MainDestinations = listOf(
 internal fun lovelyBottomContentInset(navigationHeight: Dp, showCreateFab: Boolean, showResumeBar: Boolean = false) =
     maxOf(LovelySpacing.bottomContentInset, navigationHeight + if (showCreateFab || showResumeBar) 80.dp else 0.dp)
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun LovelyAppShell(
     currentRoute: String?, showChrome: Boolean,
@@ -81,14 +87,20 @@ fun LovelyAppShell(
     var navigationHeight by remember { mutableStateOf(100.dp) }
     val bottomInset = lovelyBottomContentInset(navigationHeight, showCreateFab, showChrome && resumeBar != null)
     val shellState = remember { LovelyShellState() }
+    var notificationsOpen by remember { mutableStateOf(false) }
+    // 外枠を出さない画面（チャットなど）へ移ったら閉じる。
+    LaunchedEffect(showChrome) { if (!showChrome) notificationsOpen = false }
+    val panelOpen = showChrome && notificationsOpen
     ProvideLovelyHazeState(hazeState) {
         Box(Modifier.fillMaxSize()) {
+            // お知らせを開いている間は、後ろの画面・上のバー・下のナビへキーボード・D-pad のフォーカスも読み上げも入らないようにする
+            // （パネルの外の面はタッチしか止めない。見つける画面の検索シートと同じ）。
+            Box(Modifier.fillMaxSize().then(if (panelOpen) Modifier.clearAndSetSemantics {}.focusProperties { enter = { FocusRequester.Cancel } }.focusGroup() else Modifier)) {
             Surface(Modifier.fillMaxSize().hazeSource(state = hazeState),
                 color = MaterialTheme.colorScheme.background, contentColor = MaterialTheme.colorScheme.onBackground) {
                 CompositionLocalProvider(LocalLovelyBottomContentInset provides bottomInset, LocalLovelyShellState provides shellState) { content() }
             }
             if (showChrome) {
-                var notificationsOpen by remember { mutableStateOf(false) }
                 LovelyTopBar(onOpenBell = { notificationsOpen = !notificationsOpen }, shellState.searchButton, Modifier.align(Alignment.TopCenter))
                 LovelyBottomNavigation(if (currentRoute == Routes.SEARCH) Routes.ROOMS else currentRoute,
                     onDestinationSelected, Modifier.align(Alignment.BottomCenter), onHeight = { navigationHeight = with(density) { it.toDp() } })
@@ -112,6 +124,9 @@ fun LovelyAppShell(
                     modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 20.dp, bottom = navigationHeight + 12.dp)) {
                     LovelyGlassFab(onClick = onCreateRoom)
                 }
+            }
+            }
+            if (showChrome) {
                 // お知らせは外枠の一番上に重ね、上のバー・下のナビと同じく背後の画面をぼかす。
                 val app = LocalContext.current.applicationContext as LovelySpaceApp
                 val notifications by app.notificationInbox.entries.collectAsStateWithLifecycle()
