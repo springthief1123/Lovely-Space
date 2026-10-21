@@ -1,6 +1,8 @@
 package io.github.springthief1123.lovelyspace.ui.shell
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -20,7 +22,7 @@ import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Explore
-import androidx.compose.material.icons.outlined.NotificationsActive
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.Radar
@@ -40,6 +42,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
@@ -85,7 +88,8 @@ fun LovelyAppShell(
                 CompositionLocalProvider(LocalLovelyBottomContentInset provides bottomInset, LocalLovelyShellState provides shellState) { content() }
             }
             if (showChrome) {
-                LovelyTopBar(onOpenNotificationSettings, shellState.searchButton, Modifier.align(Alignment.TopCenter))
+                var notificationsOpen by remember { mutableStateOf(false) }
+                LovelyTopBar(onOpenBell = { notificationsOpen = !notificationsOpen }, shellState.searchButton, Modifier.align(Alignment.TopCenter))
                 LovelyBottomNavigation(if (currentRoute == Routes.SEARCH) Routes.ROOMS else currentRoute,
                     onDestinationSelected, Modifier.align(Alignment.BottomCenter), onHeight = { navigationHeight = with(density) { it.toDp() } })
                 if (resumeBar != null) Box(Modifier.align(Alignment.BottomStart).navigationBarsPadding()
@@ -108,14 +112,26 @@ fun LovelyAppShell(
                     modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 20.dp, bottom = navigationHeight + 12.dp)) {
                     LovelyGlassFab(onClick = onCreateRoom)
                 }
+                // お知らせは外枠の一番上に重ね、上のバー・下のナビと同じく背後の画面をぼかす。
+                val app = LocalContext.current.applicationContext as LovelySpaceApp
+                val notifications by app.notificationInbox.entries.collectAsStateWithLifecycle()
+                NotificationOverlay(
+                    visible = notificationsOpen,
+                    entries = notifications,
+                    onDismiss = { notificationsOpen = false },
+                    onOpen = { notificationsOpen = false; app.notifier.open(it.id) },
+                    onEnter = { notificationsOpen = false; app.notifier.open(it.id, enter = true) },
+                    onRemove = { app.notifier.dismiss(it.id) },
+                    onMarkAllRead = { app.notificationInbox.markAllRead() },
+                    onOpenSettings = { notificationsOpen = false; onOpenNotificationSettings() },
+                )
             }
         }
     }
 }
 
 @Composable
-private fun LovelyTopBar(onOpenNotificationSettings: () -> Unit, searchButton: ShellSearchButton?, modifier: Modifier = Modifier) {
-    var notificationsOpen by remember { mutableStateOf(false) }
+private fun LovelyTopBar(onOpenBell: () -> Unit, searchButton: ShellSearchButton?, modifier: Modifier = Modifier) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val notifications by app.notificationInbox.entries.collectAsStateWithLifecycle()
     val unread = notifications.unreadCount
@@ -155,23 +171,10 @@ private fun LovelyTopBar(onOpenNotificationSettings: () -> Unit, searchButton: S
                     }
                 }
             }
-            Box {
-                IconButton(onClick = { app.notificationInbox.removeExpired(); notificationsOpen = true }) {
-                    BadgedBox(badge = { if (unread > 0) Badge { Text(if (unread > 99) "99+" else "$unread") } }) {
-                        Icon(if (unread > 0) Icons.Outlined.NotificationsActive else Icons.Outlined.NotificationsNone,
-                            contentDescription = if (unread > 0) "お知らせ（未読${unread}件）" else "お知らせ")
-                    }
+            IconButton(onClick = { app.notificationInbox.removeExpired(); onOpenBell() }) {
+                BadgedBox(badge = { if (unread > 0) Badge { Text(if (unread > 99) "99+" else "$unread") } }) {
+                    RingingBell(unread)
                 }
-                NotificationPopup(
-                    visible = notificationsOpen,
-                    entries = notifications,
-                    onDismiss = { notificationsOpen = false },
-                    onOpen = { notificationsOpen = false; app.notifier.open(it.id) },
-                    onEnter = { notificationsOpen = false; app.notifier.open(it.id, enter = true) },
-                    onRemove = { app.notifier.dismiss(it.id) },
-                    onMarkAllRead = { app.notificationInbox.markAllRead() },
-                    onOpenSettings = { notificationsOpen = false; onOpenNotificationSettings() },
-                )
             }
         }
     }
@@ -210,3 +213,36 @@ internal fun LovelyBottomNavigation(currentRoute: String?, onSelect: (MainDestin
         }
     }
 }
+
+/**
+ * 通知ベルのアイコン。未読があればベルを塗りつぶし、未読が増えたとき（と、未読のある画面を開いたとき）に左右に揺らす。
+ * 揺れは上の付け根を軸にして、本物のベルのように鳴らす。
+ */
+@Composable
+private fun RingingBell(unread: Int) {
+    val angle = remember { Animatable(0f) }
+    var previous by remember { mutableIntStateOf(0) }
+    LaunchedEffect(unread) {
+        val grew = unread > previous
+        previous = unread
+        if (!grew) return@LaunchedEffect
+        angle.snapTo(0f)
+        angle.animateTo(0f, keyframes {
+            durationMillis = BELL_RING_MS
+            18f at 80
+            -16f at 200
+            12f at 320
+            -9f at 440
+            5f at 560
+            -2f at 660
+        })
+    }
+    Icon(if (unread > 0) Icons.Filled.Notifications else Icons.Outlined.NotificationsNone,
+        contentDescription = if (unread > 0) "お知らせ（未読${unread}件）" else "お知らせ",
+        modifier = Modifier.graphicsLayer {
+            rotationZ = angle.value
+            transformOrigin = TransformOrigin(0.5f, 0.12f)
+        })
+}
+
+private const val BELL_RING_MS = 760

@@ -1,16 +1,18 @@
 package io.github.springthief1123.lovelyspace.ui.shell
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.LinearOutSlowInEasing
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,16 +24,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
@@ -41,32 +42,25 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntRect
-import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupPositionProvider
-import androidx.compose.ui.window.PopupProperties
 import io.github.springthief1123.lovelyspace.core.Genres
 import io.github.springthief1123.lovelyspace.data.formatObservationTime
 import io.github.springthief1123.lovelyspace.lock.LocalAppLocked
@@ -75,20 +69,21 @@ import io.github.springthief1123.lovelyspace.notify.NotificationKind
 import io.github.springthief1123.lovelyspace.notify.NotificationSamples
 import io.github.springthief1123.lovelyspace.notify.NotificationTarget
 import io.github.springthief1123.lovelyspace.notify.unreadCount
-import io.github.springthief1123.lovelyspace.ui.components.QuietMenuDefaults
+import io.github.springthief1123.lovelyspace.ui.components.LovelyGlassSurface
 import io.github.springthief1123.lovelyspace.ui.rooms.ActionChip
 import io.github.springthief1123.lovelyspace.ui.rooms.MetaChip
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomCardHeading
-import io.github.springthief1123.lovelyspace.ui.rooms.RoomCardPanel
 import io.github.springthief1123.lovelyspace.ui.theme.LovelyShapes
+import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
+import kotlin.math.abs
 
 /**
- * 通知ベルを開いたときのお知らせ。ベルの真下に、画面の左右中央で開く。
- * 標準の DropdownMenu はベル（右端）に寄せて開き、中身の幅を固有サイズで測る（スワイプで消す部品・LazyColumn を置けない）ので、
- * 部屋の長押しメニュー（RoomActionMenu）と同じく Popup に Quiet の面を描く。Back・外側のタップで閉じる。
+ * 通知ベルを開いたときのお知らせ。上のバーの少し下に、画面の左右中央で開く。
+ * 上のバー・下のナビと同じく背後の画面をぼかすため（Haze は同じ窓の中でしかぼかせない）、Popup ではなく
+ * 画面の外枠（[LovelyAppShell]）の上に重ねて描く。Back・パネルの外のタップで閉じる。
  */
 @Composable
-internal fun NotificationPopup(
+internal fun NotificationOverlay(
     visible: Boolean,
     entries: List<AppNotification>,
     onDismiss: () -> Unit,
@@ -98,34 +93,22 @@ internal fun NotificationPopup(
     onMarkAllRead: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
-    // 別の窓に出てロック画面より上に重なるので、ロック中は閉じ、出さない。
     val locked = LocalAppLocked.current
     LaunchedEffect(locked) { if (locked && visible) onDismiss() }
-    if (locked) return
+    BackHandler(enabled = visible, onBack = onDismiss)
     val transition = remember { MutableTransitionState(false) }
-    LaunchedEffect(visible) { transition.targetState = visible }
+    LaunchedEffect(visible, locked) { transition.targetState = visible && !locked }
     if (!transition.currentState && !transition.targetState) return
-
-    val gap = with(LocalDensity.current) { 4.dp.roundToPx() }
-    // 標準のメニュー（QuietDropdownMenu）と同じく、ベルの位置から拡大して開く。パネルは左右中央に置くので、起点はベルの位置から求める。
-    var origin by remember { mutableStateOf(TransformOrigin(0.5f, 0f)) }
-    val provider = remember(gap) {
-        object : PopupPositionProvider {
-            override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
-                val x = (windowSize.width - popupContentSize.width) / 2
-                if (popupContentSize.width > 0) {
-                    origin = TransformOrigin(((anchorBounds.center.x - x).toFloat() / popupContentSize.width).coerceIn(0f, 1f), 0f)
-                }
-                return IntOffset(x, anchorBounds.bottom + gap)
-            }
-        }
-    }
-    Popup(popupPositionProvider = provider, onDismissRequest = onDismiss, properties = PopupProperties(focusable = true)) {
-        // 速さ・縮み方は Material 3 の DropdownMenu に合わせる（開く 120ms・閉じる 75ms、0.8 倍から）。
+    Box(Modifier.fillMaxSize()) {
+        // パネルの外のタップで閉じる（下の画面には届かせない）。
+        if (visible) Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { onDismiss() } })
+        // 標準のメニュー（QuietDropdownMenu）と同じく、ベル（右上）の位置から拡大して開く（開く 120ms・閉じる 75ms、0.8 倍から）。
+        val origin = TransformOrigin(BELL_PIVOT_X, 0f)
         AnimatedVisibility(
             visibleState = transition,
             enter = scaleIn(tween(120, easing = LinearOutSlowInEasing), initialScale = 0.8f, transformOrigin = origin) + fadeIn(tween(30)),
             exit = scaleOut(tween(75), targetScale = 0.8f, transformOrigin = origin) + fadeOut(tween(75)),
+            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = LovelySpacing.topBarHeight + PANEL_GAP),
         ) {
             NotificationPanel(entries, onOpen, onEnter, onRemove, onMarkAllRead, onOpenSettings)
         }
@@ -142,7 +125,6 @@ internal fun NotificationPanel(
     onMarkAllRead: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
-    val shape = LovelyShapes.menu
     val configuration = LocalConfiguration.current
     // 画面の左右に 12dp ずつ残し、タブレット・横向きでは読みやすい幅で止める。
     val width = (configuration.screenWidthDp.dp - 24.dp).coerceAtMost(440.dp)
@@ -150,43 +132,44 @@ internal fun NotificationPanel(
     // 横向き・分割画面・文字拡大でも、ベル（上のバー）より下の空きに収める。
     val maxHeight = minOf(configuration.screenHeightDp.dp * PANEL_HEIGHT_FRACTION, configuration.screenHeightDp.dp - PANEL_TOP_RESERVE)
         .coerceAtLeast(160.dp)
-    Column(
-        Modifier
-            .padding(bottom = 12.dp)
-            .width(width)
-            .heightIn(max = maxHeight)
-            .shadow(QuietMenuDefaults.shadowElevation, shape, clip = false)
-            .clip(shape)
-            .background(QuietMenuDefaults.containerColor())
-            .border(QuietMenuDefaults.border(), shape)
-            .padding(vertical = 8.dp),
-    ) {
-        Row(Modifier.fillMaxWidth().padding(start = 18.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("お知らせ", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-            if (entries.unreadCount > 0) TextButton(onClick = onMarkAllRead) { Text("すべて既読") }
-        }
-        if (entries.isEmpty()) {
-            Text("お知らせはまだありません", style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp))
-        } else {
-            LazyColumn(
-                Modifier.fillMaxWidth().weight(1f, fill = false),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(entries, key = { it.id }) { entry ->
-                    SwipeToRemove(onRemove = { onRemove(entry) }, modifier = Modifier.animateItem()) {
-                        NotificationCard(entry, onClick = { onOpen(entry) }, onEnter = { onEnter(entry) })
+    // 上のバー・下のナビと同じガラスの面（背後の画面をぼかす）。
+    LovelyGlassSurface(Modifier.padding(bottom = 12.dp).width(width).heightIn(max = maxHeight)
+        // パネルの中のタップを外側（閉じる）に渡さない。
+        .pointerInput(Unit) { detectTapGestures { } }, shape = LovelyShapes.menu) {
+        Column(Modifier.padding(vertical = 8.dp)) {
+            Row(Modifier.fillMaxWidth().padding(start = 18.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("お知らせ", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                if (entries.unreadCount > 0) TextButton(onClick = onMarkAllRead) { Text("すべて既読") }
+            }
+            if (entries.isEmpty()) {
+                Text("お知らせはまだありません", style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp))
+            } else {
+                LazyColumn(
+                    Modifier.fillMaxWidth().weight(1f, fill = false),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(entries, key = { it.id }) { entry ->
+                        SwipeToRemove(onRemove = { onRemove(entry) }, modifier = Modifier.animateItem()) {
+                            NotificationCard(entry, onClick = { onOpen(entry) }, onEnter = { onEnter(entry) })
+                        }
                     }
                 }
+                Text("左右にスワイプすると消せます", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 18.dp, top = 6.dp))
             }
-            Text("左右にスワイプすると消せます", style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 18.dp, top = 6.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(top = 4.dp))
+            TextButton(onClick = onOpenSettings, modifier = Modifier.padding(start = 6.dp)) { Text("通知の設定") }
         }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(top = 4.dp))
-        TextButton(onClick = onOpenSettings, modifier = Modifier.padding(start = 6.dp)) { Text("通知の設定") }
     }
 }
+
+/** 上のバーとパネルの間。バーに密着させない。 */
+private val PANEL_GAP = 8.dp
+
+/** パネルの幅に対するベルの位置（拡大の起点）。ベルは上のバーの右端にある。 */
+private const val BELL_PIVOT_X = 0.9f
 
 /** 上のバー（ステータスバー込み）とパネルの下の余白の分。パネルの高さはこれを引いた画面の高さまで。 */
 private val PANEL_TOP_RESERVE = 120.dp
@@ -194,7 +177,10 @@ private val PANEL_TOP_RESERVE = 120.dp
 /** パネルの高さの上限（画面の高さに対する割合）。下の一覧が少し見えたままにして、画面を埋め尽くさない。 */
 private const val PANEL_HEIGHT_FRACTION = 0.6f
 
-/** 左右どちらへスワイプしても [onRemove] する。スワイプできない読み上げでは、操作の一覧から消せる。 */
+/**
+ * 左右どちらへスワイプしても [onRemove] する。背後には何も出さず、カードを動かした量に応じて薄くする。
+ * スワイプできない読み上げでは、操作の一覧から消せる。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SwipeToRemove(onRemove: () -> Unit, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
@@ -203,28 +189,19 @@ private fun SwipeToRemove(onRemove: () -> Unit, modifier: Modifier = Modifier, c
     LaunchedEffect(state.currentValue) {
         if (state.currentValue != SwipeToDismissBoxValue.Settled) currentOnRemove()
     }
+    var width by remember { mutableIntStateOf(0) }
     SwipeToDismissBox(
         state = state,
-        modifier = modifier.semantics {
+        modifier = modifier.onSizeChanged { width = it.width }.semantics {
             customActions = listOf(CustomAccessibilityAction("お知らせを消す") { currentOnRemove(); true })
         },
-        backgroundContent = {
-            val start = state.dismissDirection == SwipeToDismissBoxValue.StartToEnd
-            Row(
-                Modifier.fillMaxSize().clip(LovelyShapes.panel).background(MaterialTheme.colorScheme.surfaceContainerHighest)
-                    .padding(horizontal = 18.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = if (start) Arrangement.Start else Arrangement.End,
-            ) {
-                if (state.dismissDirection != SwipeToDismissBoxValue.Settled) {
-                    Icon(Icons.Outlined.DeleteOutline, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp))
-                    Text("消す", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 4.dp))
-                }
-            }
-        },
-    ) { content() }
+        backgroundContent = {},
+    ) {
+        Box(Modifier.graphicsLayer {
+            val offset = runCatching { state.requireOffset() }.getOrDefault(0f)
+            alpha = if (width > 0) (1f - abs(offset) / width).coerceIn(0f, 1f) else 1f
+        }) { content() }
+    }
 }
 
 /**
@@ -236,7 +213,7 @@ private fun NotificationCard(entry: AppNotification, onClick: () -> Unit, onEnte
     val room = entry.room
     val roomTarget = entry.target as? NotificationTarget.Room
     val scheme = MaterialTheme.colorScheme
-    RoomCardPanel(full = false, modifier = Modifier.testTag("notification-${entry.id}")) {
+    NoticeCardSurface(Modifier.testTag("notification-${entry.id}")) {
         Column(
             Modifier.clickable(onClickLabel = if (roomTarget != null) "入室前の画面を開く" else "開く", onClick = onClick)
                 .padding(start = 14.dp, end = 12.dp, top = 10.dp, bottom = if (roomTarget != null) 4.dp else 12.dp),
@@ -286,3 +263,16 @@ private fun NotificationCard(entry: AppNotification, onClick: () -> Unit, onEnte
         }
     }
 }
+
+/**
+ * お知らせカードの面。部屋カードと同じ角丸・縁取りで、ガラスのパネルが少し透けるよう面を半透明にする
+ * （ぼかしはパネルが受け持つ。カードごとにはぼかさない）。
+ */
+@Composable
+private fun NoticeCardSurface(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    Surface(shape = LovelyShapes.panel, color = MaterialTheme.colorScheme.surface.copy(alpha = NOTICE_CARD_ALPHA), tonalElevation = 0.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = modifier.fillMaxWidth(), content = content)
+}
+
+/** お知らせカードの面の濃さ。文字が読める濃さを保ちつつ、背後のガラスが少し透ける。 */
+private const val NOTICE_CARD_ALPHA = 0.6f
