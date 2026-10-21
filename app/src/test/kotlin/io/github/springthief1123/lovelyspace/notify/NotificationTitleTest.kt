@@ -6,6 +6,7 @@ import io.github.springthief1123.lovelyspace.core.RoomAction
 import io.github.springthief1123.lovelyspace.core.RoomStatus
 import io.github.springthief1123.lovelyspace.settings.NotificationPreview
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -26,5 +27,15 @@ class NotificationTitleTest {
     @Test fun roomsWithoutAVisibleNameKeepTheGenericTitle() {
         assertNull(room(null).ownerLabel())
         assertNull(room("  ").ownerLabel())
+    }
+
+    @Test fun testNotificationsLookLikeRealOnes() {
+        val pin = NotificationSamples.of(NotificationKind.WAITLIST)
+        assertEquals("テストさんの部屋が空きました", pin.displayTitle)
+        assertEquals("全国", pin.text)
+        assertEquals("テスト", pin.room?.name)
+        // 押しても本家の部屋を開かない。
+        assertFalse(pin.target is NotificationTarget.Room)
+        assertEquals("全国で1件", NotificationSamples.of(NotificationKind.RADAR_MATCH).text)
     }
 }
