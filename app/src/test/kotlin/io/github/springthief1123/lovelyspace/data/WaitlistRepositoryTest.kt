@@ -67,7 +67,9 @@ class WaitlistRepositoryTest {
         val n = opened.single().toOpenedNotification()!!
         assertEquals(NotificationKind.WAITLIST, n.kind)
         assertEquals("待機メッセージが同じなので照合済み", NotificationTarget.Room(zenkoku.host, "zenkoku", 42, verified = true), n.target)
-        assertTrue("同じです" in n.text)
+        // 同じ待機メッセージなら本文はジャンルだけ（違うときだけ添える）。カードに出す部屋も持つ。
+        assertFalse("違います" in n.text)
+        assertEquals(42L, n.room?.id)
     }
 
     @Test
@@ -268,7 +270,7 @@ class WaitlistRepositoryTest {
         val entry = opened.single()
         assertEquals(rebuilt.id, entry.openedRoom?.id)
         assertEquals(1, entry.rebuilds)
-        assertTrue("立て直され" in entry.toOpenedNotification()!!.text)
+        assertTrue("立て直した" in entry.toOpenedNotification()!!.text)
     }
 
     @Test fun aRoomRebuiltWhileFullKeepsTheProfileItWasMatchedWith() = runTest {
