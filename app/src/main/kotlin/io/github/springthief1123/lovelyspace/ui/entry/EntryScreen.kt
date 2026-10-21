@@ -75,7 +75,7 @@ fun EntryScreen(
         factory = viewModelFactory {
             initializer {
                 EntryViewModel(app.client, app.settings, app.presets, host, genreKey, roomId, auto, listedPublic,
-                    onEnteredAfterClose = { room -> app.activeRooms.register(room) })
+                    onEnteredAfterClose = app::adoptEnteredAfterClose, registrationMark = app.activeRooms::registrations)
             }
         },
     )

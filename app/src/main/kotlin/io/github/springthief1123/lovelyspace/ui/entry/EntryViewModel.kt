@@ -82,8 +82,11 @@ class EntryViewModel(
     /**
      * 入室の送信中に画面が閉じられ、その後に入室できた部屋を渡す（進行中の部屋として残し、「会話に戻る」から戻れるようにする）。
      * 本家では入室が済んでいるので、捨てると相手からは黙ったままの入室者に見えてしまう。
+     * 2 つめは入室を試み始めた時点の [registrationMark]。その後に別の部屋へ入っていたら、受け取った側は古い部屋から退室する。
      */
-    private val onEnteredAfterClose: (ChatRoomRef) -> Unit = {},
+    private val onEnteredAfterClose: (ChatRoomRef, Long) -> Unit = { _, _ -> },
+    /** 進行中の部屋を登録した回数（[io.github.springthief1123.lovelyspace.ui.chat.ActiveRooms.registrations]）。 */
+    private val registrationMark: () -> Long = { 0L },
 ) : ViewModel() {
     private val _state = MutableStateFlow(EntryUiState(autoEntering = auto))
     val state: StateFlow<EntryUiState> = _state.asStateFlow()
@@ -91,6 +94,8 @@ class EntryViewModel(
     private var autoPending = auto
     @Volatile private var closed = false
     private var enteredConsumed = false
+    /** 入室を試み始めた時点の [registrationMark]。ブラウザ画面での入室は、この画面を開いた時点のもの。 */
+    @Volatile private var attemptMark = registrationMark()
 
     init {
         load()
@@ -175,6 +180,7 @@ class EntryViewModel(
         if (!s.canEnter) return
         val profile = EntryProfile(name = s.name.trim(), sex = s.sex, years = s.yearsValue)
         _state.update { it.copy(isEntering = true, entryError = null) }
+        attemptMark = registrationMark()
         viewModelScope.launch {
             saveProfileQuietly(profile)
             try {
@@ -218,7 +224,7 @@ class EntryViewModel(
     /** 入室できた部屋。画面が閉じていれば進行中の部屋として引き継ぎ、開いていれば画面がチャットへ移る（[consumeEntered]）。 */
     private fun entered(room: ChatRoomRef) {
         synchronized(this) {
-            if (closed) onEnteredAfterClose(room)
+            if (closed) onEnteredAfterClose(room, attemptMark)
             else _state.update { it.copy(isEntering = false, entered = room) }
         }
     }
@@ -232,7 +238,7 @@ class EntryViewModel(
         synchronized(this) {
             closed = true
             // 入室できた直後、画面がチャットへ移る前に閉じられたときも、部屋を捨てずに引き継ぐ。
-            if (!enteredConsumed) _state.value.entered?.let(onEnteredAfterClose)
+            if (!enteredConsumed) _state.value.entered?.let { onEnteredAfterClose(it, attemptMark) }
         }
     }
 
