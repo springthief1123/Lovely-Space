@@ -24,7 +24,7 @@ import org.json.JSONObject
  * 本家のページがボタンを押せるようにした後で [onceScript] が押す（Yuya の決定、2026-10-18）。
  *
  * [onRoomOpened] を渡すと、サイトが `2shot.php?room_id=..&pwd=..`（入室・部屋作成の完了）へ移るところで止め、
- * アプリのチャット画面へ引き継ぐ。ラブルーム以外へのリンクは端末のブラウザで開く。
+ * アプリのチャット画面へ引き継ぐ。ラブルーム以外へのリンクは、利用者が押したときだけ端末のブラウザで開く。
  */
 // 先読み中に触れさせないための OnTouchListener は、押す操作を持たないので performClick を呼ばない。
 @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
@@ -93,9 +93,13 @@ fun SiteWebView(
                         if (!request.isForMainFrame) return false
                         if (interceptRoom(request.url)) return true
                         if (!request.url.isShalove()) {
-                            try {
-                                view.context.startActivity(Intent(Intent.ACTION_VIEW, request.url))
-                            } catch (_: ActivityNotFoundException) {
+                            // ラブルーム以外は、利用者が見えている画面でリンクを押したときだけ端末のブラウザで開く。
+                            // 本家の広告などの自動の転送（先読み中を含む）で、触れていないのに外部アプリが開かないよう止める。
+                            if (request.opensExternally(currentShown.value)) {
+                                try {
+                                    view.context.startActivity(Intent(Intent.ACTION_VIEW, request.url))
+                                } catch (_: ActivityNotFoundException) {
+                                }
                             }
                             return true
                         }
@@ -174,6 +178,17 @@ private class PageProgress {
         view.evaluateJavascript(script, null)
     }
 }
+
+/** ラブルーム以外へのメインフレームの移動を端末のブラウザで開くか（[opensExternally]）。 */
+private fun WebResourceRequest.opensExternally(shown: Boolean): Boolean =
+    opensExternally(url.scheme, hasGesture(), shown)
+
+/**
+ * 外部で開くのは、見えている画面で利用者が押した（[hasGesture]）http・https のリンクだけ。
+ * 自動の転送・先読み中の移動・intent: や market: などのスキームは止める（アプリを勝手に開かない）。
+ */
+internal fun opensExternally(scheme: String?, hasGesture: Boolean, shown: Boolean): Boolean =
+    shown && hasGesture && (scheme.equals("https", ignoreCase = true) || scheme.equals("http", ignoreCase = true))
 
 private fun Uri.isShalove(): Boolean =
     scheme == "https" && (host == "shalove.net" || host?.endsWith(".shalove.net") == true)
