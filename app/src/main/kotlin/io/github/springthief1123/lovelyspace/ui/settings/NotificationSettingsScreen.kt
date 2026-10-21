@@ -16,7 +16,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -25,12 +29,15 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -40,7 +47,10 @@ import io.github.springthief1123.lovelyspace.notify.NotificationSamples
 import io.github.springthief1123.lovelyspace.notify.appNotificationSettingsIntent
 import io.github.springthief1123.lovelyspace.notify.channelSettingsIntent
 import io.github.springthief1123.lovelyspace.notify.rememberNotificationPermissionRequest
+import io.github.springthief1123.lovelyspace.settings.NoticeRetention
 import io.github.springthief1123.lovelyspace.settings.NotificationPreview
+import io.github.springthief1123.lovelyspace.ui.components.QuietDropdownMenu
+import io.github.springthief1123.lovelyspace.ui.components.QuietMenuRow
 import io.github.springthief1123.lovelyspace.ui.describeError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -50,6 +60,7 @@ fun NotificationSettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val app = context.applicationContext as LovelySpaceApp
     val preview by app.settings.notificationPreview.collectAsStateWithLifecycle(initialValue = NotificationPreview.HIDE_ON_LOCK_SCREEN)
+    val retention by app.settings.noticeRetention.collectAsStateWithLifecycle(initialValue = NoticeRetention.defaults)
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     // 権限やチャンネルは端末の設定画面で変えられるので、この画面に戻るたびに読み直す。
@@ -150,6 +161,26 @@ fun NotificationSettingsScreen(onBack: () -> Unit) {
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
                     )
                 }
+                item { SettingsDivider() }
+                item { SettingsSectionTitle("お知らせを残す時間") }
+                item {
+                    Text("過ぎたお知らせは、ベルのお知らせからも端末の通知からも自動で消えます。",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 4.dp))
+                }
+                items(NoticeRetention.kinds.filter { it.delivered }) { kind ->
+                    RetentionRow(kind, retention[kind] ?: NoticeRetention.default(kind)) { choice ->
+                        scope.launch {
+                            try {
+                                app.settings.setNoticeRetention(kind, choice)
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                show("設定の保存に失敗しました：${describeError(e)}")
+                            }
+                        }
+                    }
+                }
             }
         }
         SnackbarHost(
@@ -182,5 +213,39 @@ private fun NotificationKindRow(kind: NotificationKind, enabled: Boolean, onOpen
     }
 }
 
+
+/** 種類ごとのお知らせを残す時間。右の選択ボタンから選ぶ（更新の間隔の設定と同じ形）。 */
+@Composable
+private fun RetentionRow(kind: NotificationKind, value: NoticeRetention, onSelect: (NoticeRetention) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(kind.label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        Box {
+            OutlinedButton(
+                onClick = { expanded = true },
+                modifier = Modifier.semantics { contentDescription = "${kind.label}のお知らせを残す時間：${value.label}" },
+            ) {
+                Text(value.label)
+                Icon(Icons.Outlined.KeyboardArrowDown, contentDescription = null, modifier = Modifier.padding(start = 6.dp))
+            }
+            QuietDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                NoticeRetention.entries.forEach { choice ->
+                    QuietMenuRow(
+                        choice.label,
+                        supporting = if (choice == NoticeRetention.default(kind)) "既定" else null,
+                        selected = choice == value,
+                        onClick = {
+                            expanded = false
+                            onSelect(choice)
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
 
 private const val ONGOING_TEST_TIMEOUT_MS = 15_000L

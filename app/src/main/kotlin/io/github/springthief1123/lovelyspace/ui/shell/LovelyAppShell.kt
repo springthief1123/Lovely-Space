@@ -119,6 +119,13 @@ private fun LovelyTopBar(onOpenNotificationSettings: () -> Unit, searchButton: S
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val notifications by app.notificationInbox.entries.collectAsStateWithLifecycle()
     val unread = notifications.unreadCount
+    // 時間がたった空き枠・一致のお知らせは、画面を見ている間も 1 分ごとに片付ける（未読の数にも残さない）。
+    LaunchedEffect(Unit) {
+        while (true) {
+            app.notificationInbox.removeExpired()
+            kotlinx.coroutines.delay(60_000)
+        }
+    }
     val rose = MaterialTheme.colorScheme.primary
     LovelyGlassSurface(modifier.fillMaxWidth(), RectangleShape) {
         Row(Modifier.statusBarsPadding().fillMaxWidth().height(LovelySpacing.topBarHeight).padding(horizontal = 20.dp),
@@ -149,7 +156,7 @@ private fun LovelyTopBar(onOpenNotificationSettings: () -> Unit, searchButton: S
                 }
             }
             Box {
-                IconButton(onClick = { notificationsOpen = true }) {
+                IconButton(onClick = { app.notificationInbox.removeExpired(); notificationsOpen = true }) {
                     BadgedBox(badge = { if (unread > 0) Badge { Text(if (unread > 99) "99+" else "$unread") } }) {
                         Icon(if (unread > 0) Icons.Outlined.NotificationsActive else Icons.Outlined.NotificationsNone,
                             contentDescription = if (unread > 0) "お知らせ（未読${unread}件）" else "お知らせ")

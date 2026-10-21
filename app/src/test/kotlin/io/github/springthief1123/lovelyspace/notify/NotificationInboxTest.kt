@@ -1,6 +1,7 @@
 package io.github.springthief1123.lovelyspace.notify
 
 import io.github.springthief1123.lovelyspace.settings.NotificationPreview
+import io.github.springthief1123.lovelyspace.settings.NoticeRetention
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -75,6 +76,26 @@ class NotificationInboxTest {
         inbox.remove("a")
         assertNull(inbox["a"])
         assertEquals(listOf("b"), disk.saved.map { it.id })
+    }
+
+    @Test fun noticesExpireByTheirKindsRetention() {
+        var now = 0L
+        val disk = MemoryPersistence()
+        val inbox = NotificationInbox(disk) { now }
+        inbox.add(entry("pin", NotificationKind.WAITLIST, at = 0))
+        inbox.add(entry("match", NotificationKind.RADAR_MATCH, at = 0))
+        inbox.add(entry("entry", NotificationKind.ROOM_ENTRY, at = 0))
+        now = 2 * 60 * 60_000L
+        // 設定を読むまでは消さない（既定より長く残す人のお知らせを、起動直後に消さない）。
+        inbox.removeExpired()
+        assertEquals(3, inbox.entries.value.size)
+        // 既定: 空き 1 時間・条件の新着 1 時間・入室者あり 消さない。条件の新着だけ 3 時間に延ばす。
+        inbox.retention = NoticeRetention.defaults + (NotificationKind.RADAR_MATCH to NoticeRetention.HOURS_3)
+        assertEquals(listOf("entry", "match"), inbox.entries.value.map { it.id })
+        assertEquals(listOf("entry", "match"), disk.saved.map { it.id })
+        now = 3 * 60 * 60_000L
+        inbox.removeExpired()
+        assertEquals(listOf("entry"), inbox.entries.value.map { it.id })
     }
 
     @Test fun openingAnUnknownEntryDoesNothing() {

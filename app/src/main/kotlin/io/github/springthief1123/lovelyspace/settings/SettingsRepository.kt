@@ -13,6 +13,7 @@ import io.github.springthief1123.lovelyspace.core.RefreshPacing
 import io.github.springthief1123.lovelyspace.core.chat.EntryProfile
 import io.github.springthief1123.lovelyspace.disguise.DisguiseSymbol
 import io.github.springthief1123.lovelyspace.disguise.ShortcutDisguise
+import io.github.springthief1123.lovelyspace.notify.NotificationKind
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -122,6 +123,19 @@ class SettingsRepository(private val context: Context) : RoomListPreferenceStore
         prefs[notificationPreviewKey]?.let { runCatching { NotificationPreview.valueOf(it) }.getOrNull() }
             ?: NotificationPreview.HIDE_ON_LOCK_SCREEN
     }
+
+    /** お知らせを種類ごとに残す時間。未設定の種類は既定値（[NoticeRetention.default]）。 */
+    val noticeRetention: Flow<Map<NotificationKind, NoticeRetention>> = context.dataStore.data.map { prefs ->
+        NoticeRetention.kinds.associateWith { kind ->
+            prefs[noticeRetentionKey(kind)]?.let { runCatching { NoticeRetention.valueOf(it) }.getOrNull() } ?: NoticeRetention.default(kind)
+        }
+    }
+
+    suspend fun setNoticeRetention(kind: NotificationKind, retention: NoticeRetention) {
+        context.dataStore.edit { it[noticeRetentionKey(kind)] = retention.name }
+    }
+
+    private fun noticeRetentionKey(kind: NotificationKind) = stringPreferencesKey("notice_retention_${kind.name}")
 
     /** 本家への自動の取り直しの間隔。未設定の項目は既定値、下限を割る値は下限にする。 */
     val refreshPacing: Flow<RefreshPacing> = context.dataStore.data.map { prefs -> refreshPacingOf(prefs) }

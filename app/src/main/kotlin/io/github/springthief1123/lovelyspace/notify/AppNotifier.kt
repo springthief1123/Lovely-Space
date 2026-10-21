@@ -109,7 +109,9 @@ class AppNotifier(
         if (notification.kind == NotificationKind.ONGOING) {
             builder.setCategory(NotificationCompat.CATEGORY_STATUS)
         }
-        timeoutAfterMs?.let { builder.setTimeoutAfter(it) }
+        // お知らせから時間で消す種類は、端末通知も同じ時間で消す（押しても開く先が無くなるため）。
+        (timeoutAfterMs ?: inbox.retentionMillis(notification.kind)?.let { (notification.at + it - System.currentTimeMillis()).coerceAtLeast(1) })
+            ?.let { builder.setTimeoutAfter(it) }
         if (notification.publicOnLockScreen(preview)) {
             builder.setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
         } else {

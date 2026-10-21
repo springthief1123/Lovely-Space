@@ -146,8 +146,10 @@ internal fun NotificationPanel(
     val configuration = LocalConfiguration.current
     // 画面の左右に 12dp ずつ残し、タブレット・横向きでは読みやすい幅で止める。
     val width = (configuration.screenWidthDp.dp - 24.dp).coerceAtMost(440.dp)
-    // パネル全体（見出し・設定ボタン込み）を、ベル（上のバー）より下の空きに収める。横向き・分割画面・文字拡大では一覧の部分だけ縮めてスクロールする。
-    val maxHeight = (configuration.screenHeightDp.dp - PANEL_TOP_RESERVE).coerceAtLeast(160.dp)
+    // パネル全体（見出し・設定ボタン込み）は画面の高さの [PANEL_HEIGHT_FRACTION] までにし、件数が多くても画面を埋めずに一覧の中でスクロールする。
+    // 横向き・分割画面・文字拡大でも、ベル（上のバー）より下の空きに収める。
+    val maxHeight = minOf(configuration.screenHeightDp.dp * PANEL_HEIGHT_FRACTION, configuration.screenHeightDp.dp - PANEL_TOP_RESERVE)
+        .coerceAtLeast(160.dp)
     Column(
         Modifier
             .padding(bottom = 12.dp)
@@ -188,6 +190,9 @@ internal fun NotificationPanel(
 
 /** 上のバー（ステータスバー込み）とパネルの下の余白の分。パネルの高さはこれを引いた画面の高さまで。 */
 private val PANEL_TOP_RESERVE = 120.dp
+
+/** パネルの高さの上限（画面の高さに対する割合）。下の一覧が少し見えたままにして、画面を埋め尽くさない。 */
+private const val PANEL_HEIGHT_FRACTION = 0.6f
 
 /** 左右どちらへスワイプしても [onRemove] する。スワイプできない読み上げでは、操作の一覧から消せる。 */
 @OptIn(ExperimentalMaterial3Api::class)
