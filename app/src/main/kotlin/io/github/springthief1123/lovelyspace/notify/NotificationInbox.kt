@@ -55,20 +55,27 @@ class NotificationInbox(
     fun add(notification: AppNotification) {
         if (!notification.kind.logged) return
         val at = now()
-        val expired = expiredIds(at) - notification.id
-        change { entries -> (listOf(notification) + entries.filterNot { it.id == notification.id || it.id in expired }).take(MAX_ENTRIES) }
+        var expired = emptySet<String>()
+        change { entries ->
+            expired = entries.filter { it.id != notification.id && isExpired(it, at) }.map { it.id }.toSet()
+            (listOf(notification) + entries.filterNot { it.id == notification.id || it.id in expired }).take(MAX_ENTRIES)
+        }
         if (expired.isNotEmpty()) onExpired?.invoke(expired)
     }
 
     /** 残す時間を過ぎたお知らせを消す（ベルを開いたとき・画面を見ている間は 1 分ごと）。 */
     fun removeExpired() {
-        val expired = expiredIds(now())
-        if (expired.isEmpty()) return
-        change { entries -> entries.filterNot { it.id in expired } }
-        onExpired?.invoke(expired)
+        val at = now()
+        if (_entries.value.none { isExpired(it, at) }) return
+        // 期限切れの判定は更新の中で行う（その間に同じ ID で出し直した新しいお知らせを消さないため）。
+        var expired = emptySet<String>()
+        change { entries ->
+            val (gone, kept) = entries.partition { isExpired(it, at) }
+            expired = gone.map { it.id }.toSet()
+            kept
+        }
+        if (expired.isNotEmpty()) onExpired?.invoke(expired)
     }
-
-    private fun expiredIds(at: Long): Set<String> = _entries.value.filter { isExpired(it, at) }.map { it.id }.toSet()
 
     operator fun get(id: String): AppNotification? = _entries.value.firstOrNull { it.id == id }
 

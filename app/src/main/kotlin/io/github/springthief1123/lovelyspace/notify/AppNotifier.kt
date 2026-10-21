@@ -35,7 +35,8 @@ class AppNotifier(
 
     init {
         // 時間でお知らせから消えた通知は、端末からも消す（押しても開く先が無いため）。
-        inbox.onExpired = { ids -> ids.forEach(::cancel) }
+        // 消した直後に同じ ID で出し直した通知は残す。
+        inbox.onExpired = { ids -> ids.filter { inbox[it] == null }.forEach(::cancel) }
     }
 
     /** 種類ごとの通知チャンネルを用意する。何度呼んでも既存の設定は変わらない。 */
