@@ -96,7 +96,7 @@ class AppNotifier(
         val body = notification.body(preview)
         val builder = NotificationCompat.Builder(context, notification.kind.channelId)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(notification.title)
+            .setContentTitle(notification.title(preview))
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setWhen(notification.at)

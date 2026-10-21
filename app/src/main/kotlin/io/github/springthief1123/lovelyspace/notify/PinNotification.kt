@@ -2,6 +2,7 @@ package io.github.springthief1123.lovelyspace.notify
 
 import io.github.springthief1123.lovelyspace.core.Genres
 import io.github.springthief1123.lovelyspace.data.PinEvent
+import io.github.springthief1123.lovelyspace.core.Room
 import kotlin.math.roundToInt
 
 /**
@@ -19,6 +20,7 @@ fun PinEvent.toNotification(at: Long = System.currentTimeMillis()): AppNotificat
                 id = "pin-${pin.key}-$at",
                 kind = NotificationKind.WAITLIST,
                 title = "ピンした部屋が空きました",
+                namedTitle = opened.ownerLabel()?.let { "${it}の部屋が空きました" },
                 // 同じ待機メッセージなら知らせることは無いので、ジャンルだけにする。違うときだけ確かめるよう添える。
                 text = genre.label + if (sameMessage) "" else "・待機メッセージがピンしたときと違います",
                 target = NotificationTarget.Room(genre.host, opened.genreKey, opened.id, verified = sameMessage),
@@ -31,6 +33,7 @@ fun PinEvent.toNotification(at: Long = System.currentTimeMillis()): AppNotificat
             id = "pin-similar-${pin.key}-${similar.room.id}",
             kind = NotificationKind.WAITLIST,
             title = "ピンした部屋に似た部屋が建ちました",
+            namedTitle = pin.room.ownerLabel()?.let { "${it}に似た部屋が建ちました" },
             text = "${genre.label}で、閉じたピンの部屋に似た部屋（待機メッセージが${(similar.similarity * 100).roundToInt()}%一致）が見つかりました。同じ人かをレーダーで確かめてください。",
             target = NotificationTarget.Radar,
             at = at,
@@ -39,3 +42,6 @@ fun PinEvent.toNotification(at: Long = System.currentTimeMillis()): AppNotificat
         )
     }
 }
+
+/** 見出しに入れる部屋主の呼び名（「◯◯さん」）。満室などで名前が見えない部屋は null。 */
+internal fun Room.ownerLabel(): String? = name?.trim()?.takeIf { it.isNotEmpty() }?.let { "${it}さん" }

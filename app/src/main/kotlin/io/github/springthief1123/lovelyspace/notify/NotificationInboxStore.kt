@@ -32,6 +32,7 @@ class NotificationInboxStore(private val prefs: SharedPreferences) : Notificatio
         .put("at", n.at).put("read", n.read).put("target", n.target.toJson())
         .apply { n.message?.let { put("message", it) } }
         .apply { n.room?.let { put("room", encodeRoom(it)) } }
+        .apply { n.namedTitle?.let { put("namedTitle", it) } }
 
     private fun decode(o: JSONObject) = AppNotification(
         id = o.getString("id"),
@@ -44,6 +45,7 @@ class NotificationInboxStore(private val prefs: SharedPreferences) : Notificatio
         read = o.optBoolean("read"),
         // 部屋の記録が読めなくても、お知らせ自体は残す（以前の版の記録には無い）。
         room = o.optJSONObject("room")?.let { runCatching { decodeRoom(it) }.getOrNull() },
+        namedTitle = if (o.has("namedTitle")) o.getString("namedTitle") else null,
     )
 
     private fun encodeRoom(r: Room) = JSONObject()

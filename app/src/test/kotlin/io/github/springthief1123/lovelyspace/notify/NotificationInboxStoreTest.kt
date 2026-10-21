@@ -25,7 +25,8 @@ class NotificationInboxStoreTest {
         val entries = listOf(
             AppNotification("1", NotificationKind.RADAR_MATCH, "見出し", "本文",
                 NotificationTarget.Room("2shot.chat.shalove.net", "zenkoku", 900000001L), 10L, message = "合成の待機メッセージ",
-                room = Room(900000001L, "zenkoku", RoomStatus.WAITING, RoomAction.ENTER, null, "合成の名前", Gender.FEMALE, 25, null, "合成の待機メッセージ")),
+                room = Room(900000001L, "zenkoku", RoomStatus.WAITING, RoomAction.ENTER, null, "合成の名前", Gender.FEMALE, 25, null, "合成の待機メッセージ"),
+                namedTitle = "合成の名前さんの部屋が空きました"),
             AppNotification("5", NotificationKind.WAITLIST, "見出し", "本文", NotificationTarget.Radar, 50L,
                 room = Room(900000002L, "zenkoku", RoomStatus.FULL, RoomAction.NONE, null, null, Gender.UNKNOWN, null, null, "")),
             AppNotification("2", NotificationKind.ROOM_ENTRY, "見出し", "本文", NotificationTarget.ActiveChat, 20L, read = true),

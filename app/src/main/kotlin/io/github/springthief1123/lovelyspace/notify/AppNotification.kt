@@ -50,6 +50,7 @@ internal fun notificationTarget(o: JSONObject): NotificationTarget = when (val t
 /**
  * 端末通知とお知らせ（通知ベル）の 1 件。
  * [message] は他の利用者の待機メッセージなど、利用者の設定によっては通知に出さない本文。
+ * [namedTitle] は部屋主の名前を入れた見出し（「◯◯さんの部屋が空きました」）。名前も他の利用者の情報なので、[message] と同じく設定に従う。
  * [room] は 1 部屋についてのお知らせのその部屋。お知らせ（ベル）のカードで、誰のどんな部屋かを部屋カードと同じ形で出す。
  */
 data class AppNotification(
@@ -62,7 +63,15 @@ data class AppNotification(
     val message: String? = null,
     val read: Boolean = false,
     val room: Room? = null,
+    val namedTitle: String? = null,
 ) {
+    /** 端末通知の見出し。待機メッセージを出さない設定では、名前を入れない見出しにする。 */
+    fun title(preview: NotificationPreview): String =
+        if (preview == NotificationPreview.NO_MESSAGE) title else namedTitle ?: title
+
+    /** お知らせ（ベル）の見出し。アプリの中なので名前を入れる。 */
+    val displayTitle: String get() = namedTitle ?: title
+
     /** 端末通知に出す本文。 */
     fun body(preview: NotificationPreview): String =
         if (preview == NotificationPreview.NO_MESSAGE || message.isNullOrBlank()) text else "$text\n$message"

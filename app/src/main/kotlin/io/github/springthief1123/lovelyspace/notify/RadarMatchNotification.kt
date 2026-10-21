@@ -29,7 +29,8 @@ fun List<RadarEvent>.toMatchNotification(id: String): AppNotification? {
         if (rooms.size > MAX_NAMES) " ほか" else ""
     val genre = Genres[rooms.first().genreKey]?.label ?: rooms.first().genreKey
     val rebuilt = found.count { (event, room) -> roomIdentity(room) in event.rebuilds }
-    val where = matches.singleOrNull()?.let { "${genre}の${it.page ?: 1}ページで" } ?: "${genre}で"
+    // ページは見つけた時点の位置にすぎないので出さない（2026-10-21 Yuya）。
+    val where = "${genre}で"
     return AppNotification(
         id = id,
         kind = if (named) NotificationKind.NAME_MATCH else NotificationKind.RADAR_MATCH,

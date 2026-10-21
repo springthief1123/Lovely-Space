@@ -3,7 +3,9 @@ package io.github.springthief1123.lovelyspace.ui.shell
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -39,6 +41,8 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
@@ -46,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -101,17 +106,25 @@ internal fun NotificationPopup(
     if (!transition.currentState && !transition.targetState) return
 
     val gap = with(LocalDensity.current) { 4.dp.roundToPx() }
+    // 標準のメニュー（QuietDropdownMenu）と同じく、ベルの位置から拡大して開く。パネルは左右中央に置くので、起点はベルの位置から求める。
+    var origin by remember { mutableStateOf(TransformOrigin(0.5f, 0f)) }
     val provider = remember(gap) {
         object : PopupPositionProvider {
-            override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection, popupContentSize: IntSize) =
-                IntOffset((windowSize.width - popupContentSize.width) / 2, anchorBounds.bottom + gap)
+            override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
+                val x = (windowSize.width - popupContentSize.width) / 2
+                if (popupContentSize.width > 0) {
+                    origin = TransformOrigin(((anchorBounds.center.x - x).toFloat() / popupContentSize.width).coerceIn(0f, 1f), 0f)
+                }
+                return IntOffset(x, anchorBounds.bottom + gap)
+            }
         }
     }
     Popup(popupPositionProvider = provider, onDismissRequest = onDismiss, properties = PopupProperties(focusable = true)) {
+        // 速さ・縮み方は Material 3 の DropdownMenu に合わせる（開く 120ms・閉じる 75ms、0.8 倍から）。
         AnimatedVisibility(
             visibleState = transition,
-            enter = fadeIn(tween(140)) + expandVertically(tween(200), expandFrom = Alignment.Top),
-            exit = fadeOut(tween(120)),
+            enter = scaleIn(tween(120, easing = LinearOutSlowInEasing), initialScale = 0.8f, transformOrigin = origin) + fadeIn(tween(30)),
+            exit = scaleOut(tween(75), targetScale = 0.8f, transformOrigin = origin) + fadeOut(tween(75)),
         ) {
             NotificationPanel(entries, onOpen, onEnter, onRemove, onMarkAllRead, onOpenSettings)
         }
@@ -226,7 +239,7 @@ private fun NotificationCard(entry: AppNotification, onClick: () -> Unit, onEnte
             // 何のお知らせか（と未読の印・時刻）を 1 行目に小さく出す。
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.padding(end = 6.dp).size(7.dp).background(if (entry.read) Color.Transparent else scheme.primary, CircleShape))
-                Text(entry.title, style = MaterialTheme.typography.labelMedium,
+                Text(entry.displayTitle, style = MaterialTheme.typography.labelMedium,
                     fontWeight = if (entry.read) FontWeight.Normal else FontWeight.SemiBold,
                     color = if (entry.read) scheme.onSurfaceVariant else scheme.primary,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
