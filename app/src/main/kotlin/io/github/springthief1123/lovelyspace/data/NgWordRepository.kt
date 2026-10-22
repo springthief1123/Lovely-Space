@@ -110,7 +110,9 @@ class NgWordRepository(private val db: PresetDatabase, scope: CoroutineScope = C
      */
     private suspend fun mergeMediaAndAddWords() {
         val media = dao.set(MEDIA_ID)
-        dao.set(MONEY_ID)?.let { money ->
+        // 削除できた前の版で「お金目的」だけを消していた端末は、「写真・動画目的」を「お金目的」に置き換える。
+        val money = dao.set(MONEY_ID) ?: media?.let { NgWordSet.builtIn("money")!!.toEntity(it.position).copy(words = "", enabled = it.enabled) }
+        if (money != null) {
             dao.put(money.withBuiltInWords("money", extra = media?.wordList().orEmpty()))
             if (media != null) dao.delete(MEDIA_ID)
         }
@@ -126,7 +128,8 @@ class NgWordRepository(private val db: PresetDatabase, scope: CoroutineScope = C
         val order = NgWordSet.builtIn(key)!!.words
         val all = (wordList() + extra + order).distinct()
         val (known, mine) = all.partition { it in order }
-        return copy(words = (known.sortedBy(order::indexOf) + mine).joinToString("\n"))
+        // まとめても保存できるよう、1 セットの上限に収める（初期の語を先に残す）。
+        return copy(words = (known.sortedBy(order::indexOf) + mine).take(MAX_WORDS).joinToString("\n"))
     }
 
     suspend fun save(set: NgWordSet) {

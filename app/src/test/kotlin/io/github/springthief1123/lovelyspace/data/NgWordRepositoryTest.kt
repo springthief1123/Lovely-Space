@@ -102,6 +102,28 @@ class NgWordRepositoryTest {
         } finally { db.close(); context.deleteDatabase(name) }
     }
 
+    @Test fun photoSetBecomesMoneyWhenMoneyWasDeletedAndMergedSetsStayWithinTheWordLimit() = runTest {
+        val name = "ng-${UUID.randomUUID()}.db"
+        val db = open(name)
+        try {
+            // 削除できた前の版で「お金目的」を消し、「写真・動画目的」に語をたくさん足した端末。
+            val many = (1..NgWordRepository.MAX_WORDS).map { "合成$it" }
+            db.ngWords().put(NgWordSetEntity("builtin-media", "写真・動画目的", (listOf("写真販売") + many).joinToString("\n"),
+                false, NgTarget.NAME_AND_MESSAGE.name, false, "media", 1))
+            db.presets().put(LocalState("ng_word_seed", "money,media,newhalf"))
+
+            val repo = NgWordRepository(db, backgroundScope)
+            val money = repo.sets.first().single()
+            assertEquals("builtin-money", money.id)
+            assertEquals("お金目的", money.label)
+            assertFalse(money.enabled)
+            assertEquals(NgWordRepository.MAX_WORDS, money.words.size)
+            assertEquals(NgWordSet.builtIn("money")!!.words, money.words.take(NgWordSet.builtIn("money")!!.words.size))
+            // 上限に収めたので、そのまま保存し直せる。
+            repo.save(money)
+        } finally { db.close(); context.deleteDatabase(name) }
+    }
+
     @Test fun rejectsEmptySets() = runTest {
         val name = "ng-${UUID.randomUUID()}.db"
         val db = open(name)
