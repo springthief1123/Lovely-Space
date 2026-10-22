@@ -8,7 +8,6 @@ class NgWordsTest {
     private val room = Room(1, "zenkoku", RoomStatus.WAITING, RoomAction.ENTER, 2.minutes,
         "合成 Alice", Gender.FEMALE, 25, "東京", "猫と雑談")
     private val money = NgWordSet.builtIn("money")!!
-    private val media = NgWordSet.builtIn("media")!!
 
     private fun filter(vararg sets: NgWordSet) = NgWordFilter.of(sets.toList())
 
@@ -24,10 +23,15 @@ class NgWordsTest {
 
     @Test fun newHalfSetMatchesItsWordsInNameOrMessage() {
         val f = filter(NgWordSet.builtIn("newhalf")!!)
-        assertEquals(NgMatch("ニューハーフ系", "ニューハーフ"), f.matchOf(room.copy(message = "にゅーはーふです")))
-        assertEquals(NgMatch("ニューハーフ系", "NH"), f.matchOf(room.copy(name = "合成ｎｈ")))
-        assertEquals(NgMatch("ニューハーフ系", "女装"), f.matchOf(room.copy(message = "女装してます")))
-        assertEquals(NgMatch("ニューハーフ系", "男の娘"), f.matchOf(room.copy(name = "男の娘")))
+        assertEquals(NgMatch(NgWordSet.NEWHALF_LABEL, "ニューハーフ"), f.matchOf(room.copy(message = "にゅーはーふです")))
+        assertEquals(NgMatch(NgWordSet.NEWHALF_LABEL, "NH"), f.matchOf(room.copy(name = "合成ｎｈ")))
+        assertEquals(NgMatch(NgWordSet.NEWHALF_LABEL, "女装"), f.matchOf(room.copy(message = "女装してます")))
+        assertEquals(NgMatch(NgWordSet.NEWHALF_LABEL, "男の娘"), f.matchOf(room.copy(name = "男の娘")))
+        assertEquals(NgMatch(NgWordSet.NEWHALF_LABEL, "レズビアン"), f.matchOf(room.copy(message = "レズビアンです")))
+        assertEquals(NgMatch(NgWordSet.NEWHALF_LABEL, "レズチャ"), f.matchOf(room.copy(message = "れずちゃしよ")))
+        assertEquals(NgMatch(NgWordSet.NEWHALF_LABEL, "レズ"), f.matchOf(room.copy(name = "合成ﾚｽﾞ")))
+        assertEquals(NgMatch(NgWordSet.NEWHALF_LABEL, "ビアン"), f.matchOf(room.copy(message = "ビアンの方")))
+        assertEquals(NgMatch(NgWordSet.NEWHALF_LABEL, "百合"), f.matchOf(room.copy(message = "百合好き")))
         assertNull(f.matchOf(room))
     }
 
@@ -60,11 +64,12 @@ class NgWordsTest {
     @Test fun reportsFirstMatchingSetAndPartitionsInOrder() {
         val sample = room.copy(id = 2, message = "サンプルあり")
         val both = room.copy(id = 3, message = "写真販売 PayPay")
-        val (kept, excluded) = partitionNg(listOf(room, sample, both), filter(money, media))
+        val (kept, excluded) = partitionNg(listOf(room, sample, both), filter(money))
         assertEquals(listOf(room), kept)
         assertEquals(listOf(2L, 3L), excluded.map { it.room.id })
-        assertEquals("写真・動画目的", excluded[0].match.setLabel)
-        assertEquals(NgMatch("お金目的", "販売"), excluded[1].match)
+        assertEquals(NgMatch("お金目的", "サンプル"), excluded[0].match)
+        // 長い語を先に並べているので、「販売」より「写真販売」が当たった語として出る。
+        assertEquals(NgMatch("お金目的", "写真販売"), excluded[1].match)
         assertEquals(listOf(room, sample) to emptyList<NgExcluded>(), partitionNg(listOf(room, sample), NgWordFilter.NONE))
     }
 

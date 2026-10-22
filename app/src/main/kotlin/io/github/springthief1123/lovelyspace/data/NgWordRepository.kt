@@ -92,12 +92,41 @@ class NgWordRepository(private val db: PresetDatabase, scope: CoroutineScope = C
         val presets = db.presets()
         val seeded = seededKeys(presets.state(SEED_KEY))
         val missing = NgWordSet.BUILT_IN.filter { it.builtInKey !in seeded }
-        if (missing.isEmpty()) return@withLock
-        db.withTransaction {
+        if (missing.isNotEmpty()) db.withTransaction {
             var position = dao.maxPosition() + 1
             missing.forEach { dao.put(it.toEntity(position++)) }
             presets.put(LocalState(SEED_KEY, (seeded + missing.mapNotNull { it.builtInKey }).joinToString(",")))
         }
+        val upgraded = presets.state(UPGRADE_KEY)?.toIntOrNull() ?: 0
+        if (upgraded < UPGRADE_VERSION) db.withTransaction {
+            if (upgraded < 1) mergeMediaAndAddWords()
+            presets.put(LocalState(UPGRADE_KEY, UPGRADE_VERSION.toString()))
+        }
+    }
+
+    /**
+     * 2026-10-22: 「写真・動画目的」を「お金目的」にまとめ、「ニューハーフ系」を「ニューハーフ・レズ系」にする。
+     * 保存済みの最初からのセットに今の初期の語のうち無いものを 1 度だけ足し、初期の並びにそろえる（自分で足した語は後ろに残す）。
+     */
+    private suspend fun mergeMediaAndAddWords() {
+        val media = dao.set(MEDIA_ID)
+        dao.set(MONEY_ID)?.let { money ->
+            dao.put(money.withBuiltInWords("money", extra = media?.wordList().orEmpty()))
+            if (media != null) dao.delete(MEDIA_ID)
+        }
+        dao.set(NEWHALF_ID)?.let { newhalf ->
+            val label = if (newhalf.label == OLD_NEWHALF_LABEL) NgWordSet.NEWHALF_LABEL else newhalf.label
+            dao.put(newhalf.withBuiltInWords("newhalf").copy(label = label))
+        }
+    }
+
+    private fun NgWordSetEntity.wordList() = words.split('\n').filter(String::isNotEmpty)
+
+    private fun NgWordSetEntity.withBuiltInWords(key: String, extra: List<String> = emptyList()): NgWordSetEntity {
+        val order = NgWordSet.builtIn(key)!!.words
+        val all = (wordList() + extra + order).distinct()
+        val (known, mine) = all.partition { it in order }
+        return copy(words = (known.sortedBy(order::indexOf) + mine).joinToString("\n"))
     }
 
     suspend fun save(set: NgWordSet) {
@@ -133,6 +162,12 @@ class NgWordRepository(private val db: PresetDatabase, scope: CoroutineScope = C
 
     companion object {
         private const val SEED_KEY = "ng_word_seed"
+        private const val UPGRADE_KEY = "ng_word_upgrade"
+        private const val UPGRADE_VERSION = 1
+        private const val MONEY_ID = "builtin-money"
+        private const val MEDIA_ID = "builtin-media"
+        private const val NEWHALF_ID = "builtin-newhalf"
+        private const val OLD_NEWHALF_LABEL = "ニューハーフ系"
         const val MAX_LABEL = 40
         const val MAX_WORDS = 200
     }

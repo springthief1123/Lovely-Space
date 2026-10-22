@@ -33,10 +33,10 @@ class NgWordRepositoryTest {
             assertEquals(NgWordSet.BUILT_IN, repo.sets.first())
             val money = NgWordSet.builtIn("money")!!
             repo.save(money.copy(words = listOf(" 合成語 ", "販売", "合成語", "")))
-            repo.setEnabled("builtin-media", false)
+            repo.setEnabled("builtin-newhalf", false)
             repo.save(NgWordSet("mine", "  自分のセット ", listOf("合成ワード"), target = NgTarget.NAME))
             // 最初からのセットは削除できない（オフにして使わない）。自分で足したセットは削除できる。
-            assertTrue(runCatching { repo.delete("builtin-media") }.exceptionOrNull() is IllegalArgumentException)
+            assertTrue(runCatching { repo.delete("builtin-newhalf") }.exceptionOrNull() is IllegalArgumentException)
             repo.save(NgWordSet("extra", "消すセット", listOf("合成")))
             repo.delete("extra")
             db.close()
@@ -45,10 +45,10 @@ class NgWordRepositoryTest {
             repo = NgWordRepository(db, backgroundScope)
             val sets = repo.sets.first()
             // 並びは足した順。オフにしたセットはオフのまま残る。
-            assertEquals(listOf("builtin-money", "builtin-media", "builtin-newhalf", "mine"), sets.map { it.id })
+            assertEquals(listOf("builtin-money", "builtin-newhalf", "mine"), sets.map { it.id })
             assertEquals(listOf("合成語", "販売"), sets[0].words)
             assertFalse(sets[1].enabled)
-            assertEquals(NgWordSet("mine", "自分のセット", listOf("合成ワード"), target = NgTarget.NAME), sets[3])
+            assertEquals(NgWordSet("mine", "自分のセット", listOf("合成ワード"), target = NgTarget.NAME), sets[2])
             val filter = NgWordFilter.of(sets)
             assertTrue(filter.matches(room.copy(message = "合成語あり")))
             assertTrue(filter.matches(room.copy(name = "合成ワード")))
@@ -68,12 +68,37 @@ class NgWordRepositoryTest {
 
             val repo = NgWordRepository(db, backgroundScope)
             val sets = repo.sets.first()
-            // 後から増えたセットだけを末尾に足す。消したセットは戻さず、手を入れた語もそのまま。
+            // 後から増えたセットだけを末尾に足す。消したセットは戻さない。
             assertEquals(listOf("builtin-money", "mine", "builtin-newhalf"), sets.map { it.id })
-            assertEquals(listOf("販売"), sets[0].words)
             assertEquals(NgWordSet.builtIn("newhalf"), sets[2])
             // もう一度読んでも重ねて足さない。
             assertEquals(3, NgWordRepository(db, backgroundScope).sets.first().size)
+        } finally { db.close(); context.deleteDatabase(name) }
+    }
+
+    @Test fun mergesPhotoSetIntoMoneyAndRenamesNewHalfOnceKeepingOwnWords() = runTest {
+        val name = "ng-${UUID.randomUUID()}.db"
+        val db = open(name)
+        try {
+            // 2026-10-20 の版で入れた状態。「お金目的」に自分の語を足し、「写真・動画目的」はオフ、「ニューハーフ系」は名前のまま。
+            val dao = db.ngWords()
+            dao.put(NgWordSetEntity("builtin-money", "お金目的", "販売\n合成語\nPayPay", true, NgTarget.NAME_AND_MESSAGE.name, true, "money", 0))
+            dao.put(NgWordSetEntity("builtin-media", "写真・動画目的", "写真販売\nサンプル\n合成写真", false, NgTarget.NAME_AND_MESSAGE.name, false, "media", 1))
+            dao.put(NgWordSetEntity("builtin-newhalf", "ニューハーフ系", "ニューハーフ\nNH", false, NgTarget.NAME_AND_MESSAGE.name, true, "newhalf", 2))
+            db.presets().put(LocalState("ng_word_seed", "money,media,newhalf"))
+
+            val sets = NgWordRepository(db, backgroundScope).sets.first()
+            assertEquals(listOf("builtin-money", "builtin-newhalf"), sets.map { it.id })
+            // 初期の語は初期の並びで入り、自分で足した語（写真・動画目的のものも）は後ろに残る。
+            assertEquals(NgWordSet.builtIn("money")!!.words + listOf("合成語", "合成写真"), sets[0].words)
+            assertEquals(NgWordSet.NEWHALF_LABEL, sets[1].label)
+            assertEquals(NgWordSet.builtIn("newhalf")!!.words, sets[1].words)
+
+            // 1 度だけ行う。あとで語を消しても戻さない。
+            val repo = NgWordRepository(db, backgroundScope)
+            repo.save(sets[1].copy(label = "自分の名前", words = listOf("女装")))
+            assertEquals(NgWordSet("builtin-newhalf", "自分の名前", listOf("女装"), builtInKey = "newhalf"),
+                NgWordRepository(db, backgroundScope).sets.first()[1])
         } finally { db.close(); context.deleteDatabase(name) }
     }
 
