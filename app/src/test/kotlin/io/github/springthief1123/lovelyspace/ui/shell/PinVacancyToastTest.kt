@@ -1,6 +1,7 @@
 package io.github.springthief1123.lovelyspace.ui.shell
 
 import android.app.Application
+import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
