@@ -166,7 +166,7 @@ fun LovelyAppShell(
                         onReview = { vacancyToast = null; app.notifier.open(notice.id) },
                         onDismiss = { vacancyToast = null },
                         modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
-                            .padding(horizontal = 16.dp, bottom = navigationHeight + 12.dp +
+                            .padding(start = 16.dp, end = 16.dp, bottom = navigationHeight + 12.dp +
                                 (if (showCreateFab || resumeBar != null) 80.dp else 0.dp) +
                                 (if (shellState.scrollToTop != null) 64.dp else 0.dp)),
                     )
