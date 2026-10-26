@@ -134,10 +134,12 @@ fun LovelyAppShell(
                 val notifications by app.notificationInbox.entries.collectAsStateWithLifecycle()
                 val pins by app.pins.pins.collectAsStateWithLifecycle()
                 val locked = LocalAppLocked.current
-                // 起動前の履歴は再表示しない。画面を見ている間に届いた新しい空きだけを短く知らせる。
+                // 起動前の履歴は再表示せず、新着の空きだけを最大5件まで前面に保つ。
+                // フリックで消すのは表示だけ。通知ベルの履歴には触れない。
                 val toastStartedAt = remember { System.currentTimeMillis() }
                 var handledToastIds by remember { mutableStateOf(emptySet<String>()) }
-                var vacancyToast by remember { mutableStateOf<AppNotification?>(null) }
+                var floatingIds by remember { mutableStateOf(emptyList<String>()) }
+                var stackExpanded by remember { mutableStateOf(false) }
                 LaunchedEffect(notifications, notificationsOpen, locked) {
                     val now = System.currentTimeMillis()
                     val fresh = notifications.filter {
@@ -146,29 +148,52 @@ fun LovelyAppShell(
                     }
                     if (fresh.isNotEmpty()) {
                         handledToastIds = handledToastIds + fresh.map { it.id }
-                        if (!notificationsOpen && !locked) vacancyToast = fresh.first()
+                        if (!notificationsOpen && !locked) {
+                            floatingIds = (fresh.map { it.id } + floatingIds).distinct()
+                                .take(MAX_FLOATING_PIN_NOTICES)
+                        }
                     }
-                    if (notificationsOpen || locked || notifications.none { it.id == vacancyToast?.id && !it.read }) {
-                        vacancyToast = null
+                    if (notificationsOpen || locked) {
+                        floatingIds = emptyList()
+                        stackExpanded = false
                     }
                 }
-                LaunchedEffect(vacancyToast?.id) {
-                    if (vacancyToast != null) {
+                val floatingNotices = floatingPinNotices(floatingIds, notifications)
+                LaunchedEffect(floatingIds, stackExpanded) {
+                    // 広げて操作している間は自動で消さない。畳むと15秒で片付ける。
+                    if (floatingIds.isNotEmpty() && !stackExpanded) {
                         kotlinx.coroutines.delay(15_000L)
-                        vacancyToast = null
+                        floatingIds = emptyList()
                     }
                 }
-                // 画面を塞がず、下のナビ・作成FAB・トップへ戻るから離して出す。
-                vacancyToast?.takeIf { !notificationsOpen && !locked }?.let { notice ->
-                    PinVacancyToast(
-                        notice = notice, pins = pins,
-                        onEnter = { vacancyToast = null; app.notifier.open(notice.id, enter = true) },
-                        onReview = { vacancyToast = null; app.notifier.open(notice.id) },
-                        onDismiss = { vacancyToast = null },
+                if (floatingNotices.size <= 1 && stackExpanded) {
+                    LaunchedEffect(floatingNotices.size) { stackExpanded = false }
+                }
+                if (floatingNotices.isNotEmpty() && !notificationsOpen && !locked) {
+                    PinVacancyToastStack(
+                        notices = floatingNotices,
+                        pins = pins,
+                        expanded = stackExpanded,
+                        onExpandedChange = { stackExpanded = it },
+                        onEnter = { notice ->
+                            floatingIds = floatingIds - notice.id
+                            app.notifier.open(notice.id, enter = true)
+                        },
+                        onReview = { notice ->
+                            floatingIds = floatingIds - notice.id
+                            app.notifier.open(notice.id)
+                        },
+                        onDismiss = { notice ->
+                            floatingIds = floatingIds - notice.id
+                            if (floatingIds.size <= 1) stackExpanded = false
+                        },
+                        // 普段はボトムナビのすぐ上。FABの横を空け、他の浮遊操作がある時だけ少し上げる。
                         modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
-                            .padding(start = 16.dp, end = 16.dp, bottom = navigationHeight + 12.dp +
-                                (if (showCreateFab || resumeBar != null) 80.dp else 0.dp) +
-                                (if (shellState.scrollToTop != null) 64.dp else 0.dp)),
+                            .padding(start = 16.dp, end = if (!stackExpanded && showCreateFab) 96.dp else 16.dp,
+                                bottom = navigationHeight + 8.dp +
+                                    if (resumeBar != null) 72.dp
+                                    else if (shellState.scrollToTop != null) 60.dp
+                                    else 0.dp),
                     )
                 }
                 NotificationOverlay(
