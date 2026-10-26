@@ -1,13 +1,11 @@
 package io.github.springthief1123.lovelyspace.ui.shell
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
@@ -38,6 +36,8 @@ import io.github.springthief1123.lovelyspace.core.RoomAction
 import io.github.springthief1123.lovelyspace.data.PinView
 import io.github.springthief1123.lovelyspace.notify.AppNotification
 import io.github.springthief1123.lovelyspace.notify.NotificationKind
+import io.github.springthief1123.lovelyspace.notify.NotificationSamples
+import io.github.springthief1123.lovelyspace.ui.components.LovelyGlassSurface
 import io.github.springthief1123.lovelyspace.notify.NotificationTarget
 import io.github.springthief1123.lovelyspace.ui.rooms.ActionChip
 import io.github.springthief1123.lovelyspace.ui.theme.LovelyShapes
@@ -88,6 +88,7 @@ internal fun PinVacancyToastStack(
     onReview: (AppNotification) -> Unit,
     onDismiss: (AppNotification) -> Unit,
     modifier: Modifier = Modifier,
+    preview: Boolean = false,
 ) {
     val visible = notices.take(MAX_FLOATING_PIN_NOTICES)
     if (visible.isEmpty()) return
@@ -104,7 +105,7 @@ internal fun PinVacancyToastStack(
                 reverseLayout = true, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(visible, key = { it.id }) { notice ->
                     PinVacancyToast(notice, pins, onEnter = { onEnter(notice) },
-                        onReview = { onReview(notice) }, onDismiss = { onDismiss(notice) })
+                        onReview = { onReview(notice) }, onDismiss = { onDismiss(notice) }, preview = preview)
                 }
             }
         }
@@ -113,12 +114,10 @@ internal fun PinVacancyToastStack(
             // 固定高さで描くと文字サイズ変更時に崩れるため、表のカードと同じ大きさを使う。
             if (visible.size > 1) {
                 for (depth in minOf(visible.size - 1, 2) downTo 1) {
-                    Surface(
-                        Modifier.matchParentSize().offset(y = (-depth * 5).dp)
+                    LovelyGlassSurface(
+                        modifier = Modifier.matchParentSize().offset(y = (-depth * 5).dp)
                             .padding(horizontal = (depth * 7).dp),
                         shape = LovelyShapes.control,
-                        color = MaterialTheme.colorScheme.surface,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     ) {}
                 }
             }
@@ -130,6 +129,7 @@ internal fun PinVacancyToastStack(
                     onDismiss = { onDismiss(first) },
                     onExpand = if (visible.size > 1) ({ onExpandedChange(true) }) else null,
                     extraCount = visible.size - 1,
+                    preview = preview,
                 )
             }
         }
@@ -148,8 +148,11 @@ internal fun PinVacancyToast(
     modifier: Modifier = Modifier,
     onExpand: (() -> Unit)? = null,
     extraCount: Int = 0,
+    preview: Boolean = false,
 ) {
-    val action = pinVacancyAction(notice, pins)
+    // 設定画面のサンプルは見た目のみ。コールバックは実際の入室・通信につながない。
+    val action = if (preview && NotificationSamples.isSample(notice)) PinVacancyAction.ENTER
+        else pinVacancyAction(notice, pins)
     val dismissAction by rememberUpdatedState(onDismiss)
     val swipe = rememberSwipeToDismissBoxState()
     LaunchedEffect(swipe.currentValue) {
@@ -172,18 +175,15 @@ internal fun PinVacancyToast(
             val offset = runCatching { swipe.requireOffset() }.getOrDefault(0f)
             alpha = if (width > 0) (1f - abs(offset) / width).coerceIn(0f, 1f) else 1f
         }) {
-            Surface(
+            LovelyGlassSurface(
                 modifier = Modifier.fillMaxWidth().then(
                     if (onExpand != null) Modifier.clickable(onClickLabel = "空き通知を広げる", onClick = onExpand)
                     else Modifier
                 ),
                 shape = LovelyShapes.control,
-                color = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.onSurface,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                shadowElevation = 5.dp,
+                contentAlignment = Alignment.CenterStart,
             ) {
-                Column(Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         val name = notice.room?.name?.takeIf { it.isNotBlank() } ?: "名前の見えない部屋"
