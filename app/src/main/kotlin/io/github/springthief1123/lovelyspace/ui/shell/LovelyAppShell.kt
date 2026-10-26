@@ -36,6 +36,8 @@ import io.github.springthief1123.lovelyspace.ui.theme.LocalLovelyBottomContentIn
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.notify.unreadCount
+import io.github.springthief1123.lovelyspace.notify.AppNotification
+import io.github.springthief1123.lovelyspace.lock.LocalAppLocked
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -130,9 +132,49 @@ fun LovelyAppShell(
                 // お知らせは外枠の一番上に重ね、上のバー・下のナビと同じく背後の画面をぼかす。
                 val app = LocalContext.current.applicationContext as LovelySpaceApp
                 val notifications by app.notificationInbox.entries.collectAsStateWithLifecycle()
+                val pins by app.pins.pins.collectAsStateWithLifecycle()
+                val locked = LocalAppLocked.current
+                // 起動前の履歴は再表示しない。画面を見ている間に届いた新しい空きだけを短く知らせる。
+                val toastStartedAt = remember { System.currentTimeMillis() }
+                var handledToastIds by remember { mutableStateOf(emptySet<String>()) }
+                var vacancyToast by remember { mutableStateOf<AppNotification?>(null) }
+                LaunchedEffect(notifications, notificationsOpen, locked) {
+                    val now = System.currentTimeMillis()
+                    val fresh = notifications.filter {
+                        isPinVacancyNotice(it) && !it.read && it.id !in handledToastIds &&
+                            it.at >= toastStartedAt && it.at <= now && now - it.at <= 10_000L
+                    }
+                    if (fresh.isNotEmpty()) {
+                        handledToastIds = handledToastIds + fresh.map { it.id }
+                        if (!notificationsOpen && !locked) vacancyToast = fresh.first()
+                    }
+                    if (notificationsOpen || locked || notifications.none { it.id == vacancyToast?.id && !it.read }) {
+                        vacancyToast = null
+                    }
+                }
+                LaunchedEffect(vacancyToast?.id) {
+                    if (vacancyToast != null) {
+                        kotlinx.coroutines.delay(15_000L)
+                        vacancyToast = null
+                    }
+                }
+                // 画面を塞がず、下のナビ・作成FAB・トップへ戻るから離して出す。
+                vacancyToast?.takeIf { !notificationsOpen && !locked }?.let { notice ->
+                    PinVacancyToast(
+                        notice = notice, pins = pins,
+                        onEnter = { vacancyToast = null; app.notifier.open(notice.id, enter = true) },
+                        onReview = { vacancyToast = null; app.notifier.open(notice.id) },
+                        onDismiss = { vacancyToast = null },
+                        modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
+                            .padding(horizontal = 16.dp, bottom = navigationHeight + 12.dp +
+                                (if (showCreateFab || resumeBar != null) 80.dp else 0.dp) +
+                                (if (shellState.scrollToTop != null) 64.dp else 0.dp)),
+                    )
+                }
                 NotificationOverlay(
                     visible = notificationsOpen,
                     entries = notifications,
+                    pins = pins,
                     onDismiss = { notificationsOpen = false },
                     onOpen = { notificationsOpen = false; app.notifier.open(it.id) },
                     onEnter = { notificationsOpen = false; app.notifier.open(it.id, enter = true) },
