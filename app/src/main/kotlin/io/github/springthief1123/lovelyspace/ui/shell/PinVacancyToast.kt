@@ -5,7 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -19,6 +18,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -149,7 +150,7 @@ internal fun PinVacancyToast(
     LaunchedEffect(swipe.currentValue) {
         if (swipe.currentValue != SwipeToDismissBoxValue.Settled) dismissAction()
     }
-    var width by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    var width by remember { mutableIntStateOf(0) }
     SwipeToDismissBox(
         state = swipe,
         modifier = modifier.fillMaxWidth().testTag("pin-vacancy-toast")
