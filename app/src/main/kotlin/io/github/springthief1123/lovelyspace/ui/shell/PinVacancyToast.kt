@@ -17,6 +17,7 @@ import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
@@ -122,12 +123,15 @@ internal fun PinVacancyToastStack(
                 }
             }
             val first = visible.first()
-            PinVacancyToast(first, pins,
-                onEnter = { onEnter(first) }, onReview = { onReview(first) },
-                onDismiss = { onDismiss(first) },
-                onExpand = if (visible.size > 1) ({ onExpandedChange(true) }) else null,
-                extraCount = visible.size - 1,
-            )
+            // 先頭がスワイプで消えたらDismiss状態を次の部屋に引き継がない。
+            key(first.id) {
+                PinVacancyToast(first, pins,
+                    onEnter = { onEnter(first) }, onReview = { onReview(first) },
+                    onDismiss = { onDismiss(first) },
+                    onExpand = if (visible.size > 1) ({ onExpandedChange(true) }) else null,
+                    extraCount = visible.size - 1,
+                )
+            }
         }
     }
 }
