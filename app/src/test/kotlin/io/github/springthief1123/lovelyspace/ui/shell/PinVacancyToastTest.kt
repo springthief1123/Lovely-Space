@@ -102,7 +102,7 @@ class PinVacancyToastTest {
                     onReview = {}, onDismiss = {})
             }
         }
-        compose.onNodeWithText("現在の空きは確認できません").assertIsDisplayed()
+        compose.onNodeWithText("現在の空きは未確認").assertIsDisplayed()
         compose.onNodeWithText("入室する").assertDoesNotExist()
     }
     @Test fun onlyTheLatestFiveUniqueNoticesAreFloated() {
