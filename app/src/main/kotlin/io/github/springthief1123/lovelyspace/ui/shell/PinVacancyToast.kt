@@ -1,19 +1,33 @@
 package io.github.springthief1123.lovelyspace.ui.shell
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.springthief1123.lovelyspace.core.PinState
@@ -23,8 +37,8 @@ import io.github.springthief1123.lovelyspace.notify.AppNotification
 import io.github.springthief1123.lovelyspace.notify.NotificationKind
 import io.github.springthief1123.lovelyspace.notify.NotificationTarget
 import io.github.springthief1123.lovelyspace.ui.rooms.ActionChip
-import io.github.springthief1123.lovelyspace.ui.rooms.RoomCardHeading
 import io.github.springthief1123.lovelyspace.ui.theme.LovelyShapes
+import kotlin.math.abs
 
 /** 新着のピン空きだけ画面上へ浮かせる。履歴上の「似た部屋」や条件の一致は対象外。 */
 internal fun isPinVacancyNotice(notice: AppNotification): Boolean =
@@ -49,10 +63,75 @@ internal fun pinVacancyAction(notice: AppNotification, pins: List<PinView>): Pin
     return PinVacancyAction.ENTER
 }
 
+internal const val MAX_FLOATING_PIN_NOTICES = 5
+
+/** 最新の空きから最大5件。ベルの記録そのものは削除・変更しない。 */
+internal fun floatingPinNotices(ids: List<String>, entries: List<AppNotification>): List<AppNotification> =
+    ids.distinct().take(MAX_FLOATING_PIN_NOTICES).mapNotNull { id ->
+        entries.firstOrNull { it.id == id && !it.read && isPinVacancyNotice(it) }
+    }
+
 /**
- * Vivaldi版の入室ボタン付きトーストを Quiet Rose の不透明なカードで再現する。
- * 通知ベルの履歴は別に残る。カードを閉じても監視を止めない。
+ * ふだんは1枚だけ表示し、複数あるときは背面に少しずらして重ねる。
+ * カードをタップすると古い通知が上になるよう展開。長い一覧はスクロールできる。
  */
+@Composable
+internal fun PinVacancyToastStack(
+    notices: List<AppNotification>,
+    pins: List<PinView>,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    onEnter: (AppNotification) -> Unit,
+    onReview: (AppNotification) -> Unit,
+    onDismiss: (AppNotification) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val visible = notices.take(MAX_FLOATING_PIN_NOTICES)
+    if (visible.isEmpty()) return
+    val stackHeight = LocalConfiguration.current.screenHeightDp.dp * 0.56f
+    if (expanded && visible.size > 1) {
+        Column(modifier.widthIn(max = 440.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("ピンの空き通知 ${visible.size}件", style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.weight(1f))
+                TextButton(onClick = { onExpandedChange(false) }) { Text("まとめる") }
+            }
+            // 新着が一番下。展開したときだけ画面の半分強まで伸ばし、超過分はスクロールする。
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = stackHeight - 48.dp),
+                reverseLayout = true, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                items(visible, key = { it.id }) { notice ->
+                    PinVacancyToast(notice, pins, onEnter = { onEnter(notice) },
+                        onReview = { onReview(notice) }, onDismiss = { onDismiss(notice) })
+                }
+            }
+        }
+    } else {
+        Box(modifier.widthIn(max = 440.dp).fillMaxWidth().padding(top = if (visible.size > 1) 12.dp else 0.dp)) {
+            // 固定高さで描くと文字サイズ変更時に崩れるため、表のカードと同じ大きさを使う。
+            if (visible.size > 1) {
+                for (depth in minOf(visible.size - 1, 2) downTo 1) {
+                    Surface(
+                        Modifier.matchParentSize().offset(y = (-depth * 5).dp)
+                            .padding(horizontal = (depth * 7).dp),
+                        shape = LovelyShapes.control,
+                        color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    ) {}
+                }
+            }
+            val first = visible.first()
+            PinVacancyToast(first, pins,
+                onEnter = { onEnter(first) }, onReview = { onReview(first) },
+                onDismiss = { onDismiss(first) },
+                onExpand = if (visible.size > 1) ({ onExpandedChange(true) }) else null,
+                extraCount = visible.size - 1,
+            )
+        }
+    }
+}
+
+/** スワイプで浮遊表示だけを外す。通知ベルのお知らせは呼び出し元で保持する。 */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun PinVacancyToast(
     notice: AppNotification,
@@ -61,49 +140,77 @@ internal fun PinVacancyToast(
     onReview: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    onExpand: (() -> Unit)? = null,
+    extraCount: Int = 0,
 ) {
     val action = pinVacancyAction(notice, pins)
-    Surface(
-        modifier = modifier.widthIn(max = 440.dp).fillMaxWidth().testTag("pin-vacancy-toast"),
-        shape = LovelyShapes.menu,
-        color = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        shadowElevation = 6.dp,
+    val dismissAction by rememberUpdatedState(onDismiss)
+    val swipe = rememberSwipeToDismissBoxState()
+    LaunchedEffect(swipe.currentValue) {
+        if (swipe.currentValue != SwipeToDismissBoxValue.Settled) dismissAction()
+    }
+    var width by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    SwipeToDismissBox(
+        state = swipe,
+        modifier = modifier.fillMaxWidth().testTag("pin-vacancy-toast")
+            .onSizeChanged { width = it.width }
+            .semantics {
+                customActions = listOf(CustomAccessibilityAction("浮いている空き通知を消す") {
+                    dismissAction()
+                    true
+                })
+            },
+        backgroundContent = {},
     ) {
-        Column(Modifier.padding(start = 14.dp, end = 8.dp, top = 6.dp, bottom = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("ピンした部屋が空きました", modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Outlined.Close, contentDescription = "空き通知を閉じる")
-                }
-            }
-            notice.room?.let { room ->
-                RoomCardHeading(room, placeholder = "名前の見えない部屋", elapsed = null)
-                room.message.takeIf { it.isNotBlank() }?.let { message ->
-                    Text(message, style = MaterialTheme.typography.bodyMedium, maxLines = 2,
-                        overflow = TextOverflow.Ellipsis)
-                }
-            }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                when (action) {
-                    PinVacancyAction.ENTER -> Text("入室できます", style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                    PinVacancyAction.REVIEW -> Text("待機メッセージが変更されています", style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f))
-                    PinVacancyAction.UNAVAILABLE -> Text("現在の空きは確認できません", style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                }
-                if (action != PinVacancyAction.UNAVAILABLE) {
-                    ActionChip(
-                        if (action == PinVacancyAction.ENTER) "入室する" else "内容を確認",
-                        emphasized = action == PinVacancyAction.ENTER,
-                        onClick = if (action == PinVacancyAction.ENTER) onEnter else onReview,
-                        modifier = Modifier.minimumInteractiveComponentSize(),
-                    )
+        Box(Modifier.graphicsLayer {
+            val offset = runCatching { swipe.requireOffset() }.getOrDefault(0f)
+            alpha = if (width > 0) (1f - abs(offset) / width).coerceIn(0f, 1f) else 1f
+        }) {
+            Surface(
+                modifier = Modifier.fillMaxWidth().then(
+                    if (onExpand != null) Modifier.clickable(onClickLabel = "空き通知を広げる", onClick = onExpand)
+                    else Modifier
+                ),
+                shape = LovelyShapes.control,
+                color = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                shadowElevation = 5.dp,
+            ) {
+                Column(Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        val name = notice.room?.name?.takeIf { it.isNotBlank() } ?: "名前の見えない部屋"
+                        Text("${name}の部屋が空きました", modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.labelMedium, maxLines = 1,
+                            overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.primary)
+                        if (extraCount > 0) {
+                            Spacer(Modifier.width(6.dp))
+                            Text("ほか${extraCount}件", style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    Text(notice.room?.message?.takeIf { it.isNotBlank() } ?: notice.text,
+                        style = MaterialTheme.typography.labelSmall, maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(when (action) {
+                            PinVacancyAction.ENTER -> "入室できます"
+                            PinVacancyAction.REVIEW -> "待機メッセージ変更"
+                            PinVacancyAction.UNAVAILABLE -> "現在の空きは未確認"
+                        }, modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            color = if (action == PinVacancyAction.REVIEW) MaterialTheme.colorScheme.error
+                                else MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (action != PinVacancyAction.UNAVAILABLE) {
+                            ActionChip(if (action == PinVacancyAction.ENTER) "入室する" else "内容を確認",
+                                emphasized = action == PinVacancyAction.ENTER,
+                                onClick = if (action == PinVacancyAction.ENTER) onEnter else onReview,
+                                modifier = Modifier.minimumInteractiveComponentSize())
+                        }
+                    }
                 }
             }
         }
