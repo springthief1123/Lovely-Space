@@ -163,7 +163,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
         io.github.springthief1123.lovelyspace.notify.NotificationKind.RADAR_MATCH)
     val context = LocalContext.current
     val now = System.currentTimeMillis()
-    val opened = pins.filter { it.state == PinState.OPEN && it.record.notifies }
+    val opened = pins.filter { it.state == PinState.OPEN && it.record.notifies && it.listed }
     val similar = pins.filter { it.similar != null }
     val freshConditions = saved.filter { conditions[it.id]?.fresh?.isNotEmpty() == true }
     val moving = opened.size + similar.size + if (freshConditions.isEmpty()) 0 else 1
