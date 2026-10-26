@@ -1,6 +1,7 @@
 package io.github.springthief1123.lovelyspace.ui.shell
 
 import android.app.Application
+import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -9,6 +10,7 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -23,6 +25,8 @@ import io.github.springthief1123.lovelyspace.data.PinView
 import io.github.springthief1123.lovelyspace.data.RoomPreference
 import io.github.springthief1123.lovelyspace.notify.AppNotification
 import io.github.springthief1123.lovelyspace.notify.NotificationKind
+import io.github.springthief1123.lovelyspace.notify.NotificationSamples
+import io.github.springthief1123.lovelyspace.ui.settings.FloatingPreviewTestRow
 import io.github.springthief1123.lovelyspace.notify.NotificationTarget
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpaceTheme
 import org.junit.Assert.assertEquals
@@ -156,6 +160,45 @@ class PinVacancyToastTest {
         }
         compose.onNodeWithTag("pin-vacancy-toast").performTouchInput { swipeRight() }
         compose.runOnIdle { assertTrue(visible.isEmpty()) }
+    }
+
+    @Test fun settingsPreviewUsesOnlySamplesAndSafeTargets() {
+        val samples = (1..6).map(NotificationSamples::floatingPreview)
+        assertTrue(samples.all(NotificationSamples::isSample))
+        assertTrue(samples.all { it.target == NotificationTarget.Rooms })
+        assertEquals(6, samples.map { it.id }.distinct().size)
+        assertTrue(samples.all { it.room?.name?.startsWith("サンプル") == true })
+    }
+
+    @Test fun settingsTestButtonAccumulatesUpToFiveSampleCards() {
+        var notices by mutableStateOf(emptyList<AppNotification>())
+        var next = 0
+        var expanded by mutableStateOf(false)
+        var tappedEnter = 0
+        compose.setContent {
+            LovelySpaceTheme {
+                Column {
+                    FloatingPreviewTestRow(onSendTest = {
+                        next++
+                        notices = (listOf(NotificationSamples.floatingPreview(next)) + notices)
+                            .take(MAX_FLOATING_PIN_NOTICES)
+                    })
+                    if (notices.isNotEmpty()) {
+                        PinVacancyToastStack(notices, emptyList(), expanded, { expanded = it },
+                            onEnter = { tappedEnter++ }, onReview = {},
+                            onDismiss = { notices = notices - it }, preview = true)
+                    }
+                }
+            }
+        }
+        repeat(6) { compose.onNodeWithContentDescription("フローティング通知をテスト").performClick() }
+        compose.runOnIdle { assertEquals(5, notices.size) }
+        compose.onNodeWithText("ほか4件").assertIsDisplayed()
+        compose.onNodeWithText("ほか4件").performClick()
+        compose.onNodeWithText("まとめる").assertIsDisplayed()
+        compose.onNodeWithText("入室する").performClick()
+        compose.runOnIdle { assertEquals(1, tappedEnter) }
+        // サンプルは実際の入室処理ではなく、呼び出し元のプレビュー操作だけに接続する。
     }
 
 }
