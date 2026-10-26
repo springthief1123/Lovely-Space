@@ -196,6 +196,7 @@ class PinVacancyToastTest {
         compose.onNodeWithText("ほか4件").assertIsDisplayed()
         compose.onNodeWithText("ほか4件").performClick()
         compose.onNodeWithText("まとめる").assertIsDisplayed()
+        compose.onNodeWithText("まとめる").performClick()
         compose.onNodeWithText("入室する").performClick()
         compose.runOnIdle { assertEquals(1, tappedEnter) }
         // サンプルは実際の入室処理ではなく、呼び出し元のプレビュー操作だけに接続する。
