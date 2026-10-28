@@ -82,6 +82,16 @@ internal fun shouldScrollFindTabToTop(currentRoute: String?, destinationRoute: S
 internal fun shouldShowNewRoomsBadge(currentRoute: String?, newCount: Int, searchOpen: Boolean): Boolean =
     (currentRoute == Routes.ROOMS || currentRoute == Routes.SEARCH) && newCount > 0 && !searchOpen
 
+/** サンプルは実際の表示位置を確かめる「見つける」でのみ表示する。 */
+internal fun shouldShowFloatingPreview(currentRoute: String?, count: Int): Boolean =
+    (currentRoute == Routes.ROOMS || currentRoute == Routes.SEARCH) && count > 0
+
+/** ナビのないサブページでは画面下部の操作類を避け、メインタブでは従来の位置を使う。 */
+internal fun floatingNoticeBottomOffset(route: String?, showChrome: Boolean, navigationHeight: Dp, showResumeBar: Boolean): Dp =
+    if (showChrome) navigationHeight + 8.dp + if (showResumeBar) 72.dp else 0.dp
+    else if (route == Routes.CHAT || route == Routes.CREATE || route == Routes.ENTRY) 80.dp
+    else 16.dp
+
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun LovelyAppShell(
@@ -89,6 +99,8 @@ fun LovelyAppShell(
     onDestinationSelected: (MainDestination) -> Unit,
     resumeBar: (@Composable () -> Unit)? = null,
     onOpenNotificationSettings: () -> Unit = {},
+    floatingPreviewNotices: List<AppNotification> = emptyList(),
+    onDismissFloatingPreview: (AppNotification) -> Unit = {},
     content: @Composable () -> Unit,
 ) {
     val hazeState = remember { HazeState() }
@@ -137,8 +149,8 @@ fun LovelyAppShell(
                 }
             }
             }
-            if (showChrome) {
-                // お知らせは外枠の一番上に重ね、上のバー・下のナビと同じく背後の画面をぼかす。
+            if (currentRoute != null) {
+                // 実際の空き通知はメインタブだけでなく設定・会話・作成など全ページの外枠に重ねる。
                 val app = LocalContext.current.applicationContext as LovelySpaceApp
                 val notifications by app.notificationInbox.entries.collectAsStateWithLifecycle()
                 val pins by app.pins.pins.collectAsStateWithLifecycle()
@@ -149,6 +161,7 @@ fun LovelyAppShell(
                 var handledToastIds by remember { mutableStateOf(emptySet<String>()) }
                 var floatingIds by remember { mutableStateOf(emptyList<String>()) }
                 var stackExpanded by remember { mutableStateOf(false) }
+                var previewExpanded by remember { mutableStateOf(false) }
                 LaunchedEffect(notifications, notificationsOpen, locked) {
                     val now = System.currentTimeMillis()
                     val fresh = notifications.filter {
@@ -196,14 +209,31 @@ fun LovelyAppShell(
                             floatingIds = floatingIds - notice.id
                             if (floatingIds.size <= 1) stackExpanded = false
                         },
-                        // ボトムナビ直上の中央に配置し、会話復帰バーがある時だけ上へ逃がす。
-                        modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
+                        // 各ページの下部UIとIMEを避けながら中央に表示する。
+                        modifier = Modifier.align(Alignment.BottomCenter).imePadding().navigationBarsPadding()
                             .padding(start = 16.dp, end = 16.dp,
-                                bottom = navigationHeight + 8.dp + if (resumeBar != null) 72.dp else 0.dp),
+                                bottom = floatingNoticeBottomOffset(currentRoute, showChrome, navigationHeight, resumeBar != null)),
+                    )
+                } else if (shouldShowFloatingPreview(currentRoute, floatingPreviewNotices.size) && !notificationsOpen && !locked) {
+                    // 設定で積んだサンプルを見つける画面だけで描く。履歴・通信・実際の入室には接続しない。
+                    PinVacancyToastStack(
+                        notices = floatingPreviewNotices,
+                        pins = emptyList(),
+                        expanded = previewExpanded,
+                        onExpandedChange = { previewExpanded = it },
+                        onEnter = { android.widget.Toast.makeText(app, "サンプル表示です。実際の入室は行いません", android.widget.Toast.LENGTH_SHORT).show() },
+                        onReview = { android.widget.Toast.makeText(app, "サンプル表示です。実際の部屋は開きません", android.widget.Toast.LENGTH_SHORT).show() },
+                        onDismiss = { notice ->
+                            onDismissFloatingPreview(notice)
+                            if (floatingPreviewNotices.size <= 2) previewExpanded = false
+                        },
+                        modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
+                            .padding(start = 16.dp, end = 16.dp, bottom = navigationHeight + 8.dp),
+                        preview = true,
                     )
                 }
                 NotificationOverlay(
-                    visible = notificationsOpen,
+                    visible = showChrome && notificationsOpen,
                     entries = notifications,
                     pins = pins,
                     onDismiss = { notificationsOpen = false },
