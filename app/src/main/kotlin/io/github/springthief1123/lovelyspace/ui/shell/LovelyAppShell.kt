@@ -78,6 +78,10 @@ internal fun lovelyBottomContentInset(navigationHeight: Dp, showResumeBar: Boole
 internal fun shouldScrollFindTabToTop(currentRoute: String?, destinationRoute: String): Boolean =
     destinationRoute == Routes.ROOMS && (currentRoute == Routes.ROOMS || currentRoute == Routes.SEARCH)
 
+/** 新着件数は「見つける」の上だけに出し、検索シート中は重ねない。 */
+internal fun shouldShowNewRoomsBadge(currentRoute: String?, newCount: Int, searchOpen: Boolean): Boolean =
+    (currentRoute == Routes.ROOMS || currentRoute == Routes.SEARCH) && newCount > 0 && !searchOpen
+
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun LovelyAppShell(
@@ -120,7 +124,8 @@ fun LovelyAppShell(
                 // 消えるアニメーション中の表示内容は、最後に表示した件数を使う。
                 val scrollToTop = shellState.scrollToTop
                 val lastNewRooms = remember { arrayOfNulls<ShellScrollToTop>(1) }
-                val showNewRooms = (scrollToTop?.newCount ?: 0) > 0 && shellState.searchButton?.open != true
+                val showNewRooms = shouldShowNewRoomsBadge(currentRoute, scrollToTop?.newCount ?: 0,
+                    shellState.searchButton?.open == true)
                 if (showNewRooms) lastNewRooms[0] = scrollToTop
                 AnimatedVisibility(showNewRooms, enter = fadeIn() + scaleIn(initialScale = 0.9f),
                     exit = fadeOut() + scaleOut(targetScale = 0.9f),
