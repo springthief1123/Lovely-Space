@@ -127,8 +127,6 @@ fun AppNavHost() {
         } },
         onDestinationSelected = { destination -> nav.navigateMain(destination.route) },
         onOpenNotificationSettings = { nav.navigate(Routes.SETTINGS_NOTIFICATIONS) { launchSingleTop = true } },
-        showCreateFab = currentRoute == Routes.ROOMS,
-        onCreateRoom = { nav.navigate(Routes.create(createGenreKey, currentRoute ?: Routes.ROOMS)) { launchSingleTop = true } },
     ) {
         // 右から左の言語では下のタブが左右反転して並ぶので、向きも反転する。
         val tabSign = if (LocalLayoutDirection.current == LayoutDirection.Rtl) -1 else 1

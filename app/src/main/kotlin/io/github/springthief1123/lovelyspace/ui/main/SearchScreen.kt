@@ -168,7 +168,8 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onQuic
     QuietPage {
     val pullState = rememberPullToRefreshState()
     val pullRefreshing = userRefreshing && (state.refreshing || state.loading)
-    val indicatorTop = lovelyMainContentTopPadding()
+    // 新着件数が固定表示中でも手動更新インジケーターと重ならない位置にする。
+    val indicatorTop = lovelyMainContentTopPadding() + if (newCount > 0) 52.dp else 0.dp
     PullToRefreshBox(
         isRefreshing = pullRefreshing,
         // 本家の「最新更新」と同じく、読み込み中でも引けば取り直す（通信は ShaloveClient が 1 本ずつ通す）。
@@ -257,10 +258,9 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onQuic
         }
     }
     }
-    // トップバーの検索ボタンはいつも出し、少しでも下へ進んだら「トップへ戻る」を出す。
-    // どちらも外枠に置くので、トップバー・ボトムナビと同じく後ろの一覧がぼける。
-    // 新着は一覧の上に足されるので、下へ進んでいる間は「トップへ戻る」を「新着 N件」にして知らせる。
+    // トップバーの検索ボタンは常に表示する。新着件数はスクロール中だけ外枠のトップバー直下へ出す。
     // 先頭が見えている間に届いた新着はその場で見えるので、数えない。
+    // 「見つける」タブの再タップでも先頭へ戻れるよう、操作はスクロール位置によらず公開する。
     val scrolled by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0 } }
     val atTop = !scrolled
     LaunchedEffect(atTop, newCount) { if (atTop && newCount > 0) vm.clearNewRooms() }
@@ -269,10 +269,10 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onQuic
     val toggleSearch = remember { { searchOpen = !searchOpen } }
     val scrollToTop = remember(scope, listState) { { scope.launch { listState.animateScrollToItem(0) }; Unit } }
     val activeCount = activeFilterCount(c)
-    // SideEffect の中で読んだ状態は再コンポーズのきっかけにならない。先頭へ戻ったのにボタンが残らないよう、ここで読む。
+    // SideEffect の外で状態を読み、スクロール位置や新着件数が変われば外枠を再描画する。
     val searchButton = ShellSearchButton(activeCount, searchOpen, toggleSearch)
-    val scrollButton = if (scrolled) ShellScrollToTop(newCount, scrollToTop) else null
-    SideEffect { shell.publish(owner, searchButton = searchButton, scrollToTop = scrollButton) }
+    val scrollAction = ShellScrollToTop(if (scrolled) newCount else 0, scrollToTop)
+    SideEffect { shell.publish(owner, searchButton = searchButton, scrollToTop = scrollAction) }
     DisposableEffect(shell, owner) { onDispose { shell.release(owner) } }
     }
     }

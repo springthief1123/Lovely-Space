@@ -70,16 +70,23 @@ val MainDestinations = listOf(
     MainDestination(Routes.PROFILE, "マイルーム", Icons.Outlined.PersonOutline),
 )
 
-/** FAB や「会話に戻る」の帯がナビゲーションの上に並ぶときは、その分だけ一覧の下を空ける。 */
-internal fun lovelyBottomContentInset(navigationHeight: Dp, showCreateFab: Boolean, showResumeBar: Boolean = false) =
-    maxOf(LovelySpacing.bottomContentInset, navigationHeight + if (showCreateFab || showResumeBar) 80.dp else 0.dp)
+/** 「会話に戻る」の帯がナビゲーションの上にあるときは、その分だけ一覧の下を空ける。 */
+internal fun lovelyBottomContentInset(navigationHeight: Dp, showResumeBar: Boolean = false) =
+    maxOf(LovelySpacing.bottomContentInset, navigationHeight + if (showResumeBar) 80.dp else 0.dp)
+
+/** 「見つける」を表示中の再タップだけ、タブ遷移せず一覧の先頭へ戻す。 */
+internal fun shouldScrollFindTabToTop(currentRoute: String?, destinationRoute: String): Boolean =
+    destinationRoute == Routes.ROOMS && (currentRoute == Routes.ROOMS || currentRoute == Routes.SEARCH)
+
+/** 新着件数は「見つける」の上だけに出し、検索シート中は重ねない。 */
+internal fun shouldShowNewRoomsBadge(currentRoute: String?, newCount: Int, searchOpen: Boolean): Boolean =
+    (currentRoute == Routes.ROOMS || currentRoute == Routes.SEARCH) && newCount > 0 && !searchOpen
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun LovelyAppShell(
     currentRoute: String?, showChrome: Boolean,
     onDestinationSelected: (MainDestination) -> Unit,
-    showCreateFab: Boolean, onCreateRoom: () -> Unit,
     resumeBar: (@Composable () -> Unit)? = null,
     onOpenNotificationSettings: () -> Unit = {},
     content: @Composable () -> Unit,
@@ -87,7 +94,7 @@ fun LovelyAppShell(
     val hazeState = remember { HazeState() }
     val density = LocalDensity.current
     var navigationHeight by remember { mutableStateOf(100.dp) }
-    val bottomInset = lovelyBottomContentInset(navigationHeight, showCreateFab, showChrome && resumeBar != null)
+    val bottomInset = lovelyBottomContentInset(navigationHeight, showChrome && resumeBar != null)
     val shellState = remember { LovelyShellState() }
     var notificationsOpen by remember { mutableStateOf(false) }
     // 外枠を出さない画面（チャットなど）へ移ったら閉じる。
@@ -105,26 +112,28 @@ fun LovelyAppShell(
             if (showChrome) {
                 LovelyTopBar(onOpenBell = { notificationsOpen = !notificationsOpen }, shellState.searchButton, Modifier.align(Alignment.TopCenter))
                 LovelyBottomNavigation(if (currentRoute == Routes.SEARCH) Routes.ROOMS else currentRoute,
-                    onDestinationSelected, Modifier.align(Alignment.BottomCenter), onHeight = { navigationHeight = with(density) { it.toDp() } })
+                    onSelect = { destination ->
+                        if (shouldScrollFindTabToTop(currentRoute, destination.route)) shellState.scrollToTop?.onClick?.invoke()
+                        else onDestinationSelected(destination)
+                    },
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    onHeight = { navigationHeight = with(density) { it.toDp() } })
                 if (resumeBar != null) Box(Modifier.align(Alignment.BottomStart).navigationBarsPadding()
-                    .padding(start = 16.dp, end = if (showCreateFab) 92.dp else 16.dp, bottom = navigationHeight + 12.dp)) { resumeBar() }
-                // 「トップへ戻る」はボトムナビの上の中央に浮かせる。外枠に置くので後ろの一覧がぼける。
-                // 消えるアニメーションの間も文言を保つため、最後に出した内容を覚えておく。
+                    .padding(start = 16.dp, end = 16.dp, bottom = navigationHeight + 12.dp)) { resumeBar() }
+                // 新着件数だけトップバー直下へ固定表示する。検索シートを開いている間は隠す。
+                // 消えるアニメーション中の表示内容は、最後に表示した件数を使う。
                 val scrollToTop = shellState.scrollToTop
-                val lastScrollToTop = remember { arrayOfNulls<ShellScrollToTop>(1) }
-                if (scrollToTop != null) lastScrollToTop[0] = scrollToTop
-                AnimatedVisibility(scrollToTop != null, enter = fadeIn() + scaleIn(initialScale = 0.9f),
+                val lastNewRooms = remember { arrayOfNulls<ShellScrollToTop>(1) }
+                val showNewRooms = shouldShowNewRoomsBadge(currentRoute, scrollToTop?.newCount ?: 0,
+                    shellState.searchButton?.open == true)
+                if (showNewRooms) lastNewRooms[0] = scrollToTop
+                AnimatedVisibility(showNewRooms, enter = fadeIn() + scaleIn(initialScale = 0.9f),
                     exit = fadeOut() + scaleOut(targetScale = 0.9f),
-                    modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
-                        .padding(bottom = navigationHeight + 12.dp + if (resumeBar != null) 72.dp else 0.dp)) {
-                    val newCount = lastScrollToTop[0]?.newCount ?: 0
-                    LovelyGlassPillButton(if (newCount > 0) "新着 ${newCount}件" else "トップへ戻る", Icons.Outlined.ArrowUpward,
-                        onClick = { scrollToTop?.onClick?.invoke() })
-                }
-                AnimatedVisibility(showCreateFab, enter = fadeIn() + scaleIn(initialScale = 0.9f),
-                    exit = fadeOut() + scaleOut(targetScale = 0.9f),
-                    modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 20.dp, bottom = navigationHeight + 12.dp)) {
-                    LovelyGlassFab(onClick = onCreateRoom)
+                    modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding()
+                        .padding(top = LovelySpacing.topBarHeight + 8.dp)) {
+                    val newCount = lastNewRooms[0]?.newCount ?: 0
+                    LovelyGlassPillButton("新着 ${newCount}件", Icons.Outlined.ArrowUpward,
+                        onClick = { shellState.scrollToTop?.onClick?.invoke() })
                 }
             }
             }
@@ -187,13 +196,10 @@ fun LovelyAppShell(
                             floatingIds = floatingIds - notice.id
                             if (floatingIds.size <= 1) stackExpanded = false
                         },
-                        // 普段はボトムナビのすぐ上。FABの横を空け、他の浮遊操作がある時だけ少し上げる。
+                        // ボトムナビ直上の中央に配置し、会話復帰バーがある時だけ上へ逃がす。
                         modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
-                            .padding(start = 16.dp, end = if (!stackExpanded && showCreateFab) 96.dp else 16.dp,
-                                bottom = navigationHeight + 8.dp +
-                                    if (resumeBar != null) 72.dp
-                                    else if (shellState.scrollToTop != null) 60.dp
-                                    else 0.dp),
+                            .padding(start = 16.dp, end = 16.dp,
+                                bottom = navigationHeight + 8.dp + if (resumeBar != null) 72.dp else 0.dp),
                     )
                 }
                 NotificationOverlay(

@@ -1,0 +1,52 @@
+package io.github.springthief1123.lovelyspace.ui.shell
+
+import androidx.compose.ui.unit.dp
+import io.github.springthief1123.lovelyspace.Routes
+import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class LovelyAppShellNavigationTest {
+    @Test fun findingTabReselectScrollsOnlyWhenAlreadyOnFindingPage() {
+        assertTrue(shouldScrollFindTabToTop(Routes.ROOMS, Routes.ROOMS))
+        assertTrue(shouldScrollFindTabToTop(Routes.SEARCH, Routes.ROOMS))
+        assertFalse(shouldScrollFindTabToTop(Routes.RADAR, Routes.ROOMS))
+        assertFalse(shouldScrollFindTabToTop(Routes.PROFILE, Routes.ROOMS))
+        assertFalse(shouldScrollFindTabToTop(Routes.ROOMS, Routes.RADAR))
+        assertFalse(shouldScrollFindTabToTop(null, Routes.ROOMS))
+    }
+
+    @Test fun newRoomsBadgeAppearsOnlyOnFindingPageWithSearchClosed() {
+        assertTrue(shouldShowNewRoomsBadge(Routes.ROOMS, 3, searchOpen = false))
+        assertTrue(shouldShowNewRoomsBadge(Routes.SEARCH, 1, searchOpen = false))
+        assertFalse(shouldShowNewRoomsBadge(Routes.ROOMS, 0, searchOpen = false))
+        assertFalse(shouldShowNewRoomsBadge(Routes.ROOMS, 3, searchOpen = true))
+        assertFalse(shouldShowNewRoomsBadge(Routes.RADAR, 3, searchOpen = false))
+    }
+
+    @Test fun bottomContentInsetDoesNotReserveFabSpace() {
+        assertEquals(LovelySpacing.bottomContentInset, lovelyBottomContentInset(100.dp))
+        assertEquals(180.dp, lovelyBottomContentInset(100.dp, showResumeBar = true))
+        assertEquals(150.dp, lovelyBottomContentInset(150.dp))
+    }
+
+    @Test fun scrollActionRemainsAvailableAndIsReleasedOnlyByItsOwner() {
+        val shell = LovelyShellState()
+        val owner = Any()
+        var clicked = 0
+        val action = ShellScrollToTop(newCount = 2) { clicked++ }
+
+        shell.publish(owner, searchButton = null, scrollToTop = action)
+        assertSame(action, shell.scrollToTop)
+        shell.scrollToTop?.onClick?.invoke()
+        assertEquals(1, clicked)
+        shell.release(Any())
+        assertSame(action, shell.scrollToTop)
+        shell.release(owner)
+        assertNull(shell.scrollToTop)
+    }
+}
