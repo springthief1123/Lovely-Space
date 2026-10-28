@@ -86,10 +86,14 @@ internal fun shouldShowNewRoomsBadge(currentRoute: String?, newCount: Int, searc
 internal fun shouldShowFloatingPreview(currentRoute: String?, count: Int): Boolean =
     (currentRoute == Routes.ROOMS || currentRoute == Routes.SEARCH) && count > 0
 
-/** ナビのないサブページでは画面下部の操作類を避け、メインタブでは従来の位置を使う。 */
-internal fun floatingNoticeBottomOffset(route: String?, showChrome: Boolean, navigationHeight: Dp, showResumeBar: Boolean): Dp =
+/** 会話では実測入力欄の高さ（システムナビ領域を含む）を使い、増えた行や復旧操作を覆わない。 */
+internal fun floatingNoticeBottomOffset(
+    route: String?, showChrome: Boolean, navigationHeight: Dp, showResumeBar: Boolean,
+    chatBottomBarHeight: Dp = 0.dp,
+): Dp =
     if (showChrome) navigationHeight + 8.dp + if (showResumeBar) 72.dp else 0.dp
-    else if (route == Routes.CHAT || route == Routes.CREATE || route == Routes.ENTRY) 80.dp
+    else if (route == Routes.CHAT) chatBottomBarHeight + 8.dp
+    else if (route == Routes.CREATE || route == Routes.ENTRY) 80.dp
     else 16.dp
 
 @OptIn(ExperimentalComposeUiApi::class)
@@ -210,9 +214,12 @@ fun LovelyAppShell(
                             if (floatingIds.size <= 1) stackExpanded = false
                         },
                         // 各ページの下部UIとIMEを避けながら中央に表示する。
-                        modifier = Modifier.align(Alignment.BottomCenter).imePadding().navigationBarsPadding()
+                        // 会話入力欄の実測高にはnavigationBarsPaddingが含まれるため、ここでは二重に足さない。
+                        modifier = Modifier.align(Alignment.BottomCenter).imePadding()
+                            .then(if (currentRoute == Routes.CHAT) Modifier else Modifier.navigationBarsPadding())
                             .padding(start = 16.dp, end = 16.dp,
-                                bottom = floatingNoticeBottomOffset(currentRoute, showChrome, navigationHeight, resumeBar != null)),
+                                bottom = floatingNoticeBottomOffset(currentRoute, showChrome, navigationHeight,
+                                    resumeBar != null, shellState.chatBottomBarHeight)),
                     )
                 } else if (shouldShowFloatingPreview(currentRoute, floatingPreviewNotices.size) && !notificationsOpen && !locked) {
                     // 設定で積んだサンプルを見つける画面だけで描く。履歴・通信・実際の入室には接続しない。
