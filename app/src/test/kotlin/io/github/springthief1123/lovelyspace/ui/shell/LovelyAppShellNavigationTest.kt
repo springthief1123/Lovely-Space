@@ -28,6 +28,18 @@ class LovelyAppShellNavigationTest {
         assertFalse(shouldShowNewRoomsBadge(Routes.RADAR, 3, searchOpen = false))
     }
 
+    @Test fun actualNoticesCoverSubpagesButPreviewIsOnlyOnFinding() {
+        assertTrue(shouldShowFloatingPreview(Routes.ROOMS, 2))
+        assertTrue(shouldShowFloatingPreview(Routes.SEARCH, 1))
+        assertFalse(shouldShowFloatingPreview(Routes.RADAR, 2))
+        assertFalse(shouldShowFloatingPreview(Routes.SETTINGS_NOTIFICATIONS, 2))
+        assertFalse(shouldShowFloatingPreview(Routes.ROOMS, 0))
+        assertEquals(108.dp, floatingNoticeBottomOffset(Routes.ROOMS, true, 100.dp, false))
+        assertEquals(180.dp, floatingNoticeBottomOffset(Routes.ROOMS, true, 100.dp, true))
+        assertEquals(16.dp, floatingNoticeBottomOffset(Routes.SETTINGS_NOTIFICATIONS, false, 100.dp, false))
+        assertEquals(80.dp, floatingNoticeBottomOffset(Routes.CHAT, false, 100.dp, false))
+    }
+
     @Test fun bottomContentInsetDoesNotReserveFabSpace() {
         assertEquals(LovelySpacing.bottomContentInset, lovelyBottomContentInset(100.dp))
         assertEquals(180.dp, lovelyBottomContentInset(100.dp, showResumeBar = true))
