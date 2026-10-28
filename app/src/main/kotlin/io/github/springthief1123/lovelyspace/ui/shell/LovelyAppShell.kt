@@ -36,6 +36,8 @@ import io.github.springthief1123.lovelyspace.ui.theme.LocalLovelyBottomContentIn
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.notify.unreadCount
+import io.github.springthief1123.lovelyspace.notify.AppNotification
+import io.github.springthief1123.lovelyspace.lock.LocalAppLocked
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -130,9 +132,74 @@ fun LovelyAppShell(
                 // お知らせは外枠の一番上に重ね、上のバー・下のナビと同じく背後の画面をぼかす。
                 val app = LocalContext.current.applicationContext as LovelySpaceApp
                 val notifications by app.notificationInbox.entries.collectAsStateWithLifecycle()
+                val pins by app.pins.pins.collectAsStateWithLifecycle()
+                val locked = LocalAppLocked.current
+                // 起動前の履歴は再表示せず、新着の空きだけを最大5件まで前面に保つ。
+                // フリックで消すのは表示だけ。通知ベルの履歴には触れない。
+                val toastStartedAt = remember { System.currentTimeMillis() }
+                var handledToastIds by remember { mutableStateOf(emptySet<String>()) }
+                var floatingIds by remember { mutableStateOf(emptyList<String>()) }
+                var stackExpanded by remember { mutableStateOf(false) }
+                LaunchedEffect(notifications, notificationsOpen, locked) {
+                    val now = System.currentTimeMillis()
+                    val fresh = notifications.filter {
+                        isPinVacancyNotice(it) && !it.read && it.id !in handledToastIds &&
+                            it.at >= toastStartedAt && it.at <= now && now - it.at <= 10_000L
+                    }
+                    if (fresh.isNotEmpty()) {
+                        handledToastIds = handledToastIds + fresh.map { it.id }
+                        if (!notificationsOpen && !locked) {
+                            floatingIds = (fresh.map { it.id } + floatingIds).distinct()
+                                .take(MAX_FLOATING_PIN_NOTICES)
+                        }
+                    }
+                    if (notificationsOpen || locked) {
+                        floatingIds = emptyList()
+                        stackExpanded = false
+                    }
+                }
+                val floatingNotices = floatingPinNotices(floatingIds, notifications)
+                LaunchedEffect(floatingIds, stackExpanded) {
+                    // 広げて操作している間は自動で消さない。畳むと15秒で片付ける。
+                    if (floatingIds.isNotEmpty() && !stackExpanded) {
+                        kotlinx.coroutines.delay(15_000L)
+                        floatingIds = emptyList()
+                    }
+                }
+                if (floatingNotices.size <= 1 && stackExpanded) {
+                    LaunchedEffect(floatingNotices.size) { stackExpanded = false }
+                }
+                if (floatingNotices.isNotEmpty() && !notificationsOpen && !locked) {
+                    PinVacancyToastStack(
+                        notices = floatingNotices,
+                        pins = pins,
+                        expanded = stackExpanded,
+                        onExpandedChange = { stackExpanded = it },
+                        onEnter = { notice ->
+                            floatingIds = floatingIds - notice.id
+                            app.notifier.open(notice.id, enter = true)
+                        },
+                        onReview = { notice ->
+                            floatingIds = floatingIds - notice.id
+                            app.notifier.open(notice.id)
+                        },
+                        onDismiss = { notice ->
+                            floatingIds = floatingIds - notice.id
+                            if (floatingIds.size <= 1) stackExpanded = false
+                        },
+                        // 普段はボトムナビのすぐ上。FABの横を空け、他の浮遊操作がある時だけ少し上げる。
+                        modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
+                            .padding(start = 16.dp, end = if (!stackExpanded && showCreateFab) 96.dp else 16.dp,
+                                bottom = navigationHeight + 8.dp +
+                                    if (resumeBar != null) 72.dp
+                                    else if (shellState.scrollToTop != null) 60.dp
+                                    else 0.dp),
+                    )
+                }
                 NotificationOverlay(
                     visible = notificationsOpen,
                     entries = notifications,
+                    pins = pins,
                     onDismiss = { notificationsOpen = false },
                     onOpen = { notificationsOpen = false; app.notifier.open(it.id) },
                     onEnter = { notificationsOpen = false; app.notifier.open(it.id, enter = true) },

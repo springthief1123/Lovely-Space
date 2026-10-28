@@ -63,6 +63,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.springthief1123.lovelyspace.core.Genres
 import io.github.springthief1123.lovelyspace.data.formatObservationTime
+import io.github.springthief1123.lovelyspace.data.PinView
 import io.github.springthief1123.lovelyspace.lock.LocalAppLocked
 import io.github.springthief1123.lovelyspace.notify.AppNotification
 import io.github.springthief1123.lovelyspace.notify.NotificationKind
@@ -92,6 +93,7 @@ internal fun NotificationOverlay(
     onRemove: (AppNotification) -> Unit,
     onMarkAllRead: () -> Unit,
     onOpenSettings: () -> Unit,
+    pins: List<PinView>? = null,
 ) {
     val locked = LocalAppLocked.current
     LaunchedEffect(locked) { if (locked && visible) onDismiss() }
@@ -110,7 +112,7 @@ internal fun NotificationOverlay(
             exit = scaleOut(tween(75), targetScale = 0.8f, transformOrigin = origin) + fadeOut(tween(75)),
             modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = LovelySpacing.topBarHeight + PANEL_GAP),
         ) {
-            NotificationPanel(entries, onOpen, onEnter, onRemove, onMarkAllRead, onOpenSettings)
+            NotificationPanel(entries, onOpen, onEnter, onRemove, onMarkAllRead, onOpenSettings, pins)
         }
     }
 }
@@ -124,6 +126,7 @@ internal fun NotificationPanel(
     onRemove: (AppNotification) -> Unit,
     onMarkAllRead: () -> Unit,
     onOpenSettings: () -> Unit,
+    pins: List<PinView>? = null,
 ) {
     val configuration = LocalConfiguration.current
     // 画面の左右に 12dp ずつ残し、タブレット・横向きでは読みやすい幅で止める。
@@ -152,7 +155,7 @@ internal fun NotificationPanel(
                 ) {
                     items(entries, key = { it.id }) { entry ->
                         SwipeToRemove(onRemove = { onRemove(entry) }, modifier = Modifier.animateItem()) {
-                            NotificationCard(entry, onClick = { onOpen(entry) }, onEnter = { onEnter(entry) })
+                            NotificationCard(entry, onClick = { onOpen(entry) }, onEnter = { onEnter(entry) }, pins = pins)
                         }
                     }
                 }
@@ -209,7 +212,7 @@ private fun SwipeToRemove(onRemove: () -> Unit, modifier: Modifier = Modifier, c
  * 誰のどんな部屋かを先に見せる。カードを押すと入室前画面（部屋でなければその画面）を開き、「入室する」は確認を飛ばして入る。
  */
 @Composable
-private fun NotificationCard(entry: AppNotification, onClick: () -> Unit, onEnter: () -> Unit) {
+private fun NotificationCard(entry: AppNotification, onClick: () -> Unit, onEnter: () -> Unit, pins: List<PinView>?) {
     val room = entry.room
     val roomTarget = entry.target as? NotificationTarget.Room
     val scheme = MaterialTheme.colorScheme
@@ -253,7 +256,15 @@ private fun NotificationCard(entry: AppNotification, onClick: () -> Unit, onEnte
                     // 見つける画面・レーダーと同じ「入室する」チップ。押せる範囲は 48dp を取る。
                     // テスト通知は見た目だけ出し、押してもカードと同じ（本家の部屋は開かない）。
                     if (roomTarget != null) {
-                        ActionChip("入室する", emphasized = true, onClick = onEnter, modifier = Modifier.minimumInteractiveComponentSize())
+                        // 過去の空き通知で誤って入室を促さない。ピンの最新の観測状態で判定する。
+                        when (if (pins != null && isPinVacancyNotice(entry)) pinVacancyAction(entry, pins) else null) {
+                            PinVacancyAction.REVIEW -> ActionChip("内容を確認", emphasized = false,
+                                onClick = onClick, modifier = Modifier.minimumInteractiveComponentSize())
+                            PinVacancyAction.UNAVAILABLE -> Text("今は空きを確認できません",
+                                style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
+                            else -> ActionChip("入室する", emphasized = true, onClick = onEnter,
+                                modifier = Modifier.minimumInteractiveComponentSize())
+                        }
                     } else if (NotificationSamples.isSample(entry)) {
                         ActionChip("入室する", emphasized = true, onClick = onClick, onClickLabel = "開く（テスト通知）",
                             modifier = Modifier.minimumInteractiveComponentSize())

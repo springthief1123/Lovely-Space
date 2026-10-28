@@ -21,6 +21,20 @@ object NotificationSamples {
     private const val NAME = "テスト"
     private const val MESSAGE = "（テスト用の待機メッセージ）"
 
+    /** 通知設定だけで描画する浮遊カード。サイト上の部屋と結びつかず、履歴にも保存しない。 */
+    fun floatingPreview(sequence: Int): AppNotification {
+        val room = Room(0, Genres.all.first().key, RoomStatus.WAITING, RoomAction.ENTER, null,
+            "サンプル${sequence}", Gender.FEMALE, 25, null, "テスト用の待機メッセージ ${sequence}件目")
+        return of(NotificationKind.WAITLIST).copy(
+            title = "サンプル：ピンした部屋が空きました",
+            namedTitle = "${room.name}の部屋が空きました",
+            room = room,
+            message = room.message,
+            // 通知から操作しても本家の部屋へ遷移しない安全なダミー。
+            target = NotificationTarget.Rooms,
+        )
+    }
+
     fun of(kind: NotificationKind, now: Long = System.currentTimeMillis()): AppNotification {
         val id = ID_PREFIX + UUID.randomUUID().toString()
         val room = Room(0, Genres.all.first().key, RoomStatus.WAITING, RoomAction.ENTER, null, NAME, Gender.FEMALE, 25, null, MESSAGE)

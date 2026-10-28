@@ -163,7 +163,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
         io.github.springthief1123.lovelyspace.notify.NotificationKind.RADAR_MATCH)
     val context = LocalContext.current
     val now = System.currentTimeMillis()
-    val opened = pins.filter { it.state == PinState.OPEN && it.record.notifies }
+    val opened = pins.filter { it.state == PinState.OPEN && it.record.notifies && it.listed }
     val similar = pins.filter { it.similar != null }
     val freshConditions = saved.filter { conditions[it.id]?.fresh?.isNotEmpty() == true }
     val moving = opened.size + similar.size + if (freshConditions.isEmpty()) 0 else 1
@@ -189,7 +189,9 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                 MovingRow(Icons.Outlined.MeetingRoom, "${pin.name}の部屋が空いています",
                     listOfNotNull(pin.record.stateAt?.let(::formatObservationTime), pinAlertLabel(pin.record.alert)).joinToString("・")) {
                     Spacer(Modifier.weight(1f))
-                    Button(onClick = { openRoom(pin.room) }) { Text(if (pin.room.action == RoomAction.PEEK) "覗く" else "入室") }
+                    Button(onClick = { if (pin.room.action == RoomAction.ENTER) onQuickEnterRoom(pin.room) else openRoom(pin.room) }) {
+                        Text(if (pin.room.action == RoomAction.PEEK) "覗く" else "入室する")
+                    }
                 }
             }
             items(similar, key = { "moving/similar/${it.key}" }) { pin ->
