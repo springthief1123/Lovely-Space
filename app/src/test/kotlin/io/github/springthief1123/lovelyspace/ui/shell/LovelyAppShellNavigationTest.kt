@@ -20,6 +20,14 @@ class LovelyAppShellNavigationTest {
         assertFalse(shouldScrollFindTabToTop(null, Routes.ROOMS))
     }
 
+    @Test fun newRoomsBadgeAppearsOnlyOnFindingPageWithSearchClosed() {
+        assertTrue(shouldShowNewRoomsBadge(Routes.ROOMS, 3, searchOpen = false))
+        assertTrue(shouldShowNewRoomsBadge(Routes.SEARCH, 1, searchOpen = false))
+        assertFalse(shouldShowNewRoomsBadge(Routes.ROOMS, 0, searchOpen = false))
+        assertFalse(shouldShowNewRoomsBadge(Routes.ROOMS, 3, searchOpen = true))
+        assertFalse(shouldShowNewRoomsBadge(Routes.RADAR, 3, searchOpen = false))
+    }
+
     @Test fun bottomContentInsetDoesNotReserveFabSpace() {
         assertEquals(LovelySpacing.bottomContentInset, lovelyBottomContentInset(100.dp))
         assertEquals(180.dp, lovelyBottomContentInset(100.dp, showResumeBar = true))
