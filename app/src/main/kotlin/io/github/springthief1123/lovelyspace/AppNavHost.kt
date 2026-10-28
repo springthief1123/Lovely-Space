@@ -63,6 +63,9 @@ fun AppNavHost() {
     val mainRoutes = setOf(Routes.ROOMS, Routes.SEARCH, Routes.RADAR, Routes.PROFILE)
     var roomsRefreshKey by rememberSaveable { mutableIntStateOf(0) }
     var createGenreKey by rememberSaveable { mutableStateOf(Genres.default.key) }
+    // テスト通知はOS通知・ベルに書き込まず、この画面セッションだけで保持する。
+    var floatingPreviewSequence by remember { mutableIntStateOf(0) }
+    var floatingPreviewNotices by remember { mutableStateOf(emptyList<io.github.springthief1123.lovelyspace.notify.AppNotification>()) }
 
     var pendingPreset by rememberSaveable(stateSaver = SearchPresetSaver) { mutableStateOf<SearchPreset?>(null) }
 
@@ -127,6 +130,8 @@ fun AppNavHost() {
         } },
         onDestinationSelected = { destination -> nav.navigateMain(destination.route) },
         onOpenNotificationSettings = { nav.navigate(Routes.SETTINGS_NOTIFICATIONS) { launchSingleTop = true } },
+        floatingPreviewNotices = floatingPreviewNotices,
+        onDismissFloatingPreview = { notice -> floatingPreviewNotices = floatingPreviewNotices.filterNot { it.id == notice.id } },
     ) {
         // 右から左の言語では下のタブが左右反転して並ぶので、向きも反転する。
         val tabSign = if (LocalLayoutDirection.current == LayoutDirection.Rtl) -1 else 1
@@ -250,7 +255,16 @@ fun AppNavHost() {
                 DisguiseSettingsScreen(onBack = { nav.popBackStack() })
             }
             composable(Routes.SETTINGS_NOTIFICATIONS) {
-                NotificationSettingsScreen(onBack = { nav.popBackStack() })
+                NotificationSettingsScreen(
+                    onBack = { nav.popBackStack() },
+                    onTestFloating = {
+                        floatingPreviewSequence++
+                        floatingPreviewNotices = (listOf(io.github.springthief1123.lovelyspace.notify.NotificationSamples.floatingPreview(floatingPreviewSequence)) + floatingPreviewNotices)
+                            .take(io.github.springthief1123.lovelyspace.ui.shell.MAX_FLOATING_PIN_NOTICES)
+                    },
+                    floatingPreviewCount = floatingPreviewNotices.size,
+                    onViewFloating = { nav.navigateMain(Routes.ROOMS) },
+                )
             }
             composable(Routes.ENTRY, arguments = roomArgs + originArg + autoArg + publicArg) { entry ->
                 val args = entry.arguments!!
