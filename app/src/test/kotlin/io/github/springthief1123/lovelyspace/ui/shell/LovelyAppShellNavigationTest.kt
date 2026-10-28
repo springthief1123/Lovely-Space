@@ -37,13 +37,33 @@ class LovelyAppShellNavigationTest {
         assertEquals(108.dp, floatingNoticeBottomOffset(Routes.ROOMS, true, 100.dp, false))
         assertEquals(180.dp, floatingNoticeBottomOffset(Routes.ROOMS, true, 100.dp, true))
         assertEquals(16.dp, floatingNoticeBottomOffset(Routes.SETTINGS_NOTIFICATIONS, false, 100.dp, false))
-        assertEquals(80.dp, floatingNoticeBottomOffset(Routes.CHAT, false, 100.dp, false))
+        assertEquals(8.dp, floatingNoticeBottomOffset(Routes.CHAT, false, 100.dp, false))
+        assertEquals(160.dp, floatingNoticeBottomOffset(Routes.CHAT, false, 100.dp, false, 152.dp))
+        assertEquals(312.dp, floatingNoticeBottomOffset(Routes.CHAT, false, 100.dp, false, 304.dp))
+        assertEquals(80.dp, floatingNoticeBottomOffset(Routes.CREATE, false, 100.dp, false))
     }
 
     @Test fun bottomContentInsetDoesNotReserveFabSpace() {
         assertEquals(LovelySpacing.bottomContentInset, lovelyBottomContentInset(100.dp))
         assertEquals(180.dp, lovelyBottomContentInset(100.dp, showResumeBar = true))
         assertEquals(150.dp, lovelyBottomContentInset(150.dp))
+    }
+
+    @Test fun measuredChatBottomBarTracksChangesAndDoesNotClearNewOwners() {
+        val shell = LovelyShellState()
+        val oldChat = Any()
+        val newChat = Any()
+        assertEquals(0.dp, shell.chatBottomBarHeight)
+        shell.reportChatBottomBarHeight(oldChat, 104.dp)
+        assertEquals(104.dp, shell.chatBottomBarHeight)
+        // 文章が5行になったり復旧操作が表示されると、測定値が変わる。
+        shell.reportChatBottomBarHeight(oldChat, 292.dp)
+        assertEquals(292.dp, shell.chatBottomBarHeight)
+        shell.reportChatBottomBarHeight(newChat, 120.dp)
+        shell.releaseChatBottomBarHeight(oldChat)
+        assertEquals(120.dp, shell.chatBottomBarHeight)
+        shell.releaseChatBottomBarHeight(newChat)
+        assertEquals(0.dp, shell.chatBottomBarHeight)
     }
 
     @Test fun scrollActionRemainsAvailableAndIsReleasedOnlyByItsOwner() {
