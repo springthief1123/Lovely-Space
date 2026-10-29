@@ -159,7 +159,7 @@ fun LovelyAppShell(
                 val notifications by app.notificationInbox.entries.collectAsStateWithLifecycle()
                 val pins by app.pins.pins.collectAsStateWithLifecycle()
                 val locked = LocalAppLocked.current
-                // 起動前の履歴は再表示せず、新着の空きだけを最大5件まで前面に保つ。
+                // 起動前の履歴は再表示せず、新着の空きだけを最新3件まで前面に保つ。
                 // フリックで消すのは表示だけ。通知ベルの履歴には触れない。
                 val toastStartedAt = remember { System.currentTimeMillis() }
                 var handledToastIds by remember { mutableStateOf(emptySet<String>()) }

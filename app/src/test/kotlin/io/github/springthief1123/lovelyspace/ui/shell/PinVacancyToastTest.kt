@@ -181,17 +181,17 @@ class PinVacancyToastTest {
         assertEquals(PinVacancyStatus.FILLED, previewVacancyStatus(even, 0L, PREVIEW_FILL_MS))
     }
 
-    @Test fun onlyTheLatestFiveUniqueNoticesAreFloated() {
+    @Test fun onlyTheLatestThreeUniqueNoticesAreFloated() {
         val entries = (1..7).reversed().map { notice.copy(id = "pin-${host}/101-${it}") }
         val ids = listOf(entries.first().id, entries.first().id) + entries.map { it.id }
         val floating = floatingPinNotices(ids, entries)
-        assertEquals(5, floating.size)
-        assertEquals(entries.take(5).map { it.id }, floating.map { it.id })
+        assertEquals(3, floating.size)
+        assertEquals(entries.take(3).map { it.id }, floating.map { it.id })
         assertTrue(floatingPinNotices(ids, entries.map { it.copy(read = true) }).isEmpty())
     }
 
     @Test fun multipleNoticesAreInitiallyStackedAndExpandOnTap() {
-        val notices = (1..5).reversed().map { notice.copy(id = "pin-${host}/101-${it}") }
+        val notices = (1..3).reversed().map { notice.copy(id = "pin-${host}/101-${it}") }
         var expanded by mutableStateOf(false)
         compose.setContent {
             LovelySpaceTheme {
@@ -199,11 +199,11 @@ class PinVacancyToastTest {
                     onEnter = {}, onReview = {}, onDismiss = {})
             }
         }
-        compose.onNodeWithText("ほか4件").assertIsDisplayed()
-        compose.onNodeWithText("ほか4件").performClick()
+        compose.onNodeWithText("ほか2件").assertIsDisplayed()
+        compose.onNodeWithText("ほか2件").performClick()
         compose.onNodeWithText("まとめる").assertIsDisplayed()
         compose.onNodeWithText("まとめる").performClick()
-        compose.onNodeWithText("ほか4件").assertIsDisplayed()
+        compose.onNodeWithText("ほか2件").assertIsDisplayed()
     }
 
     @Test fun swipingLeftRemovesOnlyFloatingNotice() {
@@ -267,11 +267,11 @@ class PinVacancyToastTest {
             }
         }
         repeat(6) { compose.onNodeWithContentDescription("フローティング通知をテスト").performClick() }
-        compose.runOnIdle { assertEquals(5, notices.size) }
+        compose.runOnIdle { assertEquals(3, notices.size) }
         compose.onNodeWithTag("pin-vacancy-toast").assertDoesNotExist()
-        compose.onNodeWithText("見つけるで確認（5件）").performClick()
-        compose.onNodeWithText("ほか4件").assertIsDisplayed()
-        compose.onNodeWithText("ほか4件").performClick()
+        compose.onNodeWithText("見つけるで確認（3件）").performClick()
+        compose.onNodeWithText("ほか2件").assertIsDisplayed()
+        compose.onNodeWithText("ほか2件").performClick()
         compose.onNodeWithText("まとめる").assertIsDisplayed()
         compose.onNodeWithText("まとめる").performClick()
         compose.onNodeWithText("入室する").performClick()
