@@ -27,6 +27,7 @@ import io.github.springthief1123.lovelyspace.notify.AppNotification
 import io.github.springthief1123.lovelyspace.notify.NotificationKind
 import io.github.springthief1123.lovelyspace.notify.NotificationSamples
 import io.github.springthief1123.lovelyspace.ui.settings.FloatingPreviewTestRow
+import io.github.springthief1123.lovelyspace.Routes
 import io.github.springthief1123.lovelyspace.notify.NotificationTarget
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpaceTheme
 import org.junit.Assert.assertEquals
@@ -75,7 +76,8 @@ class PinVacancyToastTest {
         assertEquals(PinVacancyAction.UNAVAILABLE, pinVacancyAction(notice, listOf(view(state = PinState.FULL))))
         assertEquals(PinVacancyAction.UNAVAILABLE, pinVacancyAction(notice, listOf(view(listed = false))))
         assertEquals(PinVacancyAction.UNAVAILABLE, pinVacancyAction(notice, listOf(view(live = room.copy(action = RoomAction.NONE)))))
-        assertEquals(PinVacancyAction.UNAVAILABLE, pinVacancyAction(notice, listOf(view(live = room.copy(message = "別人の待機メッセージ")))))
+        // 待機メッセージが変わったら、入室前画面で確かめる（ワンタップでは入らない）。
+        assertEquals(PinVacancyAction.REVIEW, pinVacancyAction(notice, listOf(view(live = room.copy(message = "別人の待機メッセージ")))))
         assertEquals(PinVacancyAction.UNAVAILABLE, pinVacancyAction(notice, listOf(view(live = room.copy(id = 102)))))
     }
 
@@ -106,20 +108,90 @@ class PinVacancyToastTest {
                     onReview = {}, onDismiss = {})
             }
         }
-        compose.onNodeWithText("現在の空きは未確認").assertIsDisplayed()
+        compose.onNodeWithText("埋まりました", substring = true).assertIsDisplayed()
         compose.onNodeWithText("入室する").assertDoesNotExist()
     }
-    @Test fun onlyTheLatestFiveUniqueNoticesAreFloated() {
+    @Test fun statusFollowsTheLatestPinState() {
+        assertEquals(PinVacancyStatus.OPEN, pinVacancyStatus(notice, listOf(view())))
+        assertEquals(PinVacancyStatus.FILLED, pinVacancyStatus(notice, listOf(view(state = PinState.FULL))))
+        assertEquals(PinVacancyStatus.FILLED, pinVacancyStatus(notice, listOf(view(live = room.copy(action = RoomAction.NONE)))))
+        assertEquals(PinVacancyStatus.CLOSED, pinVacancyStatus(notice, listOf(view(state = PinState.CLOSED))))
+        assertEquals(PinVacancyStatus.UNCHECKED, pinVacancyStatus(notice, listOf(view(state = PinState.UNSEEN))))
+        assertEquals(PinVacancyStatus.UNCHECKED, pinVacancyStatus(notice, listOf(view(listed = false))))
+        assertEquals(PinVacancyStatus.GONE, pinVacancyStatus(notice, emptyList()))
+        assertEquals(PinVacancyStatus.CHANGED, pinVacancyStatus(notice, listOf(view(live = room.copy(message = "別の待機メッセージ")))))
+        assertTrue(PinVacancyStatus.FILLED.stale)
+        assertFalse(PinVacancyStatus.UNCHECKED.stale)
+    }
+
+    @Test fun sameRoomVacancyReplacesTheOldCard() {
+        val old = notice.copy(id = "pin-${host}/101-1000", at = 1_000L)
+        val other = notice.copy(id = "pin-${host}/202-1500", at = 1_500L,
+            target = NotificationTarget.Room(host, room.genreKey, 202, verified = true))
+        // 待機メッセージが変わって空き直した（verified が違う）通知も、同じ部屋として置き換える。
+        val fresh = notice.copy(id = "pin-${host}/101-3000", at = 3_000L,
+            target = NotificationTarget.Room(host, room.genreKey, room.id, verified = false))
+        val entries = listOf(fresh, other, old)
+        val targetOf = { id: String -> entries.firstOrNull { it.id == id }?.target }
+        val state = FloatingNoticeState().arrive(listOf(old), targetOf, 1_000L)
+            .arrive(listOf(other), targetOf, 1_500L)
+            .arrive(listOf(fresh), targetOf, 3_000L)
+        assertEquals(listOf(fresh.id, other.id), state.ids)
+        assertEquals(3_000L, state.shownAt[fresh.id])
+    }
+
+    @Test fun filledCardsLingerBrieflyThenLeave() {
+        val state = FloatingNoticeState(listOf("a", "b"), mapOf("a" to 0L, "b" to 0L))
+        val filled = state.tick(mapOf("a" to PinVacancyStatus.FILLED, "b" to PinVacancyStatus.OPEN), 1_000L, expanded = false)
+        assertEquals(listOf("a", "b"), filled.ids)
+        assertEquals(1_000L, filled.staleSince["a"])
+        val later = filled.tick(mapOf("a" to PinVacancyStatus.FILLED, "b" to PinVacancyStatus.OPEN), 1_000L + STALE_LINGER_MS, expanded = false)
+        assertEquals(listOf("b"), later.ids)
+        // 空き直したら「埋まった時刻」は消え、片付けの対象から外れる。
+        val reopened = filled.tick(mapOf("a" to PinVacancyStatus.OPEN, "b" to PinVacancyStatus.OPEN), 2_000L, expanded = false)
+        assertTrue(reopened.staleSince.isEmpty())
+        // 広げて操作している間は並びを変えない。
+        assertEquals(listOf("a", "b"), filled.tick(mapOf("a" to PinVacancyStatus.FILLED, "b" to PinVacancyStatus.OPEN),
+            1_000L + STALE_LINGER_MS, expanded = true).ids)
+        // 空いたままでも 5 分で片付ける。既読などで状態が無くなったものも外す。
+        assertTrue(state.tick(mapOf("a" to PinVacancyStatus.OPEN), VACANT_TTL_MS, expanded = false).ids.isEmpty())
+        assertEquals(listOf("a"), state.tick(mapOf("a" to PinVacancyStatus.OPEN), 1_000L, expanded = false).ids)
+    }
+
+    @Test fun cardSwitchesToFilledInPlace() {
+        var pins by mutableStateOf(listOf(view()))
+        compose.setContent {
+            LovelySpaceTheme {
+                PinVacancyToastStack(listOf(notice), pins, expanded = false, onExpandedChange = {},
+                    onEnter = {}, onReview = {}, onDismiss = {}, now = 4_000L)
+            }
+        }
+        compose.onNodeWithText("入室できます", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("入室する").assertIsDisplayed()
+        pins = listOf(view(state = PinState.FULL))
+        compose.onNodeWithText("埋まりました", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("入室する").assertDoesNotExist()
+    }
+
+    @Test fun evenPreviewSamplesFillAfterAWhile() {
+        val odd = NotificationSamples.floatingPreview(1)
+        val even = NotificationSamples.floatingPreview(2)
+        assertEquals(PinVacancyStatus.OPEN, previewVacancyStatus(odd, 0L, PREVIEW_FILL_MS * 10))
+        assertEquals(PinVacancyStatus.OPEN, previewVacancyStatus(even, 0L, PREVIEW_FILL_MS - 1))
+        assertEquals(PinVacancyStatus.FILLED, previewVacancyStatus(even, 0L, PREVIEW_FILL_MS))
+    }
+
+    @Test fun onlyTheLatestThreeUniqueNoticesAreFloated() {
         val entries = (1..7).reversed().map { notice.copy(id = "pin-${host}/101-${it}") }
         val ids = listOf(entries.first().id, entries.first().id) + entries.map { it.id }
         val floating = floatingPinNotices(ids, entries)
-        assertEquals(5, floating.size)
-        assertEquals(entries.take(5).map { it.id }, floating.map { it.id })
+        assertEquals(3, floating.size)
+        assertEquals(entries.take(3).map { it.id }, floating.map { it.id })
         assertTrue(floatingPinNotices(ids, entries.map { it.copy(read = true) }).isEmpty())
     }
 
     @Test fun multipleNoticesAreInitiallyStackedAndExpandOnTap() {
-        val notices = (1..5).reversed().map { notice.copy(id = "pin-${host}/101-${it}") }
+        val notices = (1..3).reversed().map { notice.copy(id = "pin-${host}/101-${it}") }
         var expanded by mutableStateOf(false)
         compose.setContent {
             LovelySpaceTheme {
@@ -127,11 +199,11 @@ class PinVacancyToastTest {
                     onEnter = {}, onReview = {}, onDismiss = {})
             }
         }
-        compose.onNodeWithText("ほか4件").assertIsDisplayed()
-        compose.onNodeWithText("ほか4件").performClick()
+        compose.onNodeWithText("ほか2件").assertIsDisplayed()
+        compose.onNodeWithText("ほか2件").performClick()
         compose.onNodeWithText("まとめる").assertIsDisplayed()
         compose.onNodeWithText("まとめる").performClick()
-        compose.onNodeWithText("ほか4件").assertIsDisplayed()
+        compose.onNodeWithText("ほか2件").assertIsDisplayed()
     }
 
     @Test fun swipingLeftRemovesOnlyFloatingNotice() {
@@ -162,7 +234,7 @@ class PinVacancyToastTest {
         compose.runOnIdle { assertTrue(visible.isEmpty()) }
     }
 
-    @Test fun settingsPreviewUsesOnlySamplesAndSafeTargets() {
+    @Test fun findingPreviewUsesOnlySamplesAndSafeTargets() {
         val samples = (1..6).map(NotificationSamples::floatingPreview)
         assertTrue(samples.all(NotificationSamples::isSample))
         assertTrue(samples.all { it.target == NotificationTarget.Rooms })
@@ -170,20 +242,23 @@ class PinVacancyToastTest {
         assertTrue(samples.all { it.room?.name?.startsWith("サンプル") == true })
     }
 
-    @Test fun settingsTestButtonAccumulatesUpToFiveSampleCards() {
+    @Test fun settingsTestButtonQueuesUpToFiveCardsForFindingPageOnly() {
         var notices by mutableStateOf(emptyList<AppNotification>())
         var next = 0
+        var route by mutableStateOf(Routes.SETTINGS_NOTIFICATIONS)
         var expanded by mutableStateOf(false)
         var tappedEnter = 0
         compose.setContent {
             LovelySpaceTheme {
                 Column {
-                    FloatingPreviewTestRow(onSendTest = {
-                        next++
-                        notices = (listOf(NotificationSamples.floatingPreview(next)) + notices)
-                            .take(MAX_FLOATING_PIN_NOTICES)
-                    })
-                    if (notices.isNotEmpty()) {
+                    if (route == Routes.SETTINGS_NOTIFICATIONS) {
+                        FloatingPreviewTestRow(onSendTest = {
+                            next++
+                            notices = (listOf(NotificationSamples.floatingPreview(next)) + notices)
+                                .take(MAX_FLOATING_PIN_NOTICES)
+                        }, queuedCount = notices.size, onViewPreview = { route = Routes.ROOMS })
+                    }
+                    if (shouldShowFloatingPreview(route, notices.size)) {
                         PinVacancyToastStack(notices, emptyList(), expanded, { expanded = it },
                             onEnter = { tappedEnter++ }, onReview = {},
                             onDismiss = { notices = notices - it }, preview = true)
@@ -192,14 +267,16 @@ class PinVacancyToastTest {
             }
         }
         repeat(6) { compose.onNodeWithContentDescription("フローティング通知をテスト").performClick() }
-        compose.runOnIdle { assertEquals(5, notices.size) }
-        compose.onNodeWithText("ほか4件").assertIsDisplayed()
-        compose.onNodeWithText("ほか4件").performClick()
+        compose.runOnIdle { assertEquals(3, notices.size) }
+        compose.onNodeWithTag("pin-vacancy-toast").assertDoesNotExist()
+        compose.onNodeWithText("見つけるで確認（3件）").performClick()
+        compose.onNodeWithText("ほか2件").assertIsDisplayed()
+        compose.onNodeWithText("ほか2件").performClick()
         compose.onNodeWithText("まとめる").assertIsDisplayed()
         compose.onNodeWithText("まとめる").performClick()
         compose.onNodeWithText("入室する").performClick()
         compose.runOnIdle { assertEquals(1, tappedEnter) }
-        // サンプルは実際の入室処理ではなく、呼び出し元のプレビュー操作だけに接続する。
+        // 呼び出し元はサンプル操作を実際の入室・サイト通信に接続しない。
     }
 
 }

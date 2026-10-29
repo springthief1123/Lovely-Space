@@ -21,9 +21,11 @@ object NotificationSamples {
     private const val NAME = "テスト"
     private const val MESSAGE = "（テスト用の待機メッセージ）"
 
-    /** 通知設定だけで描画する浮遊カード。サイト上の部屋と結びつかず、履歴にも保存しない。 */
+    /** 設定から追加し「見つける」で描画する浮遊カード。サイト上の部屋と結びつかず、履歴にも保存しない。 */
     fun floatingPreview(sequence: Int): AppNotification {
-        val room = Room(0, Genres.all.first().key, RoomStatus.WAITING, RoomAction.ENTER, null,
+        // 部屋 ID に件目を入れ、偶数件目は表示後しばらくして「埋まりました」に変わるサンプルにする（[floatingPreviewFills]）。
+        // 開く先は部屋ではないので、この ID で本家に通信することはない。
+        val room = Room(sequence.toLong(), Genres.all.first().key, RoomStatus.WAITING, RoomAction.ENTER, null,
             "サンプル${sequence}", Gender.FEMALE, 25, null, "テスト用の待機メッセージ ${sequence}件目")
         return of(NotificationKind.WAITLIST).copy(
             title = "サンプル：ピンした部屋が空きました",
@@ -34,6 +36,10 @@ object NotificationSamples {
             target = NotificationTarget.Rooms,
         )
     }
+
+    /** 浮遊カードのサンプルのうち、空きが埋まる様子を見せるもの（偶数件目）。 */
+    fun floatingPreviewFills(notification: AppNotification): Boolean =
+        isSample(notification) && (notification.room?.id ?: 1L) % 2 == 0L
 
     fun of(kind: NotificationKind, now: Long = System.currentTimeMillis()): AppNotification {
         val id = ID_PREFIX + UUID.randomUUID().toString()

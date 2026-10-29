@@ -257,10 +257,12 @@ private fun NotificationCard(entry: AppNotification, onClick: () -> Unit, onEnte
                     // テスト通知は見た目だけ出し、押してもカードと同じ（本家の部屋は開かない）。
                     if (roomTarget != null) {
                         // 過去の空き通知で誤って入室を促さない。ピンの最新の観測状態で判定する。
-                        when (if (pins != null && isPinVacancyNotice(entry)) pinVacancyAction(entry, pins) else null) {
+                        // 浮遊カードと同じく、埋まった・閉じたなど今の状態をそのまま書く。
+                        val status = if (pins != null && isPinVacancyNotice(entry)) pinVacancyStatus(entry, pins) else null
+                        when (status?.action()) {
                             PinVacancyAction.REVIEW -> ActionChip("内容を確認", emphasized = false,
                                 onClick = onClick, modifier = Modifier.minimumInteractiveComponentSize())
-                            PinVacancyAction.UNAVAILABLE -> Text("今は空きを確認できません",
+                            PinVacancyAction.UNAVAILABLE -> Text(status?.label.orEmpty(),
                                 style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
                             else -> ActionChip("入室する", emphasized = true, onClick = onEnter,
                                 modifier = Modifier.minimumInteractiveComponentSize())

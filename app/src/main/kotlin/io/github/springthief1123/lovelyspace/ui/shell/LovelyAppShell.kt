@@ -70,24 +70,47 @@ val MainDestinations = listOf(
     MainDestination(Routes.PROFILE, "マイルーム", Icons.Outlined.PersonOutline),
 )
 
-/** FAB や「会話に戻る」の帯がナビゲーションの上に並ぶときは、その分だけ一覧の下を空ける。 */
-internal fun lovelyBottomContentInset(navigationHeight: Dp, showCreateFab: Boolean, showResumeBar: Boolean = false) =
-    maxOf(LovelySpacing.bottomContentInset, navigationHeight + if (showCreateFab || showResumeBar) 80.dp else 0.dp)
+/** 「会話に戻る」の帯がナビゲーションの上にあるときは、その分だけ一覧の下を空ける。 */
+internal fun lovelyBottomContentInset(navigationHeight: Dp, showResumeBar: Boolean = false) =
+    maxOf(LovelySpacing.bottomContentInset, navigationHeight + if (showResumeBar) 80.dp else 0.dp)
+
+/** 「見つける」を表示中の再タップだけ、タブ遷移せず一覧の先頭へ戻す。 */
+internal fun shouldScrollFindTabToTop(currentRoute: String?, destinationRoute: String): Boolean =
+    destinationRoute == Routes.ROOMS && (currentRoute == Routes.ROOMS || currentRoute == Routes.SEARCH)
+
+/** 新着件数は「見つける」の上だけに出し、検索シート中は重ねない。 */
+internal fun shouldShowNewRoomsBadge(currentRoute: String?, newCount: Int, searchOpen: Boolean): Boolean =
+    (currentRoute == Routes.ROOMS || currentRoute == Routes.SEARCH) && newCount > 0 && !searchOpen
+
+/** サンプルは実際の表示位置を確かめる「見つける」でのみ表示する。 */
+internal fun shouldShowFloatingPreview(currentRoute: String?, count: Int): Boolean =
+    (currentRoute == Routes.ROOMS || currentRoute == Routes.SEARCH) && count > 0
+
+/** 会話では実測入力欄の高さ（システムナビ領域を含む）を使い、増えた行や復旧操作を覆わない。 */
+internal fun floatingNoticeBottomOffset(
+    route: String?, showChrome: Boolean, navigationHeight: Dp, showResumeBar: Boolean,
+    chatBottomBarHeight: Dp = 0.dp,
+): Dp =
+    if (showChrome) navigationHeight + 8.dp + if (showResumeBar) 72.dp else 0.dp
+    else if (route == Routes.CHAT) chatBottomBarHeight + 8.dp
+    else if (route == Routes.CREATE || route == Routes.ENTRY) 80.dp
+    else 16.dp
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun LovelyAppShell(
     currentRoute: String?, showChrome: Boolean,
     onDestinationSelected: (MainDestination) -> Unit,
-    showCreateFab: Boolean, onCreateRoom: () -> Unit,
     resumeBar: (@Composable () -> Unit)? = null,
     onOpenNotificationSettings: () -> Unit = {},
+    floatingPreviewNotices: List<AppNotification> = emptyList(),
+    onDismissFloatingPreview: (AppNotification) -> Unit = {},
     content: @Composable () -> Unit,
 ) {
     val hazeState = remember { HazeState() }
     val density = LocalDensity.current
     var navigationHeight by remember { mutableStateOf(100.dp) }
-    val bottomInset = lovelyBottomContentInset(navigationHeight, showCreateFab, showChrome && resumeBar != null)
+    val bottomInset = lovelyBottomContentInset(navigationHeight, showChrome && resumeBar != null)
     val shellState = remember { LovelyShellState() }
     var notificationsOpen by remember { mutableStateOf(false) }
     // 外枠を出さない画面（チャットなど）へ移ったら閉じる。
@@ -105,43 +128,48 @@ fun LovelyAppShell(
             if (showChrome) {
                 LovelyTopBar(onOpenBell = { notificationsOpen = !notificationsOpen }, shellState.searchButton, Modifier.align(Alignment.TopCenter))
                 LovelyBottomNavigation(if (currentRoute == Routes.SEARCH) Routes.ROOMS else currentRoute,
-                    onDestinationSelected, Modifier.align(Alignment.BottomCenter), onHeight = { navigationHeight = with(density) { it.toDp() } })
+                    onSelect = { destination ->
+                        if (shouldScrollFindTabToTop(currentRoute, destination.route)) shellState.scrollToTop?.onClick?.invoke()
+                        else onDestinationSelected(destination)
+                    },
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    onHeight = { navigationHeight = with(density) { it.toDp() } })
                 if (resumeBar != null) Box(Modifier.align(Alignment.BottomStart).navigationBarsPadding()
-                    .padding(start = 16.dp, end = if (showCreateFab) 92.dp else 16.dp, bottom = navigationHeight + 12.dp)) { resumeBar() }
-                // 「トップへ戻る」はボトムナビの上の中央に浮かせる。外枠に置くので後ろの一覧がぼける。
-                // 消えるアニメーションの間も文言を保つため、最後に出した内容を覚えておく。
+                    .padding(start = 16.dp, end = 16.dp, bottom = navigationHeight + 12.dp)) { resumeBar() }
+                // 新着件数だけトップバー直下へ固定表示する。検索シートを開いている間は隠す。
+                // 消えるアニメーション中の表示内容は、最後に表示した件数を使う。
                 val scrollToTop = shellState.scrollToTop
-                val lastScrollToTop = remember { arrayOfNulls<ShellScrollToTop>(1) }
-                if (scrollToTop != null) lastScrollToTop[0] = scrollToTop
-                AnimatedVisibility(scrollToTop != null, enter = fadeIn() + scaleIn(initialScale = 0.9f),
+                val lastNewRooms = remember { arrayOfNulls<ShellScrollToTop>(1) }
+                val showNewRooms = shouldShowNewRoomsBadge(currentRoute, scrollToTop?.newCount ?: 0,
+                    shellState.searchButton?.open == true)
+                if (showNewRooms) lastNewRooms[0] = scrollToTop
+                AnimatedVisibility(showNewRooms, enter = fadeIn() + scaleIn(initialScale = 0.9f),
                     exit = fadeOut() + scaleOut(targetScale = 0.9f),
-                    modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
-                        .padding(bottom = navigationHeight + 12.dp + if (resumeBar != null) 72.dp else 0.dp)) {
-                    val newCount = lastScrollToTop[0]?.newCount ?: 0
-                    LovelyGlassPillButton(if (newCount > 0) "新着 ${newCount}件" else "トップへ戻る", Icons.Outlined.ArrowUpward,
-                        onClick = { scrollToTop?.onClick?.invoke() })
-                }
-                AnimatedVisibility(showCreateFab, enter = fadeIn() + scaleIn(initialScale = 0.9f),
-                    exit = fadeOut() + scaleOut(targetScale = 0.9f),
-                    modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 20.dp, bottom = navigationHeight + 12.dp)) {
-                    LovelyGlassFab(onClick = onCreateRoom)
+                    modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding()
+                        .padding(top = LovelySpacing.topBarHeight + 8.dp)) {
+                    val newCount = lastNewRooms[0]?.newCount ?: 0
+                    LovelyGlassPillButton("新着 ${newCount}件", Icons.Outlined.ArrowUpward,
+                        onClick = { shellState.scrollToTop?.onClick?.invoke() })
                 }
             }
             }
-            if (showChrome) {
-                // お知らせは外枠の一番上に重ね、上のバー・下のナビと同じく背後の画面をぼかす。
+            if (currentRoute != null) {
+                // 実際の空き通知はメインタブだけでなく設定・会話・作成など全ページの外枠に重ねる。
                 val app = LocalContext.current.applicationContext as LovelySpaceApp
                 val notifications by app.notificationInbox.entries.collectAsStateWithLifecycle()
                 val pins by app.pins.pins.collectAsStateWithLifecycle()
                 val locked = LocalAppLocked.current
-                // 起動前の履歴は再表示せず、新着の空きだけを最大5件まで前面に保つ。
+                // 起動前の履歴は再表示せず、新着の空きだけを最新3件まで前面に保つ。
                 // フリックで消すのは表示だけ。通知ベルの履歴には触れない。
                 val toastStartedAt = remember { System.currentTimeMillis() }
                 var handledToastIds by remember { mutableStateOf(emptySet<String>()) }
-                var floatingIds by remember { mutableStateOf(emptyList<String>()) }
+                var floating by remember { mutableStateOf(FloatingNoticeState()) }
+                var preview by remember { mutableStateOf(FloatingNoticeState()) }
                 var stackExpanded by remember { mutableStateOf(false) }
+                var previewExpanded by remember { mutableStateOf(false) }
+                var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
                 LaunchedEffect(notifications, notificationsOpen, locked) {
-                    val now = System.currentTimeMillis()
+                    now = System.currentTimeMillis()
                     val fresh = notifications.filter {
                         isPinVacancyNotice(it) && !it.read && it.id !in handledToastIds &&
                             it.at >= toastStartedAt && it.at <= now && now - it.at <= 10_000L
@@ -149,21 +177,38 @@ fun LovelyAppShell(
                     if (fresh.isNotEmpty()) {
                         handledToastIds = handledToastIds + fresh.map { it.id }
                         if (!notificationsOpen && !locked) {
-                            floatingIds = (fresh.map { it.id } + floatingIds).distinct()
-                                .take(MAX_FLOATING_PIN_NOTICES)
+                            // 同じ部屋がまた空いたら古いカードは残さず、新しい通知に置き換える。
+                            floating = floating.arrive(fresh, { id -> notifications.firstOrNull { it.id == id }?.target }, now)
                         }
                     }
                     if (notificationsOpen || locked) {
-                        floatingIds = emptyList()
+                        floating = FloatingNoticeState()
                         stackExpanded = false
                     }
                 }
-                val floatingNotices = floatingPinNotices(floatingIds, notifications)
-                LaunchedEffect(floatingIds, stackExpanded) {
-                    // 広げて操作している間は自動で消さない。畳むと15秒で片付ける。
-                    if (floatingIds.isNotEmpty() && !stackExpanded) {
-                        kotlinx.coroutines.delay(15_000L)
-                        floatingIds = emptyList()
+                val floatingNotices = floatingPinNotices(floating.ids, notifications)
+                val showPreview = floatingNotices.isEmpty() && shouldShowFloatingPreview(currentRoute, floatingPreviewNotices.size) &&
+                    !notificationsOpen && !locked
+                LaunchedEffect(floatingPreviewNotices, showPreview) {
+                    if (showPreview) preview = preview.sync(floatingPreviewNotices.map { it.id }, System.currentTimeMillis())
+                }
+                // 毎秒の見直しは長く動くので、途中で変わる値は最新を読む。
+                val latestShowPreview by rememberUpdatedState(showPreview)
+                val latestPreviewNotices by rememberUpdatedState(floatingPreviewNotices)
+                fun previewStatus(notice: AppNotification) = previewVacancyStatus(notice, preview.shownAt[notice.id], now)
+                // 浮かせている間だけ毎秒、ピンの最新の状態を見直す（通信はしない）。空き→満室はその場で色と文言を変え、
+                // 少し見せてから片付ける。空いたままのカードは5分で片付ける。
+                LaunchedEffect(floating.ids.isNotEmpty() || (showPreview && preview.ids.isNotEmpty())) {
+                    while (floating.ids.isNotEmpty() || (latestShowPreview && preview.ids.isNotEmpty())) {
+                        now = System.currentTimeMillis()
+                        val current = floatingPinNotices(floating.ids, notifications)
+                        floating = floating.tick(current.associate { it.id to pinVacancyStatus(it, pins) }, now, stackExpanded)
+                        if (latestShowPreview) {
+                            val next = preview.tick(latestPreviewNotices.associate { it.id to previewStatus(it) }, now, previewExpanded)
+                            latestPreviewNotices.filter { it.id in preview.ids && it.id !in next.ids }.forEach(onDismissFloatingPreview)
+                            preview = next
+                        }
+                        kotlinx.coroutines.delay(1_000L)
                     }
                 }
                 if (floatingNotices.size <= 1 && stackExpanded) {
@@ -176,28 +221,50 @@ fun LovelyAppShell(
                         expanded = stackExpanded,
                         onExpandedChange = { stackExpanded = it },
                         onEnter = { notice ->
-                            floatingIds = floatingIds - notice.id
+                            floating = floating.dismiss(notice.id)
                             app.notifier.open(notice.id, enter = true)
                         },
                         onReview = { notice ->
-                            floatingIds = floatingIds - notice.id
+                            floating = floating.dismiss(notice.id)
                             app.notifier.open(notice.id)
                         },
                         onDismiss = { notice ->
-                            floatingIds = floatingIds - notice.id
-                            if (floatingIds.size <= 1) stackExpanded = false
+                            floating = floating.dismiss(notice.id)
+                            if (floating.ids.size <= 1) stackExpanded = false
                         },
-                        // 普段はボトムナビのすぐ上。FABの横を空け、他の浮遊操作がある時だけ少し上げる。
+                        // 各ページの下部UIとIMEを避けながら中央に表示する。
+                        // 会話入力欄の実測高にはnavigationBarsPaddingが含まれるため、ここでは二重に足さない。
+                        modifier = Modifier.align(Alignment.BottomCenter).imePadding()
+                            .then(if (currentRoute == Routes.CHAT) Modifier else Modifier.navigationBarsPadding())
+                            .padding(start = 16.dp, end = 16.dp,
+                                bottom = floatingNoticeBottomOffset(currentRoute, showChrome, navigationHeight,
+                                    resumeBar != null, shellState.chatBottomBarHeight)),
+                        now = now,
+                    )
+                } else if (showPreview) {
+                    // 設定で積んだサンプルを見つける画面だけで描く。履歴・通信・実際の入室には接続しない。
+                    // 偶数件目は表示して少し経つと「埋まりました」に変わり、実際の空きが埋まったときの動きを確かめられる。
+                    PinVacancyToastStack(
+                        notices = floatingPreviewNotices.filter { it.id in preview.ids },
+                        pins = emptyList(),
+                        expanded = previewExpanded,
+                        onExpandedChange = { previewExpanded = it },
+                        onEnter = { android.widget.Toast.makeText(app, "サンプル表示です。実際の入室は行いません", android.widget.Toast.LENGTH_SHORT).show() },
+                        onReview = { android.widget.Toast.makeText(app, "サンプル表示です。実際の部屋は開きません", android.widget.Toast.LENGTH_SHORT).show() },
+                        onDismiss = { notice ->
+                            preview = preview.dismiss(notice.id)
+                            onDismissFloatingPreview(notice)
+                            if (floatingPreviewNotices.size <= 2) previewExpanded = false
+                        },
                         modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
-                            .padding(start = 16.dp, end = if (!stackExpanded && showCreateFab) 96.dp else 16.dp,
-                                bottom = navigationHeight + 8.dp +
-                                    if (resumeBar != null) 72.dp
-                                    else if (shellState.scrollToTop != null) 60.dp
-                                    else 0.dp),
+                            .padding(start = 16.dp, end = 16.dp, bottom = navigationHeight + 8.dp),
+                        preview = true,
+                        now = now,
+                        statusOf = ::previewStatus,
                     )
                 }
                 NotificationOverlay(
-                    visible = notificationsOpen,
+                    visible = showChrome && notificationsOpen,
                     entries = notifications,
                     pins = pins,
                     onDismiss = { notificationsOpen = false },

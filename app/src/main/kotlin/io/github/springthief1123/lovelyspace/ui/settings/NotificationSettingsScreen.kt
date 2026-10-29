@@ -42,7 +42,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
-import io.github.springthief1123.lovelyspace.notify.AppNotification
 import io.github.springthief1123.lovelyspace.notify.NotificationKind
 import io.github.springthief1123.lovelyspace.notify.NotificationSamples
 import io.github.springthief1123.lovelyspace.notify.appNotificationSettingsIntent
@@ -50,11 +49,6 @@ import io.github.springthief1123.lovelyspace.notify.channelSettingsIntent
 import io.github.springthief1123.lovelyspace.notify.rememberNotificationPermissionRequest
 import io.github.springthief1123.lovelyspace.settings.NoticeRetention
 import io.github.springthief1123.lovelyspace.settings.NotificationPreview
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeSource
-import io.github.springthief1123.lovelyspace.ui.components.ProvideLovelyHazeState
-import io.github.springthief1123.lovelyspace.ui.shell.PinVacancyToastStack
-import io.github.springthief1123.lovelyspace.ui.shell.MAX_FLOATING_PIN_NOTICES
 import io.github.springthief1123.lovelyspace.ui.components.QuietDropdownMenu
 import io.github.springthief1123.lovelyspace.ui.components.QuietMenuRow
 import io.github.springthief1123.lovelyspace.ui.describeError
@@ -62,7 +56,12 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 @Composable
-fun NotificationSettingsScreen(onBack: () -> Unit) {
+fun NotificationSettingsScreen(
+    onBack: () -> Unit,
+    onTestFloating: () -> Unit,
+    floatingPreviewCount: Int,
+    onViewFloating: () -> Unit,
+) {
     val context = LocalContext.current
     val app = context.applicationContext as LovelySpaceApp
     val preview by app.settings.notificationPreview.collectAsStateWithLifecycle(initialValue = NotificationPreview.HIDE_ON_LOCK_SCREEN)
@@ -79,16 +78,6 @@ fun NotificationSettingsScreen(onBack: () -> Unit) {
     val enabledKinds = remember(refresh) { NotificationKind.entries.filter { app.notifier.channelEnabled(it) }.toSet() }
     val requestPermission = rememberNotificationPermissionRequest { refresh++ }
     val bottomContentPadding = 14.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val previewHazeState = remember { HazeState() }
-    var previewCount by remember { mutableIntStateOf(0) }
-    var floatingPreviews by remember { mutableStateOf(emptyList<AppNotification>()) }
-    var previewExpanded by remember { mutableStateOf(false) }
-    fun showFloatingPreview() {
-        previewCount++
-        floatingPreviews = (listOf(NotificationSamples.floatingPreview(previewCount)) + floatingPreviews)
-            .take(MAX_FLOATING_PIN_NOTICES)
-    }
-
     fun show(message: String) {
         scope.launch {
             snackbar.currentSnackbarData?.dismiss()
@@ -117,8 +106,6 @@ fun NotificationSettingsScreen(onBack: () -> Unit) {
     }
 
     Box(Modifier.fillMaxSize()) {
-        // 設定画面の本体だけを Haze の取得元とし、重ねたサンプル通知から背景をぼかす。
-        Box(Modifier.fillMaxSize().hazeSource(state = previewHazeState)) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             SettingsPageHeader(title = "通知", onBack = onBack)
             LazyColumn(contentPadding = PaddingValues(top = 14.dp, bottom = bottomContentPadding)) {
@@ -167,7 +154,8 @@ fun NotificationSettingsScreen(onBack: () -> Unit) {
                         onSendTest = { sendTest(kind) },
                     )
                 }
-                item { FloatingPreviewTestRow(onSendTest = ::showFloatingPreview) }
+                item { FloatingPreviewTestRow(onSendTest = onTestFloating,
+                    queuedCount = floatingPreviewCount, onViewPreview = onViewFloating) }
                 item {
                     Text(
                         "種類ごとの音やバイブは、行をタップして端末の設定で変えられます。" +
@@ -205,28 +193,6 @@ fun NotificationSettingsScreen(onBack: () -> Unit) {
             hostState = snackbar,
             modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
         )
-        }
-        // 端末通知・お知らせ履歴に一切触れない画面内プレビュー。
-        // 実際のフローティング通知と同じスタック・フリック・Glassを使う。
-        ProvideLovelyHazeState(previewHazeState) {
-            if (floatingPreviews.isNotEmpty()) {
-                PinVacancyToastStack(
-                    notices = floatingPreviews,
-                    pins = emptyList(),
-                    expanded = previewExpanded,
-                    onExpandedChange = { previewExpanded = it },
-                    onEnter = { show("サンプル表示です。実際の入室は行いません") },
-                    onReview = { show("サンプル表示です。実際の部屋は開きません") },
-                    onDismiss = { notice ->
-                        floatingPreviews = floatingPreviews - notice
-                        if (floatingPreviews.size <= 1) previewExpanded = false
-                    },
-                    modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
-                        .padding(start = 16.dp, end = 16.dp, bottom = 20.dp),
-                    preview = true,
-                )
-            }
-        }
     }
 }
 
@@ -255,22 +221,26 @@ private fun NotificationKindRow(kind: NotificationKind, enabled: Boolean, onOpen
 
 
 /**
- * 実機の通知権限に関係なく、その場で外観を検証するためのテスト。
- * 続けて押すと5件まで重なり、展開・スワイプも試せる。
+ * 実機の通知権限に関係なく「見つける」で外観を検証するためのテスト。
+ * 連続で押した件数（最大3件）をキューへ入れ、別操作で見つけるに移動する。
  */
 @Composable
-internal fun FloatingPreviewTestRow(onSendTest: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text("フローティング通知", style = MaterialTheme.typography.bodyLarge)
-            Text("画面内にサンプルを表示。連続タップで最大5件スタックします",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+internal fun FloatingPreviewTestRow(onSendTest: () -> Unit, queuedCount: Int, onViewPreview: () -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text("フローティング通知", style = MaterialTheme.typography.bodyLarge)
+                Text("テストを押すたび1件追加。見つける画面で最新3件を確認できます",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            TextButton(onClick = onSendTest, modifier = Modifier.semantics { contentDescription = "フローティング通知をテスト" }) {
+                Text("テスト")
+            }
         }
-        TextButton(onClick = onSendTest, modifier = Modifier.semantics { contentDescription = "フローティング通知をテスト" }) {
-            Text("テスト")
+        if (queuedCount > 0) {
+            TextButton(onClick = onViewPreview, modifier = Modifier.align(Alignment.End)) {
+                Text("見つけるで確認（${queuedCount}件）")
+            }
         }
     }
 }
