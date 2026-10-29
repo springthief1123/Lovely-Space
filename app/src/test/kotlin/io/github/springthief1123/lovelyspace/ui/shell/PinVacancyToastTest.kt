@@ -128,7 +128,9 @@ class PinVacancyToastTest {
         val old = notice.copy(id = "pin-${host}/101-1000", at = 1_000L)
         val other = notice.copy(id = "pin-${host}/202-1500", at = 1_500L,
             target = NotificationTarget.Room(host, room.genreKey, 202, verified = true))
-        val fresh = notice.copy(id = "pin-${host}/101-3000", at = 3_000L)
+        // 待機メッセージが変わって空き直した（verified が違う）通知も、同じ部屋として置き換える。
+        val fresh = notice.copy(id = "pin-${host}/101-3000", at = 3_000L,
+            target = NotificationTarget.Room(host, room.genreKey, room.id, verified = false))
         val entries = listOf(fresh, other, old)
         val targetOf = { id: String -> entries.firstOrNull { it.id == id }?.target }
         val state = FloatingNoticeState().arrive(listOf(old), targetOf, 1_000L)

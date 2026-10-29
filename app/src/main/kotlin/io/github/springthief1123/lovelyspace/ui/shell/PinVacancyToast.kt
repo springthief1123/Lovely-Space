@@ -138,8 +138,10 @@ internal data class FloatingNoticeState(
     /** 新しい空き通知を前に足す。同じ部屋（[NotificationTarget.Room]）の古いカードは外す。 */
     fun arrive(fresh: List<AppNotification>, targetOf: (String) -> NotificationTarget?, now: Long): FloatingNoticeState {
         if (fresh.isEmpty()) return this
-        val freshRooms = fresh.mapNotNull { it.target as? NotificationTarget.Room }.toSet()
-        val kept = ids.filter { id -> targetOf(id).let { it !is NotificationTarget.Room || it !in freshRooms } }
+        // verified（通知時に待機メッセージが一致したか）は部屋の識別に使わない。同じ部屋が別の結果で空き直しても置き換える。
+        fun NotificationTarget.Room.roomKey() = Triple(host, genreKey, roomId)
+        val freshRooms = fresh.mapNotNull { (it.target as? NotificationTarget.Room)?.roomKey() }.toSet()
+        val kept = ids.filter { id -> targetOf(id).let { it !is NotificationTarget.Room || it.roomKey() !in freshRooms } }
         val next = (fresh.map { it.id } + kept).distinct().take(MAX_FLOATING_PIN_NOTICES)
         return FloatingNoticeState(next,
             next.associateWith { id -> if (fresh.any { it.id == id }) now else shownAt[id] ?: now },
