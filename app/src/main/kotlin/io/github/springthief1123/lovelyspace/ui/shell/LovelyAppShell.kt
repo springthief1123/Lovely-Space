@@ -163,11 +163,13 @@ fun LovelyAppShell(
                 // フリックで消すのは表示だけ。通知ベルの履歴には触れない。
                 val toastStartedAt = remember { System.currentTimeMillis() }
                 var handledToastIds by remember { mutableStateOf(emptySet<String>()) }
-                var floatingIds by remember { mutableStateOf(emptyList<String>()) }
+                var floating by remember { mutableStateOf(FloatingNoticeState()) }
+                var preview by remember { mutableStateOf(FloatingNoticeState()) }
                 var stackExpanded by remember { mutableStateOf(false) }
                 var previewExpanded by remember { mutableStateOf(false) }
+                var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
                 LaunchedEffect(notifications, notificationsOpen, locked) {
-                    val now = System.currentTimeMillis()
+                    now = System.currentTimeMillis()
                     val fresh = notifications.filter {
                         isPinVacancyNotice(it) && !it.read && it.id !in handledToastIds &&
                             it.at >= toastStartedAt && it.at <= now && now - it.at <= 10_000L
@@ -175,21 +177,38 @@ fun LovelyAppShell(
                     if (fresh.isNotEmpty()) {
                         handledToastIds = handledToastIds + fresh.map { it.id }
                         if (!notificationsOpen && !locked) {
-                            floatingIds = (fresh.map { it.id } + floatingIds).distinct()
-                                .take(MAX_FLOATING_PIN_NOTICES)
+                            // 同じ部屋がまた空いたら古いカードは残さず、新しい通知に置き換える。
+                            floating = floating.arrive(fresh, { id -> notifications.firstOrNull { it.id == id }?.target }, now)
                         }
                     }
                     if (notificationsOpen || locked) {
-                        floatingIds = emptyList()
+                        floating = FloatingNoticeState()
                         stackExpanded = false
                     }
                 }
-                val floatingNotices = floatingPinNotices(floatingIds, notifications)
-                LaunchedEffect(floatingIds, stackExpanded) {
-                    // 広げて操作している間は自動で消さない。畳むと15秒で片付ける。
-                    if (floatingIds.isNotEmpty() && !stackExpanded) {
-                        kotlinx.coroutines.delay(15_000L)
-                        floatingIds = emptyList()
+                val floatingNotices = floatingPinNotices(floating.ids, notifications)
+                val showPreview = floatingNotices.isEmpty() && shouldShowFloatingPreview(currentRoute, floatingPreviewNotices.size) &&
+                    !notificationsOpen && !locked
+                LaunchedEffect(floatingPreviewNotices, showPreview) {
+                    if (showPreview) preview = preview.sync(floatingPreviewNotices.map { it.id }, System.currentTimeMillis())
+                }
+                // 毎秒の見直しは長く動くので、途中で変わる値は最新を読む。
+                val latestShowPreview by rememberUpdatedState(showPreview)
+                val latestPreviewNotices by rememberUpdatedState(floatingPreviewNotices)
+                fun previewStatus(notice: AppNotification) = previewVacancyStatus(notice, preview.shownAt[notice.id], now)
+                // 浮かせている間だけ毎秒、ピンの最新の状態を見直す（通信はしない）。空き→満室はその場で色と文言を変え、
+                // 少し見せてから片付ける。空いたままのカードは5分で片付ける。
+                LaunchedEffect(floating.ids.isNotEmpty() || (showPreview && preview.ids.isNotEmpty())) {
+                    while (floating.ids.isNotEmpty() || (latestShowPreview && preview.ids.isNotEmpty())) {
+                        now = System.currentTimeMillis()
+                        val current = floatingPinNotices(floating.ids, notifications)
+                        floating = floating.tick(current.associate { it.id to pinVacancyStatus(it, pins) }, now, stackExpanded)
+                        if (latestShowPreview) {
+                            val next = preview.tick(latestPreviewNotices.associate { it.id to previewStatus(it) }, now, previewExpanded)
+                            latestPreviewNotices.filter { it.id in preview.ids && it.id !in next.ids }.forEach(onDismissFloatingPreview)
+                            preview = next
+                        }
+                        kotlinx.coroutines.delay(1_000L)
                     }
                 }
                 if (floatingNotices.size <= 1 && stackExpanded) {
@@ -202,16 +221,16 @@ fun LovelyAppShell(
                         expanded = stackExpanded,
                         onExpandedChange = { stackExpanded = it },
                         onEnter = { notice ->
-                            floatingIds = floatingIds - notice.id
+                            floating = floating.dismiss(notice.id)
                             app.notifier.open(notice.id, enter = true)
                         },
                         onReview = { notice ->
-                            floatingIds = floatingIds - notice.id
+                            floating = floating.dismiss(notice.id)
                             app.notifier.open(notice.id)
                         },
                         onDismiss = { notice ->
-                            floatingIds = floatingIds - notice.id
-                            if (floatingIds.size <= 1) stackExpanded = false
+                            floating = floating.dismiss(notice.id)
+                            if (floating.ids.size <= 1) stackExpanded = false
                         },
                         // 各ページの下部UIとIMEを避けながら中央に表示する。
                         // 会話入力欄の実測高にはnavigationBarsPaddingが含まれるため、ここでは二重に足さない。
@@ -220,23 +239,28 @@ fun LovelyAppShell(
                             .padding(start = 16.dp, end = 16.dp,
                                 bottom = floatingNoticeBottomOffset(currentRoute, showChrome, navigationHeight,
                                     resumeBar != null, shellState.chatBottomBarHeight)),
+                        now = now,
                     )
-                } else if (shouldShowFloatingPreview(currentRoute, floatingPreviewNotices.size) && !notificationsOpen && !locked) {
+                } else if (showPreview) {
                     // 設定で積んだサンプルを見つける画面だけで描く。履歴・通信・実際の入室には接続しない。
+                    // 偶数件目は表示して少し経つと「埋まりました」に変わり、実際の空きが埋まったときの動きを確かめられる。
                     PinVacancyToastStack(
-                        notices = floatingPreviewNotices,
+                        notices = floatingPreviewNotices.filter { it.id in preview.ids },
                         pins = emptyList(),
                         expanded = previewExpanded,
                         onExpandedChange = { previewExpanded = it },
                         onEnter = { android.widget.Toast.makeText(app, "サンプル表示です。実際の入室は行いません", android.widget.Toast.LENGTH_SHORT).show() },
                         onReview = { android.widget.Toast.makeText(app, "サンプル表示です。実際の部屋は開きません", android.widget.Toast.LENGTH_SHORT).show() },
                         onDismiss = { notice ->
+                            preview = preview.dismiss(notice.id)
                             onDismissFloatingPreview(notice)
                             if (floatingPreviewNotices.size <= 2) previewExpanded = false
                         },
                         modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
                             .padding(start = 16.dp, end = 16.dp, bottom = navigationHeight + 8.dp),
                         preview = true,
+                        now = now,
+                        statusOf = ::previewStatus,
                     )
                 }
                 NotificationOverlay(
