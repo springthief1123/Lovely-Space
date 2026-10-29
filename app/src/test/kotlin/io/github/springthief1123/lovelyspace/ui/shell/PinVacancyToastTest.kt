@@ -27,6 +27,7 @@ import io.github.springthief1123.lovelyspace.notify.AppNotification
 import io.github.springthief1123.lovelyspace.notify.NotificationKind
 import io.github.springthief1123.lovelyspace.notify.NotificationSamples
 import io.github.springthief1123.lovelyspace.ui.settings.FloatingPreviewTestRow
+import io.github.springthief1123.lovelyspace.Routes
 import io.github.springthief1123.lovelyspace.notify.NotificationTarget
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpaceTheme
 import org.junit.Assert.assertEquals
@@ -162,7 +163,7 @@ class PinVacancyToastTest {
         compose.runOnIdle { assertTrue(visible.isEmpty()) }
     }
 
-    @Test fun settingsPreviewUsesOnlySamplesAndSafeTargets() {
+    @Test fun findingPreviewUsesOnlySamplesAndSafeTargets() {
         val samples = (1..6).map(NotificationSamples::floatingPreview)
         assertTrue(samples.all(NotificationSamples::isSample))
         assertTrue(samples.all { it.target == NotificationTarget.Rooms })
@@ -170,20 +171,23 @@ class PinVacancyToastTest {
         assertTrue(samples.all { it.room?.name?.startsWith("サンプル") == true })
     }
 
-    @Test fun settingsTestButtonAccumulatesUpToFiveSampleCards() {
+    @Test fun settingsTestButtonQueuesUpToFiveCardsForFindingPageOnly() {
         var notices by mutableStateOf(emptyList<AppNotification>())
         var next = 0
+        var route by mutableStateOf(Routes.SETTINGS_NOTIFICATIONS)
         var expanded by mutableStateOf(false)
         var tappedEnter = 0
         compose.setContent {
             LovelySpaceTheme {
                 Column {
-                    FloatingPreviewTestRow(onSendTest = {
-                        next++
-                        notices = (listOf(NotificationSamples.floatingPreview(next)) + notices)
-                            .take(MAX_FLOATING_PIN_NOTICES)
-                    })
-                    if (notices.isNotEmpty()) {
+                    if (route == Routes.SETTINGS_NOTIFICATIONS) {
+                        FloatingPreviewTestRow(onSendTest = {
+                            next++
+                            notices = (listOf(NotificationSamples.floatingPreview(next)) + notices)
+                                .take(MAX_FLOATING_PIN_NOTICES)
+                        }, queuedCount = notices.size, onViewPreview = { route = Routes.ROOMS })
+                    }
+                    if (shouldShowFloatingPreview(route, notices.size)) {
                         PinVacancyToastStack(notices, emptyList(), expanded, { expanded = it },
                             onEnter = { tappedEnter++ }, onReview = {},
                             onDismiss = { notices = notices - it }, preview = true)
@@ -193,13 +197,15 @@ class PinVacancyToastTest {
         }
         repeat(6) { compose.onNodeWithContentDescription("フローティング通知をテスト").performClick() }
         compose.runOnIdle { assertEquals(5, notices.size) }
+        compose.onNodeWithTag("pin-vacancy-toast").assertDoesNotExist()
+        compose.onNodeWithText("見つけるで確認（5件）").performClick()
         compose.onNodeWithText("ほか4件").assertIsDisplayed()
         compose.onNodeWithText("ほか4件").performClick()
         compose.onNodeWithText("まとめる").assertIsDisplayed()
         compose.onNodeWithText("まとめる").performClick()
         compose.onNodeWithText("入室する").performClick()
         compose.runOnIdle { assertEquals(1, tappedEnter) }
-        // サンプルは実際の入室処理ではなく、呼び出し元のプレビュー操作だけに接続する。
+        // 呼び出し元はサンプル操作を実際の入室・サイト通信に接続しない。
     }
 
 }

@@ -21,7 +21,7 @@ object NotificationSamples {
     private const val NAME = "テスト"
     private const val MESSAGE = "（テスト用の待機メッセージ）"
 
-    /** 通知設定だけで描画する浮遊カード。サイト上の部屋と結びつかず、履歴にも保存しない。 */
+    /** 設定から追加し「見つける」で描画する浮遊カード。サイト上の部屋と結びつかず、履歴にも保存しない。 */
     fun floatingPreview(sequence: Int): AppNotification {
         val room = Room(0, Genres.all.first().key, RoomStatus.WAITING, RoomAction.ENTER, null,
             "サンプル${sequence}", Gender.FEMALE, 25, null, "テスト用の待機メッセージ ${sequence}件目")

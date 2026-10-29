@@ -128,9 +128,9 @@ class QuietLayoutTest {
         assertTrue(largeSecond.top >= largeFirst.bottom)
     }
 
-    @Test fun bottomInsetReservesFabClearanceOnlyWhenShown() {
-        assertEquals(124.dp, lovelyBottomContentInset(100.dp, false))
-        assertEquals(180.dp, lovelyBottomContentInset(100.dp, true))
+    @Test fun bottomInsetReservesExtraClearanceOnlyForResumeBar() {
+        assertEquals(124.dp, lovelyBottomContentInset(100.dp, showResumeBar = false))
+        assertEquals(180.dp, lovelyBottomContentInset(100.dp, showResumeBar = true))
     }
 
     @Test fun supplementaryTextMaintainsContrastInBothThemes() {
