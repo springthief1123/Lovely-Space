@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,7 +24,7 @@ fun MemberAccountScreen(onBack: () -> Unit) {
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         SettingsPageHeader(title = "会員アカウント", onBack = onBack)
         Text(
-            "本家ラブルームの会員ページです。ログイン・新規登録などは本家の画面で行います。ログイン情報はアプリ内の本家サイトへの通信と共有されます。",
+            "本家ラブルームの会員ページです。ログイン・新規登録などは本家の画面で行います。ログイン時の Cookie はアプリ内の本家サイトへの通信と共有されます。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
