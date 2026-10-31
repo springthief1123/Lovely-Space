@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Lock
@@ -42,6 +43,7 @@ import io.github.springthief1123.lovelyspace.ui.theme.LovelyShapes
 
 @Composable
 fun SettingsScreen(
+    onOpenMember: () -> Unit,
     onOpenDisplay: () -> Unit,
     onOpenRoomList: () -> Unit,
     onOpenRefresh: () -> Unit,
@@ -69,10 +71,18 @@ fun SettingsScreen(
         ) {
             item {
                 Text(
-                    "アプリの表示・部屋一覧・更新の間隔・入室・NGワード・通知・ロック・アイコンの見た目の設定を、用途ごとに整理しています。",
+                    "本家サイトの会員アカウント、アプリの表示・部屋一覧・更新の間隔・入室・NGワード・通知・ロック・アイコンの見た目を設定できます。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 4.dp, end = 4.dp, bottom = 6.dp),
+                )
+            }
+            item {
+                SettingsCategoryCard(
+                    icon = Icons.Outlined.AccountCircle,
+                    title = "会員アカウント",
+                    description = "本家ラブルームへのログイン・会員ページ",
+                    onClick = onOpenMember,
                 )
             }
             item {

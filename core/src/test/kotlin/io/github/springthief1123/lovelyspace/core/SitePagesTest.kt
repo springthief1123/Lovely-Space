@@ -17,6 +17,7 @@ class SitePagesTest {
 
     @Test
     fun buildsPageUrls() {
+        assertEquals("https://chat.shalove.net/member/", SitePages.memberAccount())
         val genre = Genres["chah"]!!
         assertEquals(
             "https://${genre.host}/PreMakeRoom?genre_key=chah&kct=1759590000",

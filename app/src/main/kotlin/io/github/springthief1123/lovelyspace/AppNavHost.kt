@@ -51,6 +51,7 @@ import io.github.springthief1123.lovelyspace.ui.settings.NotificationSettingsScr
 import io.github.springthief1123.lovelyspace.ui.settings.RefreshSettingsScreen
 import io.github.springthief1123.lovelyspace.ui.settings.RoomListSettingsScreen
 import io.github.springthief1123.lovelyspace.ui.settings.SettingsScreen
+import io.github.springthief1123.lovelyspace.ui.settings.MemberAccountScreen
 import io.github.springthief1123.lovelyspace.ui.shell.LovelyAppShell
 import io.github.springthief1123.lovelyspace.ui.web.PublicRoomScreen
 
@@ -211,10 +212,12 @@ fun AppNavHost() {
             }
             composable(Routes.PROFILE) { ProfileScreen(
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) { launchSingleTop = true } },
+                onOpenMember = { nav.navigate(Routes.SETTINGS_MEMBER) { launchSingleTop = true } },
                 onCreateRoom = { nav.navigate(Routes.create(createGenreKey, Routes.PROFILE)) { launchSingleTop = true } },
             ) }
             composable(Routes.SETTINGS) {
                 SettingsScreen(
+                    onOpenMember = { nav.navigate(Routes.SETTINGS_MEMBER) { launchSingleTop = true } },
                     onOpenDisplay = { nav.navigate(Routes.SETTINGS_DISPLAY) { launchSingleTop = true } },
                     onOpenRoomList = { nav.navigate(Routes.SETTINGS_ROOMS) { launchSingleTop = true } },
                     onOpenRefresh = { nav.navigate(Routes.SETTINGS_REFRESH) { launchSingleTop = true } },
@@ -226,6 +229,9 @@ fun AppNavHost() {
                     onOpenDisguise = { nav.navigate(Routes.SETTINGS_DISGUISE) { launchSingleTop = true } },
                     onBack = { nav.popBackStack() },
                 )
+            }
+            composable(Routes.SETTINGS_MEMBER) {
+                MemberAccountScreen(onBack = { nav.popBackStack() })
             }
             composable(Routes.SETTINGS_DISPLAY) {
                 DisplaySettingsScreen(onBack = { nav.popBackStack() })
