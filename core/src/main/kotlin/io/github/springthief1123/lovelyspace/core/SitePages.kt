@@ -46,6 +46,10 @@ object SitePages {
     /** 本家の会員ログイン・登録・会員ページ。認証は WebView に任せる。 */
     fun memberAccount(): String = "https://chat.shalove.net/member/"
 
+    /** 本家の再入室導線。各ジャンルのホストにある本人用の再入室操作をそのまま開く。 */
+    fun reenterRoom(genre: Genre): String =
+        "https://${genre.host}/?submit=submit_rein2shot&genre_key=${genre.key}"
+
     /** 部屋作成画面。`kct` はサイトのリンクと同じく現在の UNIX 秒。 */
     fun makeRoom(genre: Genre, nowEpochSeconds: Long): String =
         "https://${genre.host}/PreMakeRoom?genre_key=${genre.key}&kct=$nowEpochSeconds"
