@@ -100,6 +100,9 @@
 
 ## 会員ログイン
 
+会員ページは `https://chat.shalove.net/member/`。2026-11-01 の公開ページ確認では「会員ログイン」、メールアドレス・パスワード、クッキーで自動ログイン、新規登録・パスワード再発行へのリンクがある。ログイン成功後の画面・Cookie の適用範囲・ログアウト導線は実機で未確認。
+
+
 `POST /` `action=MemberLogin&uniqid=..&submit=memberlogin&submit_use_login_cookie=1&mail=..&pass=..&use_login_cookie=1&login_back_uri=..`
 （ログイン画面にも `sess_csn` などのトークンあり。ログインも WebView で行い Cookie を共有するのが安全）
 
