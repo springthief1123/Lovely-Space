@@ -18,6 +18,18 @@ class SitePagesTest {
     @Test
     fun buildsPageUrls() {
         assertEquals("https://chat.shalove.net/member/", SitePages.memberAccount())
+        assertEquals(
+            "https://chat.shalove.net/?submit=submit_rein2shot&genre_key=zenkoku",
+            SitePages.reenterRoom(Genres["zenkoku"]!!),
+        )
+        assertEquals(
+            "https://2shot.chat.shalove.net/?submit=submit_rein2shot&genre_key=chah",
+            SitePages.reenterRoom(Genres["chah"]!!),
+        )
+        assertEquals(
+            "https://lr.chat.shalove.net/?submit=submit_rein2shot&genre_key=talk",
+            SitePages.reenterRoom(Genres["talk"]!!),
+        )
         val genre = Genres["chah"]!!
         assertEquals(
             "https://${genre.host}/PreMakeRoom?genre_key=chah&kct=1759590000",

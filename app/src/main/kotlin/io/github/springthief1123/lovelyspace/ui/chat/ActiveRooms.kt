@@ -90,9 +90,30 @@ class ActiveRooms(
 
     @Synchronized
     fun register(room: ChatRoomRef): String {
-        registerCount++
         // 入室できる部屋は 1 つ。一覧から別の部屋に入ったら、前の部屋は退室（作成者は閉じる）して接続を止める。
         connections.keys.toList().forEach { id -> connections.remove(id)?.leaveAndClose() }
+        return record(room)
+    }
+
+    /**
+     * 本家の「再入室」から戻った部屋を引き継ぐ。本人が作った同じ部屋を復元するときは、
+     * 古い接続から「退室・閉鎖」を送ると戻ったばかりの部屋を閉じてしまうため、通信だけを止める。
+     * 全く同じ部屋・pwd なら既存の接続と一時 ID をそのまま使う。
+     */
+    @Synchronized
+    fun registerFromSite(room: ChatRoomRef): String {
+        val previous = _resumable.value
+        if (previous?.room == room) return previous.sessionId
+        if (previous != null && previous.room.host == room.host && previous.room.roomId == room.roomId) {
+            connections.keys.toList().forEach { id -> connections.remove(id)?.close() }
+            rooms.remove(previous.sessionId)
+            return record(room)
+        }
+        return register(room)
+    }
+
+    private fun record(room: ChatRoomRef): String {
+        registerCount++
         _collapsed.value = null
         val id = UUID.randomUUID().toString()
         rooms[id] = room

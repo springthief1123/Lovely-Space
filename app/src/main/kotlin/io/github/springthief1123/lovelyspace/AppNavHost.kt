@@ -54,6 +54,7 @@ import io.github.springthief1123.lovelyspace.ui.settings.SettingsScreen
 import io.github.springthief1123.lovelyspace.ui.settings.MemberAccountScreen
 import io.github.springthief1123.lovelyspace.ui.shell.LovelyAppShell
 import io.github.springthief1123.lovelyspace.ui.web.PublicRoomScreen
+import io.github.springthief1123.lovelyspace.ui.web.SiteReentryScreen
 
 @Composable
 fun AppNavHost() {
@@ -214,7 +215,16 @@ fun AppNavHost() {
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) { launchSingleTop = true } },
                 onOpenMember = { nav.navigate(Routes.SETTINGS_MEMBER) { launchSingleTop = true } },
                 onCreateRoom = { nav.navigate(Routes.create(createGenreKey, Routes.PROFILE)) { launchSingleTop = true } },
+                onReenterRoom = { nav.navigate(Routes.SITE_REENTRY) { launchSingleTop = true } },
             ) }
+            composable(Routes.SITE_REENTRY) {
+                SiteReentryScreen(
+                    onBack = { nav.popBackStack() },
+                    onRoomOpened = { room ->
+                        nav.navigateToChat(app.activeRooms.registerFromSite(room), Routes.PROFILE)
+                    },
+                )
+            }
             composable(Routes.SETTINGS) {
                 SettingsScreen(
                     onOpenMember = { nav.navigate(Routes.SETTINGS_MEMBER) { launchSingleTop = true } },
