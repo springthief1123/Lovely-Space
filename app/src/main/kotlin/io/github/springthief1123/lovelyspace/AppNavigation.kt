@@ -13,6 +13,7 @@ internal object Routes {
     const val SEARCH = "search"
     const val PROFILE = "profile"
     const val SETTINGS = "settings"
+    const val SETTINGS_MEMBER = "settings/member"
     const val SETTINGS_DISPLAY = "settings/display"
     const val SETTINGS_ROOMS = "settings/rooms"
     const val SETTINGS_REFRESH = "settings/refresh"
