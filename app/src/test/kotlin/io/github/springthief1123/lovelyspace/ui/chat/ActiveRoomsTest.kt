@@ -158,6 +158,41 @@ class ActiveRoomsTest {
         assertFalse(next.closed)
     }
 
+    @Test fun siteReentryWithSameRoomKeepsTheExistingConnection() {
+        val rooms = ActiveRooms(MemoryPersistence())
+        val id = rooms.register(room)
+        val connection = rooms.connection(id) { FakeConnection() }!!
+        assertEquals(id, rooms.registerFromSite(room))
+        assertSame(connection, rooms.existingConnection(id))
+        assertFalse(connection.closed)
+        assertFalse(connection.left)
+    }
+
+    @Test fun siteReentryWithRenewedPwdDoesNotCloseTheRoomOnTheServer() {
+        val disk = MemoryPersistence()
+        val rooms = ActiveRooms(disk)
+        val id = rooms.register(room)
+        val connection = rooms.connection(id) { FakeConnection() }!!
+        val renewed = room.copy(pwd = "new-synthetic-token")
+        val newId = rooms.registerFromSite(renewed)
+        assertFalse(id == newId)
+        assertTrue(connection.closed)
+        assertFalse(connection.left)
+        assertNull(rooms[id])
+        assertEquals(renewed, disk.value?.room)
+        assertEquals(renewed, rooms[newId])
+    }
+
+    @Test fun siteReentryInDifferentRoomStillLeavesThePreviousRoom() {
+        val rooms = ActiveRooms(MemoryPersistence())
+        val id = rooms.register(room)
+        val connection = rooms.connection(id) { FakeConnection() }!!
+        val next = room.copy(roomId = 900000002L)
+        assertEquals(next, rooms[rooms.registerFromSite(next)])
+        assertTrue(connection.left)
+        assertTrue(connection.closed)
+    }
+
     @Test fun storageFailureDoesNotBreakTheChat() {
         val broken = object : ActiveRoomPersistence {
             override fun load(): ResumableRoom? = throw IllegalStateException("keystore")
