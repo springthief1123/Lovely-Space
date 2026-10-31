@@ -14,6 +14,7 @@ import io.github.springthief1123.lovelyspace.ui.components.QuietSectionHeader
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.style.TextOverflow
@@ -46,7 +47,7 @@ import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentBottomIns
 import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentTopPadding
 
 @Composable
-fun ProfileScreen(onOpenSettings: () -> Unit, onCreateRoom: () -> Unit) {
+fun ProfileScreen(onOpenSettings: () -> Unit, onOpenMember: () -> Unit, onCreateRoom: () -> Unit) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val vm: PresetViewModel = viewModel(factory = viewModelFactory { initializer { PresetViewModel(app.presets) } })
     val profiles by vm.profiles.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -70,6 +71,17 @@ fun ProfileScreen(onOpenSettings: () -> Unit, onCreateRoom: () -> Unit) {
             Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
             Text("部屋を作る")
+        } }
+        item { QuietListPanel(onClick = onOpenMember) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.AccountCircle, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                    Text("会員アカウント", style = MaterialTheme.typography.titleSmall)
+                    Text("本家ラブルームでログイン・会員ページを開く", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 10.dp))
+            }
         } }
         item { QuietListPanel(onClick = onOpenSettings) {
             Row(verticalAlignment = Alignment.CenterVertically) {
