@@ -47,7 +47,7 @@ import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentBottomIns
 import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentTopPadding
 
 @Composable
-fun ProfileScreen(onOpenSettings: () -> Unit, onOpenMember: () -> Unit, onCreateRoom: () -> Unit) {
+fun ProfileScreen(onOpenSettings: () -> Unit, onOpenMember: () -> Unit, onCreateRoom: () -> Unit, onReenterRoom: () -> Unit) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val vm: PresetViewModel = viewModel(factory = viewModelFactory { initializer { PresetViewModel(app.presets) } })
     val profiles by vm.profiles.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -71,6 +71,9 @@ fun ProfileScreen(onOpenSettings: () -> Unit, onOpenMember: () -> Unit, onCreate
             Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
             Text("部屋を作る")
+        } }
+        item { OutlinedButton(onClick = onReenterRoom, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+            Text("現在の部屋に再入室する")
         } }
         item { QuietListPanel(onClick = onOpenMember) {
             Row(verticalAlignment = Alignment.CenterVertically) {
