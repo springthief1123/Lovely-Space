@@ -12,6 +12,7 @@ internal object Routes {
     const val RADAR = "radar"
     const val SEARCH = "search"
     const val PROFILE = "profile"
+    const val SITE_REENTRY = "site/reentry"
     const val SETTINGS = "settings"
     const val SETTINGS_MEMBER = "settings/member"
     const val SETTINGS_DISPLAY = "settings/display"
