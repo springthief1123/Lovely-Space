@@ -27,6 +27,22 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v5
 
+      # 毎回同じ鍵で署名し、端末で上書きインストールできるようにする。
+      # Secrets が無い（フォークからの PR など）ときは標準のデバッグ鍵でビルドする。
+      - name: Prepare signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.LS_SIGNING_KEYSTORE_BASE64 }}
+          SIGNING_PASSWORD: ${{ secrets.LS_SIGNING_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$SIGNING_PASSWORD" ]; then
+            echo "$KEYSTORE_BASE64" | tr -d ' \r\n' | base64 -d > "$RUNNER_TEMP/lovelyspace.keystore"
+            echo "LS_SIGNING_KEYSTORE=$RUNNER_TEMP/lovelyspace.keystore" >> "$GITHUB_ENV"
+            echo "LS_SIGNING_PASSWORD=$SIGNING_PASSWORD" >> "$GITHUB_ENV"
+            echo "固定の署名鍵で署名します。"
+          else
+            echo "::warning::署名鍵の Secrets が無いため、標準のデバッグ鍵で署名します（端末に上書きインストールできません）。"
+          fi
+
       - name: Unit tests (core)
         run: ./gradlew :core:test --stacktrace
 
@@ -42,6 +58,11 @@ jobs:
           name: LovelySpace-debug-${{ github.sha }}
           path: app/build/outputs/apk/debug/*.apk
           retention-days: 30
+
+      - name: Check APK signature
+        run: |
+          apksigner="$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)"
+          "$apksigner" verify --print-certs app/build/outputs/apk/debug/*.apk | grep -i 'SHA-256' || true
 
       - name: Upload Room schemas
         if: always()

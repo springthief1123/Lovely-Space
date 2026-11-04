@@ -17,9 +17,29 @@ android {
         versionName = "0.1.0"
     }
 
+    // 端末に上書きインストールできるよう、CI では毎回同じ鍵で署名する。
+    // 鍵は GitHub Actions の Secrets から渡す（リポジトリには入れない）。
+    // 環境変数が無いとき（手元のビルドなど）は Android 標準のデバッグ鍵のまま。
+    val sharedKeystore = System.getenv("LS_SIGNING_KEYSTORE")?.takeIf { it.isNotBlank() }?.let(::file)
+    val sharedPassword = System.getenv("LS_SIGNING_PASSWORD")
+    val sharedSigning = if (sharedKeystore != null && sharedKeystore.exists() && !sharedPassword.isNullOrEmpty()) {
+        signingConfigs.create("shared") {
+            storeFile = sharedKeystore
+            storePassword = sharedPassword
+            keyAlias = "lovelyspace"
+            keyPassword = sharedPassword
+        }
+    } else {
+        null
+    }
+
     buildTypes {
+        debug {
+            if (sharedSigning != null) signingConfig = sharedSigning
+        }
         release {
             isMinifyEnabled = false
+            if (sharedSigning != null) signingConfig = sharedSigning
         }
     }
 

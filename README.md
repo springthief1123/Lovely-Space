@@ -31,6 +31,10 @@ LS_JVM_ONLY=1 ./gradlew :core:test
 
 GitHub ActionsはPRとmainへのpushでcoreテスト、APKビルド、Androidユニットテスト、Lintを実行します。成功したrunのArtifactsに検証対象commitのデバッグAPKを保存します。
 
+### APKの署名
+
+CIのAPKは、Secretsの `LS_SIGNING_KEYSTORE_BASE64`（鍵ファイルをBase64にしたもの）と `LS_SIGNING_PASSWORD` で毎回同じ鍵で署名します。署名が同じなので、端末にはアンインストールせずに上書きインストールできます。鍵はリポジトリに入れません。Secretsが無いとき（フォークからのPR、手元のビルド）はAndroid標準のデバッグ鍵で署名し、そのAPKは上書きインストールできません。鍵を失うと次の更新で一度アンインストールが必要になるので、鍵ファイルとパスワードは別に保管しておきます。
+
 ## 実装状況
 
 以下は初期開発時の主な PR の履歴です。現在の対応機能・未対応機能は [要件と対応状況](docs/requirements.md)、今後の作業は [ロードマップ](docs/roadmap.md) と GitHub Issues を参照してください。
