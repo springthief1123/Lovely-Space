@@ -150,7 +150,7 @@ internal fun PinVacancyToast(
     extraCount: Int = 0,
     preview: Boolean = false,
 ) {
-    // 設定画面のサンプルは見た目のみ。コールバックは実際の入室・通信につながない。
+    // 見つける画面のサンプルは見た目のみ。コールバックは実際の入室・通信につながない。
     val action = if (preview && NotificationSamples.isSample(notice)) PinVacancyAction.ENTER
         else pinVacancyAction(notice, pins)
     val dismissAction by rememberUpdatedState(onDismiss)

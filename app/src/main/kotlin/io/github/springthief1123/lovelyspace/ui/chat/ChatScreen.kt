@@ -64,6 +64,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
@@ -72,6 +74,7 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import io.github.springthief1123.lovelyspace.ui.shell.LocalLovelyShellState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.core.Gender
@@ -147,6 +150,13 @@ fun ChatScreen(room: ChatRoomRef, vm: ChatController, onBrowse: () -> Unit, onEx
     val canLeaveSilently = state.endMessage != null || state.loadError != null
     val back = { if (canLeaveSilently) vm.leave() else onBrowse() }
     BackHandler(onBack = back)
+
+    // 下部入力欄は最大5行に伸び、送信失敗時の復旧操作も増える。シェルの浮遊通知へ実測高を渡す。
+    // チャット画面が閉じた後の古い測定が、新しい画面の余白を消さないよう所有者を区別する。
+    val shell = LocalLovelyShellState.current
+    val bottomBarOwner = remember { Any() }
+    val density = LocalDensity.current
+    DisposableEffect(shell, bottomBarOwner) { onDispose { shell.releaseChatBottomBarHeight(bottomBarOwner) } }
 
     if (confirmLeave) {
         QuietConfirmDialog(
@@ -260,8 +270,12 @@ fun ChatScreen(room: ChatRoomRef, vm: ChatController, onBrowse: () -> Unit, onEx
             )
         },
         bottomBar = {
-            if (state.loadError == null && !state.isLoading) {
-                ChatInput(state, vm, onExit = vm::leave, onDiscard = { confirmDiscard = true })
+            Box(Modifier.fillMaxWidth().onSizeChanged { size ->
+                shell.reportChatBottomBarHeight(bottomBarOwner, with(density) { size.height.toDp() })
+            }) {
+                if (state.loadError == null && !state.isLoading) {
+                    ChatInput(state, vm, onExit = vm::leave, onDiscard = { confirmDiscard = true })
+                }
             }
         },
     ) { padding ->

@@ -24,8 +24,8 @@ object LovelySpacing {
 
     val bottomContentInset = 124.dp
 
-    /** 右下の 56dp FAB より上へ Snackbar を逃がすための余白。 */
-    val snackbarBottomInset = 160.dp
+    /** ボトムナビに重ねず Snackbar を表示するための余白。 */
+    val snackbarBottomInset = bottomContentInset
 }
 
 /**
