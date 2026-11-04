@@ -57,6 +57,7 @@ import io.github.springthief1123.lovelyspace.ui.shell.ShellSearchButton
 import androidx.compose.runtime.saveable.rememberSaveable
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomCard
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomPreferenceViewModel
+import io.github.springthief1123.lovelyspace.ui.rooms.RoomPreferenceUiState
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
 import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentBottomInset
 import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentTopPadding
@@ -88,10 +89,14 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onQuic
     var computed by remember { mutableStateOf<SearchResults?>(null) }
     val shown = computed.resolve(genre, rooms, effectiveCriteria, ng)
     if (shown !== computed) SideEffect { computed = shown }
-    LaunchedEffect(genre, rooms, effectiveCriteria, ng) {
-        if (!shown.isFor(genre, rooms, effectiveCriteria, ng)) {
-            computed = withContext(Dispatchers.Default) { SearchResults.of(genre, rooms, effectiveCriteria, ng) }
-        }
+    // 一覧は巡回と新着の確認で 1〜2 秒ごとに届く。届くたびに計算を取り消してやり直すと、計算が間隔より長い間（部屋の多いジャンル、
+    // 語の条件、端末が忙しいときなど）はいつまでも終わらず、絞り込んだ一覧が前の結果のまま止まって新しい部屋が出なかった。
+    // 計算は取り消さずに終わらせて出し、その間に届いた一覧はまとめて最新のものでもう一度計算する（LatestInBackground）。
+    val searchInput = remember(genre, rooms, effectiveCriteria, ng) { SearchInput(genre, rooms, effectiveCriteria, ng) }
+    LatestInBackground(searchInput, skip = { i -> computed?.isFor(i.genre, i.rooms, i.criteria, i.ng) == true },
+        compute = { i -> SearchResults.of(i.genre, i.rooms, i.criteria, i.ng) }) { result, latest ->
+        // 計算中にジャンル・条件・NG ワードが変わったら、その結果は出さない（変えたときは resolve がその場で計算している）。
+        if (result.canStandIn(latest.genre, latest.criteria, latest.ng)) computed = result
     }
     val results = shown.results
     val filteredResults = remember(results, preferences) { results.filterNot(preferences::isHidden) }
@@ -101,27 +106,28 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onQuic
     val ngSummary = NgSummary(ngFilter.setCount, ngSuspended, onManage = onOpenNgWords, failed = ngLoad is NgLoadState.Failed)
     // おすすめ順は、保存・非表示にした部屋と今の一覧から好みを学んで並べる。足りなければ一覧順のまま。
     // 学習と並べ替えは全ページの部屋の文字を数えるので、スクロールやスワイプが詰まらないよう裏で行う。
-    // 入力が変わったら前の計算は取り消す（LaunchedEffect のキー）。
     val recommending = state.criteria.sort == RoomSort.RECOMMENDED
     var recommended by remember { mutableStateOf<Recommended?>(null) }
-    LaunchedEffect(recommending, filteredResults, preferences.preferences, rooms) {
-        if (!recommending) { recommended = null; return@LaunchedEffect }
-        val favorites = preferences.favorites
-        val hidden = preferences.hidden
-        recommended = withContext(Dispatchers.Default) {
-            val model = PreferenceModel.train(favorites.map { it.toRoom() }, hidden.map { it.toRoom() }, rooms)
-            Recommended(filteredResults, model?.rank(filteredResults), trained = model != null)
-        }
+    // 学習も一覧が届くたびに取り消すと終わらなくなるので、絞り込みと同じく終わらせてから最新の一覧でやり直す。
+    val recommendInput = remember(recommending, filteredResults, preferences.preferences, rooms) {
+        RecommendInput(recommending, filteredResults, preferences, rooms)
     }
+    LaunchedEffect(recommending) { if (!recommending) recommended = null }
+    LatestInBackground(recommendInput, skip = { i -> !i.recommending || recommended?.input === i.results },
+        compute = { i ->
+            val model = PreferenceModel.train(i.preferences.favorites.map { it.toRoom() }, i.preferences.hidden.map { it.toRoom() }, i.rooms)
+            Recommended(i.results, model?.rank(i.results), trained = model != null)
+        }) { result, latest -> if (latest.recommending) recommended = result }
     val visibleResults = remember(recommending, filteredResults, recommended) {
         val r = recommended
         val ranked = r?.ranked
         when {
             !recommending || r == null || ranked == null -> filteredResults
             r.input === filteredResults -> ranked
-            // 計算し直している間は、今の一覧の部屋を前の並びの順に出す（新しい部屋は後ろ）。並びが一瞬本家の順に戻らないようにする。
+            // 計算し直している間は、今の一覧の部屋を前の並びの順に出す。並びが一瞬本家の順に戻らないようにする。
+            // まだ並べていない部屋は届いたばかりの新しい部屋なので、見落とさないよう先頭に出す（おすすめ順も直近の部屋を先にする）。
             else -> ranked.withIndex().associate { (i, room) -> roomIdentity(room) to i }
-                .let { order -> filteredResults.sortedBy { order[roomIdentity(it)] ?: Int.MAX_VALUE } }
+                .let { order -> filteredResults.sortedBy { order[roomIdentity(it)] ?: -1 } }
         }
     }
     io.github.springthief1123.lovelyspace.ui.components.ForegroundPolling(state.automatic, state.genre.key, vm::stopRefresh) { vm.monitor() }
@@ -410,3 +416,27 @@ internal fun activeFilterCount(c: RoomSearchCriteria): Int = advancedFilterCount
 
 /** おすすめ順の計算結果。[input] は並べた一覧（非表示を除いた絞り込みの結果）、[ranked] は学習できなかったとき null。 */
 private class Recommended(val input: List<Room>, val ranked: List<Room>?, val trained: Boolean)
+
+/** 絞り込みの入力。一覧は同じものかどうか（===）で比べるので、data class にしない。 */
+private class SearchInput(val genre: Genre, val rooms: List<Room>, val criteria: RoomSearchCriteria, val ng: NgWordFilter)
+
+/** おすすめ順の学習の入力。 */
+private class RecommendInput(val recommending: Boolean, val results: List<Room>, val preferences: RoomPreferenceUiState, val rooms: List<Room>)
+
+/**
+ * [input] が変わるたびに [compute] を裏のスレッドで行い、結果と、その時点で最新の入力を [onResult] に渡す。
+ * 計算中に [input] が変わっても計算は取り消さない。終わったら結果を出し、その間に変わった入力は最新の 1 つにまとめてもう一度計算する。
+ * 入力が計算より短い間隔で変わり続けても（自動更新で一覧が届くたび）、結果がいつまでも出ないことがない。
+ * [skip] が true の入力は計算しない（その入力の結果がもう出ているときなど）。
+ */
+@Composable
+private fun <I : Any, R> LatestInBackground(input: I, skip: (I) -> Boolean, compute: (I) -> R, onResult: (R, I) -> Unit) {
+    val latest = rememberUpdatedState(input)
+    val currentSkip = rememberUpdatedState(skip)
+    val currentCompute = rememberUpdatedState(compute)
+    val currentOnResult = rememberUpdatedState(onResult)
+    LaunchedEffect(Unit) {
+        snapshotFlow { latest.value }.finishThenLatest({ currentSkip.value(it) },
+            { i -> withContext(Dispatchers.Default) { currentCompute.value(i) } }) { result -> currentOnResult.value(result, latest.value) }
+    }
+}

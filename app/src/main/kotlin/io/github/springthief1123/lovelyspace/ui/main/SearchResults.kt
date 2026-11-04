@@ -7,6 +7,8 @@ import io.github.springthief1123.lovelyspace.core.Room
 import io.github.springthief1123.lovelyspace.core.RoomSearchCriteria
 import io.github.springthief1123.lovelyspace.core.partitionNg
 import io.github.springthief1123.lovelyspace.core.searchRooms
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.conflate
 
 /**
  * 見つける画面の絞り込みの結果と、計算に使ったジャンル・一覧・条件・NG ワード。
@@ -47,3 +49,11 @@ internal class SearchResults(
 internal fun SearchResults?.resolve(genre: Genre, rooms: List<Room>, criteria: RoomSearchCriteria, ng: NgWordFilter = NgWordFilter.NONE): SearchResults =
     if (this != null && (isFor(genre, rooms, criteria, ng) || canStandIn(genre, criteria, ng))) this
     else SearchResults.of(genre, rooms, criteria, ng)
+
+/**
+ * 入力ごとに [compute] し、結果を [onResult] に渡す。計算中に届いた入力は取り消しの理由にせず、最新の 1 つにまとめて次に計算する。
+ * 自動更新で一覧が計算より短い間隔で届き続けても、結果がいつまでも出ないことがない（取り消してやり直すと、絞り込んだ一覧が前の結果のまま止まる）。
+ * [skip] が true の入力は計算しない。
+ */
+internal suspend fun <I, R> Flow<I>.finishThenLatest(skip: (I) -> Boolean, compute: suspend (I) -> R, onResult: (R) -> Unit) =
+    conflate().collect { input -> if (!skip(input)) onResult(compute(input)) }
