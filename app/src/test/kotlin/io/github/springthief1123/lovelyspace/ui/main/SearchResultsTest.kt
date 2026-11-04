@@ -11,11 +11,41 @@ import io.github.springthief1123.lovelyspace.core.RoomStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
 class SearchResultsTest {
     private val genre = Genres.all[0]
     private val other = Genres.all[1]
+
+    @Test fun listsArrivingFasterThanTheFilterStillGetFilteredResults() = runTest {
+        // 一覧が 50 ミリ秒ごとに届き、絞り込みに 120 ミリ秒かかっても、結果は途中で出て、最後は最新の一覧の結果になる。
+        val lists = MutableStateFlow(0)
+        val shown = mutableListOf<Int>()
+        val job = launch { lists.finishThenLatest({ false }, { n -> delay(120); n }) { shown += it } }
+        repeat(20) { delay(50); lists.value = it + 1 }
+        advanceUntilIdle()
+        job.cancel()
+        assertTrue("途中の結果が出ていない: $shown", shown.size >= 5)
+        assertEquals(20, shown.last())
+        assertEquals(shown.sorted(), shown)
+    }
+
+    @Test fun inputsAlreadyComputedAreSkipped() = runTest {
+        val lists = MutableStateFlow(1)
+        val computed = mutableListOf<Int>()
+        val job = launch { lists.finishThenLatest({ it == 1 }, { n -> computed += n; n }) { } }
+        advanceUntilIdle()
+        lists.value = 2
+        advanceUntilIdle()
+        job.cancel()
+        assertEquals(listOf(2), computed)
+    }
 
     @Test fun anAutomaticRefreshKeepsShowingThePreviousResultUntilTheNewOneIsReady() {
         val before = listOf(room(1, "映画"))
