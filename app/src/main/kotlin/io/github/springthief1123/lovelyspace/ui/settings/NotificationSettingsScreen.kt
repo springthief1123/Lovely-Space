@@ -222,7 +222,7 @@ private fun NotificationKindRow(kind: NotificationKind, enabled: Boolean, onOpen
 
 /**
  * 実機の通知権限に関係なく「見つける」で外観を検証するためのテスト。
- * 連続で押した件数（最大5件）をキューへ入れ、別操作で見つけるに移動する。
+ * 連続で押した件数（最大3件）をキューへ入れ、別操作で見つけるに移動する。
  */
 @Composable
 internal fun FloatingPreviewTestRow(onSendTest: () -> Unit, queuedCount: Int, onViewPreview: () -> Unit) {
@@ -230,7 +230,7 @@ internal fun FloatingPreviewTestRow(onSendTest: () -> Unit, queuedCount: Int, on
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text("フローティング通知", style = MaterialTheme.typography.bodyLarge)
-                Text("テストを押すたび1件追加。見つける画面で最大5件を確認できます",
+                Text("テストを押すたび1件追加。見つける画面で最新3件を確認できます",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             TextButton(onClick = onSendTest, modifier = Modifier.semantics { contentDescription = "フローティング通知をテスト" }) {

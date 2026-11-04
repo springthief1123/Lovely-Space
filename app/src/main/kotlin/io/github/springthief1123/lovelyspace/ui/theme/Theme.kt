@@ -125,6 +125,9 @@ data class LovelyColors(
     val glassTint: Color,
     val glassBorder: Color,
     val divider: Color,
+    /** 浮遊通知の Glass に重ねる Quiet Rose の淡い薄紫。背後の白い部屋カードと区別する。 */
+    val noticeGlassTint: Color,
+    val noticeGlassBorder: Color,
 )
 
 private val LightLovely = LovelyColors(
@@ -138,6 +141,8 @@ private val LightLovely = LovelyColors(
     glassTint = Color(0xCCFFFDFB),
     glassBorder = Color(0xA6FFFFFF),
     divider = Color(0xFFE9E0E0),
+    noticeGlassTint = Color(0xB8EEE4F2),
+    noticeGlassBorder = Color(0xB3FFFFFF),
 )
 
 private val DarkLovely = LovelyColors(
@@ -151,6 +156,8 @@ private val DarkLovely = LovelyColors(
     glassTint = Color(0xC9242229),
     glassBorder = Color(0x33FFFFFF),
     divider = Color(0xFF3A343E),
+    noticeGlassTint = Color(0xC22D2535),
+    noticeGlassBorder = Color(0x40E6D2EE),
 )
 
 val LocalLovelyColors = staticCompositionLocalOf { LightLovely }

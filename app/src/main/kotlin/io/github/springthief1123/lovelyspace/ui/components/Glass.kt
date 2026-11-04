@@ -31,10 +31,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
@@ -54,30 +56,35 @@ fun LovelyGlassSurface(
     modifier: Modifier = Modifier,
     shape: Shape,
     contentAlignment: Alignment = Alignment.Center,
+    // 浮遊通知など、背後の同じ色のカードと区別したい面だけ色味・枠・影を変える。既定はヘッダー・ナビと同じ。
+    tint: Color? = null,
+    border: BorderStroke? = null,
+    elevation: Dp = 8.dp,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val lovely = LocalLovelyColors.current
     val hazeState = LocalLovelyHazeState.current
+    val surfaceTint = tint ?: lovely.glassTint
     val glassModifier = if (hazeState != null) {
         Modifier.hazeEffect(
             state = hazeState,
             style = HazeStyle(
                 backgroundColor = MaterialTheme.colorScheme.background,
-                tint = HazeTint(lovely.glassTint.copy(alpha = 0.55f)),
+                tint = HazeTint(if (tint != null) tint else lovely.glassTint.copy(alpha = 0.55f)),
                 blurRadius = 24.dp,
                 noiseFactor = 0f,
             ),
         )
     } else {
-        Modifier.background(lovely.glassTint)
+        Modifier.background(surfaceTint)
     }
 
     Box(
         modifier = modifier
-            .shadow(8.dp, shape, clip = false)
+            .shadow(elevation, shape, clip = false)
             .clip(shape)
             .then(glassModifier)
-            .border(BorderStroke(1.dp, lovely.glassBorder), shape),
+            .border(border ?: BorderStroke(1.dp, lovely.glassBorder), shape),
         contentAlignment = contentAlignment,
     ) {
         CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
