@@ -197,7 +197,9 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onQuic
         item {
             SearchStatusRow(
                 text = searchStatusText(state.page, state.lastPage, visibleResults.size, state.loading || !state.initialized,
-                    state.pageTimes.values.minOrNull()?.let { io.github.springthief1123.lovelyspace.data.formatObservationTime(it) }),
+                    // 新しい部屋が出る 1 ページ目を最後に確かめた時刻。新着の確認・更新ボタンのたびに進む。
+                    // 後ろのページは周ごとに 1 つずつ読み直すので、いちばん古いページの時刻は部屋の多いジャンルで 1 時間ほど遅れる。
+                    state.pageTimes[RoomQuery(state.genre)]?.let(::formatCheckTime)),
                 automatic = state.automatic,
                 refreshing = state.refreshing || (state.page == 0 && state.loading),
                 refreshedCount = state.refreshedCount,
@@ -390,11 +392,14 @@ private fun SearchEmpty(text: String, onReset: (() -> Unit)?) {
 }
 
 /** 一覧の状態を1行にまとめる。例: 「41件・3/5ページ・12:04 確認」。 */
-internal fun searchStatusText(page: Int, lastPage: Int, shown: Int, loading: Boolean, oldestCheck: String?): String = when {
+internal fun searchStatusText(page: Int, lastPage: Int, shown: Int, loading: Boolean, newestCheck: String?): String = when {
     page == 0 && loading -> "一覧を読み込んでいます"
     page == 0 -> "下に引いて一覧を取得"
-    else -> listOfNotNull("${shown}件", "${page}/${lastPage}ページ", oldestCheck?.let { "$it 確認" }).joinToString("・")
+    else -> listOfNotNull("${shown}件", "${page}/${lastPage}ページ", newestCheck?.let { "新着 $it 確認" }).joinToString("・")
 }
+
+/** 新着を確かめた時刻。数秒ごとに進むので秒まで出す。 */
+internal fun formatCheckTime(at: Long): String = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.JAPAN).format(java.util.Date(at))
 
 /** 検索シートのタブで指定した、チップ以外の条件の数。並び順は一覧の上に出しているので数えない。 */
 internal fun advancedFilterCount(c: RoomSearchCriteria): Int = listOf(
