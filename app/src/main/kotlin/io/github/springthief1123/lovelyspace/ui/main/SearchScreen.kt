@@ -113,10 +113,10 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onQuic
         RecommendInput(recommending, filteredResults, preferences, rooms)
     }
     LaunchedEffect(recommending) { if (!recommending) recommended = null }
-    LatestInBackground(recommendInput, skip = { i -> !i.recommending || recommended?.input === i.results },
+    LatestInBackground(recommendInput, skip = { i -> !i.recommending || recommended?.source === i },
         compute = { i ->
             val model = PreferenceModel.train(i.preferences.favorites.map { it.toRoom() }, i.preferences.hidden.map { it.toRoom() }, i.rooms)
-            Recommended(i.results, model?.rank(i.results), trained = model != null)
+            Recommended(i.results, model?.rank(i.results), trained = model != null, source = i)
         }) { result, latest -> if (latest.recommending) recommended = result }
     val visibleResults = remember(recommending, filteredResults, recommended) {
         val r = recommended
@@ -415,7 +415,9 @@ internal fun activeFilterCount(c: RoomSearchCriteria): Int = advancedFilterCount
 ).count { it }
 
 /** おすすめ順の計算結果。[input] は並べた一覧（非表示を除いた絞り込みの結果）、[ranked] は学習できなかったとき null。 */
-private class Recommended(val input: List<Room>, val ranked: List<Room>?, val trained: Boolean)
+private class Recommended(val input: List<Room>, val ranked: List<Room>?, val trained: Boolean,
+    /** 学習に使った入力。絞り込みの結果が同じでも、学習に使う全体の一覧や保存・非表示が変われば学習し直す。 */
+    val source: Any? = null)
 
 /** 絞り込みの入力。一覧は同じものかどうか（===）で比べるので、data class にしない。 */
 private class SearchInput(val genre: Genre, val rooms: List<Room>, val criteria: RoomSearchCriteria, val ng: NgWordFilter)
