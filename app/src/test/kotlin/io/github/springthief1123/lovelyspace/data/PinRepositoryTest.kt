@@ -245,6 +245,22 @@ class PinRepositoryTest {
         wait { pins.records.first { it[roomIdentity(full)]?.pendingNotices?.isEmpty() == true } }
     }
 
+    @Test fun pinStoreRoundTripsPendingOpenAndSimilarNotifications() {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        val store = PinStore(context.getSharedPreferences("pin-outbox-test", android.content.Context.MODE_PRIVATE))
+        val full = room(500, RoomStatus.FULL)
+        val opened = room(500)
+        val similar = room(960)
+        val key = roomIdentity(full)
+        val notices = listOf(
+            PendingPinNotice("pin-$key-1000", PinNoticeType.OPENED, opened, 1_000L, registered = full, autoEnter = true),
+            PendingPinNotice("pin-similar-$key-960", PinNoticeType.SIMILAR, similar, 2_000L, similarity = 0.8),
+        )
+        val records = mapOf(key to PinRecord(key, alert = PinAlert.NOTIFY, state = PinState.OPEN, pendingNotices = notices))
+        store.save(records)
+        assertEquals(records, store.load())
+    }
+
     @Test fun turningOffNotificationsClearsUnsentPinEvents() {
         val memory = Memory()
         scope.cancel()
