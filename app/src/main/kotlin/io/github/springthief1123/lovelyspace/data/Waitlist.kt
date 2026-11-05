@@ -94,9 +94,20 @@ class WaitlistRepository(
             if (changes != null) {
                 // 配信された順に処理し、同じページの中間状態をStateFlowで上書きさせない。
                 changes.collect { change ->
-                    try { apply(change.observation, change.pages) }
-                    catch (e: CancellationException) { throw e }
-                    catch (_: Exception) { }
+                    // 保存先の一時的な失敗では、同じ観測を少し空けて順番どおりにやり直す（後の観測で中間の空きを上書きしない）。
+                    // それでも保存できなければ諦め、[check] が待ち続けないよう処理済みにする。
+                    try {
+                        var attempt = 0
+                        while (true) {
+                            try { apply(change.observation, change.pages); break }
+                            catch (e: CancellationException) { throw e }
+                            catch (_: Exception) { if (++attempt >= EVENT_RETRIES) break }
+                            delay(EVENT_RETRY_MS)
+                        }
+                    } finally {
+                        val o = change.observation
+                        handled.update { revisions -> revisions + (o.query to maxOf(revisions[o.query] ?: 0L, o.revision)) }
+                    }
                 }
             } else {
                 // テストの簡易Sourceなど、順序付きイベントを持たない実装の互換経路。
@@ -241,6 +252,8 @@ class WaitlistRepository(
             val claimed = _entries.value.mapTo(HashSet()) { it.key }
             val next = _entries.value.map { entry ->
                 if (!entry.active(at) || entry.room.genreKey != o.query.genre.key) return@map entry
+                // 登録より前の観測（購読が遅れてキューに残っていた空きなど）は、新しい登録に当てはめない。
+                if (o.confirmedAt < entry.registeredAt) return@map entry
                 val observed = o.page.rooms.firstOrNull { roomIdentity(it) == entry.key }
                 if (observed == null) {
                     // 閉じたと分かった部屋が立て直されていれば、新しい部屋を待つ（ほかの登録が追っている部屋は選ばない）。
@@ -270,7 +283,6 @@ class WaitlistRepository(
             seen[o.query] = o.revision
         }
         notify(opened)
-        handled.update { revisions -> revisions + (o.query to maxOf(revisions[o.query] ?: 0L, o.revision)) }
     }
 
     /** 立て直された部屋 [rebuilt] を待つ登録にする。空いていれば空きとして知らせる。 */
@@ -325,6 +337,8 @@ class WaitlistRepository(
         const val DEFAULT_HOURS = 3
         private const val HOUR_MS = 60 * 60 * 1000L
         private const val EVENT_WAIT_MS = 10_000L
+        private const val EVENT_RETRIES = 3
+        private const val EVENT_RETRY_MS = 500L
     }
 }
 

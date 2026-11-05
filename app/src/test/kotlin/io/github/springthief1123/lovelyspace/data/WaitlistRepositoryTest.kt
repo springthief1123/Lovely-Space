@@ -9,8 +9,6 @@ import io.github.springthief1123.lovelyspace.notify.NotificationTarget
 import io.github.springthief1123.lovelyspace.notify.toOpenedNotification
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeout
@@ -214,6 +212,50 @@ class WaitlistRepositoryTest {
         val newEntry = memory.saved.single()
         assertEquals(WaitlistStatus.WATCHING, newEntry.status)
         assertFalse(newEntry.noticed)
+    }
+
+    @Test
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun anOpeningObservedBeforeRegistrationIsNotAppliedToTheNewEntry() = runTest {
+        val lists = EventLists()
+        val opened = mutableListOf<WaitlistEntry>()
+        // 登録より前（1 秒）に空きを観測し、その後に満室の部屋を登録する（5 秒）。
+        lists.publish(zenkoku, listOf(full.copy(status = RoomStatus.WAITING, action = RoomAction.ENTER, name = "合成の部屋主")), 1_000)
+        val waitlist = WaitlistRepository(Memory(), lists, { opened += it }, backgroundScope) { 5_000L }
+        waitlist.register(full)
+        runCurrent()
+
+        assertEquals(WaitlistStatus.WATCHING, waitlist.entries.value.single().status)
+        assertTrue(opened.isEmpty())
+    }
+
+    @Test
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun aTransientStorageFailureRetriesTheSameOrderedEvent() = runTest {
+        val lists = EventLists()
+        val opened = mutableListOf<WaitlistEntry>()
+        var failures = 0
+        val memory = object : WaitlistPersistence {
+            var saved: List<WaitlistEntry> = emptyList()
+            var failNext = 0
+            override fun load() = saved
+            override fun save(entries: List<WaitlistEntry>) {
+                if (failNext > 0) { failNext--; failures++; throw IllegalStateException("合成の保存失敗") }
+                saved = entries
+            }
+        }
+        val waitlist = WaitlistRepository(memory, lists, { opened += it }, backgroundScope) { 0L }
+        waitlist.register(full)
+        runCurrent()
+        memory.failNext = 1
+        lists.publish(zenkoku, listOf(full.copy(status = RoomStatus.WAITING, action = RoomAction.ENTER, name = "合成の部屋主")), 2_000)
+        lists.publish(zenkoku, listOf(full), 3_000)
+        advanceTimeBy(5_000)
+        runCurrent()
+
+        assertEquals(1, failures)
+        assertEquals("保存の失敗の後でも、後の満室で中間の空きを失わない", 1, opened.size)
+        assertEquals(WaitlistStatus.OPENED, memory.saved.single().status)
     }
 
     @Test
