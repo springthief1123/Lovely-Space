@@ -7,6 +7,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -14,8 +15,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
 fun interface RoomListSource {
     suspend fun fetch(query: RoomQuery, force: Boolean): RoomListPage
@@ -38,6 +37,8 @@ fun Map<RoomQuery, ObservedRoomPage>.genreWindow(genre: Genre): RoomPageWindow =
 
 interface ObservedRoomListSource : RoomListSource {
     val observations: kotlinx.coroutines.flow.StateFlow<Map<RoomQuery, ObservedRoomPage>>
+    /** 観測の中間状態まで必要な監視側は、最新値ではなくこの順序付きイベントを使う。 */
+    val changes: Flow<ObservedRoomChange>? get() = null
 }
 
 /**
@@ -74,10 +75,9 @@ class RoomListRepository(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     private val now: () -> Long = System::currentTimeMillis,
 ) : ObservedRoomListSource {
-    private val mutex = Mutex()
-    private val _observations = MutableStateFlow<Map<RoomQuery, ObservedRoomPage>>(emptyMap())
-    override val observations = _observations.asStateFlow()
-    private var revision = 0L
+    private val journal = RoomObservationJournal()
+    override val observations = journal.observations
+    override val changes: Flow<ObservedRoomChange> = journal.changes
     private val attempts = java.util.concurrent.atomic.AtomicLong()
     /** 一覧の取得を試みた回数（失敗・キャッシュ再利用も含む）。背景の 1 回の実行で取得したページ数の上限を、機能をまたいで守るのに使う。 */
     val fetchAttempts: Long get() = attempts.get()
@@ -170,13 +170,9 @@ class RoomListRepository(
         attempts.incrementAndGet()
         val result = load()
         currentCoroutineContext().ensureActive()
-        mutex.withLock {
-            val previous = observation(query)
-            if (previous?.page !== result) {
-                // キャッシュを再利用した結果は新しい観測ではないので、名前の記録を古い姿へ戻さない。
-                rememberNamed(result.rooms)
-                _observations.value = _observations.value + (query to ObservedRoomPage(query, result, System.currentTimeMillis(), ++revision))
-            }
+        journal.record(query, result, System.currentTimeMillis()) {
+            // キャッシュを再利用した結果は新しい観測ではないので、名前の記録を古い姿へ戻さない。
+            rememberNamed(result.rooms)
         }
         return result
     }
