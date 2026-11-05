@@ -51,6 +51,47 @@ class RoomPageWindowTest {
         val newer = RoomPageWindow().observe(older, 10).observe(head, 5)
         assertTrue(newer.rooms.any { it.id == base + 400 })
     }
+    @Test fun rebuiltRoomHidesTheOldCopyOnAPageNotYetReread() {
+        fun host(id: Long) = room(id).copy(name = "合成の部屋主", message = "合成の待機メッセージです")
+        val old = host(500)
+        val before = RoomPageWindow().observe(page(1, listOf(room(1000), room(900), room(800)), last = 2))
+            .observe(page(2, listOf(old, room(400)), last = 2))
+        // 同じ人が立て直した: 新しい部屋は 1 ページ目に出る。古い部屋の載る 2 ページ目はまだ読み直していないが、本家ではもう無いので出さない。
+        val rebuilt = before.observe(page(1, listOf(host(1100), room(1000), room(900), room(800)), last = 2))
+        assertEquals(listOf(1100L, 1000L, 900L, 800L, 400L), rebuilt.rooms.map { it.id })
+        assertEquals(setOf(roomIdentity(old)), rebuilt.superseded)
+        // 画面の一覧から外すだけで、閉じたとはまだ決めない（ピンは古い部屋のまま、ページを読み直して確かめる）。
+        assertTrue(rebuilt.listedRooms.any { it.id == 500L })
+        assertFalse(rebuilt.isClosed(old))
+        assertEquals(PinState.OPEN, rebuilt.pinState(old).first)
+        // 2 ページ目を読み直して古い部屋がまだあれば、同じ人が 2 部屋立てているので本家と同じく両方出す。
+        val both = rebuilt.observe(page(2, listOf(old, room(400)), last = 2))
+        assertEquals(listOf(1100L, 1000L, 900L, 800L, 500L, 400L), both.rooms.map { it.id })
+        // 読み直して無ければ、出さないまま。もう一度読んでも無ければ閉じた部屋として外れる。
+        val vanished = rebuilt.observe(page(2, listOf(room(400)), last = 2))
+        assertFalse(vanished.rooms.any { it.id == 500L })
+        val closed = vanished.observe(page(2, listOf(room(400)), last = 2))
+        assertFalse(closed.listedRooms.any { it.id == 500L })
+        assertTrue(closed.superseded.isEmpty())
+        // 同じページを同じときに読んで両方載っていれば、本家にも両方あるので外さない。
+        val sameRead = RoomPageWindow().observe(page(1, listOf(host(1100), room(1000), old), last = 1))
+        assertEquals(3, sameRead.rooms.size)
+        // 名前が違えば立て直しではない。
+        val other = before.observe(page(1, listOf(host(1100).copy(name = "別の合成"), room(1000), room(900), room(800)), last = 2))
+        assertTrue(other.rooms.any { it.id == 500L })
+        // 取り直したページから消えて残している古い部屋も、立て直しの部屋が載っていれば出さない。
+        val edge = RoomPageWindow().observe(page(1, listOf(room(1000), old), last = 2))
+            .observe(page(2, listOf(room(400)), last = 2))
+            .observe(page(1, listOf(host(1100), room(1000)), last = 2))
+        assertTrue(edge.carried.containsKey(roomIdentity(old)))
+        assertEquals(listOf(1100L, 1000L, 400L), edge.rooms.map { it.id })
+        // 両方が同じときに載っていた後、古い部屋だけが新着に押されてページから消えても、立て直しではないので出し続ける。
+        val pushed = RoomPageWindow().observe(page(1, listOf(host(1100), room(1000), old), last = 2))
+            .observe(page(2, listOf(room(400)), last = 2))
+            .observe(page(1, listOf(room(1200), host(1100), room(1000)), last = 2))
+        assertTrue(pushed.carried.containsKey(roomIdentity(old)))
+        assertTrue(pushed.rooms.any { it.id == 500L })
+    }
     @Test fun eachRoomKnowsThePageItWasLastSeenOn() {
         // 1 は 1 ページ目から 2 ページ目へ移った。2 は 1 ページ目から消えたので、消えたページのまま残る。
         val window = RoomPageWindow().observe(page(1, listOf(room(1), room(2))))
