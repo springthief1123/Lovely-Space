@@ -148,7 +148,9 @@ class RadarRepositoryTest {
         try {
             val searches = SearchPresetRepository(db)
             searches.save(SearchPreset("auto", "合成の自動巡回", "zenkoku", RoomSearchCriteria()))
-            val lists = Lists().apply { lastPage = 3; roomsByPage = mapOf(1 to listOf(room), 2 to listOf(room.copy(id = 43)), 3 to listOf(room.copy(id = 44))) }
+            // 部屋ごとに別の人にする（同じ名前・募集文で ID が大きい部屋は立て直しとみなし、古い部屋を出さなくなる）。
+            fun r(id: Long) = room.copy(id = id, name = "合成$id")
+            val lists = Lists().apply { lastPage = 3; roomsByPage = mapOf(1 to listOf(r(42)), 2 to listOf(r(43)), 3 to listOf(r(44))) }
             val radar = RadarRepository(db.presets(), lists, searches, RoomPreferenceRepository(db), backgroundScope)
             radar.state.first { it.loaded }; radar.setPlan("auto", true)
             radar.scan()
@@ -158,8 +160,7 @@ class RadarRepositoryTest {
             radar.scan()
             assertEquals(listOf(1, 2, 1, 3), lists.calls.map { it.page })
             assertEquals(setOf(42L, 43L, 44L), radar.state.value.livePages["zenkoku"]!!.rooms.map { it.id }.toSet())
-            // 45 は別の人の部屋（同じ名前・募集文だと 42 の立て直しとみなして 42 を出さなくなる）。
-            lists.roomsByPage = mapOf(1 to listOf(room.copy(id = 45, name = "別の合成")), 2 to listOf(room.copy(id = 43)), 3 to listOf(room.copy(id = 44)))
+            lists.roomsByPage = mapOf(1 to listOf(r(45)), 2 to listOf(r(43)), 3 to listOf(r(44)))
             radar.scan(latestFirst = true)
             // 1 ページ目から消えた 42 は後ろのページへずれただけかもしれないので、2 ページ目を読んだうえで 1 ページ目にも無いと分かるまで残す。
             assertEquals(setOf(42L, 43L, 44L, 45L), radar.state.value.livePages["zenkoku"]!!.rooms.map { it.id }.toSet())
