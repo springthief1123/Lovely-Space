@@ -207,7 +207,7 @@ class LovelySpaceApp : Application() {
         PinRepository(pinStore, roomPreferences, roomLists,
             onEvent = { event ->
                 // 自動入室は通知より先に始める。通知の失敗で入室を遅らせない。
-                if (event is PinEvent.Opened) {
+                if (event is PinEvent.Opened && !event.replayed) {
                     try { autoEntry.offerPin(event.pin.key, event.registered, event.pin.room, event.autoEnter) }
                     catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { }
                 }
