@@ -225,6 +225,12 @@ fun RoomCard(
     onFavoriteClick: (() -> Unit)? = null,
     onHideClick: (() -> Unit)? = null,
     actionsEnabled: Boolean = true,
+    /**
+     * 右へのスワイプ（と開いた面のタップ）だけを [onFavoriteClick] と別の動きにするとき。長押しメニューの「ピンする」は [onFavoriteClick] のまま。
+     * 満室の部屋を「空いたら知らせる」でピンする（順番待ち）のに使う。[favoriteSwipeLabel] はそのときの背後の文言。
+     */
+    onFavoriteSwipe: (() -> Unit)? = null,
+    favoriteSwipeLabel: String? = null,
     onDetailsClick: (() -> Unit)? = null,
     /** 長押しメニューで保存の次に並べる操作（追跡・順番待ちなど）。 */
     menuItems: List<RoomMenuItem> = emptyList(),
@@ -247,6 +253,9 @@ fun RoomCard(
     var dragging by remember(room.id, room.genreKey) { mutableStateOf(false) }
     // 確定後に戻り終わるまで、背後の文言を確定前（ピン／ピンを外すなど）のままにする。
     var commitLabels by remember(room.id, room.genreKey) { mutableStateOf<Pair<Boolean, Boolean>?>(null) }
+    var commitSwipeLabel by remember(room.id, room.genreKey) { mutableStateOf<String?>(null) }
+    val swipeFavorite = if (onFavoriteClick != null) onFavoriteSwipe ?: onFavoriteClick else null
+    val swipeLabel = favoriteSwipeLabel.takeIf { onFavoriteSwipe != null && !isFavorite }
     // 開いた状態から始めた操作では反対側へ通り抜けさせない（戻しすぎ防止）。
     var gestureStartSide by remember(room.id, room.genreKey) { mutableFloatStateOf(0f) }
     // 開いた時点の縦位置。ここから一定以上動いたらスクロールとみなして閉じる。
@@ -297,9 +306,9 @@ fun RoomCard(
         if (openToken !== swipeToken && !dragging && settleTarget != 0f) launchSettle(0f)
     }
 
-    fun invokeMenuAction(side: SwipeSide) {
+    fun invokeMenuAction(side: SwipeSide, favorite: (() -> Unit)? = onFavoriteClick) {
         val action = when (side) {
-            SwipeSide.FAVORITE -> onFavoriteClick
+            SwipeSide.FAVORITE -> favorite
             SwipeSide.HIDDEN -> onHideClick
             SwipeSide.NONE -> null
         } ?: return
@@ -311,7 +320,7 @@ fun RoomCard(
 
     fun commitFullSwipe(side: SwipeSide) {
         val action = when (side) {
-            SwipeSide.FAVORITE -> onFavoriteClick
+            SwipeSide.FAVORITE -> swipeFavorite
             SwipeSide.HIDDEN -> onHideClick
             SwipeSide.NONE -> null
         } ?: return
@@ -325,6 +334,7 @@ fun RoomCard(
         settleTarget = 0f
         coordinator.closed(swipeToken)
         commitLabels = isFavorite to isHidden
+        commitSwipeLabel = swipeLabel
         commitArmed = true
         settleJob = scope.launch {
             var acted = false
@@ -339,6 +349,7 @@ fun RoomCard(
                 // 戻る途中で掴み直されたり一覧から外れたりしても、確定した操作は取り消さない。
                 if (!acted) action()
                 commitLabels = null
+                commitSwipeLabel = null
             }
         }
     }
@@ -451,9 +462,10 @@ fun RoomCard(
                 armed = commitArmed,
                 isFavorite = commitLabels?.first ?: isFavorite,
                 isHidden = commitLabels?.second ?: isHidden,
+                favoriteLabel = if (commitLabels != null) commitSwipeLabel else swipeLabel,
                 enabled = side != SwipeSide.NONE,
                 labelProgress = { roomCardSwipeLabelProgress(offsetPx, revealWidthPx) },
-                onClick = { invokeMenuAction(side) },
+                onClick = { invokeMenuAction(side, swipeFavorite) },
             )
 
             Box(
@@ -530,6 +542,8 @@ private fun BoxScope.SwipeActionBackground(
     armed: Boolean,
     isFavorite: Boolean,
     isHidden: Boolean,
+    /** ピンしていない部屋を右へスワイプしたときの文言（null なら「ピン」）。 */
+    favoriteLabel: String?,
     enabled: Boolean,
     labelProgress: () -> Float,
     onClick: () -> Unit,
@@ -579,7 +593,7 @@ private fun BoxScope.SwipeActionBackground(
                         tint = if (armed) content else scheme.primary,
                     )
                     Text(
-                        if (isFavorite) "ピンを外す" else "ピン",
+                        if (isFavorite) "ピンを外す" else favoriteLabel ?: "ピン",
                         style = MaterialTheme.typography.labelLarge,
                         color = content,
                     )
