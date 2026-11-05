@@ -39,9 +39,4 @@ class SearchHeaderTest {
         // 「満室」「非公開」もチップの条件として 1 件ずつ数える。
         assertEquals(2, activeFilterCount(RoomSearchCriteria(waitingOnly = false, publicOnly = false)))
     }
-
-    @Test fun statusChipsShowChosenValue() {
-        assertEquals("利用状況", triStateLabel(null, "利用状況", "待機中", "満室"))
-        assertEquals("満室", triStateLabel(false, "利用状況", "待機中", "満室"))
-    }
 }

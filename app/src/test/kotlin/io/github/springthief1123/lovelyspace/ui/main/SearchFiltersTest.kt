@@ -24,13 +24,19 @@ class SearchFiltersTest {
         assertNull(ageBandSelection(18, 29))
     }
 
-    @Test fun tappingAgeBandsSelectsWidensAndClears() {
+    @Test fun tappingAgeBandsTogglesAndKeepsOneRange() {
         assertEquals(20 to 29, tapAgeBand(null, null, AgeBand.TWENTIES))
+        // 選んでいない年代は足す。離れていれば間も埋める。
         assertEquals(20 to 39, tapAgeBand(20, 29, AgeBand.THIRTIES))
         assertEquals(null to 29, tapAgeBand(20, 29, AgeBand.TEENS))
-        // 範囲の中を押すとその年代だけ、1 つだけのものを押すと外す。
-        assertEquals(30 to 39, tapAgeBand(20, 49, AgeBand.THIRTIES))
+        assertEquals(20 to 49, tapAgeBand(20, 29, AgeBand.FORTIES))
+        // 選んでいる年代は外す。端なら範囲が縮み、1 つだけなら指定なしに戻る。
+        assertEquals(30 to 39, tapAgeBand(20, 39, AgeBand.TWENTIES))
+        assertEquals(20 to 29, tapAgeBand(20, 39, AgeBand.THIRTIES))
         assertEquals(null to null, tapAgeBand(20, 29, AgeBand.TWENTIES))
+        // 真ん中を外すと、多いほうの側を残す（同じなら若いほう）。
+        assertEquals(20 to 29, tapAgeBand(20, 49, AgeBand.THIRTIES))
+        assertEquals(40 to null, tapAgeBand(20, null, AgeBand.THIRTIES))
         // 数字で決めた年齢から押すと、その年代に置き換える。
         assertEquals(40 to 49, tapAgeBand(25, 33, AgeBand.FORTIES))
     }

@@ -31,21 +31,24 @@ internal fun ageBandSelection(min: Int?, max: Int?): List<AgeBand>? {
     return bands.subList(first, last + 1)
 }
 
-/** 年代のチップ [band] を押した後の最低・最高年齢。 */
+/**
+ * 年代のチップ [band] を押した後の最低・最高年齢。チップは押すたびに選択・解除を切り替える。
+ * 条件は「最低〜最高」の 1 つの範囲なので、選んだ年代はいつも続いた並びになる。
+ * - 選んでいない年代を押すと、そこまで範囲を広げる（間の年代も選ぶ）。
+ * - 選んでいる年代を押すと、その年代を外す。範囲の真ん中なら、外した年代で分かれた両側のうち多いほう（同じなら若いほう）を残す。
+ */
 internal fun tapAgeBand(min: Int?, max: Int?, band: AgeBand): Pair<Int?, Int?> {
     val selected = ageBandSelection(min, max).orEmpty()
-    return when {
-        selected.isEmpty() -> band.min to band.max
-        // 1 つだけ選んでいるチップをもう一度押したら外す。
-        selected == listOf(band) -> null to null
-        // 選んだ範囲の中を押したら、その年代だけにする。
-        band in selected -> band.min to band.max
-        // 範囲の外を押したら、そこまで広げる。
-        else -> {
-            val all = selected + band
-            all.minBy { it.ordinal }.min to all.maxBy { it.ordinal }.max
-        }
+    val range = { from: AgeBand, to: AgeBand -> from.min to to.max }
+    if (band !in selected) {
+        if (selected.isEmpty()) return range(band, band)
+        val all = selected + band
+        return range(all.minBy { it.ordinal }, all.maxBy { it.ordinal })
     }
+    val lower = selected.filter { it.ordinal < band.ordinal }
+    val upper = selected.filter { it.ordinal > band.ordinal }
+    val kept = if (upper.size > lower.size) upper else lower
+    return if (kept.isEmpty()) null to null else range(kept.first(), kept.last())
 }
 
 /** 年齢の条件を短く言う。例: 「20〜29歳」「30歳以上」。 */

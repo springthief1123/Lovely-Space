@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -37,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -216,13 +218,14 @@ private fun AgeAreaConditions(state: SearchUiState, vm: SearchViewModel) {
                 Text(if (exact) "数字の欄を閉じる" else "数字で指定")
             }
         }
-        // 5 つの年代は横に並べきる（以前は横に流れて「50〜」が切れていた）。
+        // 5 つの年代は横に並べきる。標準のチップは左右の余白が大きく、文字を大きくすると「20…」と切れたので、
+        // 余白の少ない小さな選択枠にして文字を中央に置く。
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             AgeBand.entries.forEach { band ->
-                QuietFilterChip(selected = band in bands.orEmpty(), label = band.label, modifier = Modifier.weight(1f), onClick = {
+                AgeBandChip(band.label, selected = band in bands.orEmpty(), modifier = Modifier.weight(1f)) {
                     val (min, max) = tapAgeBand(c.minAge.takeIf { validAges }, c.maxAge.takeIf { validAges }, band)
                     vm.ageRange(min, max)
-                })
+                }
             }
         }
         if (showFields) {
@@ -251,6 +254,25 @@ private fun AgeAreaConditions(state: SearchUiState, vm: SearchViewModel) {
         }
     }
     if (picking) AreaPickerDialog(c.area, onSelect = { vm.area(it); picking = false }, onDismiss = { picking = false })
+}
+
+/** 年代の選択枠。見た目は [QuietFilterChip] と同じ（選択中は淡いローズの面と primary の縁取り）で、左右の余白だけ小さい。 */
+@Composable
+private fun AgeBandChip(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Box(
+        modifier
+            .heightIn(min = 40.dp)
+            .clip(LovelyShapes.control)
+            .background(if (selected) scheme.secondaryContainer else Color.Transparent)
+            .border(BorderStroke(1.dp, if (selected) scheme.primary else scheme.outlineVariant), LovelyShapes.control)
+            .toggleable(value = selected, role = Role.Checkbox, onValueChange = { onClick() })
+            .padding(horizontal = 2.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false,
+            color = if (selected) scheme.onSecondaryContainer else scheme.onSurfaceVariant)
+    }
 }
 
 /** 条件の小見出し。 */
@@ -347,34 +369,37 @@ private fun KeywordScopeButton(scope: KeywordScope, onScope: (KeywordScope) -> U
 }
 
 /** 性別は 1 タップで切り替え、利用状況と公開設定は押すと「すべて／片方／もう片方」のメニューから選ぶ。それ以外の条件はタブに置く。 */
-@OptIn(ExperimentalLayoutApi::class)
+/**
+ * 性別・利用状況・公開設定。どれも押すとメニューから選び、指定中はチップの名前が選んだ値になって塗りになる。
+ * 3 つを折り返さずに 1 行に並べる（以前の女性・男性の 2 つのチップと、押すたびに回る切り替えはやめた）。
+ */
 @Composable
 private fun QuickFilterRow(criteria: RoomSearchCriteria, onChange: (RoomSearchCriteria) -> Unit) {
-    // 横に流すと端のチップ（女性・公開設定）が切れて見落とすので、収まらなければ折り返す。
-    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        QuietFilterChip(criteria.gender == Gender.FEMALE,
-            { onChange(criteria.copy(gender = if (criteria.gender == Gender.FEMALE) null else Gender.FEMALE)) },
-            label = "女性")
-        QuietFilterChip(criteria.gender == Gender.MALE,
-            { onChange(criteria.copy(gender = if (criteria.gender == Gender.MALE) null else Gender.MALE)) },
-            label = "男性")
-        // 以前は押すたびに 3 つの状態を順に回していたが、次に何になるか読めないので、メニューで直接選ぶ。
-        TriStateMenuChip(criteria.waitingOnly, "利用状況", "待機中", "満室") { onChange(criteria.copy(waitingOnly = it)) }
-        TriStateMenuChip(criteria.publicOnly, "公開設定", "公開", "非公開") { onChange(criteria.copy(publicOnly = it)) }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        MenuChip(criteria.gender, "性別", listOf(null to "指定なし", Gender.FEMALE to "女性", Gender.MALE to "男性")) {
+            onChange(criteria.copy(gender = it))
+        }
+        MenuChip(criteria.waitingOnly, "利用状況", listOf(null to "指定なし", true to "待機中", false to "満室")) {
+            onChange(criteria.copy(waitingOnly = it))
+        }
+        MenuChip(criteria.publicOnly, "公開設定", listOf(null to "指定なし", true to "公開", false to "非公開")) {
+            onChange(criteria.copy(publicOnly = it))
+        }
     }
 }
 
-/** 「すべて／[yes]／[no]」から選ぶチップ。指定中はチップの名前が選んだ値になり、塗りになる。 */
+/** 押すとメニューで [options] から 1 つ選ぶチップ。未指定（null）のときは [label]、指定中は選んだ値の名前を出す。 */
 @Composable
-private fun TriStateMenuChip(value: Boolean?, label: String, yes: String, no: String, onChange: (Boolean?) -> Unit) {
+private fun <T> MenuChip(value: T?, label: String, options: List<Pair<T?, String>>, onChange: (T?) -> Unit) {
     var open by remember { mutableStateOf(false) }
+    val chosen = options.firstOrNull { it.first == value }?.second ?: options.first().second
     Box {
-        QuietFilterChip(value != null, { open = true }, label = triStateLabel(value, label, yes, no),
+        QuietFilterChip(value != null, { open = true }, label = if (value == null) label else chosen,
             trailingIcon = { Icon(Icons.Outlined.ArrowDropDown, null, Modifier.size(18.dp)) },
-            modifier = Modifier.semantics { stateDescription = "$label：" + triStateLabel(value, "すべて", yes, no) })
+            modifier = Modifier.semantics { stateDescription = "$label：$chosen" })
         QuietDropdownMenu(open, { open = false }) {
-            listOf(null, true, false).forEach { option ->
-                QuietMenuRow(triStateLabel(option, "すべて", yes, no), onClick = { onChange(option); open = false }, selected = option == value)
+            options.forEach { (option, text) ->
+                QuietMenuRow(text, onClick = { onChange(option); open = false }, selected = option == value)
             }
         }
     }
@@ -402,5 +427,3 @@ private fun <T> ChoiceRow(title: String, selected: T, options: List<Pair<T, Stri
         }
     }
 }
-
-internal fun triStateLabel(value: Boolean?, none: String, yes: String, no: String) = when (value) { null -> none; true -> yes; false -> no }
