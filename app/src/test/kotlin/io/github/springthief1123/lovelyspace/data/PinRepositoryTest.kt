@@ -141,6 +141,8 @@ class PinRepositoryTest {
         lists.publish(genre, listOf(rewritten) + others)
         val similar = wait { events.receive() } as PinEvent.Similar
         assertEquals(960L, similar.similar.room.id)
+        // 通知の題（「<ピンの名前>に似た部屋」）に使うピンの部屋は、似た部屋に置き換えない。
+        assertEquals(500L, similar.pin.room.id)
         val view = awaitPins { it.singleOrNull()?.similar != null }.single()
         wait { pins.adopt(view, rewritten) }
         val adopted = awaitPins { it.singleOrNull()?.room?.id == 960L }.single()

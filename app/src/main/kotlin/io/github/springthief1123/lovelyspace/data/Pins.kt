@@ -238,7 +238,12 @@ class PinRepository(
             // 古い部屋への未配信通知を、新しい部屋の通知として再送しない。
             pendingNotices = old.pendingNotices.filter { roomIdentity(it.room) == key })
         if (adopting.remove(key)) next = next.copy(state = if (to.status == RoomStatus.FULL) PinState.FULL else PinState.OPEN, stateAt = now())
-        save(_records.value - from + (key to next))
+        // 移ったことの知らせ（[RoomPreferenceRepository.moved]）は 1 回しか来ないので、保存に失敗しても知らせ方・メモを
+        // 新しい部屋へ移したまま持ち、次に記録を保存するときに書き込む（失敗で既定の「知らせない」に戻さない）。
+        val records = _records.value - from + (key to next)
+        try { save(records) }
+        catch (e: CancellationException) { throw e }
+        catch (_: Exception) { _records.value = records }
     }
 
     private suspend fun process(favs: List<RoomPreference>, observations: Map<RoomQuery, ObservedRoomPage>) = processMutex.withLock {
@@ -327,7 +332,11 @@ class PinRepository(
                     .flatMap { (key, record) -> record.pendingNotices.asSequence().map { Triple(key, record, it) } }
                     .firstOrNull { (_, _, pending) -> pending.id !in attempted }
                     ?.let { (key, record, pending) ->
-                        _pins.value.firstOrNull { it.key == key }?.let { view -> Triple(view.copy(record = record, room = pending.room), key, pending) }
+                        _pins.value.firstOrNull { it.key == key }?.let { view ->
+                            // 空きはその時の部屋の姿で知らせる。似た部屋はピンした部屋のまま（通知の題を「<ピンの名前>に似た部屋」にする）。
+                            val shown = if (pending.type == PinNoticeType.OPENED) view.copy(record = record, room = pending.room) else view.copy(record = record)
+                            Triple(shown, key, pending)
+                        }
                     }
             } ?: break
             val (view, key, pending) = candidate
@@ -353,9 +362,12 @@ class PinRepository(
         }
     }
 
-    /** 保存できなければメモリ上の状態を更新せず、次回の観測で再評価できる状態に保つ。 */
-    private suspend fun save(records: Map<String, PinRecord>) {
-        withContext(Dispatchers.IO) { persistence.save(records) }
+    /**
+     * 保存できなければメモリ上の状態を更新せず、次回の観測で再評価できる状態に保つ。
+     * 保存できた後でメモリへの反映がキャンセルで抜けないよう、両方をまとめて行う。
+     */
+    private suspend fun save(records: Map<String, PinRecord>) = withContext(NonCancellable + Dispatchers.IO) {
+        persistence.save(records)
         _records.value = records
     }
 
