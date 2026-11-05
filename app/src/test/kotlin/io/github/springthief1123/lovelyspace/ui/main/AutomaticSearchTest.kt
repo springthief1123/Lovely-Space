@@ -110,8 +110,12 @@ class AutomaticSearchTest {
             wall += SearchViewModel.SHARED_MAX_AGE_MS + 1
             calls.clear()
             val resumed = backgroundScope.launch { vm.monitor() }
-            runCurrent(); advanceTimeBy(6_001); runCurrent()
+            // 古いページは読み直すまで出さない。何時間も前のページの部屋（経過時間も古い）を新しいページの後ろに並べない。
+            runCurrent()
+            assertEquals(listOf(1L), vm.state.value.rooms.map { it.id })
+            advanceTimeBy(6_001); runCurrent()
             assertEquals(listOf(1, 2, 3), calls)
+            assertEquals(listOf(1L, 2L, 3L), vm.state.value.rooms.map { it.id })
             resumed.cancelAndJoin()
         } finally { Dispatchers.resetMain() }
     }

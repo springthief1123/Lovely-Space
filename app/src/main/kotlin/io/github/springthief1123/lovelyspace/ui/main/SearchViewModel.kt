@@ -275,11 +275,13 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
      * 後ろのページは周ごとに 1 つずつ回る（[RoomPageSchedule]）。
      * 新しい周は前の周の始まりから設定の間隔（[RefreshPacing.searchHeadMs]）が経つまで始めない。
      * 画面を離れていた間に古くなったページ（[SHARED_MAX_AGE_MS] より前に確認したページ）があれば、1 ページ目から全ページを読み直す。
-     * 後ろのページを周に 1 つずつ回るだけでは、閉じた部屋がしばらく一覧に残るため。
+     * 後ろのページを周に 1 つずつ回るだけでは、閉じた部屋がしばらく一覧に残るため。古くなったページは読み直すまで一覧から外す。
+     * 何時間も前のページを出し続けると、その間に開いた部屋が抜け、経過時間も読んだときのままなので、本家と並びも件数も合わなくなる。
      */
     suspend fun monitor() {
-        val oldest = _state.value.pageTimes.values.minOrNull()
-        if (oldest != null && oldest < now() - SHARED_MAX_AGE_MS) schedule = null
+        val oldest = now() - SHARED_MAX_AGE_MS
+        val stale = _state.value.pageTimes.filterValues { it < oldest }.keys.mapTo(HashSet()) { it.page }
+        if (stale.isNotEmpty()) { schedule = null; forget(stale) }
         monitoring.value = true
         try {
             while (currentCoroutineContext().isActive && _state.value.automatic) {
@@ -339,6 +341,17 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
             inFlight--
             _state.update { it.copy(loading = inFlight > 0) }
         }
+    }
+
+    /** 古くなった [numbers] のページを一覧から外す。 */
+    private fun forget(numbers: Set<Int>) {
+        val next = window.without(numbers)
+        if (next === window) return
+        window = next
+        val rooms = next.rooms
+        val ids = rooms.mapTo(HashSet(), ::roomIdentity)
+        _state.update { it.copy(rooms = rooms, page = next.pages.size, newRoomIds = it.newRoomIds.intersect(ids),
+            pageTimes = it.pageTimes.filterKeys { q -> q.page !in numbers }) }
     }
 
     /** 他の機能（レーダーなど）が読んだ、いまのジャンルの一覧のページを取り込む。 */

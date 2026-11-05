@@ -9,17 +9,24 @@ class RoomPageWindowTest {
     private fun room(id: Long, elapsed: Duration? = null) = Room(id, "zenkoku", RoomStatus.WAITING, RoomAction.ENTER, elapsed, "合成$id", Gender.MALE, 25, null, "合成募集文")
     private fun page(number: Int, rooms: List<Room>, last: Int = 3) = RoomListPage("zenkoku", rooms, null, null, number, last, emptyMap(), null)
 
+    /** 一覧は立てた順（ID の大きい順）。[n] が小さいほど新しい部屋。ID は ID_MARGIN より離す。 */
+    private fun r(n: Int) = room(900_000_000L - n * 100L)
+    private fun numbers(window: RoomPageWindow) = window.rooms.map { ((900_000_000L - it.id) / 100).toInt() }
+
     @Test fun refreshReplacesOnePagePreservesOthersAndUsesLatestStatusAcrossPageMoves() {
-        val first = room(1)
-        val full = first.copy(status = RoomStatus.FULL, action = RoomAction.NONE, name = null)
-        val window = RoomPageWindow().observe(page(1, listOf(first, room(2))))
-            .observe(page(2, listOf(room(3), full)))
-            .observe(page(1, listOf(room(4))))
-        // 1 ページ目から消えた 2 は後ろへずれただけかもしれないので、2 ページ目を読んだうえで 1 ページ目にも無いと分かるまで残す。
-        assertEquals(listOf(4L, 2L, 3L, 1L), window.rooms.map { it.id })
-        assertEquals(RoomAction.NONE, window.rooms.last().action)
-        assertTrue(window.observe(page(1, listOf(room(4)))).rooms.any { it.id == 2L })
-        assertFalse(window.observe(page(2, listOf(room(3)))).observe(page(1, listOf(room(4)))).rooms.any { it.id == 2L })
+        val pushed = r(2)
+        val full = pushed.copy(status = RoomStatus.FULL, action = RoomAction.NONE, name = null)
+        // 新しい部屋 0 が開き、2 が 2 ページ目へ押し出された。2 ページ目を読むまでは消えた部屋として、立てた順の位置に残す。
+        val window = RoomPageWindow().observe(page(1, listOf(r(1), pushed)))
+            .observe(page(2, listOf(r(3), r(4))))
+            .observe(page(1, listOf(r(0), r(1))))
+        assertEquals(listOf(0, 1, 2, 3, 4), numbers(window))
+        // 2 ページ目で見つかれば、そのページの内容（満室になった）で出す。
+        val found = window.observe(page(2, listOf(full, r(3))))
+        assertEquals(listOf(0, 1, 2, 3, 4), numbers(found))
+        assertEquals(RoomAction.NONE, found.rooms[2].action)
+        // 2 ページ目から消えた 4 は、3 ページ目へ押し出されたかもしれないので残す。
+        assertEquals(setOf(roomIdentity(r(4))), found.carried.keys)
     }
     @Test fun roomMissingFromTheIdRangeOfAReadPageIsDroppedAtOnce() {
         // 一覧は ID の大きい順。部屋の ID は本物に近い大きさにし、ページの端から ID_MARGIN より内側に置く。
@@ -34,9 +41,9 @@ class RoomPageWindowTest {
         // ページの端の部屋（同じ秒に立った部屋と順が前後しうる）は、すぐには外さず残す。
         val edge = window.observe(page(1, listOf(r(900), r(700), r(500), r(100))))
         assertTrue(edge.rooms.any { it.id == base + 300 })
-        // 閉じた部屋の ID を使い回した部屋が並ぶと ID の順が崩れるので、範囲では判断せず従来どおり残す。
+        // 閉じた部屋の ID を使い回した部屋が並んでも、その部屋は並んだ位置で数える（sortKeys）ので、500 は 1 ページ目の範囲の中で閉じた。
         val reused = window.observe(page(1, listOf(r(900), r(-5_000), r(700), r(300), r(100))))
-        assertTrue(reused.rooms.any { it.id == base + 500 })
+        assertFalse(reused.rooms.any { it.id == base + 500 })
         assertTrue(reused.rooms.any { it.id == base - 100 })
         // ページの最後に並んだ使い回しの ID は、ページの端として範囲に入れない。
         val reusedLast = window.observe(page(1, listOf(r(900), r(700), r(500), r(300), r(-5_000))))
@@ -67,10 +74,10 @@ class RoomPageWindowTest {
         // 2 ページ目を読み直して古い部屋がまだあれば、同じ人が 2 部屋立てているので本家と同じく両方出す。
         val both = rebuilt.observe(page(2, listOf(old, room(400)), last = 2))
         assertEquals(listOf(1100L, 1000L, 900L, 800L, 500L, 400L), both.rooms.map { it.id })
-        // 読み直して無ければ、出さないまま。もう一度読んでも無ければ閉じた部屋として外れる。
+        // 読み直して無ければ、出さないまま。前のページも読んで、その間に無ければ閉じた部屋として外れる。
         val vanished = rebuilt.observe(page(2, listOf(room(400)), last = 2))
         assertFalse(vanished.rooms.any { it.id == 500L })
-        val closed = vanished.observe(page(2, listOf(room(400)), last = 2))
+        val closed = vanished.observe(page(1, listOf(host(1100), room(1000), room(900), room(800)), last = 2))
         assertFalse(closed.listedRooms.any { it.id == 500L })
         assertTrue(closed.superseded.isEmpty())
         // 同じページを同じときに読んで両方載っていれば、本家にも両方あるので外さない。
@@ -102,29 +109,71 @@ class RoomPageWindowTest {
     }
     @Test fun roomsThatMoveToAnotherPageBetweenReadsStayInTheList() {
         // 前のページの部屋が閉じて 3 が 1 ページ目へ繰り上がった。1 ページ目を読んだ後に 2 ページ目を読むと、3 はどちらにも無い。
-        val window = RoomPageWindow().observe(page(1, listOf(room(1), room(2))))
-            .observe(page(2, listOf(room(3), room(4))))
-            .observe(page(2, listOf(room(4), room(5))))
-        assertEquals(listOf(1L, 2L, 4L, 5L, 3L), window.rooms.map { it.id })
+        val window = RoomPageWindow().observe(page(1, listOf(r(1), r(2))))
+            .observe(page(2, listOf(r(3), r(4))))
+            .observe(page(2, listOf(r(4), r(5))))
+        assertEquals(listOf(1, 2, 3, 4, 5), numbers(window))
         // 次の周で 1 ページ目に見つかれば、そこに並ぶ。
-        val next = window.observe(page(1, listOf(room(3), room(1))))
-        assertEquals(listOf(3L, 1L, 2L, 4L, 5L), next.rooms.map { it.id })
-        assertTrue(next.carried.keys.none { it.endsWith("/3") })
-        // 新しい部屋が開いて後ろのページへずれた部屋は、上から順に読めば同じ周で見つかる。
-        val shifted = RoomPageWindow().observe(page(1, listOf(room(1), room(2))))
-            .observe(page(2, listOf(room(3))))
-            .observe(page(1, listOf(room(9), room(1))))
-        assertEquals(listOf(9L, 1L, 2L, 3L), shifted.rooms.map { it.id })
-        assertEquals(listOf(9L, 1L, 2L, 3L), shifted.observe(page(2, listOf(room(2), room(3)))).rooms.map { it.id })
-        assertTrue(shifted.observe(page(2, listOf(room(2), room(3)))).carried.isEmpty())
+        val next = window.observe(page(1, listOf(r(2), r(3))))
+        assertEquals(listOf(2, 3, 4, 5), numbers(next).filter { it != 1 })
+        assertTrue(next.carried.keys.none { it.endsWith("/${r(3).id}") })
         // 1 ページだけの一覧では、消えた部屋は閉じた部屋なので残さない。
-        val single = RoomPageWindow().observe(page(1, listOf(room(1), room(2)), last = 1)).observe(page(1, listOf(room(1)), last = 1))
-        assertEquals(listOf(1L), single.rooms.map { it.id })
-        // 次のページを読んだうえで同じページをもう一度読んでも無ければ、閉じた部屋として外す。
-        val closed = window.observe(page(3, listOf(room(6)))).observe(page(2, listOf(room(4), room(5))))
-        assertEquals(listOf(1L, 2L, 4L, 5L, 6L), closed.rooms.map { it.id })
-        // 次のページを読む前なら、後ろへずれたかもしれないので残す。
-        assertTrue(window.observe(page(2, listOf(room(4), room(5)))).rooms.any { it.id == 3L })
+        val single = RoomPageWindow().observe(page(1, listOf(r(1), r(2)), last = 1)).observe(page(1, listOf(r(1)), last = 1))
+        assertEquals(listOf(1), numbers(single))
+    }
+    @Test fun roomPushedSeveralPagesWhileOlderPagesWereNotReadStaysInTheList() {
+        // 2 が 1 ページ目から押し出された後、2 ページ目を読む前に 3 ページ目まで押し出された（後ろのページは周に 1 つしか読まない）。
+        // 2 ページ目に無かったことだけでは閉じたと決めず、立てた順の位置に出し続ける。
+        val window = RoomPageWindow().observe(page(1, listOf(r(1), r(2))))
+            .observe(page(2, listOf(r(3), r(4))))
+            .observe(page(3, listOf(r(5), r(6))))
+            // 新しい部屋 -1 が開いた。
+            .observe(page(1, listOf(r(-1), r(1))))
+            // さらに -2・-3 が開き、2 ページ目を読んだときには 2 は 3 ページ目にある。
+            .observe(page(2, listOf(r(-1), r(1))))
+            .observe(page(1, listOf(r(-3), r(-2))))
+        assertTrue(numbers(window).contains(2))
+        assertEquals(numbers(window).sorted(), numbers(window))
+        // 3 ページ目で見つかる。
+        val found = window.observe(page(3, listOf(r(2), r(3))))
+        assertTrue(found.carried.keys.none { it.endsWith("/${r(2).id}") })
+        assertEquals(numbers(found).sorted(), numbers(found))
+    }
+    @Test fun carriedRoomIsDroppedOnceThePagesReadAfterItVanishedSpanItsPlace() {
+        // 2 ページ目の最後の 7 が消えた。ページの端なので、3 ページ目へ押し出されたかもしれず、そのページだけでは閉じたと決めない。
+        fun p(number: Int, vararg n: Int) = page(number, n.map(::r), last = 4)
+        val window = RoomPageWindow().observe(p(1, 1, 2, 3)).observe(p(2, 4, 5, 6, 7)).observe(p(3, 8, 9, 10)).observe(p(4, 11, 12))
+            .observe(p(2, 4, 5, 6))
+        assertTrue(numbers(window).contains(7))
+        // 続けて 3 ページ目を読み、7 の位置が 2・3 ページ目の間に入るのにどちらにも無いので閉じた。
+        assertFalse(numbers(window.observe(p(3, 8, 9, 10))).contains(7))
+        // 3 ページ目へ押し出されていれば残る。
+        assertTrue(numbers(window.observe(p(3, 7, 8, 9))).contains(7))
+        // 最後のページより古い部屋は、最後のページを読めば閉じた。
+        val tail = RoomPageWindow().observe(page(1, listOf(r(1), r(2)), last = 2))
+            .observe(page(2, listOf(r(3), r(4)), last = 2))
+            .observe(page(2, listOf(r(3)), last = 2))
+        assertFalse(numbers(tail).contains(4))
+    }
+    @Test fun roomWithAReusedIdIsOrderedWhereItIsListed() {
+        // 閉じた部屋の ID を使い回した部屋（小さな ID）は、ID ではなく本家に並んだ位置で数える。
+        val reused = room(100L)
+        assertEquals(listOf(r(1).id, r(1).id, r(2).id), sortKeys(listOf(r(1), reused, r(2))))
+        assertEquals(listOf(r(1).id, r(1).id, r(1).id), sortKeys(listOf(reused, room(200L), r(1))))
+        // ページの最後の使い回しの部屋は、次のページの最初の部屋と比べて見分ける。
+        assertEquals(listOf(r(1).id, r(2).id, r(2).id), sortKeys(listOf(r(1), r(2), reused), after = r(3).id))
+        // ページの最後にあった使い回しの部屋が、読んでいない次のページへ押し出されても、古い部屋として閉じたことにしない。
+        val pushed = RoomPageWindow().observe(page(1, listOf(r(1), r(2), reused)))
+            .observe(page(2, listOf(r(3), r(4), r(5))))
+            .observe(page(3, listOf(r(6), r(7), r(8))))
+            .observe(page(1, listOf(r(-1), r(1), r(2))))
+            .observe(page(3, listOf(r(6), r(7), r(8))))
+        assertTrue(pushed.rooms.any { it.id == reused.id })
+        // 消えて残している部屋も、使い回しの部屋の後ろへは行かない。
+        val window = RoomPageWindow().observe(page(1, listOf(r(1), reused, r(2), r(3))))
+            .observe(page(2, listOf(r(4), r(5))))
+            .observe(page(1, listOf(r(0), r(1), reused, r(2))))
+        assertEquals(listOf(r(0), r(1), reused, r(2), r(3), r(4), r(5)).map { it.id }, window.rooms.map { it.id })
     }
     @Test fun duplicateOnOlderPageCannotOverrideNewerProfileAndReducedPageCountDropsOldPages() {
         val original = room(1)

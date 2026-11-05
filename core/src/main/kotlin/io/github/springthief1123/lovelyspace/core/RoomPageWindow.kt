@@ -8,8 +8,12 @@ import kotlin.time.Duration.Companion.hours
  *
  * 取り直したページから消えた部屋は、閉じたとは限らない。前のページの部屋が閉じれば前のページへ、新しい部屋が開けば
  * 後ろのページへずれるので、読む順番によっては一覧のどこにも無い時間ができる。そこで消えた部屋は [carried] に残し、
- * 別のページで見つかるか、消えた後に次のページも読んだうえで同じページをもう一度読んでも無いと分かるまで一覧に出し続ける
- * （ページが 1 つだけの一覧ではずれないので残さない）。
+ * 別のページで見つかるか、消えた後に読んだページで閉じたと分かるまで一覧に出し続ける（ページが 1 つだけの一覧ではずれないので残さない）。
+ * 後ろのページは周に 1 つしか読まないので、混んだジャンルではその間に部屋が何ページもずれる。消えた後に次のページを読んだだけでは
+ * 閉じたと決めず、消えた後に続けて読んだページの並び（[sortKeys]）の間に入るはずなのに無いときだけ外す（[closedByRun]）。
+ *
+ * 一覧（[listedRooms]）はページの順に並べ、残している部屋はページではなく立てた順（[sortKeys]）の位置に差し込む。
+ * 消えたページの末尾に置くと、何ページもずれた部屋が新しい部屋の間に挟まり、本家と順が変わるため。
  *
  * 一覧は部屋を立てた順（部屋の ID の大きい順）に並ぶ。読んだページの最初と最後の部屋の ID の間にあるはずの部屋は、
  * ずれても前後のページへは行かないので、そのページに無ければ閉じた部屋として、残していた部屋（[carried]）からも、
@@ -46,10 +50,11 @@ data class RoomPageWindow(
         val present = nextPages.values.flatten().map(::roomIdentity).toSet()
         val vanished = if (limit > 1) pages[page.page].orEmpty().filter { roomIdentity(it) !in present } else emptyList()
         val nextCarried = carried.filter { (id, c) ->
-            // 後ろへずれた部屋は次のページにあるので、消えた後に次のページを読むまでは閉じたと決めない。
-            val nextRead = c.page >= limit || (revisions[c.page + 1] ?: Long.MIN_VALUE) > c.revision
-            id !in present && c.page <= limit && !(c.page == page.page && nextRead) && !(c.revision < nextRevision && gone(c.room))
-        } + vanished.filterNot(::gone).associate { roomIdentity(it) to CarriedRoom(page.page, it, nextRevision, revisions[page.page] ?: Long.MIN_VALUE) }
+            id !in present && c.page <= limit && !(c.revision < nextRevision && gone(c.room))
+        } + vanished.filterNot(::gone).associate {
+            roomIdentity(it) to CarriedRoom(page.page, it, nextRevision, revisions[page.page] ?: Long.MIN_VALUE,
+                keyOf(pages[page.page].orEmpty(), it, pages[page.page + 1]?.firstOrNull()?.id))
+        }
         val seenFirst = firstSeen.toMutableMap()
         seen.forEach { key -> seenFirst[key] = minOf(seenFirst[key] ?: nextRevision, nextRevision) }
         return copy(
@@ -59,7 +64,47 @@ data class RoomPageWindow(
             revision = maxOf(revision, nextRevision),
             carried = nextCarried,
             firstSeen = seenFirst.filterKeys { it in present || it in nextCarried },
-        )
+        ).run {
+            if (carried.isEmpty()) return@run this
+            // ページごとの、立てた順の位置の最初と最後。最後の部屋は使い回しの ID でも見分けられないので、2 部屋以上あれば最後から 2 番目を使う。
+            val bounds = pages.filterValues { it.isNotEmpty() }.mapValues { (n, rooms) ->
+                sortKeys(rooms, pages[n + 1]?.firstOrNull()?.id).let { it.first() to it[(it.size - 2).coerceAtLeast(0)] }
+            }
+            copy(carried = carried.filterValues { !closedByRun(it, bounds) })
+        }
+    }
+
+    /**
+     * [numbers] のページを外した一覧。古くなったページ（画面を離れていた間に何時間も前になったページなど）を出し続けないために使う。
+     * 残していた部屋（[carried]）も、いつのページから消えたのか当てにならないので外す。読み直せばまた載る。
+     */
+    fun without(numbers: Set<Int>): RoomPageWindow =
+        if (numbers.none { it in pages }) this
+        else (pages - numbers).let { kept ->
+            val present = kept.values.flatten().mapTo(HashSet(), ::roomIdentity)
+            copy(pages = kept, revisions = revisions - numbers, carried = emptyMap(), firstSeen = firstSeen.filterKeys { it in present })
+        }
+
+    /**
+     * 残している部屋 [c] が閉じたと分かるか。消えたと分かった観測以降に読んだ、ページ番号の続くページの並びの
+     * 最初の部屋と最後の部屋の間に [c] の位置（[CarriedRoom.key]）が入るなら、[c] はそのどれかのページに載っているはずなので閉じた。
+     * 並びの端は同じ秒に立った部屋と順が前後しうるので [ID_MARGIN] 内側だけを見る。ただし 1 ページ目より上と最後のページより下には
+     * ほかのページが無いので、並びが 1 ページ目から始まればそれより新しい部屋も、最後のページで終わればそれより古い部屋も閉じた。
+     * 消えた後に何ページも後ろへずれた部屋は、並びの最後の部屋より古いので外さない。[bounds] はページごとの並びの最初と最後の位置。
+     */
+    private fun closedByRun(c: CarriedRoom, bounds: Map<Int, Pair<Long, Long>>): Boolean {
+        val read = bounds.keys.filter { (revisions[it] ?: Long.MIN_VALUE) >= c.revision }.toSortedSet()
+        for (first in read) {
+            if (first - 1 in read) continue
+            var last = first
+            while (last + 1 in read) last++
+            val top = bounds.getValue(first).first
+            val bottom = bounds.getValue(last).second
+            val high = if (first == 1) Long.MAX_VALUE else top - ID_MARGIN
+            val low = if (last >= lastPage) Long.MIN_VALUE else bottom + ID_MARGIN
+            if (c.key in low..high) return true
+        }
+        return false
     }
 
     /**
@@ -166,24 +211,64 @@ data class RoomPageWindow(
         return if (superseded.isEmpty()) all else all.filterNot { roomIdentity(it) in superseded }
     }
 
-    /** 読んだページと、消えて残している部屋（[carried]）を、ページの順に並べた一覧。立て直された古い部屋（[superseded]）も含む。 */
+    /**
+     * 読んだページと、消えて残している部屋（[carried]）を並べた一覧。立て直された古い部屋（[superseded]）も含む。
+     * ページの順に並べ、同じ部屋が複数のページにあれば新しく読んだページの内容を、最初に載っているページの位置に出す。
+     * 残している部屋は、立てた順（[CarriedRoom.key]）で前後の部屋の間に差し込む。
+     */
     val listedRooms: List<Room> get() {
         val newest = linkedMapOf<String, Room>()
         pages.keys.sortedByDescending { revisions[it] }.forEach { page ->
             pages[page].orEmpty().forEach { newest.putIfAbsent(roomIdentity(it), it) }
         }
-        carried.forEach { (id, c) -> newest.putIfAbsent(id, c.room) }
-        return (pages.keys + carried.values.map { it.page }).toSortedSet()
-            .flatMap { page -> pages[page].orEmpty() + carried.values.filter { it.page == page }.map { it.room } }
-            .mapNotNull { newest.remove(roomIdentity(it)) }
+        val listed = mutableListOf<Pair<Room, Long>>()
+        pages.keys.sorted().forEach { page ->
+            val rooms = pages.getValue(page)
+            rooms.zip(sortKeys(rooms, pages[page + 1]?.firstOrNull()?.id)).forEach { (room, key) -> newest.remove(roomIdentity(room))?.let { listed += it to key } }
+        }
+        val shown = listed.mapTo(HashSet()) { roomIdentity(it.first) }
+        val waiting = carried.values.filter { roomIdentity(it.room) !in shown }.sortedByDescending { it.key }
+        val result = ArrayList<Room>(listed.size + waiting.size)
+        var next = 0
+        for ((room, key) in listed) {
+            while (next < waiting.size && waiting[next].key > key) result += waiting[next++].room
+            result += room
+        }
+        while (next < waiting.size) result += waiting[next++].room
+        return result
     }
 }
 
 /**
- * 取り直したページから消えた部屋。[page] は消えたページ、[room] は最後に見た内容、[revision] は消えたと分かった観測、
- * [seenAt] は消える前に最後に載っていた観測（立て直しの部屋と同時にあったかを見る。[RoomPageWindow.superseded]）。
+ * ページ [rooms] の部屋ごとの、立てた順の位置。一覧は立てた順（部屋の ID の大きい順）なので、ふつうは部屋の ID。
+ * 閉じた部屋の ID を使い回した部屋は、後ろに並ぶ部屋より ID が [RoomPageWindow.ID_MARGIN] を超えて小さいので、
+ * ID ではなく直前の部屋の位置を使う（先頭なら後ろの部屋のいちばん大きい ID）。[after] は次のページの最初の部屋の ID（分かれば）。
  */
-data class CarriedRoom(val page: Int, val room: Room, val revision: Long = 0, val seenAt: Long = Long.MIN_VALUE)
+internal fun sortKeys(rooms: List<Room>, after: Long? = null): List<Long> {
+    val laterMax = LongArray(rooms.size + 1) { Long.MIN_VALUE }
+    // ページの最後の部屋は後ろに部屋が無いので、次のページの最初の部屋（[after]）と比べて使い回しを見分ける。
+    laterMax[rooms.size] = after ?: Long.MIN_VALUE
+    for (i in rooms.indices.reversed()) laterMax[i] = maxOf(laterMax[i + 1], rooms[i].id)
+    val keys = ArrayList<Long>(rooms.size)
+    rooms.forEachIndexed { i, room ->
+        val reused = laterMax[i + 1] != Long.MIN_VALUE && room.id + RoomPageWindow.ID_MARGIN < laterMax[i + 1]
+        keys += if (!reused) room.id else keys.lastOrNull() ?: laterMax[i + 1]
+    }
+    return keys
+}
+
+/** [rooms] に載っていた [room] の、立てた順の位置（[sortKeys]）。[after] は次のページの最初の部屋の ID。 */
+private fun keyOf(rooms: List<Room>, room: Room, after: Long?): Long {
+    val i = rooms.indexOfFirst { roomIdentity(it) == roomIdentity(room) }
+    return if (i < 0) room.id else sortKeys(rooms, after)[i]
+}
+
+/**
+ * 取り直したページから消えた部屋。[page] は消えたページ、[room] は最後に見た内容、[revision] は消えたと分かった観測、
+ * [seenAt] は消える前に最後に載っていた観測（立て直しの部屋と同時にあったかを見る。[RoomPageWindow.superseded]）、
+ * [key] は消えたページでの立てた順の位置（[sortKeys]）。
+ */
+data class CarriedRoom(val page: Int, val room: Room, val revision: Long = 0, val seenAt: Long = Long.MIN_VALUE, val key: Long = room.id)
 
 /** 部屋は最長 8 時間で閉じるので、直近 1 時間に立った部屋（一覧の前のページ）を優先して読み直す。 */
 val RECENT_ROOM_AGE: Duration = 1.hours
