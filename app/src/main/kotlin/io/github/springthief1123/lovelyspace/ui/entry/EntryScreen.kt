@@ -76,7 +76,7 @@ fun EntryScreen(
             initializer {
                 EntryViewModel(app.client, app.settings, app.presets, host, genreKey, roomId, auto, listedPublic,
                     onEnteredAfterClose = app::adoptEnteredAfterClose, registrationMark = app.activeRooms::registrations,
-                    onEnteredRoom = app.autoEntry::entered)
+                    onEnteredRoom = app::onEnteredRoom)
             }
         },
     )

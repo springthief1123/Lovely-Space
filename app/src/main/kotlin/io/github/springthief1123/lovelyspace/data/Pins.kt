@@ -197,6 +197,16 @@ class PinRepository(
             pendingNotices = if (alert == PinAlert.OFF) emptyList() else record.pendingNotices)))
     }
 
+    /**
+     * [genreKey] の部屋 [roomId] に入室できたとき。その部屋の「自動で入室」のピンを「空いたら知らせる」に戻す。
+     * 自動で開いた入室画面からでなく手で入室したときも戻し、退室・追い出しで部屋がまた空いても自動で入り直さない（Yuya の決定、2026-11-05）。
+     */
+    suspend fun finishAutoEntry(genreKey: String, roomId: Long) = mutex.withLock {
+        val keys = _pins.value.filter { it.room.genreKey == genreKey && it.room.id == roomId }.map { it.key }
+            .filter { _records.value[it]?.alert == PinAlert.AUTO }
+        if (keys.isNotEmpty()) save(_records.value + keys.associateWith { _records.value.getValue(it).copy(alert = PinAlert.NOTIFY) })
+    }
+
     private fun requireAlertSlot(key: String) {
         val others = _pins.value.count { it.key != key && _records.value[it.key]?.notifies == true }
         require(others < MAX_NOTIFYING) { "知らせるピンは同時に${MAX_NOTIFYING}件までです。ほかのピンの知らせ方を「知らせない」にしてください。" }

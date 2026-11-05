@@ -113,6 +113,16 @@ class LovelySpaceApp : Application() {
         }
     }
 
+    /**
+     * 入室できた部屋（自動でも手でも）。自動で入室画面を開いた 1 件と、その部屋の「自動で入室」のピンの自動入室を終える。
+     */
+    fun onEnteredRoom(room: io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef) {
+        autoEntry.entered(room)
+        appScope.launch {
+            try { pins.finishAutoEntry(room.genreKey, room.roomId) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { }
+        }
+    }
+
     /** 入室できて自動入室を終える 1 件（[AutoEntryController.finished]）をオフにする。 */
     private suspend fun finishAutoEntry(target: String) {
         when {
