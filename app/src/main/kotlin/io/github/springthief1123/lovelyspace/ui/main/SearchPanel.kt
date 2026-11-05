@@ -62,7 +62,7 @@ import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentBottomIns
 
 /**
  * 「見つける」の検索シート。トップバーの検索ボタンで開き、トップバーのすぐ下から降りてくる。
- * 上に検索欄・保存した条件・よく使う絞り込み、その下に詳しい条件を 2 つのタブ（年齢・地域／語の設定）に分けて出す。
+ * 上に検索欄・保存した条件・よく使う絞り込み、その下に詳しい条件を 2 つのタブ（年齢・地域／除外する語）に分けて出す。
  * タブの中身は高いほうに高さをそろえ、タブを替えても「リセット」「保存」「N件を表示」の位置が動かないようにする。
  * 画面の下（ボトムナビ）は覆わない。条件は変えた時点で取得済みの一覧に反映する。
  */
@@ -119,9 +119,14 @@ internal fun SearchSheet(
                     ) {
                         SearchField(state.criteria.keyword(state.keywordScope), "検索する語", vm::keyword,
                             scope = state.keywordScope, onScope = vm::keywordScope)
+                        // 「すべて含む／どれかを含む」は検索する語だけに効くので、検索欄のすぐ下に置く（除外する語はいつも「どれか 1 つでも」）。
+                        ChoiceRow("複数の語を", state.criteria.keywordMode, listOf(KeywordMode.ALL to "すべて含む", KeywordMode.ANY to "どれかを含む")) {
+                            vm.criteria(state.criteria.copy(keywordMode = it))
+                        }
+                        HiddenKeywords(hiddenKeywords(state.criteria, state.keywordScope), vm::clearHiddenKeywords)
                         SavedSearchRow(state, saved, vm::applyPreset)
                         QuickFilterRow(state.criteria, onChange = vm::criteria)
-                        SearchSheetTabs(tab, marked = { sheetTabHasFilters(it, state.criteria, state.keywordScope) }, onSelect = onTab)
+                        SearchSheetTabs(tab, marked = { sheetTabHasFilters(it, state.criteria) }, onSelect = onTab)
                         EqualHeightPages(selected = tab.ordinal, pages = listOf(
                             { AgeAreaConditions(state, vm) },
                             { KeywordConditions(state, vm, ng) },
@@ -144,13 +149,13 @@ internal fun SearchSheet(
 /** 検索シートのタブ。保存した条件は検索欄の下に出すので、タブは詳しい条件だけ。 */
 internal enum class SearchSheetTab(val label: String) {
     AGE_AREA("年齢・地域"),
-    KEYWORD("語の設定"),
+    KEYWORD("除外する語"),
 }
 
 /** タブの中で条件を指定しているか。タブの名前の横に点を付ける。 */
-internal fun sheetTabHasFilters(tab: SearchSheetTab, c: RoomSearchCriteria, scope: KeywordScope): Boolean = when (tab) {
+internal fun sheetTabHasFilters(tab: SearchSheetTab, c: RoomSearchCriteria): Boolean = when (tab) {
     SearchSheetTab.AGE_AREA -> c.minAge != null || c.maxAge != null || !c.includeUnknownAge || c.area != null
-    SearchSheetTab.KEYWORD -> c.excluded.isNotBlank() || c.keywordMode == KeywordMode.ANY || hiddenKeywords(c, scope).isNotEmpty()
+    SearchSheetTab.KEYWORD -> c.excluded.isNotBlank()
 }
 
 /** 下線で選択を示すタブの並び。Material の TabRow は色と高さが Quiet Rose から浮くので、同じ役割を小さく作る。 */
@@ -301,15 +306,13 @@ private fun AreaPickerDialog(selected: String?, onSelect: (String?) -> Unit, onD
     }
 }
 
-/** 語は上の検索欄 1 つで入れ（探す場所は検索欄の右端で選ぶ）、ここでは一致のしかたと除外する語を選ぶ。 */
+/** 除外する語のタブ。検索する語と「すべて含む／どれかを含む」は検索欄とそのすぐ下で決める。 */
 @Composable
 private fun KeywordConditions(state: SearchUiState, vm: SearchViewModel, ng: NgSummary?) {
     val c = state.criteria
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        ChoiceRow("複数の語", c.keywordMode, listOf(KeywordMode.ALL to "すべて含む", KeywordMode.ANY to "どれかを含む")) { vm.criteria(c.copy(keywordMode = it)) }
-        HiddenKeywords(hiddenKeywords(c, state.keywordScope), vm::clearHiddenKeywords)
         OutlinedTextField(c.excluded, { vm.criteria(c.copy(excluded = it)) }, label = { Text("除外する語（スペース区切り）") },
-            supportingText = { Text("検索欄に「-語」と書いても除外できます") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            supportingText = { Text("どれか 1 つでも含む部屋を外します。検索欄に「-語」と書いても除外できます") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         // この検索だけの「除外する語」と、常に効く NG ワードの関係が分かるよう、すぐ下に NG ワードの状態を出す。
         ng?.let { NgSummaryRow(it) }
     }

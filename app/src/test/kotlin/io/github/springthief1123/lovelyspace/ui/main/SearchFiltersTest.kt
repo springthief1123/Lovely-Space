@@ -72,11 +72,11 @@ class SearchFiltersTest {
     }
 
     @Test fun sheetTabsAreMarkedWhenTheyHoldConditions() {
-        assertFalse(sheetTabHasFilters(SearchSheetTab.AGE_AREA, RoomSearchCriteria(text = "雑談"), KeywordScope.ALL))
-        assertTrue(sheetTabHasFilters(SearchSheetTab.AGE_AREA, RoomSearchCriteria(area = "大阪"), KeywordScope.ALL))
-        assertTrue(sheetTabHasFilters(SearchSheetTab.KEYWORD, RoomSearchCriteria(excluded = "業者"), KeywordScope.ALL))
-        // 検索欄に出していない欄の語も、語の設定のタブに印を付ける。
-        assertTrue(sheetTabHasFilters(SearchSheetTab.KEYWORD, RoomSearchCriteria(name = "合成"), KeywordScope.ALL))
+        assertFalse(sheetTabHasFilters(SearchSheetTab.AGE_AREA, RoomSearchCriteria(text = "雑談")))
+        assertTrue(sheetTabHasFilters(SearchSheetTab.AGE_AREA, RoomSearchCriteria(area = "大阪")))
+        assertTrue(sheetTabHasFilters(SearchSheetTab.KEYWORD, RoomSearchCriteria(excluded = "業者")))
+        // 「どれかを含む」は検索欄の下で選ぶので、除外する語のタブには印を付けない。
+        assertFalse(sheetTabHasFilters(SearchSheetTab.KEYWORD, RoomSearchCriteria(keywordMode = KeywordMode.ANY)))
     }
 
     @Test fun regionsCoverEveryPrefectureOnce() {
