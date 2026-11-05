@@ -15,8 +15,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
+import io.github.springthief1123.lovelyspace.core.chat.ChatRoomFormParser
 import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
 import org.json.JSONObject
+import org.json.JSONTokener
 
 /**
  * 本家のページをアプリ内で表示する。ロボット確認が必要なフォーム（入室・部屋作成）や、まだ解析していない画面に使う。
@@ -57,6 +59,12 @@ fun SiteWebView(
     captchaOnlyStyle: CaptchaOnlyStyle? = null,
     captchaOnly: Boolean = false,
     onRoomOpened: ((ChatRoomRef) -> Unit)? = null,
+    /**
+     * true なら、読み終えたページのフォームからも部屋を探す（core の [ChatRoomFormParser]）。本家の再入室は
+     * `2shot.php` を POST で開くなど URL に pwd が載らないことがあり、URL だけでは引き継げないため。
+     * [onRoomOpened] と一緒に使う。
+     */
+    findRoomInPage: Boolean = false,
 ) {
     require(Uri.parse(url).isShalove()) { "Only HTTPS shalove.net pages can be opened in SiteWebView" }
     val currentOnRoomOpened = rememberUpdatedState(onRoomOpened)
@@ -113,6 +121,14 @@ fun SiteWebView(
 
                     override fun onPageFinished(view: WebView, url: String?) {
                         val uri = url?.let(Uri::parse) ?: return
+                        if (findRoomInPage && !done && currentOnRoomOpened.value != null && uri.isShalove()) {
+                            // ページは pwd を含むので、ログには出さない。
+                            view.evaluateJavascript(PAGE_HTML_SCRIPT) { result ->
+                                val html = decodeScriptString(result) ?: return@evaluateJavascript
+                                val room = ChatRoomFormParser.parse(html, uri.toString(), genreKey) ?: return@evaluateJavascript
+                                if (interceptRoom(Uri.parse(room.pageUrl))) view.stopLoading()
+                            }
+                        }
                         val path = scriptPath ?: return
                         if (!uri.isShalove() || uri.path?.endsWith(path) != true) return
                         currentScript.value?.let { view.evaluateJavascript(it, null) }
@@ -189,6 +205,13 @@ private fun WebResourceRequest.opensExternally(shown: Boolean): Boolean =
  */
 internal fun opensExternally(scheme: String?, hasGesture: Boolean, shown: Boolean): Boolean =
     shown && hasGesture && (scheme.equals("https", ignoreCase = true) || scheme.equals("http", ignoreCase = true))
+
+/** 読み終えたページの HTML を返す JavaScript。部屋を探す解析は core の [ChatRoomFormParser] が行う。 */
+private const val PAGE_HTML_SCRIPT = "document.documentElement ? document.documentElement.outerHTML : null"
+
+/** evaluateJavascript の結果（JSON の値）が文字列ならその中身、それ以外（null など）は null。 */
+internal fun decodeScriptString(result: String?): String? =
+    runCatching { JSONTokener(result ?: return null).nextValue() as? String }.getOrNull()?.takeIf { it.isNotEmpty() }
 
 private fun Uri.isShalove(): Boolean =
     scheme == "https" && (host == "shalove.net" || host?.endsWith(".shalove.net") == true)

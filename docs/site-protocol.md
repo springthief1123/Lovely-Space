@@ -56,7 +56,7 @@
 ## その他のエンドポイント
 
 - 部屋作成: `GET /PreMakeRoom?genre_key=<g>&kct=<unix秒>`
-- 再入室: `GET /?submit=submit_rein2shot&genre_key=<g>`（所属ジャンルのサブドメインで開く）。アプリのマイルームから、選んだジャンルの本家画面を WebView で開き、`2shot.php` に遷移した場合だけアプリのチャットへ引き継ぐ。本家ログイン後の作成者・参加者両方の再入室結果、Cookie 有効期限、対象ジャンル不一致の画面は実機未確認。
+- 再入室: `GET /?submit=submit_rein2shot&genre_key=<g>`（所属ジャンルのサブドメインで開く）。アプリのマイルームでは、アプリが部屋を覚えていれば本家を開かずにアプリのチャットへ戻る。覚えていないときだけ選んだジャンルの本家画面を WebView で開き、`2shot.php?room_id=..&pwd=..` に移るか、読み終えた画面に `2shot.php` へ送るフォーム（hidden の `room_id`・`pwd`）があればアプリのチャットへ引き継ぐ（本家の再入室は `2shot.php` を POST で開くなど URL に `pwd` が載らない場合があるため）。本家ログイン後の作成者・参加者両方の再入室結果、Cookie 有効期限、対象ジャンル不一致の画面は実機未確認。
 - 不正通報: `POST /ReportBadRoom` `action=ReportBadRoom&room_id=..&ajax=1`（jsonp 版あり、charset Shift_JIS）
 - 会員: `/member/`, 登録 `/PreRegistMail`, 画像 `/PhotoUp/`, ブロックリスト説明 `/information/editbans`
 - プッシュ通知: `ipush.chat.shalove.net`（サイト自体が入室者通知を Web Push で提供している形跡あり）

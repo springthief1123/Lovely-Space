@@ -172,6 +172,28 @@ object EntryFormParser {
     }
 }
 
+/**
+ * 本家のチャット画面（`2shot.php`）を開いた結果のページから、その部屋を見つける。本家の再入室は `2shot.php` を
+ * POST で開くなど URL に pwd が載らないことがあるため、チャットの操作フォーム（送信先が `2shot.php`、hidden の
+ * `room_id`・`pwd`）から読む。入室前画面（送信先 `PreEnterRoom`）の pwd は入室前のものなので拾わない。
+ * [pageUrl] はフォームの送信先を解決する基準で、部屋のホストは送信先から取る。
+ */
+object ChatRoomFormParser {
+    fun parse(html: String, pageUrl: String, genreKey: String): ChatRoomRef? {
+        val doc = Jsoup.parse(html, pageUrl)
+        for (form in doc.select("form[action]")) {
+            val action = runCatching { java.net.URI(form.absUrl("action")) }.getOrNull() ?: continue
+            val host = action.host ?: continue
+            if (action.scheme != "https" || !(host == "shalove.net" || host.endsWith(".shalove.net"))) continue
+            if (action.path?.endsWith("/2shot.php") != true) continue
+            val roomId = form.selectFirst("input[name=room_id]")?.attr("value")?.trim()?.toLongOrNull() ?: continue
+            val pwd = form.selectFirst("input[name=pwd]")?.attr("value")?.trim()?.takeIf { it.isNotEmpty() } ?: continue
+            return ChatRoomRef(host, roomId, pwd, genreKey)
+        }
+        return null
+    }
+}
+
 private val INVISIBLE = Regex("[​-‍⁠﻿]")
 internal fun String.stripInvisible(): String = replace(INVISIBLE, "")
 

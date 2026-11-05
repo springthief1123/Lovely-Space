@@ -165,4 +165,21 @@ class ChatParsersTest {
     fun noEntryFormOnOtherPages() {
         assertNull(EntryFormParser.parse("<html><body>この部屋は満室です</body></html>", "h", "https://h/"))
     }
+
+    @Test
+    fun findsRoomFromChatPageForms() {
+        val owner = ChatRoomFormParser.parse(fixture("chat/chat_page_owner.html"), "https://chat.shalove.net/?submit=submit_rein2shot&genre_key=chah", "chah")!!
+        assertEquals(ChatRoomRef("chat.shalove.net", 900000003, "aaaabbbbccccddddaaaabbbbccccdddd", "chah"), owner)
+        val guest = ChatRoomFormParser.parse(fixture("chat/chat_page_guest.html"), "https://2shot.chat.shalove.net/2shot.php", "chah")!!
+        assertEquals("2shot.chat.shalove.net", guest.host)
+        assertTrue(guest.pwd.isNotEmpty())
+    }
+
+    @Test
+    fun ignoresPreEnterAndOtherSitesForms() {
+        assertNull(ChatRoomFormParser.parse(fixture("chat/preenter.html"), "https://2shot.chat.shalove.net/PreEnterRoom", "chah"))
+        val other = """<form action="https://example.com/2shot.php"><input name="room_id" value="1"><input name="pwd" value="x"></form>"""
+        assertNull(ChatRoomFormParser.parse(other, "https://chat.shalove.net/", "chah"))
+        assertNull(ChatRoomFormParser.parse("<html><body>部屋がありません</body></html>", "https://chat.shalove.net/", "chah"))
+    }
 }
