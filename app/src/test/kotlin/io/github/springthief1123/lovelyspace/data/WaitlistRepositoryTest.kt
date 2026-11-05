@@ -7,6 +7,8 @@ import io.github.springthief1123.lovelyspace.core.*
 import io.github.springthief1123.lovelyspace.notify.NotificationKind
 import io.github.springthief1123.lovelyspace.notify.NotificationTarget
 import io.github.springthief1123.lovelyspace.notify.toOpenedNotification
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
@@ -32,9 +34,11 @@ class WaitlistRepositoryTest {
         var revision = 0L
         val calls = mutableListOf<RoomQuery>()
         var fail = false
+        var beforeResponse: suspend () -> Unit = {}
         override fun observation(query: RoomQuery) = observations.value[query]
         override suspend fun fetch(query: RoomQuery, force: Boolean): RoomListPage {
             calls += query
+            beforeResponse()
             if (fail) throw java.io.IOException("合成の通信失敗")
             val page = RoomListPage(query.genre.key, pages[query.page].orEmpty(), null, null, query.page, lastPage, emptyMap(), null)
             revision++
@@ -45,8 +49,123 @@ class WaitlistRepositoryTest {
 
     private class Memory : WaitlistPersistence {
         var saved: List<WaitlistEntry> = emptyList()
+        var failSave = false
         override fun load() = saved
-        override fun save(entries: List<WaitlistEntry>) { saved = entries }
+        override fun save(entries: List<WaitlistEntry>) {
+            if (failSave) throw IllegalStateException("合成の保存失敗")
+            saved = entries
+        }
+    }
+
+    @Test
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun concurrentForegroundAndBackgroundChecksDoNotRunTheSameSyncInParallel() = runTest {
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val lists = Lists().apply {
+            pages = mapOf(1 to listOf(full))
+            beforeResponse = {
+                if (calls.size == 1) {
+                    entered.complete(Unit)
+                    release.await()
+                }
+            }
+        }
+        val waitlist = WaitlistRepository(Memory(), lists, {}, backgroundScope) { 0L }
+        waitlist.register(full)
+
+        val foreground = async { waitlist.check(1) }
+        entered.await()
+        val background = async { waitlist.check(1) }
+        runCurrent()
+        assertEquals("最初の取得が止まっている間は次の取得を開始しない", 1, lists.calls.size)
+
+        release.complete(Unit)
+        assertFalse(foreground.await())
+        assertFalse(background.await())
+        assertEquals(2, lists.calls.size)
+    }
+
+    @Test
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun concurrentPendingDeliveryAndObservationNotifyOnlyOnce() = runTest {
+        val opened = full.copy(status = RoomStatus.WAITING, action = RoomAction.ENTER, name = "合成の名前")
+        val lists = Lists().apply { pages = mapOf(1 to listOf(opened)) }
+        val memory = Memory()
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val received = mutableListOf<WaitlistEntry>()
+        val waitlist = WaitlistRepository(memory, lists, {
+            entered.complete(Unit)
+            release.await()
+            received += it
+        }, backgroundScope) { 0L }
+        waitlist.register(full)
+
+        val observing = async { waitlist.check(1) }
+        entered.await()
+        val retry = async { waitlist.deliverPending() }
+        runCurrent()
+        assertTrue(received.isEmpty())
+
+        release.complete(Unit)
+        observing.await()
+        retry.await()
+        assertEquals(1, received.size)
+        assertTrue(memory.saved.single().noticed)
+    }
+
+    @Test fun failedStorageDoesNotAdvanceStateOrLoseAnOpening() = runTest {
+        val opened = full.copy(status = RoomStatus.WAITING, action = RoomAction.ENTER, name = "合成の名前")
+        val lists = Lists().apply { pages = mapOf(1 to listOf(opened)) }
+        val memory = Memory().apply { failSave = true }
+        val received = mutableListOf<WaitlistEntry>()
+        val waitlist = WaitlistRepository(memory, lists, { received += it }, backgroundScope) { 0L }
+
+        val registerError = runCatching { waitlist.register(full) }.exceptionOrNull()
+        assertTrue(registerError is IllegalStateException)
+        assertTrue(waitlist.entries.value.isEmpty())
+        assertTrue(memory.saved.isEmpty())
+
+        memory.failSave = false
+        waitlist.register(full)
+        memory.failSave = true
+        val openingError = runCatching { waitlist.check(1) }.exceptionOrNull()
+        assertTrue(openingError is IllegalStateException)
+        assertEquals(WaitlistStatus.WATCHING, waitlist.entries.value.single().status)
+        assertTrue(received.isEmpty())
+
+        memory.failSave = false
+        waitlist.check(1)
+        assertEquals(1, received.size)
+        assertEquals(WaitlistStatus.OPENED, memory.saved.single().status)
+        assertTrue(memory.saved.single().noticed)
+    }
+
+    @Test
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun removalDuringNotificationDoesNotMarkANewRegistrationAsNoticed() = runTest {
+        val opened = full.copy(status = RoomStatus.WAITING, action = RoomAction.ENTER, name = "合成の名前")
+        val lists = Lists().apply { pages = mapOf(1 to listOf(opened)) }
+        val memory = Memory()
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val waitlist = WaitlistRepository(memory, lists, {
+            entered.complete(Unit)
+            release.await()
+        }, backgroundScope) { 0L }
+        waitlist.register(full)
+
+        val first = async { waitlist.check(1) }
+        entered.await()
+        waitlist.remove(roomIdentity(full))
+        waitlist.register(full)
+        release.complete(Unit)
+        first.await()
+
+        val newEntry = memory.saved.single()
+        assertEquals(WaitlistStatus.WATCHING, newEntry.status)
+        assertFalse(newEntry.noticed)
     }
 
     @Test fun aFullRoomThatStartsWaitingIsReportedOnceAndOpensItsEntryScreen() = runTest {
