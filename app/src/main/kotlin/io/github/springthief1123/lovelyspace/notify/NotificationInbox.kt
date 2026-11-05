@@ -4,12 +4,13 @@ import io.github.springthief1123.lovelyspace.settings.NoticeRetention
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 
 /** お知らせの履歴を端末内に残す先。 */
 interface NotificationInboxPersistence {
     fun load(): List<AppNotification>
     fun save(entries: List<AppNotification>)
+    /** 通知が完了した扱いに進む前に、端末内への書き込み成功を確認する。 */
+    fun saveDurably(entries: List<AppNotification>) = save(entries)
 }
 
 /**
@@ -52,11 +53,16 @@ class NotificationInbox(
         private set
 
     /** 履歴に加える。常駐通知など履歴に残さない種類は何もしない。 */
-    fun add(notification: AppNotification) {
+    fun add(notification: AppNotification) = addInternal(notification, durable = false)
+
+    /** 通知処理用。保存に失敗したら未配信イベントから再試行する。 */
+    fun addDurably(notification: AppNotification) = addInternal(notification, durable = true)
+
+    private fun addInternal(notification: AppNotification, durable: Boolean) {
         if (!notification.kind.logged) return
         val at = now()
         var expired = emptySet<String>()
-        change { entries ->
+        change(durable = durable) { entries ->
             expired = entries.filter { it.id != notification.id && isExpired(it, at) }.map { it.id }.toSet()
             (listOf(notification) + entries.filterNot { it.id == notification.id || it.id in expired }).take(MAX_ENTRIES)
         }
@@ -113,9 +119,20 @@ class NotificationInbox(
 
     fun clear() = change { emptyList() }
 
-    private fun change(block: (List<AppNotification>) -> List<AppNotification>) {
-        _entries.update(block)
-        runCatching { persistence?.save(_entries.value) }
+    private val saveLock = Any()
+
+    private fun change(durable: Boolean = false, block: (List<AppNotification>) -> List<AppNotification>) {
+        synchronized(saveLock) {
+            val next = block(_entries.value)
+            if (durable) {
+                // 保存できなければベルの状態も進めない。
+                persistence?.saveDurably(next)
+                _entries.value = next
+            } else {
+                _entries.value = next
+                runCatching { persistence?.save(next) }
+            }
+        }
     }
 
     companion object {

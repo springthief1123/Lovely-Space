@@ -116,6 +116,30 @@ class NotificationInboxTest {
         assertEquals(0, inbox.entries.value.unreadCount)
     }
 
+    @Test fun durableNotificationFailureDoesNotMarkAnEventAsRecorded() {
+        val store = object : NotificationInboxPersistence {
+            var saved: List<AppNotification> = emptyList()
+            var fails = true
+            override fun load() = saved
+            override fun save(entries: List<AppNotification>) { saved = entries }
+            override fun saveDurably(entries: List<AppNotification>) {
+                if (fails) throw java.io.IOException("合成の保存失敗")
+                saved = entries
+            }
+        }
+        val inbox = NotificationInbox(store)
+        val notification = entry("pin-500-1000", NotificationKind.WAITLIST)
+        assertTrue(runCatching { inbox.addDurably(notification) }.exceptionOrNull() is java.io.IOException)
+        assertTrue(inbox.entries.value.isEmpty())
+        assertTrue(store.saved.isEmpty())
+
+        store.fails = false
+        inbox.addDurably(notification)
+        inbox.addDurably(notification)
+        assertEquals(listOf("pin-500-1000"), inbox.entries.value.map { it.id })
+        assertEquals(listOf("pin-500-1000"), store.saved.map { it.id })
+    }
+
     @Test fun storageFailureDoesNotBreakTheInbox() {
         val broken = object : NotificationInboxPersistence {
             override fun load(): List<AppNotification> = throw IllegalStateException("storage")

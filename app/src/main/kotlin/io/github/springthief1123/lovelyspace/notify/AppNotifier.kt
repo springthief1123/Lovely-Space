@@ -18,6 +18,8 @@ import io.github.springthief1123.lovelyspace.MainActivity
 import io.github.springthief1123.lovelyspace.R
 import io.github.springthief1123.lovelyspace.settings.NoticeRetention
 import io.github.springthief1123.lovelyspace.settings.NotificationPreview
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /**
@@ -63,7 +65,7 @@ class AppNotifier(
      */
     @SuppressLint("MissingPermission") // canPost() で権限を確かめてから出す
     suspend fun post(notification: AppNotification, timeoutAfterMs: Long? = null, silent: Boolean = false, alertAgain: Boolean = false) {
-        inbox.add(notification)
+        withContext(Dispatchers.IO) { inbox.addDurably(notification) }
         if (!canPost()) return
         manager.notify(notification.id, NOTIFICATION_ID, build(notification, preview(), timeoutAfterMs, silent, alertAgain))
     }

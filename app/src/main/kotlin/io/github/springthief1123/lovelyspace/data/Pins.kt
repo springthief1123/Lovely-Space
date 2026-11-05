@@ -18,6 +18,19 @@ enum class PinAlert {
     AUTO,
 }
 
+/** 通知前に保存するイベント。再起動・再送でも同じ通知IDと検出時刻を使う。 */
+enum class PinNoticeType { OPENED, SIMILAR }
+
+data class PendingPinNotice(
+    val id: String,
+    val type: PinNoticeType,
+    val room: Room,
+    val at: Long,
+    val registered: Room? = null,
+    val similarity: Double = 0.0,
+    val autoEnter: Boolean = false,
+)
+
 /**
  * ピンの見張りの記録。ピンした部屋そのもの（名前・募集文など）は保存の記録（[RoomPreference.favorite]）にあり、[key]（[roomIdentity]）で結び付ける。
  * 部屋が立て直されて保存の記録が新しい部屋へ移ると（[RoomPreferenceRepository.moved]）、この記録も移す。
@@ -41,6 +54,8 @@ data class PinRecord(
     val suggested: String? = null,
     /** ピンを外したと分かった時刻。[PinRepository.PRUNE_MS] 経ったら記録を消す。ピンし直したら null に戻す。 */
     val removedAt: Long? = null,
+    /** 保存済みだが通知処理が完了していない空き・類似部屋イベント。 */
+    val pendingNotices: List<PendingPinNotice> = emptyList(),
 ) {
     fun autoActive(now: Long): Boolean = alert == PinAlert.AUTO && (autoUntil ?: 0L) > now
     /** 知らせるか（自動で入室の期限が過ぎても知らせる）。 */
@@ -65,10 +80,25 @@ data class PinView(val preference: RoomPreference, val record: PinRecord, val st
 /** ピンの見張りで起きたこと。知らせるピン（[PinRecord.notifies]）だけ。 */
 sealed interface PinEvent {
     val pin: PinView
+    /** 通知済みマークの保存に失敗して再送しても、同じ端末通知を更新する。 */
+    val noticeId: String? get() = null
+    val noticeAt: Long? get() = null
+
     /** 満室・閉じた部屋が空いた（立て直した部屋が待機中で現れたときも）。[registered] はピンしたときの内容。 */
-    data class Opened(override val pin: PinView, val registered: Room, val autoEnter: Boolean) : PinEvent
+    data class Opened(
+        override val pin: PinView, val registered: Room, val autoEnter: Boolean,
+        /** 以前の未配信イベントは再送だけにし、古い空きから自動入室を始めない。 */
+        val replayed: Boolean = false,
+        override val noticeId: String? = null,
+        override val noticeAt: Long? = null,
+    ) : PinEvent
+
     /** 閉じた部屋に似た部屋が建った。 */
-    data class Similar(override val pin: PinView, val similar: SimilarRoom) : PinEvent
+    data class Similar(
+        override val pin: PinView, val similar: SimilarRoom,
+        override val noticeId: String? = null,
+        override val noticeAt: Long? = null,
+    ) : PinEvent
 }
 
 interface PinPersistence {
@@ -105,6 +135,10 @@ class PinRepository(
     private val now: () -> Long = System::currentTimeMillis,
 ) {
     private val mutex = Mutex()
+    /** 新規イベントを記録した処理より先に、別の観測が未配信扱いで再送しないようにする。 */
+    private val processMutex = Mutex()
+    /** 通知コールバック中は状態のmutexを保持しない。再送同士だけを直列化する。 */
+    private val noticeMutex = Mutex()
     /** 利用者が同じ人と答えて引き継ぐ似た部屋。引き継いだ時点の様子をそのまま記録し、空いたとは数えない。 */
     private val adopting = HashSet<String>()
     private val _records = MutableStateFlow(runCatching { persistence.load() }.getOrNull().orEmpty())
@@ -161,7 +195,8 @@ class PinRepository(
     suspend fun setAlert(key: String, alert: PinAlert) = mutex.withLock {
         if (alert != PinAlert.OFF) requireAlertSlot(key)
         val record = _records.value[key] ?: PinRecord(key)
-        save(_records.value + (key to record.copy(alert = alert, autoUntil = if (alert == PinAlert.AUTO) now() + AutoEntryController.PINNED_MS else null)))
+        save(_records.value + (key to record.copy(alert = alert, autoUntil = if (alert == PinAlert.AUTO) now() + AutoEntryController.PINNED_MS else null,
+            pendingNotices = if (alert == PinAlert.OFF) emptyList() else record.pendingNotices)))
     }
 
     private fun requireAlertSlot(key: String) {
@@ -199,18 +234,24 @@ class PinRepository(
         val key = roomIdentity(to)
         val current = _records.value[key]
         var next = old.copy(key = key, rebuilds = old.rebuilds + 1, suggested = null, removedAt = null,
-            vacancies = (old.vacancies + current?.vacancies.orEmpty()).distinct().sorted().takeLast(PinRecord.MAX_VACANCIES))
+            vacancies = (old.vacancies + current?.vacancies.orEmpty()).distinct().sorted().takeLast(PinRecord.MAX_VACANCIES),
+            // 古い部屋への未配信通知を、新しい部屋の通知として再送しない。
+            pendingNotices = old.pendingNotices.filter { roomIdentity(it.room) == key })
         if (adopting.remove(key)) next = next.copy(state = if (to.status == RoomStatus.FULL) PinState.FULL else PinState.OPEN, stateAt = now())
-        save(_records.value - from + (key to next))
+        // 移ったことの知らせ（[RoomPreferenceRepository.moved]）は 1 回しか来ないので、保存に失敗しても知らせ方・メモを
+        // 新しい部屋へ移したまま持ち、次に記録を保存するときに書き込む（失敗で既定の「知らせない」に戻さない）。
+        val records = _records.value - from + (key to next)
+        try { save(records) }
+        catch (e: CancellationException) { throw e }
+        catch (_: Exception) { _records.value = records }
     }
 
-    private suspend fun process(favs: List<RoomPreference>, observations: Map<RoomQuery, ObservedRoomPage>) {
-        val events = mutableListOf<PinEvent>()
+    private suspend fun process(favs: List<RoomPreference>, observations: Map<RoomQuery, ObservedRoomPage>) = processMutex.withLock {
+        val freshIds = HashSet<String>()
         val learned = mutableListOf<Pair<RoomPreference, Room>>()
         mutex.withLock {
             val at = now()
-            val original = _records.value
-            val records = original.toMutableMap()
+            val records = _records.value.toMutableMap()
             val claimed = favs.mapTo(HashSet()) { it.pinKey() }
             val windows = favs.mapNotNull { Genres[it.genreKey] }.distinct().associateWith { observations.genreWindow(it) }
             val views = favs.map { pref ->
@@ -237,20 +278,30 @@ class PinRepository(
                     ?.let { learned += pref to it }
                 val view = PinView(pref, record, state, room, window?.roomPages?.get(key), similar, listed = observed != null)
                 if (record.notifies && seen == PinState.OPEN && before.state != null && before.state != PinState.OPEN && observed != null) {
-                    events += PinEvent.Opened(view, identity, record.autoActive(at))
+                    val notice = PendingPinNotice("pin-$key-$at", PinNoticeType.OPENED, room, at, registered = identity,
+                        autoEnter = record.autoActive(at))
+                    record = record.copy(pendingNotices = record.pendingNotices + notice)
+                    freshIds += notice.id
                 }
                 if (record.notifies && similar != null && record.suggested != roomIdentity(similar.room)) {
-                    record = record.copy(suggested = roomIdentity(similar.room))
-                    events += PinEvent.Similar(view.copy(record = record), similar)
+                    val notice = PendingPinNotice("pin-similar-$key-${similar.room.id}", PinNoticeType.SIMILAR, similar.room, at,
+                        similarity = similar.similarity)
+                    record = record.copy(suggested = roomIdentity(similar.room), pendingNotices = record.pendingNotices + notice)
+                    freshIds += notice.id
                 }
                 if (record != before || key !in records) records[key] = record
                 view.copy(record = record)
             }
             // ピンを外して時間が経った記録は消す（外してすぐは「元に戻す」で知らせ方などを戻せるよう残す）。
-            records.keys.filter { it !in claimed && records[it]?.removedAt == null }.forEach { key -> records[key] = records.getValue(key).copy(removedAt = at) }
+            records.keys.filter { it !in claimed }.forEach { key ->
+                val record = records.getValue(key)
+                if (record.removedAt == null || record.pendingNotices.isNotEmpty()) {
+                    // ピン解除後に古い通知が出ないよう、元に戻す用の記録だけを残す。
+                    records[key] = record.copy(removedAt = record.removedAt ?: at, pendingNotices = emptyList())
+                }
+            }
             records.entries.removeAll { (key, r) -> key !in claimed && (r.removedAt ?: at) < at - PRUNE_MS }
-            // 知らせ終えてから様子を記録する。途中で止まった・知らせられなかったピンは記録を戻し、次に確かめたときに知らせ直す。
-            deliver(events).forEach { key -> original[key]?.let { records[key] = it } ?: records.remove(key) }
+            // 未配信イベントも保存してから通知する。通知中は状態のロックを保持しない。
             if (records != _records.value) save(records)
             _pins.value = views.sortedWith(compareBy<PinView> { order(it) }.thenByDescending { it.record.stateAt ?: 0L })
             _loaded.value = true
@@ -259,6 +310,7 @@ class PinRepository(
         learned.forEach { (pref, room) ->
             try { preferences.rememberIdentity(pref, room) } catch (e: CancellationException) { throw e } catch (_: Exception) { }
         }
+        deliverPending(freshIds)
     }
 
     private fun order(pin: PinView): Int = when {
@@ -269,14 +321,54 @@ class PinRepository(
         else -> 4
     }
 
-    /** [events] を知らせ、知らせられなかったピンの [PinView.key] を返す。 */
-    private suspend fun deliver(events: List<PinEvent>): Set<String> = events.mapNotNullTo(HashSet()) { event ->
-        try { onEvent(event); null } catch (e: CancellationException) { throw e } catch (_: Exception) { event.pin.key }
+    /** 未配信イベントを1件ずつ再送する。再送では通知IDを再利用し、自動入室は新しい観測だけに限る。 */
+    private suspend fun deliverPending(freshIds: Set<String>) = noticeMutex.withLock {
+        val attempted = HashSet<String>()
+        while (true) {
+            val candidate = mutex.withLock {
+                val activeKeys = favorites.value.orEmpty().mapTo(HashSet()) { it.pinKey() }
+                _records.value.entries.asSequence()
+                    .filter { (key, record) -> key in activeKeys && record.notifies }
+                    .flatMap { (key, record) -> record.pendingNotices.asSequence().map { Triple(key, record, it) } }
+                    .firstOrNull { (_, _, pending) -> pending.id !in attempted }
+                    ?.let { (key, record, pending) ->
+                        _pins.value.firstOrNull { it.key == key }?.let { view ->
+                            // 空きはその時の部屋の姿で知らせる。似た部屋はピンした部屋のまま（通知の題を「<ピンの名前>に似た部屋」にする）。
+                            val shown = if (pending.type == PinNoticeType.OPENED) view.copy(record = record, room = pending.room) else view.copy(record = record)
+                            Triple(shown, key, pending)
+                        }
+                    }
+            } ?: break
+            val (view, key, pending) = candidate
+            attempted += pending.id
+            val event: PinEvent = when (pending.type) {
+                PinNoticeType.OPENED -> PinEvent.Opened(
+                    view.copy(state = PinState.OPEN), pending.registered ?: view.preference.identityRoom(), pending.autoEnter,
+                    replayed = pending.id !in freshIds, noticeId = pending.id, noticeAt = pending.at,
+                )
+                PinNoticeType.SIMILAR -> PinEvent.Similar(
+                    view, SimilarRoom(pending.room, pending.similarity), noticeId = pending.id, noticeAt = pending.at,
+                )
+            }
+            val delivered = try { onEvent(event); true }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { false }
+            if (!delivered) continue
+            mutex.withLock {
+                val current = _records.value[key] ?: return@withLock
+                if (current.pendingNotices.none { it.id == pending.id }) return@withLock
+                save(_records.value + (key to current.copy(pendingNotices = current.pendingNotices.filterNot { it.id == pending.id })))
+            }
+        }
     }
 
-    private fun save(records: Map<String, PinRecord>) {
+    /**
+     * 保存できなければメモリ上の状態を更新せず、次回の観測で再評価できる状態に保つ。
+     * 保存できた後でメモリへの反映がキャンセルで抜けないよう、両方をまとめて行う。
+     */
+    private suspend fun save(records: Map<String, PinRecord>) = withContext(NonCancellable + Dispatchers.IO) {
+        persistence.save(records)
         _records.value = records
-        runCatching { persistence.save(records) }
     }
 
     companion object {
@@ -301,7 +393,9 @@ class PinStore(private val prefs: android.content.SharedPreferences) : PinPersis
     }
 
     override fun save(records: Map<String, PinRecord>) {
-        prefs.edit().putString(KEY, JSONArray(records.values.map(::encode)).toString()).apply()
+        check(prefs.edit().putString(KEY, JSONArray(records.values.map(::encode)).toString()).commit()) {
+            "ピンの見張りを保存できませんでした。"
+        }
     }
 
     /** 以前の順番待ち・追跡をピンへ移し終えたか。 */
@@ -313,6 +407,7 @@ class PinStore(private val prefs: android.content.SharedPreferences) : PinPersis
         .put("key", r.key).put("alert", r.alert.name).put("autoUntil", r.autoUntil).put("memo", r.memo)
         .put("vacancies", JSONArray(r.vacancies)).put("rebuilds", r.rebuilds).put("dismissed", JSONArray(r.dismissed.toList()))
         .put("state", r.state?.name).put("stateAt", r.stateAt).put("suggested", r.suggested).put("removedAt", r.removedAt)
+        .put("pending", JSONArray(r.pendingNotices.map(::encodePending)))
 
     private fun decode(o: JSONObject): PinRecord {
         fun long(key: String) = if (o.isNull(key)) null else o.getLong(key)
@@ -331,8 +426,22 @@ class PinStore(private val prefs: android.content.SharedPreferences) : PinPersis
             stateAt = long("stateAt"),
             suggested = string("suggested"),
             removedAt = long("removedAt"),
+            pendingNotices = o.optJSONArray("pending")?.let { array ->
+                (0 until array.length()).mapNotNull { i -> runCatching { decodePending(array.getJSONObject(i)) }.getOrNull() }
+            }.orEmpty(),
         )
     }
+
+    private fun encodePending(p: PendingPinNotice): JSONObject = JSONObject()
+        .put("id", p.id).put("type", p.type.name).put("room", pinRoomJson(p.room)).put("at", p.at)
+        .put("registered", p.registered?.let(::pinRoomJson)).put("similarity", p.similarity).put("autoEnter", p.autoEnter)
+
+    private fun decodePending(o: JSONObject): PendingPinNotice = PendingPinNotice(
+        id = o.getString("id"), type = PinNoticeType.valueOf(o.getString("type")),
+        room = readPinRoom(o.getJSONObject("room")), at = o.getLong("at"),
+        registered = o.optJSONObject("registered")?.let(::readPinRoom),
+        similarity = o.optDouble("similarity"), autoEnter = o.optBoolean("autoEnter"),
+    ).also { require(it.type != PinNoticeType.OPENED || it.registered != null) }
 
     companion object {
         const val PREFS = "pins"
@@ -340,3 +449,14 @@ class PinStore(private val prefs: android.content.SharedPreferences) : PinPersis
         private const val MIGRATED = "migrated_v1"
     }
 }
+
+/** 保存したイベントは再起動後にも同じ部屋の姿を使う。 */
+private fun pinRoomJson(r: Room) = JSONObject()
+    .put("id", r.id).put("genre", r.genreKey).put("status", r.status.name).put("action", r.action.name)
+    .put("name", r.name).put("gender", r.gender.name).put("age", r.age).put("area", r.area).put("message", r.message)
+
+private fun readPinRoom(j: JSONObject) = Room(
+    j.getLong("id"), j.getString("genre"), RoomStatus.valueOf(j.getString("status")), RoomAction.valueOf(j.getString("action")), null,
+    if (j.isNull("name")) null else j.getString("name"), Gender.valueOf(j.getString("gender")),
+    if (j.isNull("age")) null else j.getInt("age"), if (j.isNull("area")) null else j.getString("area"), j.getString("message"),
+)
