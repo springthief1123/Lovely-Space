@@ -12,6 +12,8 @@ import io.github.springthief1123.lovelyspace.notify.toOpenedNotification
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -47,6 +49,30 @@ class WaitlistRepositoryTest {
             revision++
             observations.value += query to ObservedRoomPage(query, page, revision * 1000, revision)
             return page
+        }
+    }
+
+    /** 順序付き観測を配信する実アプリと同じ経路。HTTPは使わない。 */
+    private class EventLists : ObservedRoomListSource {
+        private val journal = RoomObservationJournal()
+        override val observations = journal.observations
+        override val changes = journal.changes
+        private var lastPage: RoomListPage? = null
+        private var time = 1_000L
+        override fun observation(query: RoomQuery) = observations.value[query]
+        override suspend fun fetch(query: RoomQuery, force: Boolean): RoomListPage {
+            val page = requireNotNull(lastPage) { "合成ページが未設定" }
+            journal.record(query, page, time++)
+            return page
+        }
+        suspend fun publish(genre: Genre, rooms: List<Room>, confirmedAt: Long) {
+            val query = RoomQuery(genre)
+            val page = RoomListPage(genre.key, rooms, null, null, 1, 1, emptyMap(), null)
+            lastPage = page
+            journal.record(query, page, confirmedAt)
+        }
+        fun setFetchPage(genre: Genre, rooms: List<Room>) {
+            lastPage = RoomListPage(genre.key, rooms, null, null, 1, 1, emptyMap(), null)
         }
     }
 
@@ -189,6 +215,94 @@ class WaitlistRepositoryTest {
         val newEntry = memory.saved.single()
         assertEquals(WaitlistStatus.WATCHING, newEntry.status)
         assertFalse(newEntry.noticed)
+    }
+
+    @Test
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun anOpeningObservedBeforeRegistrationIsNotAppliedToTheNewEntry() = runTest {
+        val lists = EventLists()
+        val opened = mutableListOf<WaitlistEntry>()
+        // 登録より前（1 秒）に空きを観測し、その後に満室の部屋を登録する（5 秒）。
+        lists.publish(zenkoku, listOf(full.copy(status = RoomStatus.WAITING, action = RoomAction.ENTER, name = "合成の部屋主")), 1_000)
+        val waitlist = WaitlistRepository(Memory(), lists, { opened += it }, backgroundScope, io = UnconfinedTestDispatcher(testScheduler)) { 5_000L }
+        waitlist.register(full)
+        runCurrent()
+
+        assertEquals(WaitlistStatus.WATCHING, waitlist.entries.value.single().status)
+        assertTrue(opened.isEmpty())
+    }
+
+    @Test
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun aTransientStorageFailureRetriesTheSameOrderedEvent() = runTest {
+        val lists = EventLists()
+        val opened = mutableListOf<WaitlistEntry>()
+        var failures = 0
+        val memory = object : WaitlistPersistence {
+            var saved: List<WaitlistEntry> = emptyList()
+            var failNext = 0
+            override fun load() = saved
+            override fun save(entries: List<WaitlistEntry>) {
+                if (failNext > 0) { failNext--; failures++; throw IllegalStateException("合成の保存失敗") }
+                saved = entries
+            }
+        }
+        val waitlist = WaitlistRepository(memory, lists, { opened += it }, backgroundScope, io = UnconfinedTestDispatcher(testScheduler)) { 0L }
+        waitlist.register(full)
+        runCurrent()
+        memory.failNext = 1
+        lists.publish(zenkoku, listOf(full.copy(status = RoomStatus.WAITING, action = RoomAction.ENTER, name = "合成の部屋主")), 2_000)
+        lists.publish(zenkoku, listOf(full), 3_000)
+        advanceTimeBy(5_000)
+        runCurrent()
+
+        assertEquals(1, failures)
+        assertEquals("保存の失敗の後でも、後の満室で中間の空きを失わない", 1, opened.size)
+        assertEquals(WaitlistStatus.OPENED, memory.saved.single().status)
+    }
+
+    @Test
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun rapidFullOpenFullWithoutCollectorTimeStillReportsTheOpening() = runTest {
+        val lists = EventLists()
+        val opened = mutableListOf<WaitlistEntry>()
+        val waitlist = WaitlistRepository(Memory(), lists, { opened += it }, backgroundScope, io = UnconfinedTestDispatcher(testScheduler)) { 0L }
+        waitlist.register(full)
+        runCurrent() // 先に購読を開始し、3件の観測を処理前にキューへ入れる。
+        val waiting = full.copy(status = RoomStatus.WAITING, action = RoomAction.ENTER, name = "合成の部屋主")
+        lists.publish(zenkoku, listOf(full), 1_000)
+        lists.publish(zenkoku, listOf(waiting), 2_000)
+        lists.publish(zenkoku, listOf(full), 3_000)
+
+        withTimeout(5_000) { waitlist.entries.first { it.singleOrNull()?.status == WaitlistStatus.OPENED } }
+        withTimeout(5_000) {
+            while (opened.isEmpty()) kotlinx.coroutines.delay(10)
+        }
+        assertEquals(1, opened.size)
+        assertEquals(RoomStatus.WAITING, opened.single().openedRoom?.status)
+        assertEquals(2_000L, opened.single().changedAt)
+    }
+
+    @Test
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun checkAwaitsTheOrderedEventInsteadOfApplyingTheLatestSnapshotFirst() = runTest {
+        val lists = EventLists()
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val waitlist = WaitlistRepository(Memory(), lists, {
+            entered.complete(Unit)
+            release.await()
+        }, backgroundScope, io = UnconfinedTestDispatcher(testScheduler)) { 0L }
+        waitlist.register(full)
+        runCurrent()
+        lists.setFetchPage(zenkoku, listOf(full.copy(status = RoomStatus.WAITING, action = RoomAction.ENTER)))
+        val check = async { waitlist.check(1) }
+
+        withTimeout(5_000) { entered.await() }
+        assertFalse("通知処理が完了するまでは同期確認を完了しない", check.isCompleted)
+        release.complete(Unit)
+        assertFalse(check.await())
+        assertEquals(WaitlistStatus.OPENED, waitlist.entries.value.single().status)
     }
 
     @Test fun aFullRoomThatStartsWaitingIsReportedOnceAndOpensItsEntryScreen() = runTest {

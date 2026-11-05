@@ -6,6 +6,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
@@ -82,18 +84,41 @@ class WaitlistRepository(
     private val noticeMutex = Mutex()
     private val sync = ListSync(lists)
     private val seen = mutableMapOf<RoomQuery, Long>()
+    /** イベント処理（通知まで）が終わったrevision。確認側が先回りして新しい状態を適用しないために使う。 */
+    private val handled = MutableStateFlow<Map<RoomQuery, Long>>(emptyMap())
     private val _entries = MutableStateFlow(runCatching { persistence.load() }.getOrNull().orEmpty())
     val entries: StateFlow<List<WaitlistEntry>> = _entries.asStateFlow()
 
     init {
         // 一覧画面・レーダーが取得したページにも待っている部屋があれば、その場で反映する。
         scope.launch {
-            lists.observations.collect { all ->
-                all.values.sortedBy { it.revision }.forEach { observed ->
-                    // 保存先の一時的な失敗で観測の購読全体を停止させない。revisionは成功後にだけ進める。
-                    try { apply(observed) }
-                    catch (e: CancellationException) { throw e }
-                    catch (_: Exception) { }
+            val changes = lists.changes
+            if (changes != null) {
+                // 配信された順に処理し、同じページの中間状態をStateFlowで上書きさせない。
+                changes.collect { change ->
+                    // 保存先の一時的な失敗では、同じ観測を少し空けて順番どおりにやり直す（後の観測で中間の空きを上書きしない）。
+                    // それでも保存できなければ諦め、[check] が待ち続けないよう処理済みにする。
+                    try {
+                        var attempt = 0
+                        while (true) {
+                            try { apply(change.observation, change.pages); break }
+                            catch (e: CancellationException) { throw e }
+                            catch (_: Exception) { if (++attempt >= EVENT_RETRIES) break }
+                            delay(EVENT_RETRY_MS)
+                        }
+                    } finally {
+                        val o = change.observation
+                        handled.update { revisions -> revisions + (o.query to maxOf(revisions[o.query] ?: 0L, o.revision)) }
+                    }
+                }
+            } else {
+                // テストの簡易Sourceなど、順序付きイベントを持たない実装の互換経路。
+                lists.observations.collect { all ->
+                    all.values.sortedBy { it.revision }.forEach { observed ->
+                        try { apply(observed) }
+                        catch (e: CancellationException) { throw e }
+                        catch (_: Exception) { }
+                    }
                 }
             }
         }
@@ -187,7 +212,17 @@ class WaitlistRepository(
         // 空き枠は秒単位で埋まるので、後ろのページの巡回より先に取る。
         sync.sync(queries, maxPages, force = false, priority = true, shouldFetch = { !failed }, onResult = { query, outcome ->
             if (outcome is ListSyncOutcome.Failed) failed = true
-            if (outcome is ListSyncOutcome.Fetched) lists.observation(query)?.let { apply(it) }
+            if (outcome is ListSyncOutcome.Fetched) lists.observation(query)?.let { observed ->
+                if (lists.changes == null) {
+                    apply(observed)
+                } else {
+                    // 検出イベントより新しい観測を先に処理すると、中間の空きを見落とす。
+                    // 背景ワーカーも通知完了を待てるよう、イベント経路での処理を確認する。
+                    if (withTimeoutOrNull(EVENT_WAIT_MS) {
+                        handled.first { (it[query] ?: 0L) >= observed.revision }
+                    } == null) failed = true
+                }
+            }
         })
         expire()
         failed
@@ -209,16 +244,18 @@ class WaitlistRepository(
     /** 前回、空きを保存した後に通知を出す前に止まっていれば、ここで出し直す。通信はしない。 */
     suspend fun deliverPending() = notify(_entries.value.filter { it.unnoticed })
 
-    private suspend fun apply(o: ObservedRoomPage) {
+    private suspend fun apply(o: ObservedRoomPage, pages: Map<RoomQuery, ObservedRoomPage> = lists.observations.value) {
         val opened = mutableListOf<WaitlistEntry>()
         mutex.withLock {
             if ((seen[o.query] ?: 0) >= o.revision) return
             val at = now()
             var changed = false
-            val window by lazy { lists.observations.value.genreWindow(o.query.genre) }
+            val window by lazy { pages.genreWindow(o.query.genre) }
             val claimed = _entries.value.mapTo(HashSet()) { it.key }
             val next = _entries.value.map { entry ->
                 if (!entry.active(at) || entry.room.genreKey != o.query.genre.key) return@map entry
+                // 登録より前の観測（購読が遅れてキューに残っていた空きなど）は、新しい登録に当てはめない。
+                if (o.confirmedAt < entry.registeredAt) return@map entry
                 val observed = o.page.rooms.firstOrNull { roomIdentity(it) == entry.key }
                 if (observed == null) {
                     // 閉じたと分かった部屋が立て直されていれば、新しい部屋を待つ（ほかの登録が追っている部屋は選ばない）。
@@ -301,6 +338,9 @@ class WaitlistRepository(
         /** 登録から期限までの時間。 */
         const val DEFAULT_HOURS = 3
         private const val HOUR_MS = 60 * 60 * 1000L
+        private const val EVENT_WAIT_MS = 10_000L
+        private const val EVENT_RETRIES = 3
+        private const val EVENT_RETRY_MS = 500L
     }
 }
 
