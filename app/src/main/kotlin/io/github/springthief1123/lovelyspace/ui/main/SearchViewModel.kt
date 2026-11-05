@@ -234,7 +234,7 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
         }
     }
     /** 一覧の上のチップの ✕。その条件だけを外す。 */
-    fun clearFilter(kind: ActiveFilterKind) {
+    internal fun clearFilter(kind: ActiveFilterKind) {
         if (kind == ActiveFilterKind.AGE) { ageRange(null, null); return }
         criteria(_state.value.criteria.without(kind))
     }
