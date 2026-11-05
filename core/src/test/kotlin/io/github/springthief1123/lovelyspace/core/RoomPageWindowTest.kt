@@ -85,6 +85,12 @@ class RoomPageWindowTest {
             .observe(page(1, listOf(host(1100), room(1000)), last = 2))
         assertTrue(edge.carried.containsKey(roomIdentity(old)))
         assertEquals(listOf(1100L, 1000L, 400L), edge.rooms.map { it.id })
+        // 両方が同じときに載っていた後、古い部屋だけが新着に押されてページから消えても、立て直しではないので出し続ける。
+        val pushed = RoomPageWindow().observe(page(1, listOf(host(1100), room(1000), old), last = 2))
+            .observe(page(2, listOf(room(400)), last = 2))
+            .observe(page(1, listOf(room(1200), host(1100), room(1000)), last = 2))
+        assertTrue(pushed.carried.containsKey(roomIdentity(old)))
+        assertTrue(pushed.rooms.any { it.id == 500L })
     }
     @Test fun eachRoomKnowsThePageItWasLastSeenOn() {
         // 1 は 1 ページ目から 2 ページ目へ移った。2 は 1 ページ目から消えたので、消えたページのまま残る。

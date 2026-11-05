@@ -49,7 +49,7 @@ data class RoomPageWindow(
             // 後ろへずれた部屋は次のページにあるので、消えた後に次のページを読むまでは閉じたと決めない。
             val nextRead = c.page >= limit || (revisions[c.page + 1] ?: Long.MIN_VALUE) > c.revision
             id !in present && c.page <= limit && !(c.page == page.page && nextRead) && !(c.revision < nextRevision && gone(c.room))
-        } + vanished.filterNot(::gone).associate { roomIdentity(it) to CarriedRoom(page.page, it, nextRevision) }
+        } + vanished.filterNot(::gone).associate { roomIdentity(it) to CarriedRoom(page.page, it, nextRevision, revisions[page.page] ?: Long.MIN_VALUE) }
         val seenFirst = firstSeen.toMutableMap()
         seen.forEach { key -> seenFirst[key] = minOf(seenFirst[key] ?: nextRevision, nextRevision) }
         return copy(
@@ -135,7 +135,7 @@ data class RoomPageWindow(
      * 立て直しで本家からはもう消えたと見られる古い部屋（[roomIdentity]）。[listedRooms] にはあるが [rooms] には出さない。
      *
      * 古い部屋の載るページを最後に読んだ観測より後に、その部屋の立て直し（[isRebuildOf]）が初めて見えたもの。
-     * 取り直したページから消えて残している部屋（[carried]）は、立て直しの部屋がページに載っていれば閉じたとみなす。
+     * 取り直したページから消えて残している部屋（[carried]）は、消える前に最後に載っていた観測（[CarriedRoom.seenAt]）と比べる。
      * 同じページの同じ観測で両方が見えていれば、本家にも両方あるので外さない。
      */
     val superseded: Set<String> get() = supersededIn(listedRooms)
@@ -148,12 +148,10 @@ data class RoomPageWindow(
             if (message.isEmpty() || group.size < 2) return@forEach
             group.forEach { old ->
                 val key = roomIdentity(old)
-                val c = carried[key]
-                val confirmed = if (c != null) null else revisions[pageOf[key]] ?: return@forEach
+                val confirmed = carried[key]?.seenAt ?: revisions[pageOf[key]] ?: return@forEach
                 val replaced = group.any { new ->
                     val newKey = roomIdentity(new)
-                    newKey != key && newKey !in carried && isRebuildOf(old, new) &&
-                        (confirmed == null || (firstSeen[newKey] ?: Long.MIN_VALUE) > confirmed)
+                    newKey != key && newKey !in carried && isRebuildOf(old, new) && (firstSeen[newKey] ?: Long.MIN_VALUE) > confirmed
                 }
                 if (replaced) result += key
             }
@@ -181,8 +179,11 @@ data class RoomPageWindow(
     }
 }
 
-/** 取り直したページから消えた部屋。[page] は消えたページ、[room] は最後に見た内容、[revision] は消えたと分かった観測。 */
-data class CarriedRoom(val page: Int, val room: Room, val revision: Long = 0)
+/**
+ * 取り直したページから消えた部屋。[page] は消えたページ、[room] は最後に見た内容、[revision] は消えたと分かった観測、
+ * [seenAt] は消える前に最後に載っていた観測（立て直しの部屋と同時にあったかを見る。[RoomPageWindow.superseded]）。
+ */
+data class CarriedRoom(val page: Int, val room: Room, val revision: Long = 0, val seenAt: Long = Long.MIN_VALUE)
 
 /** 部屋は最長 8 時間で閉じるので、直近 1 時間に立った部屋（一覧の前のページ）を優先して読み直す。 */
 val RECENT_ROOM_AGE: Duration = 1.hours
