@@ -218,7 +218,12 @@ fun AppNavHost() {
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) { launchSingleTop = true } },
                 onOpenMember = { nav.navigate(Routes.SETTINGS_MEMBER) { launchSingleTop = true } },
                 onCreateRoom = { nav.navigate(Routes.create(createGenreKey, Routes.PROFILE)) { launchSingleTop = true } },
-                onReenterRoom = { nav.navigate(Routes.SITE_REENTRY) { launchSingleTop = true } },
+                // アプリが覚えている部屋があれば、本家を開かずにそのままアプリのチャットへ戻る。
+                // 覚えていない（別の端末で入った・記録が消えた）ときだけ本家の再入室を WebView で開く。
+                onReenterRoom = {
+                    app.activeRooms.resume()?.let { nav.navigateToChat(it, Routes.PROFILE) }
+                        ?: nav.navigate(Routes.SITE_REENTRY) { launchSingleTop = true }
+                },
             ) }
             composable(Routes.SITE_REENTRY) {
                 SiteReentryScreen(

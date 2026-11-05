@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
 import org.json.JSONObject
+import org.json.JSONTokener
 
 /**
  * 本家のページをアプリ内で表示する。ロボット確認が必要なフォーム（入室・部屋作成）や、まだ解析していない画面に使う。
@@ -57,6 +58,12 @@ fun SiteWebView(
     captchaOnlyStyle: CaptchaOnlyStyle? = null,
     captchaOnly: Boolean = false,
     onRoomOpened: ((ChatRoomRef) -> Unit)? = null,
+    /**
+     * true なら、読み終えたページのフォームからも部屋を探す（[roomInPageScript]）。本家の再入室は
+     * `2shot.php` を POST で開くなど URL に pwd が載らないことがあり、URL だけでは引き継げないため。
+     * [onRoomOpened] と一緒に使う。
+     */
+    findRoomInPage: Boolean = false,
 ) {
     require(Uri.parse(url).isShalove()) { "Only HTTPS shalove.net pages can be opened in SiteWebView" }
     val currentOnRoomOpened = rememberUpdatedState(onRoomOpened)
@@ -113,6 +120,13 @@ fun SiteWebView(
 
                     override fun onPageFinished(view: WebView, url: String?) {
                         val uri = url?.let(Uri::parse) ?: return
+                        if (findRoomInPage && !done && currentOnRoomOpened.value != null && uri.isShalove()) {
+                            // 結果は pwd を含むので、ログには出さない。
+                            view.evaluateJavascript(roomInPageScript) { result ->
+                                val found = decodeScriptString(result)?.let(Uri::parse)
+                                if (interceptRoom(found)) view.stopLoading()
+                            }
+                        }
                         val path = scriptPath ?: return
                         if (!uri.isShalove() || uri.path?.endsWith(path) != true) return
                         currentScript.value?.let { view.evaluateJavascript(it, null) }
@@ -189,6 +203,30 @@ private fun WebResourceRequest.opensExternally(shown: Boolean): Boolean =
  */
 internal fun opensExternally(scheme: String?, hasGesture: Boolean, shown: Boolean): Boolean =
     shown && hasGesture && (scheme.equals("https", ignoreCase = true) || scheme.equals("http", ignoreCase = true))
+
+/**
+ * 本家のチャット画面（`2shot.php`）の操作フォームにある room_id と pwd から、`2shot.php?room_id=..&pwd=..` の URL を作る
+ * JavaScript。チャット画面でなければ null を返す。入室前画面（`PreEnterRoom`）の pwd は送信先が違うので拾わない。
+ */
+internal val roomInPageScript: String = """
+(function () {
+  var forms = document.querySelectorAll('form[action]');
+  for (var i = 0; i < forms.length; i++) {
+    var action;
+    try { action = new URL(forms[i].getAttribute('action'), location.href); } catch (e) { continue; }
+    if (!/\/2shot\.php${'$'}/.test(action.pathname)) continue;
+    var id = forms[i].querySelector('input[name="room_id"]');
+    var pwd = forms[i].querySelector('input[name="pwd"]');
+    if (!id || !pwd || !id.value || !pwd.value) continue;
+    return action.origin + action.pathname + '?room_id=' + encodeURIComponent(id.value) + '&pwd=' + encodeURIComponent(pwd.value);
+  }
+  return null;
+})();
+""".trimIndent()
+
+/** evaluateJavascript の結果（JSON の値）が文字列ならその中身、それ以外（null など）は null。 */
+internal fun decodeScriptString(result: String?): String? =
+    runCatching { JSONTokener(result ?: return null).nextValue() as? String }.getOrNull()?.takeIf { it.isNotEmpty() }
 
 private fun Uri.isShalove(): Boolean =
     scheme == "https" && (host == "shalove.net" || host?.endsWith(".shalove.net") == true)

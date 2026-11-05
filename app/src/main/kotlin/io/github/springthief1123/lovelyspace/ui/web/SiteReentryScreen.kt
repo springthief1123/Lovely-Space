@@ -40,8 +40,8 @@ import kotlinx.coroutines.flow.first
 
 /**
  * 本家の再入室操作を WebView で 1 回開く。ログイン Cookie は会員画面と共通。
- * 入室済みの部屋があれば本家が 2shot.php に移るので、既存の SiteWebView が
- * pwd をナビゲーションに出さずアプリのチャットへ引き継ぐ。
+ * 入室済みの部屋があれば本家が 2shot.php に移るので、SiteWebView が URL か画面のフォームから部屋を見つけ、
+ * pwd をナビゲーションに出さずアプリのチャットへ引き継ぐ。アプリが部屋を覚えている間はこの画面を通らない（AppNavHost）。
  */
 @Composable
 fun SiteReentryScreen(onBack: () -> Unit, onRoomOpened: (ChatRoomRef) -> Unit) {
@@ -115,6 +115,7 @@ fun SiteReentryScreen(onBack: () -> Unit, onRoomOpened: (ChatRoomRef) -> Unit) {
                         genreKey = genre.key,
                         modifier = Modifier.fillMaxSize(),
                         onRoomOpened = onRoomOpened,
+                        findRoomInPage = true,
                     )
                 }
             } else {
