@@ -87,6 +87,8 @@ class EntryViewModel(
     private val onEnteredAfterClose: (ChatRoomRef, Long) -> Unit = { _, _ -> },
     /** 進行中の部屋を登録した回数（[io.github.springthief1123.lovelyspace.ui.chat.ActiveRooms.registrations]）。 */
     private val registrationMark: () -> Long = { 0L },
+    /** 入室できた部屋を、画面が開いているかに関わらず知らせる（自動入室を終えるため。[io.github.springthief1123.lovelyspace.data.AutoEntryController.entered]）。 */
+    private val onEnteredRoom: (ChatRoomRef) -> Unit = {},
 ) : ViewModel() {
     private val _state = MutableStateFlow(EntryUiState(autoEntering = auto))
     val state: StateFlow<EntryUiState> = _state.asStateFlow()
@@ -223,6 +225,7 @@ class EntryViewModel(
 
     /** 入室できた部屋。画面が閉じていれば進行中の部屋として引き継ぎ、開いていれば画面がチャットへ移る（[consumeEntered]）。 */
     private fun entered(room: ChatRoomRef) {
+        onEnteredRoom(room)
         synchronized(this) {
             if (closed) onEnteredAfterClose(room, attemptMark)
             else _state.update { it.copy(isEntering = false, entered = room) }

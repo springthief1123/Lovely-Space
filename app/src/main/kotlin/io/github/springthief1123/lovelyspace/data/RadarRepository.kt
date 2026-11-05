@@ -242,13 +242,13 @@ class RadarRepository(
                 .let { if (enabled) seedCandidate(rule.copy(enabled = true), hidden, it) else it }
         }
     }
-    /** 名前で追う 1 件の、新しい部屋への自動入室をオンにする（[AutoEntryController.PINNED_MS] まで）。[enabled] が false なら止める。 */
+    /** 名前で追う 1 件の、新しい部屋への自動入室をオンにする（入室できるか、利用者が止めるまで）。[enabled] が false なら止める。 */
     suspend fun setCandidateAutoEnter(id: String, enabled: Boolean) = edit { state ->
         val rule = state.candidateRules.firstOrNull { it.id == id }
         require(rule != null) { "候補条件が見つかりません。" }
         require(!enabled || rule.mode == CandidateMode.EXACT_NAME) { "自動入室は、名前が完全に一致する条件だけで使えます。" }
         require(!enabled || rule.enabled) { "候補を探す条件をオンにしてから選んでください。" }
-        val until = if (enabled) now() + AutoEntryController.PINNED_MS else 0L
+        val until = if (enabled) CandidateRule.AUTO_ENTER_ON else 0L
         state.copy(candidateRules = state.candidateRules.map { if (it.id == id) it.copy(autoEnterUntil = until) else it })
     }
     /** 名前で待つ 1 件の新しい部屋を端末通知で知らせるか。知らせなくても、お知らせ（通知ベル）には残す。 */

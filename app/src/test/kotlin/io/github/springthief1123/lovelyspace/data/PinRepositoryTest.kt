@@ -266,6 +266,22 @@ class PinRepositoryTest {
         assertEquals(records, store.load())
     }
 
+    @Test fun pinStoreTurnsAnExpiredAutoEntryBackToNotify() {
+        // 以前の「自動で入室」は 3 時間の期限（autoUntil）があり、過ぎたものは「空いたら知らせる」として表示していた。
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        val prefs = context.getSharedPreferences("pin-auto-legacy-test", android.content.Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val raw = org.json.JSONArray()
+            .put(org.json.JSONObject().put("key", "expired").put("alert", "AUTO").put("autoUntil", now - 1))
+            .put(org.json.JSONObject().put("key", "running").put("alert", "AUTO").put("autoUntil", now + 3_600_000))
+            .put(org.json.JSONObject().put("key", "new").put("alert", "AUTO"))
+        prefs.edit().putString("records", raw.toString()).commit()
+        val loaded = PinStore(prefs).load()
+        assertEquals(PinAlert.NOTIFY, loaded.getValue("expired").alert)
+        assertEquals(PinAlert.AUTO, loaded.getValue("running").alert)
+        assertEquals(PinAlert.AUTO, loaded.getValue("new").alert)
+    }
+
     @Test fun turningOffNotificationsClearsUnsentPinEvents() {
         val memory = Memory()
         scope.cancel()
