@@ -2,12 +2,15 @@ package io.github.springthief1123.lovelyspace.data
 
 import io.github.springthief1123.lovelyspace.core.RoomListPage
 import io.github.springthief1123.lovelyspace.core.RoomQuery
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.onSubscription
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -32,10 +35,17 @@ internal class RoomObservationJournal {
     private val _changes = MutableSharedFlow<ObservedRoomChange>(extraBufferCapacity = 64)
     private var revision = 0L
 
-    val changes: Flow<ObservedRoomChange> = _changes.onSubscription {
-        // 購読開始後に同じMutexでスナップショットを取る。以降のイベントとの順序を保つ。
-        val snapshot = mutex.withLock { _observations.value }
-        snapshot.values.sortedBy { it.revision }.forEach { emit(ObservedRoomChange(it, snapshot)) }
+    val changes: Flow<ObservedRoomChange> = channelFlow {
+        // 記録と同じMutexを持ったまま購読を始めてスナップショットを取る。購読の開始とスナップショットの間に
+        // 記録されたイベントがあると、新しいスナップショットの後に古いイベントが届き、中間の空きを捨ててしまうため。
+        val pending = Channel<ObservedRoomChange>(Channel.BUFFERED)
+        val snapshot = mutex.withLock {
+            // UNDISPATCHED なので、ロックを返す前に SharedFlow の購読が始まっている。
+            launch(start = CoroutineStart.UNDISPATCHED) { _changes.collect { pending.send(it) } }
+            _observations.value
+        }
+        snapshot.values.sortedBy { it.revision }.forEach { send(ObservedRoomChange(it, snapshot)) }
+        for (change in pending) send(change)
     }
 
     /** キャッシュが返した同一ページのインスタンスは観測として数えない。 */
