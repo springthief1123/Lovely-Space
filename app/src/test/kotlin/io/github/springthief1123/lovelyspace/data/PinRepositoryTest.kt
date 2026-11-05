@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.room.Room as RoomDb
 import androidx.test.core.app.ApplicationProvider
 import io.github.springthief1123.lovelyspace.core.*
+import io.github.springthief1123.lovelyspace.notify.toNotification
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
@@ -36,8 +37,12 @@ class PinRepositoryTest {
 
     private class Memory : PinPersistence {
         var saved: Map<String, PinRecord> = emptyMap()
+        var failSave = false
         override fun load() = saved
-        override fun save(records: Map<String, PinRecord>) { saved = records }
+        override fun save(records: Map<String, PinRecord>) {
+            if (failSave) throw java.io.IOException("合成の保存失敗")
+            saved = records
+        }
     }
 
     private lateinit var db: PresetDatabase
@@ -157,6 +162,104 @@ class PinRepositoryTest {
         assertNoEvent()
         wait { pins.dismiss(view.key, roomIdentity(rewritten)) }
         awaitPins { it.singleOrNull()?.let { p -> p.similar == null && p.state == PinState.CLOSED } == true }
+    }
+
+
+    @Test fun failedNotificationIsPersistedAndReplayedWithTheSameId() {
+        val memory = Memory()
+        var deliveryFails = true
+        val successful = Channel<PinEvent>(Channel.UNLIMITED)
+        scope.cancel()
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        pins = PinRepository(memory, prefs, lists, onEvent = { event ->
+            if (deliveryFails) throw java.io.IOException("合成の通知失敗")
+            successful.send(event)
+        }, moved = prefs.moved, scope = scope)
+        val full = room(500, RoomStatus.FULL)
+        wait { pins.pin(full, PinAlert.NOTIFY) }
+        lists.publish(genre, listOf(room(600), full, room(400)))
+        awaitPins { it.singleOrNull()?.state == PinState.FULL }
+        lists.publish(genre, listOf(room(600), room(500), room(400)))
+
+        val pending = wait { pins.records.first { it[roomIdentity(full)]?.pendingNotices?.isNotEmpty() == true } }
+            .getValue(roomIdentity(full)).pendingNotices.single()
+        assertEquals(PinNoticeType.OPENED, pending.type)
+        assertTrue(memory.saved.getValue(roomIdentity(full)).pendingNotices.isNotEmpty())
+
+        deliveryFails = false
+        wait { pins.refresh() }
+        val replay = wait { successful.receive() } as PinEvent.Opened
+        assertTrue(replay.replayed)
+        assertEquals(pending.id, replay.toNotification()!!.id)
+        assertEquals(pending.at, replay.toNotification()!!.at)
+        wait { pins.records.first { it[roomIdentity(full)]?.pendingNotices?.isEmpty() == true } }
+        assertTrue(memory.saved.getValue(roomIdentity(full)).pendingNotices.isEmpty())
+        assertNoEvent()
+    }
+
+    @Test fun anUnsentNotificationSurvivesRestartWithoutAutoEntering() {
+        val memory = Memory()
+        scope.cancel()
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        pins = PinRepository(memory, prefs, lists, onEvent = { throw java.io.IOException("合成の通知失敗") },
+            moved = prefs.moved, scope = scope)
+        val full = room(500, RoomStatus.FULL)
+        wait { pins.pin(full, PinAlert.AUTO) }
+        lists.publish(genre, listOf(room(600), full, room(400)))
+        awaitPins { it.singleOrNull()?.state == PinState.FULL }
+        lists.publish(genre, listOf(room(600), room(500), room(400)))
+        val original = wait { pins.records.first { it[roomIdentity(full)]?.pendingNotices?.isNotEmpty() == true } }
+            .getValue(roomIdentity(full)).pendingNotices.single()
+
+        scope.cancel()
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val received = Channel<PinEvent>(Channel.UNLIMITED)
+        pins = PinRepository(memory, prefs, lists, onEvent = { received.send(it) }, moved = prefs.moved, scope = scope)
+        val replay = wait { received.receive() } as PinEvent.Opened
+        assertTrue(replay.replayed)
+        assertEquals(original.id, replay.noticeId)
+        assertEquals(original.at, replay.noticeAt)
+        assertTrue(replay.autoEnter)
+        wait { pins.records.first { it[roomIdentity(full)]?.pendingNotices?.isEmpty() == true } }
+    }
+
+    @Test fun aFailedSaveDoesNotEmitAnEventOrAdvanceTheRecordedState() {
+        val memory = Memory()
+        scope.cancel()
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        pins = PinRepository(memory, prefs, lists, onEvent = { events.send(it) }, moved = prefs.moved, scope = scope)
+        val full = room(500, RoomStatus.FULL)
+        wait { pins.pin(full, PinAlert.NOTIFY) }
+        lists.publish(genre, listOf(room(600), full, room(400)))
+        awaitPins { it.singleOrNull()?.state == PinState.FULL }
+        memory.failSave = true
+        lists.publish(genre, listOf(room(600), room(500), room(400)))
+        assertNoEvent()
+        assertEquals(PinState.FULL, pins.record(roomIdentity(full)).state)
+
+        memory.failSave = false
+        lists.publish(genre, listOf(room(700), room(600), room(500), room(400)))
+        val event = wait { events.receive() } as PinEvent.Opened
+        assertEquals(500L, event.pin.room.id)
+        assertEquals(1, memory.saved.getValue(roomIdentity(full)).vacancies.size)
+        wait { pins.records.first { it[roomIdentity(full)]?.pendingNotices?.isEmpty() == true } }
+    }
+
+    @Test fun turningOffNotificationsClearsUnsentPinEvents() {
+        val memory = Memory()
+        scope.cancel()
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        pins = PinRepository(memory, prefs, lists, onEvent = { throw java.io.IOException("合成の通知失敗") },
+            moved = prefs.moved, scope = scope)
+        val full = room(500, RoomStatus.FULL)
+        wait { pins.pin(full, PinAlert.NOTIFY) }
+        lists.publish(genre, listOf(room(600), full, room(400)))
+        awaitPins { it.singleOrNull()?.state == PinState.FULL }
+        lists.publish(genre, listOf(room(600), room(500), room(400)))
+        wait { pins.records.first { it[roomIdentity(full)]?.pendingNotices?.isNotEmpty() == true } }
+        wait { pins.setAlert(roomIdentity(full), PinAlert.OFF) }
+        assertTrue(memory.saved.getValue(roomIdentity(full)).pendingNotices.isEmpty())
+        assertEquals(PinAlert.OFF, memory.saved.getValue(roomIdentity(full)).alert)
     }
 
     @Test fun onlyFiveRoomsCanBeNotifiedAtOnce() {
