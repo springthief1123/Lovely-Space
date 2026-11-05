@@ -149,8 +149,10 @@ class RadarRepositoryTest {
             val searches = SearchPresetRepository(db)
             searches.save(SearchPreset("auto", "合成の自動巡回", "zenkoku", RoomSearchCriteria()))
             // 一覧は立てた順（ID の大きい順）。ID はページの端の幅（ID_MARGIN）より離す。
-            val first = room.copy(id = 900_000_400); val second = room.copy(id = 900_000_300); val third = room.copy(id = 900_000_200)
-            val newest = room.copy(id = 900_000_500)
+            // 部屋ごとに別の人にする（同じ名前・募集文で ID が大きい部屋は立て直しとみなし、古い部屋を出さなくなる）。
+            fun r(id: Long) = room.copy(id = id, name = "合成$id")
+            val first = r(900_000_400); val second = r(900_000_300); val third = r(900_000_200)
+            val newest = r(900_000_500)
             val lists = Lists().apply { lastPage = 3; roomsByPage = mapOf(1 to listOf(first), 2 to listOf(second), 3 to listOf(third)) }
             val radar = RadarRepository(db.presets(), lists, searches, RoomPreferenceRepository(db), backgroundScope)
             radar.state.first { it.loaded }; radar.setPlan("auto", true)

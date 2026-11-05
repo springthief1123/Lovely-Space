@@ -22,7 +22,8 @@ enum class PinState {
  */
 fun RoomPageWindow.pinState(pinned: Room): Pair<PinState, Room?> {
     val key = roomIdentity(pinned)
-    val observed = rooms.firstOrNull { roomIdentity(it) == key }
+    // 立て直しで画面の一覧から外した古い部屋（[RoomPageWindow.superseded]）も、閉じたと分かるまではピンの部屋として見る。
+    val observed = listedRooms.firstOrNull { roomIdentity(it) == key }
     return when {
         observed != null && roomIdentityEvidence(pinned, observed) == RoomIdentityEvidence.REUSED -> PinState.CLOSED to null
         observed != null -> (if (observed.status == RoomStatus.FULL) PinState.FULL else PinState.OPEN) to observed

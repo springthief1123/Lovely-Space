@@ -304,23 +304,28 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
 
     private fun schedule(): RoomPageSchedule = RoomPageSchedule(clock) { pacing().sanitized().searchHeadMs }
 
+    /** 利用者が開いた一覧（画面を開いたとき・「もっと見る」）。本家のブラウザでリンクを押すのと同じく間隔を空けない（[RoomListSource.fetchOpened]）。 */
     private fun load(page: Int, force: Boolean) {
         job?.cancel()
-        job = viewModelScope.launch { fetchPage(page, force) }
+        job = viewModelScope.launch { fetchPage(page, force, opened = true) }
     }
     /**
      * いまのジャンルの一覧の [page] を取る。取り込めたら true。
      * 本家が部屋の表を出さずにページを返したとき（[RoomListUnavailableException]。更新を続けて押したときに起きる）は、
      * 本家のブラウザでもう一度押すのと同じく、案内は出さずに手元の一覧のまま次の取り直しを待つ。
      */
-    private suspend fun fetchPage(page: Int, force: Boolean, manual: Boolean = false): Boolean {
+    private suspend fun fetchPage(page: Int, force: Boolean, manual: Boolean = false, opened: Boolean = false): Boolean {
         val genre = _state.value.genre
         // 条件はすべて端末で判定するので、本家にはジャンル全体の一覧を取りに行く。
         val query = RoomQuery(genre, page = page)
         inFlight++
         _state.update { it.copy(loading = true, error = null) }
         try {
-            val result = if (manual) repository.fetchNow(query) else repository.fetch(query, force)
+            val result = when {
+                manual -> repository.fetchNow(query)
+                opened -> repository.fetchOpened(query, force)
+                else -> repository.fetch(query, force)
+            }
             currentCoroutineContext().ensureActive()
             // 取得中にジャンルが変わったら、古いジャンルの結果は捨てる。
             if (_state.value.genre == genre) {

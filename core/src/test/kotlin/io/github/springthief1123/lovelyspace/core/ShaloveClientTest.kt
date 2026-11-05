@@ -136,11 +136,13 @@ class ShaloveClientTest {
         val client = ShaloveClient(
             http = OkHttpClient.Builder().addInterceptor { chain ->
                 calls[0]++
+                // 前の通信を待っている間に、相手が入れ替わる。
+                sameParticipant = false
                 Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
                     .code(200).message("OK").body("ok".toResponseBody()).build()
             }.build(),
             clock = { now },
-            sleep = { ms -> now += ms; sameParticipant = false },
+            sleep = { ms -> now += ms },
         )
         client.get("https://chat.shalove.net/synthetic")
         val room = ChatRoomRef("chat.shalove.net", 42, "test-pwd", "kanto")
@@ -245,6 +247,30 @@ class ShaloveClientTest {
         // 押した後の自動の取得は、設定どおり 3 秒空ける。
         client.fetchRoomList(query.copy(page = 2))
         assertEquals(listOf(2_900L), sleeps)
+    }
+
+    @Test
+    fun aListTheUserOpenedDoesNotWaitButUsesAFreshCache() = runTest {
+        val calls = IntArray(1)
+        val sleeps = mutableListOf<Long>()
+        val client = ShaloveClient(
+            http = countingHttp(calls),
+            pacing = { RefreshPacing(minIntervalMs = 3_000) },
+            clock = { now },
+            sleep = { ms -> sleeps += ms; now += ms },
+        )
+        val query = RoomQuery(genre = Genres.default)
+        client.fetchRoomList(query)
+        // 「もっと見る」などで開いた一覧は、本家のブラウザでリンクを押すのと同じく前の通信から間隔を空けない。
+        client.fetchRoomList(query.copy(page = 2), opened = true)
+        assertEquals(2, calls[0])
+        assertEquals(emptyList<Long>(), sleeps)
+        // 少し前に読んだページは取り直さない。
+        client.fetchRoomList(query, opened = true)
+        assertEquals(2, calls[0])
+        // 押した後の自動の取得は、設定どおり空ける。
+        client.fetchRoomList(query.copy(page = 3))
+        assertTrue(sleeps.single() > 0)
     }
 
     @Test

@@ -75,10 +75,19 @@ class ShaloveClient(
      * 本家のブラウザで押すのと同じく、前の通信から間隔を空けずに取る（Yuya の決定、2026-10-17）。
      * 通信は常に 1 本ずつなので、前の通信が終わるまでは待つ。連打は呼び出し側で 1 回にまとめる。
      *
+     * [opened] は利用者が開いた一覧（見つける画面を開いたとき・「もっと見る」・レーダーの部屋の確認）。本家のブラウザでリンクを押すのと
+     * 同じく前の通信から間隔を空けず、巡回の取得より先に通す。[manual] と違い、[forceRefresh] でなければ少し前の取得結果を使う。
+     *
      * [priority] は新着の確認（1 ページ目）と順番待ちの部屋のページ。設定の最小間隔は空けるが、後ろのページの巡回より先に通す。
      * 利用者の操作（入室など）には譲る。
      */
-    suspend fun fetchRoomList(query: RoomQuery, forceRefresh: Boolean = false, manual: Boolean = false, priority: Boolean = false): RoomListPage {
+    suspend fun fetchRoomList(
+        query: RoomQuery,
+        forceRefresh: Boolean = false,
+        manual: Boolean = false,
+        priority: Boolean = false,
+        opened: Boolean = false,
+    ): RoomListPage {
         val url = query.toUrl()
         val seen = listCache[url]?.generation
         return listGates.computeIfAbsent(url) { Mutex() }.withLock {
@@ -89,7 +98,7 @@ class ShaloveClient(
             val firstUrl = query.firstPage.toUrl()
             // 本家のリンクでも、今の条件・ページと食い違うもの（別の性別など）は使わず、自前で組み立てた URL で取る。
             val requestUrl = pagerLinks[firstUrl]?.get(query.page)?.takeIf { isListUrl(it, query.genre) && query.matchesPagerUrl(it) } ?: url
-            val html = if (manual) gated(operation = true, minIntervalMs = 0) { request(requestUrl) }
+            val html = if (manual || opened) gated(operation = true, minIntervalMs = 0) { request(requestUrl) }
                 else gated(priority = priority) { request(requestUrl) }
             // 一覧として読めない応答（連続で取り直したときなど）は、0 件の一覧として扱わずに取得の失敗にする。
             // キャッシュもページャも更新しないので、手元の一覧は前回のまま残る。
@@ -152,7 +161,8 @@ class ShaloveClient(
      * 間隔はどちらも同じように空けるので、本家へのアクセスの頻度は変わらない。一覧の取得は間隔を待つ間に順番を手放すので、
      * 後から来た利用者の操作も、待っている一覧の取得を追い越せる。
      * [minIntervalMs] は前の通信から空ける間隔。省略すると設定の最小間隔（1 秒より短くはしない）。
-     * 0 にするのは利用者が押した読み込み（一覧の更新ボタン、公開ルームの「覗く」「再読み込み」）と入室（入室前画面・送信・入室後のチャット画面）だけ。
+     * 0 にするのは利用者が押した読み込み（一覧の更新ボタン・一覧を開く・「もっと見る」、公開ルームの「覗く」「再読み込み」）、
+     * 入室（入室前画面・送信・入室後のチャット画面）、部屋の中の操作（退室・部屋を閉じる・追い出し・ログ消去・待機メッセージ・公開の切り替え）だけ。
      * [priority]（新着の確認・順番待ち）は一覧の取得と同じく間隔を待つ間は順番を手放すが、待っている間は後ろのページの巡回を先に通さない。
      */
     private suspend fun <T> gated(operation: Boolean = false, minIntervalMs: Long? = null, priority: Boolean = false, block: suspend () -> T): T {
@@ -360,7 +370,8 @@ class ShaloveClient(
             .add("genre_key", room.genreKey)
             .apply { fields.forEach { (name, value) -> add(name, value) } }
             .build()
-        return gated(operation = true) {
+        // 利用者が押した部屋の中の操作。本家のブラウザでボタンを押すのと同じく、前の通信から間隔を空けない。
+        return gated(operation = true, minIntervalMs = 0) {
             // 通信ゲートの順番待ちが終わった直後に、対象の入れ替わりを確認する。
             if (!canSend()) return@gated null
             val request = Request.Builder().url(url).post(body)

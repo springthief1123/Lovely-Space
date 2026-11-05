@@ -748,6 +748,11 @@ internal fun RoomCardHeading(room: Room, placeholder: String, elapsed: Duration?
                 Text(name ?: placeholder, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
                     color = if (name == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                // 満室の部屋は本家の一覧に名前が出ない。名前があるのは待機中に見えた名前を補ったときなので、会話中だと添える。
+                // 名前が長くても切れないよう、名前とは別に置く。名前を補えなかった部屋は従来どおり「会話中」だけ。
+                if (name != null && room.isFull) {
+                    Text("（会話中）", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                }
             }
             ProfileLine(room, genderColor)
         }

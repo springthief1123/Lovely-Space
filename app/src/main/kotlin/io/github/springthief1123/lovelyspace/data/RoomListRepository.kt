@@ -22,6 +22,8 @@ fun interface RoomListSource {
     fun observation(query: RoomQuery): ObservedRoomPage? = null
     /** 利用者が更新ボタンを押した取り直し（本家の「最新更新」）。押すたびに、前の通信から間隔を空けずに取り直す（[ShaloveClient.fetchRoomList] の manual）。 */
     suspend fun fetchNow(query: RoomQuery): RoomListPage = fetch(query, true)
+    /** 利用者が開いた一覧（画面を開いたとき・「もっと見る」など）。ブラウザでリンクを押すのと同じく前の通信から間隔を空けない（[ShaloveClient.fetchRoomList] の opened）。 */
+    suspend fun fetchOpened(query: RoomQuery, force: Boolean): RoomListPage = fetch(query, force)
     /** 新着の確認（1 ページ目）と順番待ちのページ。設定の最小間隔は空けるが、後ろのページの巡回より先に通す（[ShaloveClient.fetchRoomList] の priority）。 */
     suspend fun fetchPriority(query: RoomQuery, force: Boolean): RoomListPage = fetch(query, force)
 }
@@ -116,6 +118,13 @@ class RoomListRepository(
     /** [room] と同じ部屋の、名前が見えていた最後の姿。 */
     fun lastNamed(room: Room): Room? = named(roomIdentity(room))
 
+    /**
+     * [rooms] のうち名前の見えない部屋（満室・会話中）に、一覧で名前が見えていたときの姿から部屋主の名前などを補う（[borrowNamed]）。
+     * 補えない部屋（名前を一度も見ていない・待機メッセージが変わった）はそのまま。通信はしない。
+     */
+    fun withLastNames(rooms: List<Room>): List<Room> =
+        if (rooms.none { it.name == null }) rooms else rooms.map { room -> if (room.name != null) room else borrowNamed(room, lastNamed(room)) ?: room }
+
     /** [NAMED_KEEP_MS] より前に見た姿は、アプリが動き続けていても使わない。 */
     private fun named(key: String): Room? = synchronized(named) { named[key] }?.takeIf { it.seenAt >= now() - NAMED_KEEP_MS }?.room
 
@@ -150,6 +159,9 @@ class RoomListRepository(
     override suspend fun fetch(query: RoomQuery, force: Boolean): RoomListPage = record(query) { client.fetchRoomList(query, forceRefresh = force) }
 
     override suspend fun fetchNow(query: RoomQuery): RoomListPage = record(query) { client.fetchRoomList(query, manual = true) }
+
+    override suspend fun fetchOpened(query: RoomQuery, force: Boolean): RoomListPage =
+        record(query) { client.fetchRoomList(query, forceRefresh = force, opened = true) }
 
     override suspend fun fetchPriority(query: RoomQuery, force: Boolean): RoomListPage =
         record(query) { client.fetchRoomList(query, forceRefresh = force, priority = true) }
