@@ -135,6 +135,8 @@ class PinRepository(
     private val now: () -> Long = System::currentTimeMillis,
 ) {
     private val mutex = Mutex()
+    /** 新規イベントを記録した処理より先に、別の観測が未配信扱いで再送しないようにする。 */
+    private val processMutex = Mutex()
     /** 通知コールバック中は状態のmutexを保持しない。再送同士だけを直列化する。 */
     private val noticeMutex = Mutex()
     /** 利用者が同じ人と答えて引き継ぐ似た部屋。引き継いだ時点の様子をそのまま記録し、空いたとは数えない。 */
@@ -239,7 +241,7 @@ class PinRepository(
         save(_records.value - from + (key to next))
     }
 
-    private suspend fun process(favs: List<RoomPreference>, observations: Map<RoomQuery, ObservedRoomPage>) {
+    private suspend fun process(favs: List<RoomPreference>, observations: Map<RoomQuery, ObservedRoomPage>) = processMutex.withLock {
         val freshIds = HashSet<String>()
         val learned = mutableListOf<Pair<RoomPreference, Room>>()
         mutex.withLock {
