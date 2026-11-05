@@ -17,26 +17,26 @@ fun PinEvent.toNotification(at: Long = System.currentTimeMillis()): AppNotificat
             val opened = pin.room
             val sameMessage = registered.message.isNotBlank() && registered.message == opened.message
             AppNotification(
-                id = "pin-${pin.key}-$at",
+                id = noticeId ?: "pin-${pin.key}-${pin.record.stateAt ?: at}",
                 kind = NotificationKind.WAITLIST,
                 title = "ピンした部屋が空きました",
                 namedTitle = opened.ownerLabel()?.let { "${it}の部屋が空きました" },
                 // 同じ待機メッセージなら知らせることは無いので、ジャンルだけにする。違うときだけ確かめるよう添える。
                 text = genre.label + if (sameMessage) "" else "・待機メッセージがピンしたときと違います",
                 target = NotificationTarget.Room(genre.host, opened.genreKey, opened.id, verified = sameMessage),
-                at = at,
+                at = noticeAt ?: at,
                 message = listOfNotNull(opened.name, opened.message.takeIf { it.isNotBlank() }).joinToString("\n").ifBlank { null },
                 room = opened,
             )
         }
         is PinEvent.Similar -> AppNotification(
-            id = "pin-similar-${pin.key}-${similar.room.id}",
+            id = noticeId ?: "pin-similar-${pin.key}-${similar.room.id}",
             kind = NotificationKind.WAITLIST,
             title = "ピンした部屋に似た部屋が建ちました",
             namedTitle = pin.room.ownerLabel()?.let { "${it}に似た部屋が建ちました" },
             text = "${genre.label}で、閉じたピンの部屋に似た部屋（待機メッセージが${(similar.similarity * 100).roundToInt()}%一致）が見つかりました。同じ人かをレーダーで確かめてください。",
             target = NotificationTarget.Radar,
-            at = at,
+            at = noticeAt ?: at,
             message = listOfNotNull(similar.room.name, similar.room.message.takeIf { it.isNotBlank() }).joinToString("\n").ifBlank { null },
             room = similar.room,
         )
