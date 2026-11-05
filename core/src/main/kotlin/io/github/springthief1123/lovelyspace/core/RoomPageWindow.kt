@@ -49,11 +49,13 @@ data class RoomPageWindow(
             revision = maxOf(revision, nextRevision),
             carried = carried.filter { (id, c) ->
                 id !in present && c.page <= limit && !(c.revision < nextRevision && gone(c.room))
-            } + vanished.filterNot(::gone).associate { roomIdentity(it) to CarriedRoom(page.page, it, nextRevision, keyOf(pages[page.page].orEmpty(), it)) },
+            } + vanished.filterNot(::gone).associate { roomIdentity(it) to CarriedRoom(page.page, it, nextRevision, keyOf(pages[page.page].orEmpty(), it, pages[page.page + 1]?.firstOrNull()?.id)) },
         ).run {
             if (carried.isEmpty()) return@run this
             // ページごとの、立てた順の位置の最初と最後。最後の部屋は使い回しの ID でも見分けられないので、2 部屋以上あれば最後から 2 番目を使う。
-            val bounds = pages.filterValues { it.isNotEmpty() }.mapValues { (_, rooms) -> sortKeys(rooms).let { it.first() to it[(it.size - 2).coerceAtLeast(0)] } }
+            val bounds = pages.filterValues { it.isNotEmpty() }.mapValues { (n, rooms) ->
+                sortKeys(rooms, pages[n + 1]?.firstOrNull()?.id).let { it.first() to it[(it.size - 2).coerceAtLeast(0)] }
+            }
             copy(carried = carried.filterValues { !closedByRun(it, bounds) })
         }
     }
@@ -169,7 +171,7 @@ data class RoomPageWindow(
         val listed = mutableListOf<Pair<Room, Long>>()
         pages.keys.sorted().forEach { page ->
             val rooms = pages.getValue(page)
-            rooms.zip(sortKeys(rooms)).forEach { (room, key) -> newest.remove(roomIdentity(room))?.let { listed += it to key } }
+            rooms.zip(sortKeys(rooms, pages[page + 1]?.firstOrNull()?.id)).forEach { (room, key) -> newest.remove(roomIdentity(room))?.let { listed += it to key } }
         }
         val shown = listed.mapTo(HashSet()) { roomIdentity(it.first) }
         val waiting = carried.values.filter { roomIdentity(it.room) !in shown }.sortedByDescending { it.key }
@@ -187,10 +189,12 @@ data class RoomPageWindow(
 /**
  * ページ [rooms] の部屋ごとの、立てた順の位置。一覧は立てた順（部屋の ID の大きい順）なので、ふつうは部屋の ID。
  * 閉じた部屋の ID を使い回した部屋は、後ろに並ぶ部屋より ID が [RoomPageWindow.ID_MARGIN] を超えて小さいので、
- * ID ではなく直前の部屋の位置を使う（先頭なら後ろの部屋のいちばん大きい ID）。
+ * ID ではなく直前の部屋の位置を使う（先頭なら後ろの部屋のいちばん大きい ID）。[after] は次のページの最初の部屋の ID（分かれば）。
  */
-internal fun sortKeys(rooms: List<Room>): List<Long> {
+internal fun sortKeys(rooms: List<Room>, after: Long? = null): List<Long> {
     val laterMax = LongArray(rooms.size + 1) { Long.MIN_VALUE }
+    // ページの最後の部屋は後ろに部屋が無いので、次のページの最初の部屋（[after]）と比べて使い回しを見分ける。
+    laterMax[rooms.size] = after ?: Long.MIN_VALUE
     for (i in rooms.indices.reversed()) laterMax[i] = maxOf(laterMax[i + 1], rooms[i].id)
     val keys = ArrayList<Long>(rooms.size)
     rooms.forEachIndexed { i, room ->
@@ -200,10 +204,10 @@ internal fun sortKeys(rooms: List<Room>): List<Long> {
     return keys
 }
 
-/** [rooms] に載っていた [room] の、立てた順の位置（[sortKeys]）。 */
-private fun keyOf(rooms: List<Room>, room: Room): Long {
+/** [rooms] に載っていた [room] の、立てた順の位置（[sortKeys]）。[after] は次のページの最初の部屋の ID。 */
+private fun keyOf(rooms: List<Room>, room: Room, after: Long?): Long {
     val i = rooms.indexOfFirst { roomIdentity(it) == roomIdentity(room) }
-    return if (i < 0) room.id else sortKeys(rooms)[i]
+    return if (i < 0) room.id else sortKeys(rooms, after)[i]
 }
 
 /**

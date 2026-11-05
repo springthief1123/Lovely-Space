@@ -119,6 +119,15 @@ class RoomPageWindowTest {
         val reused = room(100L)
         assertEquals(listOf(r(1).id, r(1).id, r(2).id), sortKeys(listOf(r(1), reused, r(2))))
         assertEquals(listOf(r(1).id, r(1).id, r(1).id), sortKeys(listOf(reused, room(200L), r(1))))
+        // ページの最後の使い回しの部屋は、次のページの最初の部屋と比べて見分ける。
+        assertEquals(listOf(r(1).id, r(2).id, r(2).id), sortKeys(listOf(r(1), r(2), reused), after = r(3).id))
+        // ページの最後にあった使い回しの部屋が、読んでいない次のページへ押し出されても、古い部屋として閉じたことにしない。
+        val pushed = RoomPageWindow().observe(page(1, listOf(r(1), r(2), reused)))
+            .observe(page(2, listOf(r(3), r(4), r(5))))
+            .observe(page(3, listOf(r(6), r(7), r(8))))
+            .observe(page(1, listOf(r(-1), r(1), r(2))))
+            .observe(page(3, listOf(r(6), r(7), r(8))))
+        assertTrue(pushed.rooms.any { it.id == reused.id })
         // 消えて残している部屋も、使い回しの部屋の後ろへは行かない。
         val window = RoomPageWindow().observe(page(1, listOf(r(1), reused, r(2), r(3))))
             .observe(page(2, listOf(r(4), r(5))))
