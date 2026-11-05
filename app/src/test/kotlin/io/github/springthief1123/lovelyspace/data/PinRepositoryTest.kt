@@ -173,8 +173,9 @@ class PinRepositoryTest {
         val successful = Channel<PinEvent>(Channel.UNLIMITED)
         scope.cancel()
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val failedOnce = kotlinx.coroutines.CompletableDeferred<Unit>()
         pins = PinRepository(memory, prefs, lists, onEvent = { event ->
-            if (deliveryFails) throw java.io.IOException("合成の通知失敗")
+            if (deliveryFails) { failedOnce.complete(Unit); throw java.io.IOException("合成の通知失敗") }
             successful.send(event)
         }, moved = prefs.moved, scope = scope)
         val full = room(500, RoomStatus.FULL)
@@ -187,6 +188,8 @@ class PinRepositoryTest {
             .getValue(roomIdentity(full)).pendingNotices.single()
         assertEquals(PinNoticeType.OPENED, pending.type)
         assertTrue(memory.saved.getValue(roomIdentity(full)).pendingNotices.isNotEmpty())
+        // 保存した直後はまだ最初の通知を試していないことがある。失敗を確かめてから通知を戻す。
+        wait { failedOnce.await() }
 
         deliveryFails = false
         wait { pins.refresh() }
