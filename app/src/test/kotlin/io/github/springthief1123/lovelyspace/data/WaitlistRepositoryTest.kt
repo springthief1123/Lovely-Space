@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
@@ -221,7 +222,7 @@ class WaitlistRepositoryTest {
         val opened = mutableListOf<WaitlistEntry>()
         // 登録より前（1 秒）に空きを観測し、その後に満室の部屋を登録する（5 秒）。
         lists.publish(zenkoku, listOf(full.copy(status = RoomStatus.WAITING, action = RoomAction.ENTER, name = "合成の部屋主")), 1_000)
-        val waitlist = WaitlistRepository(Memory(), lists, { opened += it }, backgroundScope) { 5_000L }
+        val waitlist = WaitlistRepository(Memory(), lists, { opened += it }, backgroundScope, io = UnconfinedTestDispatcher(testScheduler)) { 5_000L }
         waitlist.register(full)
         runCurrent()
 
@@ -244,7 +245,7 @@ class WaitlistRepositoryTest {
                 saved = entries
             }
         }
-        val waitlist = WaitlistRepository(memory, lists, { opened += it }, backgroundScope) { 0L }
+        val waitlist = WaitlistRepository(memory, lists, { opened += it }, backgroundScope, io = UnconfinedTestDispatcher(testScheduler)) { 0L }
         waitlist.register(full)
         runCurrent()
         memory.failNext = 1
@@ -263,7 +264,7 @@ class WaitlistRepositoryTest {
     fun rapidFullOpenFullWithoutCollectorTimeStillReportsTheOpening() = runTest {
         val lists = EventLists()
         val opened = mutableListOf<WaitlistEntry>()
-        val waitlist = WaitlistRepository(Memory(), lists, { opened += it }, backgroundScope) { 0L }
+        val waitlist = WaitlistRepository(Memory(), lists, { opened += it }, backgroundScope, io = UnconfinedTestDispatcher(testScheduler)) { 0L }
         waitlist.register(full)
         runCurrent() // 先に購読を開始し、3件の観測を処理前にキューへ入れる。
         val waiting = full.copy(status = RoomStatus.WAITING, action = RoomAction.ENTER, name = "合成の部屋主")
@@ -289,7 +290,7 @@ class WaitlistRepositoryTest {
         val waitlist = WaitlistRepository(Memory(), lists, {
             entered.complete(Unit)
             release.await()
-        }, backgroundScope) { 0L }
+        }, backgroundScope, io = UnconfinedTestDispatcher(testScheduler)) { 0L }
         waitlist.register(full)
         runCurrent()
         lists.setFetchPage(zenkoku, listOf(full.copy(status = RoomStatus.WAITING, action = RoomAction.ENTER)))

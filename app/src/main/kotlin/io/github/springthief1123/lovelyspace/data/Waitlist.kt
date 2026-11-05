@@ -73,6 +73,8 @@ class WaitlistRepository(
     private val lists: ObservedRoomListSource,
     private val onOpened: suspend (WaitlistEntry) -> Unit,
     scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    /** 端末への保存を行う先。テストでは仮想時間の中で保存まで進めるために差し替える。 */
+    private val io: CoroutineDispatcher = Dispatchers.IO,
     private val now: () -> Long = System::currentTimeMillis,
 ) {
     private val mutex = Mutex()
@@ -325,7 +327,7 @@ class WaitlistRepository(
      * ディスク保存が成功してから画面上の状態を更新する。失敗した変更は再試行可能なままにする。
      * 保存できた後でメモリへの反映がキャンセル（前面の監視が背景へ移ったときなど）で抜けないよう、両方をまとめて行う。
      */
-    private suspend fun save(entries: List<WaitlistEntry>) = withContext(NonCancellable + Dispatchers.IO) {
+    private suspend fun save(entries: List<WaitlistEntry>) = withContext(NonCancellable + io) {
         persistence.save(entries)
         _entries.value = entries
     }
