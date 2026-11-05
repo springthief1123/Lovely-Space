@@ -166,6 +166,9 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onQuic
     // 押した取り直しは state.refreshing で分かる。最初の読み込み（まだ 1 ページも無いとき）だけは loading で見る。
     var userRefreshing by remember { mutableStateOf(false) }
     LaunchedEffect(state.loading, state.refreshing) { if (!state.loading && !state.refreshing) userRefreshing = false }
+    // 満室になって一覧から名前が消えた部屋は、名前が見えていたときの姿から部屋主の名前を補い、「名前（会話中）」と出す。
+    val namedRevision by app.roomLists.namedRevision.collectAsStateWithLifecycle()
+    val shownResults = remember(visibleResults, namedRevision) { app.roomLists.withLastNames(visibleResults) }
     val newCount = remember(visibleResults, state.newRoomIds) { visibleResults.count { roomIdentity(it) in state.newRoomIds } }
     // 検索シートの暗い面は、幅を 720dp に抑えた一覧の外（広い画面の左右の余白）まで覆う。
     Box(Modifier.fillMaxSize()) {
@@ -232,7 +235,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onQuic
             QuietNotice(error, error = true, actionLabel = "もう一度読み込む",
                 onAction = { if (state.errorOnMore) vm.more() else vm.refresh() }, actionEnabled = state.initialized && !state.loading)
         } }
-        items(visibleResults, key = ::roomIdentity) { room ->
+        items(shownResults, key = ::roomIdentity) { room ->
             RoomCard(
                 room = room,
                 onClick = { when (room.action) { RoomAction.ENTER -> onEnterRoom(room); RoomAction.PEEK -> onPeekRoom(room); RoomAction.NONE -> selectedRoom = room } },
