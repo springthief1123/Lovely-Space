@@ -85,7 +85,16 @@ class WaitlistRepository(
 
     init {
         // 一覧画面・レーダーが取得したページにも待っている部屋があれば、その場で反映する。
-        scope.launch { lists.observations.collect { all -> all.values.sortedBy { it.revision }.forEach { apply(it) } } }
+        scope.launch {
+            lists.observations.collect { all ->
+                all.values.sortedBy { it.revision }.forEach { observed ->
+                    // 保存先の一時的な失敗で観測の購読全体を停止させない。revisionは成功後にだけ進める。
+                    try { apply(observed) }
+                    catch (e: CancellationException) { throw e }
+                    catch (_: Exception) { }
+                }
+            }
+        }
     }
 
     /** 待っている部屋のジャンル。1 ページ目を新着の確認（[HotPagePoller]）で読み、立て直された部屋にすぐ気づく。 */
