@@ -316,7 +316,8 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                     ) {
                         if (found.rooms.isEmpty()) RadarNote(if (patrolling) "いま一致している部屋はありません。" else "巡回していないので、見つける画面などで読んだ一覧だけで数えています。")
                         val freshKeys = found.fresh.mapTo(HashSet(), ::roomIdentity)
-                        found.rooms.take(CONDITION_PREVIEW).forEach { room ->
+                        // 満室で名前の消えた部屋は、名前が見えていたときの姿から部屋主の名前を補う（見つける画面と同じ）。
+                        app.roomLists.withLastNames(found.rooms.take(CONDITION_PREVIEW)).forEach { room ->
                             io.github.springthief1123.lovelyspace.ui.rooms.RoomCard(room,
                                 onClick = { openRoom(room) },
                                 onDetailsClick = { details = room }, isFavorite = preferences.isFavorite(room),
