@@ -4,7 +4,12 @@ import java.util.Locale
 
 enum class KeywordMode { ALL, ANY }
 /** 並び順。[RECOMMENDED]（おすすめ順）は好みの学習（[PreferenceModel]）が要るので、[searchRooms] では本家の順のまま返し、画面が並べ替える。 */
-enum class RoomSort { SITE, NAME, AGE, ELAPSED, RECOMMENDED }
+/**
+ * 一覧の並び順。[SITE] は本家と同じ新しい部屋が上（部屋 ID の降順）、[SITE_OLDEST] はその逆。
+ * [AGE] は若い順、[AGE_DESC] は年上順（年齢が秘密の部屋はどちらも最後）。
+ * [NAME] と [ELAPSED] は画面からは選べない（2026-11-05 に廃止。経過順は本家の順とほぼ同じ）。以前に保存した条件のために残す。
+ */
+enum class RoomSort { SITE, NAME, AGE, ELAPSED, RECOMMENDED, SITE_OLDEST, AGE_DESC }
 
 data class RoomSearchCriteria(
     val name: String = "",
@@ -99,7 +104,9 @@ fun searchRooms(rooms: List<Room>, criteria: RoomSearchCriteria, synonyms: Synon
     return when (criteria.sort) {
         RoomSort.SITE, RoomSort.RECOMMENDED -> matches
         RoomSort.NAME -> matches.sortedWith(compareBy(nullsLast()) { it.name?.lowercase(Locale.ROOT) })
+        RoomSort.SITE_OLDEST -> matches.reversed()
         RoomSort.AGE -> matches.sortedWith(compareBy(nullsLast()) { it.age })
+        RoomSort.AGE_DESC -> matches.sortedWith(compareBy(nullsLast(reverseOrder())) { it.age })
         RoomSort.ELAPSED -> matches.sortedWith(compareBy(nullsLast()) { it.elapsed })
     }
 }

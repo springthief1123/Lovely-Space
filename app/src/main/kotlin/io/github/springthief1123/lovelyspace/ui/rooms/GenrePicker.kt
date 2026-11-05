@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -53,32 +55,40 @@ fun GenreBar(
     counts: Map<String, Int>,
     onSelect: (Genre) -> Unit,
     modifier: Modifier = Modifier,
+    /** ジャンル名の行の右端に並べる操作（見つけるの自動更新・今すぐ更新など）。 */
+    trailing: (@Composable RowScope.() -> Unit)? = null,
 ) {
     var sheetOpen by remember { mutableStateOf(false) }
     Column(
         modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        // 見出しに見えるが、押すとジャンルの一覧を開くボタン。
-        Row(
-            Modifier
-                .clickable(onClickLabel = "ジャンルを選ぶ", role = Role.Button) { sheetOpen = true }
-                .padding(vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                selected.label,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null)
-            counts[selected.key]?.let {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            // 見出しに見えるが、押すとジャンルの一覧を開くボタン。
+            Row(
+                Modifier
+                    .clickable(onClickLabel = "ジャンルを選ぶ", role = Role.Button) { sheetOpen = true }
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
-                    "$it rooms",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 8.dp),
+                    selected.label,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
                 )
+                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null)
+                counts[selected.key]?.let {
+                    Text(
+                        "$it rooms",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
+            }
+            if (trailing != null) {
+                Spacer(Modifier.weight(1f))
+                trailing()
             }
         }
 

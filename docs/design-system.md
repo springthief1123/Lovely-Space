@@ -120,7 +120,7 @@
 - `ui/components/QuietMenu.kt`: 汎用メニューの `QuietDropdownMenu` / `QuietExposedMenu` / `QuietMenuRow`（2.3）。新しいメニューはこれを使い、標準の `DropdownMenu` / `DropdownMenuItem` を画面に直接書かない。
 - `ui/rooms/RoomActionMenu.kt`: 部屋名・状態・アイコン付き操作を備えた独自メニュー。**部屋固有のヘッダーや配置を一般用途へ無理に転用せず**、必要ならパネルの外観と操作行だけを共通化する。
 - `ui/components/Glass.kt` と `ui/shell/LovelyAppShell.kt`: メインシェルの Glass UI。
-- `ui/main/SearchPanel.kt`: トップバーの下から降りる検索シート（`SearchSheet`、タブは Material の TabRow を使わず下線の小さなタブ）と、一覧の上の並び順（`SortRow`）。内部の標準チップや入力欄は今後の統一対象。
+- `ui/main/SearchPanel.kt`: トップバーの下から降りる検索シート（`SearchSheet`、タブは Material の TabRow を使わず下線の小さなタブ。条件の入ったタブは名前の横に `primary` の 6dp の点。中身は `EqualHeightPages` で高いほうにそろえる）と、一覧の上の並び順（`SortRow`）。利用状況・公開設定は `QuietFilterChip` ＋ `QuietDropdownMenu`、地域の地方別選択は `QuietDialog` の中に `QuietFilterChip` を並べる。一覧の上の今の条件（`SearchScreen.kt` の `ActiveFilterRow`）は選択中の `QuietFilterChip` に ✕（24dp の押せる範囲）を付ける。内部の標準チップや入力欄は今後の統一対象。
 - `ui/settings/SettingsScreen.kt`: 設定画面のカードと見出し。シェル外画面とのヘッダー差分を比較する。
 - `ui/settings/ColorPicker.kt`: 色の選択（`ColorSwatchGrid` の見本・`ColorWheelPicker` のカラーホイールと明るさ・`#RRGGBB` の入力）。今はアイコンのカモフラージュ（`DisguiseSettingsScreen`）だけで使う。見本は全丸（40dp）で、押せる範囲は列の幅いっぱい・高さ 52dp（6 列で 1 列 48dp 以上）。白など背景に溶ける色も見えるよう常に `outlineVariant` の 1dp の境界、選択中は `primary` の 3dp の縁と ✓（✓ は見本の色に対して読める白か濃い灰色）。読み上げではラジオボタンとして `#RRGGBB` を読む。ホイールは読み上げで操作しにくいので、見本と入力欄で同じ色を選べるようにしてある。明るさのバーは読み上げの調整操作（setProgress）で変えられる。見本とホイールの色はアイコンの色そのものなので、テーマの色ロールに置き換えない。
 

@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import io.github.springthief1123.lovelyspace.core.Genres
+import io.github.springthief1123.lovelyspace.core.Prefectures
 import io.github.springthief1123.lovelyspace.core.RefreshPacing
 import io.github.springthief1123.lovelyspace.core.chat.EntryProfile
 import io.github.springthief1123.lovelyspace.disguise.DisguiseSymbol
@@ -53,6 +54,8 @@ data class RoomListPreferences(
     val startMode: RoomListStartMode = RoomListStartMode.LAST_USED,
     val defaultGenreKey: String = Genres.default.key,
     val lastGenreKey: String = Genres.default.key,
+    /** 見つけるの検索で最近選んだ地域。新しいものが先頭。 */
+    val recentAreas: List<String> = emptyList(),
 ) {
     fun initialGenreKey(): String = when (startMode) {
         RoomListStartMode.LAST_USED -> lastGenreKey
@@ -63,7 +66,13 @@ data class RoomListPreferences(
 interface RoomListPreferenceStore {
     val roomListPreferences: Flow<RoomListPreferences>
     suspend fun setLastRoomGenre(genreKey: String)
+    /** 見つけるの検索で地域を選んだ。最近選んだ地域のチップに出す。 */
+    suspend fun addRecentArea(area: String) {}
 }
+
+/** 最近選んだ地域に [area] を加えた並び。新しいものを先頭に、[limit] 件まで。 */
+internal fun recentAreasWith(recent: List<String>, area: String, limit: Int = 5): List<String> =
+    (listOf(area) + recent.filter { it != area }).take(limit)
 
 private val Context.dataStore by preferencesDataStore(name = "settings")
 
@@ -74,6 +83,7 @@ class SettingsRepository(private val context: Context) : RoomListPreferenceStore
     private val roomListStartModeKey = stringPreferencesKey("room_list_start_mode")
     private val defaultRoomGenreKey = stringPreferencesKey("default_room_genre")
     private val lastRoomGenreKey = stringPreferencesKey("last_room_genre")
+    private val recentAreasKey = stringPreferencesKey("recent_search_areas")
     private val entryNameKey = stringPreferencesKey("entry_name")
     private val entrySexKey = intPreferencesKey("entry_sex")
     private val entryYearsKey = intPreferencesKey("entry_years")
@@ -116,6 +126,7 @@ class SettingsRepository(private val context: Context) : RoomListPreferenceStore
             lastGenreKey = prefs[lastRoomGenreKey]
                 ?.takeIf { Genres[it] != null }
                 ?: Genres.default.key,
+            recentAreas = prefs[recentAreasKey]?.split('\n')?.filter { it in Prefectures.names }.orEmpty(),
         )
     }
 
@@ -193,6 +204,14 @@ class SettingsRepository(private val context: Context) : RoomListPreferenceStore
     override suspend fun setLastRoomGenre(genreKey: String) {
         requireNotNull(Genres[genreKey]) { "Unknown genre: $genreKey" }
         context.dataStore.edit { it[lastRoomGenreKey] = genreKey }
+    }
+
+    override suspend fun addRecentArea(area: String) {
+        require(area in Prefectures.names) { "Unknown area: $area" }
+        context.dataStore.edit { prefs ->
+            val recent = prefs[recentAreasKey]?.split('\n')?.filter { it in Prefectures.names }.orEmpty()
+            prefs[recentAreasKey] = recentAreasWith(recent, area).joinToString("\n")
+        }
     }
 
     /** 入室の速さに関わる設定。 */

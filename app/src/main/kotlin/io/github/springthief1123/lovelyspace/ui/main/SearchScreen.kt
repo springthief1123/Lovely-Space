@@ -5,6 +5,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Bookmark
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import io.github.springthief1123.lovelyspace.ui.components.QuietFilterChip
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Refresh
@@ -43,6 +50,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -136,6 +144,9 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onQuic
     val c = state.criteria
     val validAges = state.validAges
     var searchOpen by rememberSaveable { mutableStateOf(false) }
+    // 閉じても最後に見ていたタブを覚えておく。一覧の上の条件のチップから開くときは、その条件のタブにする。
+    var sheetTab by rememberSaveable { mutableStateOf(SearchSheetTab.AGE_AREA) }
+    val savedSearches by savedSearchViewModel().state.collectAsStateWithLifecycle()
     var selectedRoom by remember { mutableStateOf<Room?>(null) }
     LaunchedEffect(state.initialized, refreshKey) { if (state.initialized) vm.onRefreshKey(refreshKey) }
     LaunchedEffect(state.genre) { onGenreChanged(state.genre) }
@@ -196,19 +207,35 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onQuic
             top = lovelyMainContentTopPadding(), bottom = lovelyMainContentBottomInset() + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
         // ジャンル名が画面の見出しを兼ねる。
-        if (state.initialized) item { GenreBar(state.genre, emptyList(), emptyMap(), { vm.genre(it); vm.refresh() }) }
+        // ジャンル名の右端に自動更新と今すぐ更新を並べ、その下に件数・ページ・新着の確認時刻を 1 行で出す。
         item {
-            SearchStatusRow(
-                text = searchStatusText(state.page, state.lastPage, visibleResults.size, state.loading || !state.initialized,
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                if (state.initialized) GenreBar(state.genre, emptyList(), emptyMap(), { vm.genre(it); vm.refresh() }, trailing = {
+                    RefreshControls(
+                        automatic = state.automatic,
+                        refreshing = state.refreshing || (state.page == 0 && state.loading),
+                        refreshedCount = state.refreshedCount,
+                        onAutomaticChange = vm::automatic,
+                        onRefresh = { vm.refresh() },
+                        refreshEnabled = state.initialized,
+                    )
+                })
+                val status = searchStatusText(state.page, state.lastPage, visibleResults.size, state.loading || !state.initialized,
                     // 新しい部屋が出る 1 ページ目を最後に確かめた時刻。新着の確認・更新ボタンのたびに進む。
                     // 後ろのページは周ごとに 1 つずつ読み直すので、いちばん古いページの時刻は部屋の多いジャンルで 1 時間ほど遅れる。
-                    state.pageTimes[RoomQuery(state.genre)]?.let(::formatCheckTime)),
-                automatic = state.automatic,
-                refreshing = state.refreshing || (state.page == 0 && state.loading),
-                refreshedCount = state.refreshedCount,
-                onAutomaticChange = vm::automatic,
-                onRefresh = { vm.refresh() },
-                refreshEnabled = state.initialized,
+                    state.pageTimes[RoomQuery(state.genre)]?.let(::formatCheckTime))
+                // 自動更新の状態をアイコンの形と色だけに頼らない。止めているときは文でも示す。
+                Text(if (state.automatic) status else "$status・自動更新停止中", style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        val filters = activeFilters(c)
+        if (filters.isNotEmpty()) item {
+            ActiveFilterRow(
+                filters = filters,
+                presetLabel = savedSearches.presets.firstOrNull { presetMatches(it, state.genre.key, c) }?.label,
+                onOpen = { filter -> filter?.tab?.let { sheetTab = it }; searchOpen = true },
+                onClear = vm::clearFilter,
             )
         }
         item { SortRow(c.sort) { vm.criteria(c.copy(sort = it)) } }
@@ -292,6 +319,8 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onQuic
         state = state,
         vm = vm,
         resultCount = visibleResults.size,
+        tab = sheetTab,
+        onTab = { sheetTab = it },
         onDismiss = { searchOpen = false },
         onReset = resetSearch,
         ng = ngSummary.copy(onManage = { searchOpen = false; ngSummary.onManage() }),
@@ -311,9 +340,9 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onQuic
     )
 }
 
+/** ジャンル名の右端の、自動更新のオン・オフと今すぐ更新。 */
 @Composable
-private fun SearchStatusRow(
-    text: String,
+private fun RefreshControls(
     automatic: Boolean,
     refreshing: Boolean,
     refreshedCount: Int,
@@ -321,10 +350,7 @@ private fun SearchStatusRow(
     onRefresh: () -> Unit,
     refreshEnabled: Boolean,
 ) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        // 自動更新の状態をアイコンの形と色だけに頼らない。止めているときは文でも示し、ボタンの読み上げにも状態を付ける。
-        Text(if (automatic) text else "$text・自動更新を停止中", style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+    Row(verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = { onAutomaticChange(!automatic) },
             modifier = Modifier.semantics { stateDescription = if (automatic) "自動更新中" else "自動更新を停止中" }) {
             Icon(if (automatic) Icons.Outlined.Sync else Icons.Outlined.SyncDisabled,
@@ -380,6 +406,39 @@ private fun RefreshButton(refreshing: Boolean, refreshedCount: Int, onRefresh: (
     }
 }
 
+/**
+ * 一覧の上に出す、いま指定している条件。シートを閉じても何で絞っているかが分かるようにする。
+ * チップを押すとその条件のタブで検索シートを開き、✕ でその条件だけを外す。保存した条件そのものなら先頭にその名前を出す。
+ */
+@Composable
+private fun ActiveFilterRow(filters: List<ActiveFilter>, presetLabel: String?, onOpen: (ActiveFilter?) -> Unit, onClear: (ActiveFilterKind) -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        presetLabel?.let { label ->
+            item(key = "preset") {
+                QuietFilterChip(selected = true, onClick = { onOpen(null) }, label = label, leadingIcon = Icons.Outlined.Bookmark,
+                    modifier = Modifier.semantics { contentDescription = "保存した条件「$label」を適用中" })
+            }
+        }
+        items(filters, key = { it.kind }) { filter ->
+            QuietFilterChip(
+                selected = true,
+                onClick = { onOpen(filter) },
+                label = filter.label,
+                trailingIcon = {
+                    Box(Modifier.size(24.dp).clip(CircleShape).clickable(onClickLabel = "外す") { onClear(filter.kind) },
+                        contentAlignment = Alignment.Center) {
+                        Icon(Icons.Outlined.Close, contentDescription = "${filter.label}を外す", tint = scheme.onSecondaryContainer, modifier = Modifier.size(16.dp))
+                    }
+                },
+                modifier = Modifier.semantics {
+                    customActions = listOf(CustomAccessibilityAction("${filter.label}を外す") { onClear(filter.kind); true })
+                },
+            )
+        }
+    }
+}
+
 /** 押した取り直しの輪を回し続ける最短の時間（ミリ秒）。通信がすぐ終わっても回ったことが分かるように。 */
 private const val MIN_SPIN_MS = 600L
 /** 取り直しが済んだ印を出す時間（ミリ秒）。 */
@@ -398,7 +457,7 @@ private fun SearchEmpty(text: String, onReset: (() -> Unit)?) {
 internal fun searchStatusText(page: Int, lastPage: Int, shown: Int, loading: Boolean, newestCheck: String?): String = when {
     page == 0 && loading -> "一覧を読み込んでいます"
     page == 0 -> "下に引いて一覧を取得"
-    else -> listOfNotNull("${shown}件", "${page}/${lastPage}ページ", newestCheck?.let { "新着 $it 確認" }).joinToString("・")
+    else -> listOfNotNull("${shown}件", "${page}/${lastPage}ページ", newestCheck?.let { "新着 $it" }).joinToString("・")
 }
 
 /** 新着を確かめた時刻。数秒ごとに進むので秒まで出す。 */
