@@ -89,4 +89,19 @@ class SearchFiltersTest {
         assertEquals(listOf("北海道", "東京"), recentAreasWith(listOf("東京", "北海道"), "北海道"))
         assertEquals(5, recentAreasWith(listOf("東京", "神奈川", "埼玉", "千葉", "茨城"), "栃木").size)
     }
+
+    @Test fun sortChipsToggleDirectionOnSecondTap() {
+        assertEquals(RoomSort.SITE_OLDEST, tapSort(RoomSort.SITE, SortChoice.NEWEST))
+        assertEquals(RoomSort.SITE, tapSort(RoomSort.SITE_OLDEST, SortChoice.NEWEST))
+        // 別のチップを押すと、そのチップの最初の向き（年齢は若い順）。
+        assertEquals(RoomSort.AGE, tapSort(RoomSort.SITE, SortChoice.AGE))
+        assertEquals(RoomSort.AGE_DESC, tapSort(RoomSort.AGE, SortChoice.AGE))
+        assertEquals(RoomSort.SITE, tapSort(RoomSort.AGE_DESC, SortChoice.NEWEST))
+        // おすすめには向きがない。
+        assertEquals(RoomSort.RECOMMENDED, tapSort(RoomSort.RECOMMENDED, SortChoice.RECOMMENDED))
+        // 以前に保存した経過順は新着順に、名前順はどのチップにも当たらない。
+        assertEquals(SortChoice.NEWEST, sortChoiceOf(RoomSort.ELAPSED))
+        assertNull(sortChoiceOf(RoomSort.NAME))
+        assertEquals(RoomSort.SITE, tapSort(RoomSort.NAME, SortChoice.NEWEST))
+    }
 }

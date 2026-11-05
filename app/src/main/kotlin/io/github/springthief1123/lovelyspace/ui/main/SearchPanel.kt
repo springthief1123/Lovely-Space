@@ -26,7 +26,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ArrowDownward
 import androidx.compose.material.icons.outlined.ArrowDropDown
+import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Map
 import androidx.compose.material.icons.outlined.Search
@@ -314,22 +316,33 @@ private fun KeywordConditions(state: SearchUiState, vm: SearchViewModel, ng: NgS
 }
 
 /**
- * 一覧の上に常に出す並び順。並び替えは絞り込みより頻繁に変えるので、検索シートを開かずに 1 タップで切り替える。
+ * 一覧の上に常に出す並び順（新着順・おすすめ・年齢）。並び替えは絞り込みより頻繁に変えるので、検索シートを開かずに 1 タップで切り替える。
+ * 新着順と年齢は、選んでいるチップをもう一度押すと降順・昇順を替える。
  * おすすめ順は保存・非表示にした部屋から学んだ好みで並べる（PreferenceModel）。
  */
 @Composable
 internal fun SortRow(selected: RoomSort, onSelect: (RoomSort) -> Unit) {
-    val options = listOf(RoomSort.SITE to "一覧順", RoomSort.RECOMMENDED to "おすすめ", RoomSort.NAME to "名前", RoomSort.AGE to "年齢", RoomSort.ELAPSED to "経過")
-    LazyRow(Modifier.fillMaxWidth().semantics { stateDescription = "並び順：" + options.first { it.first == selected }.second },
+    val current = sortChoiceOf(selected)
+    Row(Modifier.fillMaxWidth().semantics { stateDescription = "並び順：" + sortDescription(selected) },
         horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-        item {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                Icon(Icons.Outlined.SwapVert, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("並び", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            Icon(Icons.Outlined.SwapVert, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("並び", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        options.forEach { (value, label) ->
-            item { QuietFilterChip(selected = value == selected, onClick = { onSelect(value) }, label = label) }
+        SortChoice.entries.forEach { choice ->
+            val on = choice == current
+            // 選んでいるチップに向きの矢印（↓ 降順・↑ 昇順）を付け、もう一度押すと向きを替える。
+            QuietFilterChip(
+                selected = on,
+                onClick = { onSelect(tapSort(selected, choice)) },
+                label = choice.label,
+                trailingIcon = if (on && choice.reversible) ({
+                    Icon(if (selected == choice.descending) Icons.Outlined.ArrowDownward else Icons.Outlined.ArrowUpward, null, Modifier.size(16.dp))
+                }) else null,
+                modifier = Modifier.semantics {
+                    if (on) stateDescription = sortDescription(selected) + if (choice.reversible) "。押すと向きを替えます" else ""
+                },
+            )
         }
     }
 }

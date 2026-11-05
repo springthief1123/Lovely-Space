@@ -50,6 +50,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -206,20 +207,27 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onQuic
             top = lovelyMainContentTopPadding(), bottom = lovelyMainContentBottomInset() + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
         // ジャンル名が画面の見出しを兼ねる。
-        if (state.initialized) item { GenreBar(state.genre, emptyList(), emptyMap(), { vm.genre(it); vm.refresh() }) }
+        // ジャンル名の右端に自動更新と今すぐ更新を並べ、その下に件数・ページ・新着の確認時刻を 1 行で出す。
         item {
-            SearchStatusRow(
-                text = searchStatusText(state.page, state.lastPage, visibleResults.size, state.loading || !state.initialized,
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                if (state.initialized) GenreBar(state.genre, emptyList(), emptyMap(), { vm.genre(it); vm.refresh() }, trailing = {
+                    RefreshControls(
+                        automatic = state.automatic,
+                        refreshing = state.refreshing || (state.page == 0 && state.loading),
+                        refreshedCount = state.refreshedCount,
+                        onAutomaticChange = vm::automatic,
+                        onRefresh = { vm.refresh() },
+                        refreshEnabled = state.initialized,
+                    )
+                })
+                val status = searchStatusText(state.page, state.lastPage, visibleResults.size, state.loading || !state.initialized,
                     // 新しい部屋が出る 1 ページ目を最後に確かめた時刻。新着の確認・更新ボタンのたびに進む。
                     // 後ろのページは周ごとに 1 つずつ読み直すので、いちばん古いページの時刻は部屋の多いジャンルで 1 時間ほど遅れる。
-                    state.pageTimes[RoomQuery(state.genre)]?.let(::formatCheckTime)),
-                automatic = state.automatic,
-                refreshing = state.refreshing || (state.page == 0 && state.loading),
-                refreshedCount = state.refreshedCount,
-                onAutomaticChange = vm::automatic,
-                onRefresh = { vm.refresh() },
-                refreshEnabled = state.initialized,
-            )
+                    state.pageTimes[RoomQuery(state.genre)]?.let(::formatCheckTime))
+                // 自動更新の状態をアイコンの形と色だけに頼らない。止めているときは文でも示す。
+                Text(if (state.automatic) status else "$status・自動更新停止中", style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
         val filters = activeFilters(c)
         if (filters.isNotEmpty()) item {
@@ -332,9 +340,9 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onQuic
     )
 }
 
+/** ジャンル名の右端の、自動更新のオン・オフと今すぐ更新。 */
 @Composable
-private fun SearchStatusRow(
-    text: String,
+private fun RefreshControls(
     automatic: Boolean,
     refreshing: Boolean,
     refreshedCount: Int,
@@ -342,10 +350,7 @@ private fun SearchStatusRow(
     onRefresh: () -> Unit,
     refreshEnabled: Boolean,
 ) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        // 自動更新の状態をアイコンの形と色だけに頼らない。止めているときは文でも示し、ボタンの読み上げにも状態を付ける。
-        Text(if (automatic) text else "$text・自動更新を停止中", style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+    Row(verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = { onAutomaticChange(!automatic) },
             modifier = Modifier.semantics { stateDescription = if (automatic) "自動更新中" else "自動更新を停止中" }) {
             Icon(if (automatic) Icons.Outlined.Sync else Icons.Outlined.SyncDisabled,
@@ -452,7 +457,7 @@ private fun SearchEmpty(text: String, onReset: (() -> Unit)?) {
 internal fun searchStatusText(page: Int, lastPage: Int, shown: Int, loading: Boolean, newestCheck: String?): String = when {
     page == 0 && loading -> "一覧を読み込んでいます"
     page == 0 -> "下に引いて一覧を取得"
-    else -> listOfNotNull("${shown}件", "${page}/${lastPage}ページ", newestCheck?.let { "新着 $it 確認" }).joinToString("・")
+    else -> listOfNotNull("${shown}件", "${page}/${lastPage}ページ", newestCheck?.let { "新着 $it" }).joinToString("・")
 }
 
 /** 新着を確かめた時刻。数秒ごとに進むので秒まで出す。 */

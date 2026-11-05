@@ -4,6 +4,7 @@ import io.github.springthief1123.lovelyspace.core.Gender
 import io.github.springthief1123.lovelyspace.core.KeywordMode
 import io.github.springthief1123.lovelyspace.core.Prefectures
 import io.github.springthief1123.lovelyspace.core.RoomSearchCriteria
+import io.github.springthief1123.lovelyspace.core.RoomSort
 import io.github.springthief1123.lovelyspace.data.SearchPreset
 
 /**
@@ -124,3 +125,42 @@ internal val PrefectureRegions: List<Pair<String, List<String>>> = Prefectures.n
 /** 地域のチップに出す候補。選んでいる地域を先頭に、最近選んだ地域を続け、[limit] 件まで。 */
 internal fun areaShortcuts(selected: String?, recent: List<String>, limit: Int = 4): List<String> =
     (listOfNotNull(selected) + recent).filter { it in Prefectures.names }.distinct().take(limit)
+
+/**
+ * 一覧の上の並び順のチップ。[ascending] / [descending] のどちらかを選び、選んでいるチップをもう一度押すと向きを替える。
+ * 向きのないもの（おすすめ）は両方に同じ値を入れる。
+ */
+internal enum class SortChoice(val label: String, val descending: RoomSort, val ascending: RoomSort, val firstTap: RoomSort) {
+    /** 本家と同じ、部屋を作った新しい順（経過の短い順）。逆にすると古い順。 */
+    NEWEST("新着順", RoomSort.SITE, RoomSort.SITE_OLDEST, RoomSort.SITE),
+    RECOMMENDED("おすすめ", RoomSort.RECOMMENDED, RoomSort.RECOMMENDED, RoomSort.RECOMMENDED),
+    /** 初めて押すと若い順。 */
+    AGE("年齢", RoomSort.AGE_DESC, RoomSort.AGE, RoomSort.AGE);
+
+    val reversible: Boolean get() = descending != ascending
+    operator fun contains(sort: RoomSort): Boolean = sort == descending || sort == ascending
+}
+
+/** [sort] がどのチップか。以前に保存した経過順は本家の順とほぼ同じなので新着順に数え、名前順はどれにも当たらない。 */
+internal fun sortChoiceOf(sort: RoomSort): SortChoice? = when (sort) {
+    RoomSort.ELAPSED -> SortChoice.NEWEST
+    else -> SortChoice.entries.firstOrNull { sort in it }
+}
+
+/** チップ [choice] を押した後の並び順。選んでいるチップなら向きを替え、ほかのチップならそのチップの最初の向きにする。 */
+internal fun tapSort(current: RoomSort, choice: SortChoice): RoomSort = when {
+    current !in choice -> choice.firstTap
+    !choice.reversible -> current
+    current == choice.descending -> choice.ascending
+    else -> choice.descending
+}
+
+/** 並び順を言葉で言う（読み上げ用）。 */
+internal fun sortDescription(sort: RoomSort): String = when (sort) {
+    RoomSort.SITE, RoomSort.ELAPSED -> "新しい順"
+    RoomSort.SITE_OLDEST -> "古い順"
+    RoomSort.AGE -> "若い順"
+    RoomSort.AGE_DESC -> "年上順"
+    RoomSort.RECOMMENDED -> "おすすめ順"
+    RoomSort.NAME -> "名前順"
+}

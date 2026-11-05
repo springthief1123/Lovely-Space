@@ -26,7 +26,7 @@ class SearchHeaderTest {
     @Test fun statusTextSummarizesListInOneLine() {
         assertEquals("一覧を読み込んでいます", searchStatusText(0, 0, 0, loading = true, newestCheck = null))
         assertEquals("下に引いて一覧を取得", searchStatusText(0, 0, 0, loading = false, newestCheck = null))
-        assertEquals("41件・3/5ページ・新着 12:04:31 確認", searchStatusText(3, 5, 41, loading = false, newestCheck = "12:04:31"))
+        assertEquals("41件・3/5ページ・新着 12:04:31", searchStatusText(3, 5, 41, loading = false, newestCheck = "12:04:31"))
         assertEquals("0件・1/1ページ", searchStatusText(1, 1, 0, loading = true, newestCheck = null))
     }
 

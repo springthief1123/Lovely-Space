@@ -39,6 +39,10 @@ class RoomSearchTest {
         assertEquals(listOf(25, 25, 30, null), searchRooms(rooms, RoomSearchCriteria(sort = RoomSort.AGE)).map { it.age })
         assertEquals(listOf(2L, 1L, 1L, 3L), searchRooms(rooms, RoomSearchCriteria(sort = RoomSort.ELAPSED)).map { it.id })
         assertNull(searchRooms(rooms, RoomSearchCriteria(sort = RoomSort.NAME)).last().name)
+        // 年上順でも年齢が秘密の部屋は最後。
+        assertEquals(listOf(30, 25, 25, null), searchRooms(rooms, RoomSearchCriteria(sort = RoomSort.AGE_DESC)).map { it.age })
+        // 古い順は本家の並びをそのまま逆にする。
+        assertEquals(searchRooms(rooms, RoomSearchCriteria()).reversed(), searchRooms(rooms, RoomSearchCriteria(sort = RoomSort.SITE_OLDEST)))
     }
 
     @Test

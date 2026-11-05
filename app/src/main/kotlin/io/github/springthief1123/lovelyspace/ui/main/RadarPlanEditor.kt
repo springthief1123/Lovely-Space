@@ -64,7 +64,7 @@ internal fun RadarPlanEditor(value: SearchPreset, working: Boolean, error: Strin
             RadarDropdown("地域", c.area.orEmpty(), listOf("" to "すべて") + Prefectures.names.map { it to it }, !working) { criteria(c.copy(area = it.ifBlank { null })) }
             RadarChoice("利用状況", c.waitingOnly, listOf(null to "すべて", true to "待機中", false to "満室"), !working) { criteria(c.copy(waitingOnly = it)) }
             RadarChoice("公開設定", c.publicOnly, listOf(null to "すべて", true to "公開", false to "非公開"), !working) { criteria(c.copy(publicOnly = it)) }
-            RadarChoice("並び順", c.sort, listOf(RoomSort.SITE to "一覧順", RoomSort.NAME to "名前", RoomSort.AGE to "年齢", RoomSort.ELAPSED to "経過"), !working) { criteria(c.copy(sort = it)) }
+            RadarChoice("並び順", c.sort, listOf(RoomSort.SITE to "新着順", RoomSort.SITE_OLDEST to "古い順", RoomSort.AGE to "若い順", RoomSort.AGE_DESC to "年上順"), !working) { criteria(c.copy(sort = it)) }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             Button(enabled = !working && preset.label.isNotBlank() && validAges, onClick = {
                 onSave(preset.copy(criteria = c.copy(minAge = minAge.toIntOrNull(), maxAge = maxAge.toIntOrNull())))
