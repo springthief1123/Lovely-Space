@@ -270,18 +270,26 @@ class WaitlistRepository(
             catch (e: CancellationException) { throw e }
             catch (_: Exception) { false }
             if (!delivered) continue
-            mutex.withLock {
-                val current = _entries.value
-                if (current.any { it.key == key && it.unnoticed && it.changedAt == changedAt }) {
-                    save(current.map { if (it.key == key && it.unnoticed && it.changedAt == changedAt) it.copy(noticed = true) else it })
+            // 通知済みを保存できなければ未通知のまま残し、次の確認・起動時の [deliverPending] で出し直す
+            // （同じ通知 ID で置き換わるので二重には並ばない）。起動時の呼び出しから例外を外へ出さない。
+            try {
+                mutex.withLock {
+                    val current = _entries.value
+                    if (current.any { it.key == key && it.unnoticed && it.changedAt == changedAt }) {
+                        save(current.map { if (it.key == key && it.unnoticed && it.changedAt == changedAt) it.copy(noticed = true) else it })
+                    }
                 }
-            }
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { }
         }
     }
 
-    /** ディスク保存が成功してから画面上の状態を更新する。失敗した変更は再試行可能なままにする。 */
-    private suspend fun save(entries: List<WaitlistEntry>) {
-        withContext(Dispatchers.IO) { persistence.save(entries) }
+    /**
+     * ディスク保存が成功してから画面上の状態を更新する。失敗した変更は再試行可能なままにする。
+     * 保存できた後でメモリへの反映がキャンセル（前面の監視が背景へ移ったときなど）で抜けないよう、両方をまとめて行う。
+     */
+    private suspend fun save(entries: List<WaitlistEntry>) = withContext(NonCancellable + Dispatchers.IO) {
+        persistence.save(entries)
         _entries.value = entries
     }
 
