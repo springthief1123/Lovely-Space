@@ -136,11 +136,13 @@ class ShaloveClientTest {
         val client = ShaloveClient(
             http = OkHttpClient.Builder().addInterceptor { chain ->
                 calls[0]++
+                // 前の通信を待っている間に、相手が入れ替わる。
+                sameParticipant = false
                 Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
                     .code(200).message("OK").body("ok".toResponseBody()).build()
             }.build(),
             clock = { now },
-            sleep = { ms -> now += ms; sameParticipant = false },
+            sleep = { ms -> now += ms },
         )
         client.get("https://chat.shalove.net/synthetic")
         val room = ChatRoomRef("chat.shalove.net", 42, "test-pwd", "kanto")
