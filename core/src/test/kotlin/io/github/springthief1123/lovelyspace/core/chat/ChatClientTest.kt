@@ -266,7 +266,7 @@ class ChatClientTest {
         client.setPublic(room, public = true)
         assertEquals(roomForm("set_is_public" to "0"), form(requests[0].second))
         assertEquals(roomForm("set_is_public" to "1"), form(requests[1].second))
-        assertEquals("ページ操作の間隔を空ける", listOf(3_000L), sleeps)
+        assertEquals("押した操作は本家のブラウザと同じく間隔を空けない", emptyList<Long>(), sleeps)
     }
 
     @Test

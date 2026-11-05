@@ -12,7 +12,7 @@ suspend fun inspectRadarRoom(lists: RoomListSource, snapshot: RadarRoomSnapshot)
     val query = snapshot.sourceQuery ?: RoomQuery(genre, page = snapshot.page)
     if (query.genre != genre || query.page < 1) return RadarRoomInspection(message = "記録の取得条件を確認できません。「見つける」で確認してください。")
     val before = lists.observation(query)?.revision ?: 0
-    lists.fetch(query, force = true)
+    lists.fetchOpened(query, force = true)
     val observation = lists.observation(query)
     if (observation == null || observation.revision <= before || observation.query != query) {
         return RadarRoomInspection(message = "新しい一覧を確認できませんでした。時間をおいて再試行してください。")
