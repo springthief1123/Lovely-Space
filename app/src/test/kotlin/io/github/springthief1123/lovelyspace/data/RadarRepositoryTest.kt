@@ -148,7 +148,10 @@ class RadarRepositoryTest {
         try {
             val searches = SearchPresetRepository(db)
             searches.save(SearchPreset("auto", "合成の自動巡回", "zenkoku", RoomSearchCriteria()))
-            val lists = Lists().apply { lastPage = 3; roomsByPage = mapOf(1 to listOf(room), 2 to listOf(room.copy(id = 43)), 3 to listOf(room.copy(id = 44))) }
+            // 一覧は立てた順（ID の大きい順）。ID はページの端の幅（ID_MARGIN）より離す。
+            val first = room.copy(id = 900_000_400); val second = room.copy(id = 900_000_300); val third = room.copy(id = 900_000_200)
+            val newest = room.copy(id = 900_000_500)
+            val lists = Lists().apply { lastPage = 3; roomsByPage = mapOf(1 to listOf(first), 2 to listOf(second), 3 to listOf(third)) }
             val radar = RadarRepository(db.presets(), lists, searches, RoomPreferenceRepository(db), backgroundScope)
             radar.state.first { it.loaded }; radar.setPlan("auto", true)
             radar.scan()
@@ -157,17 +160,18 @@ class RadarRepositoryTest {
             assertEquals(3, radar.state.value.nextPages["auto"])
             radar.scan()
             assertEquals(listOf(1, 2, 1, 3), lists.calls.map { it.page })
-            assertEquals(setOf(42L, 43L, 44L), radar.state.value.livePages["zenkoku"]!!.rooms.map { it.id }.toSet())
-            lists.roomsByPage = mapOf(1 to listOf(room.copy(id = 45)), 2 to listOf(room.copy(id = 43)), 3 to listOf(room.copy(id = 44)))
+            fun live() = radar.state.value.livePages["zenkoku"]!!.rooms.map { it.id }.toSet()
+            assertEquals(setOf(first.id, second.id, third.id), live())
+            lists.roomsByPage = mapOf(1 to listOf(newest), 2 to listOf(second), 3 to listOf(third))
             radar.scan(latestFirst = true)
-            // 1 ページ目から消えた 42 は後ろのページへずれただけかもしれないので、2 ページ目を読んだうえで 1 ページ目にも無いと分かるまで残す。
-            assertEquals(setOf(42L, 43L, 44L, 45L), radar.state.value.livePages["zenkoku"]!!.rooms.map { it.id }.toSet())
+            // 1 ページ目から消えた部屋は後ろのページへずれただけかもしれないので、2 ページ目も読んで、その間に無いと分かるまで残す。
+            assertEquals(setOf(first.id, second.id, third.id, newest.id), live())
             radar.scan(latestFirst = true)
-            assertEquals(setOf(42L, 43L, 44L, 45L), radar.state.value.livePages["zenkoku"]!!.rooms.map { it.id }.toSet())
+            assertEquals(setOf(first.id, second.id, third.id, newest.id), live())
             radar.scan(); radar.scan()
             assertEquals(listOf(1, 2), lists.calls.takeLast(2).map { it.page })
             radar.scan(latestFirst = true)
-            assertEquals(setOf(43L, 44L, 45L), radar.state.value.livePages["zenkoku"]!!.rooms.map { it.id }.toSet())
+            assertEquals(setOf(second.id, third.id, newest.id), live())
         } finally { db.close() }
     }
     @Test fun resultsOfAnOlderDefinitionCannotBeShownAsMatchesForAnEditedPreset() {
