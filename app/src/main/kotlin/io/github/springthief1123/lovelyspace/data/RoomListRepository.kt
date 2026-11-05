@@ -81,7 +81,7 @@ class RoomListRepository(
     private val attempts = java.util.concurrent.atomic.AtomicLong()
     /** 一覧の取得を試みた回数（失敗・キャッシュ再利用も含む）。背景の 1 回の実行で取得したページ数の上限を、機能をまたいで守るのに使う。 */
     val fetchAttempts: Long get() = attempts.get()
-    override fun observation(query: RoomQuery) = _observations.value[query]
+    override fun observation(query: RoomQuery) = observations.value[query]
 
     /**
      * 名前が見えていた最後の姿（部屋ごと、新しく見た [MAX_NAMED] 部屋まで）。満室になると一覧から名前・性別が消え、
