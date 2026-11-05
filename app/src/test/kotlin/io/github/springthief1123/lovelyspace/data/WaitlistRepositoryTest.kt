@@ -170,6 +170,26 @@ class WaitlistRepositoryTest {
         assertTrue(memory.saved.single().noticed)
     }
 
+    @Test fun failingToSaveTheNoticeKeepsItPendingWithoutThrowing() = runTest {
+        val opened = full.copy(status = RoomStatus.WAITING, action = RoomAction.ENTER, name = "合成の名前")
+        val lists = Lists().apply { pages = mapOf(1 to listOf(opened)) }
+        val memory = Memory()
+        val received = mutableListOf<WaitlistEntry>()
+        // 通知を出した直後に保存先が失敗する（通知済みを書けない）。
+        val waitlist = WaitlistRepository(memory, lists, { received += it; if (received.size == 1) memory.failSave = true }, backgroundScope) { 0L }
+        waitlist.register(full)
+
+        assertFalse(waitlist.check(1))
+        assertEquals(1, received.size)
+        assertTrue("通知済みを保存できなければ未通知のまま残す", waitlist.entries.value.single().unnoticed)
+
+        // 起動時の出し直しは例外を外へ出さず、保存先が戻れば通知済みにする。
+        memory.failSave = false
+        waitlist.deliverPending()
+        assertEquals(2, received.size)
+        assertTrue(memory.saved.single().noticed)
+    }
+
     @Test
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     fun removalDuringNotificationDoesNotMarkANewRegistrationAsNoticed() = runTest {
