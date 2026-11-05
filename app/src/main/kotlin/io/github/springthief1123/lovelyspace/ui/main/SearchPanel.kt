@@ -48,7 +48,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.springthief1123.lovelyspace.core.*
-import io.github.springthief1123.lovelyspace.ui.components.QuietFieldPair
 import io.github.springthief1123.lovelyspace.ui.components.QuietDropdownMenu
 import io.github.springthief1123.lovelyspace.ui.components.QuietDialog
 import io.github.springthief1123.lovelyspace.ui.components.QuietAssistChip
@@ -114,7 +113,7 @@ internal fun SearchSheet(
                             .padding(horizontal = LovelySpacing.screenHorizontal).padding(top = 12.dp, bottom = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        SearchField(state.criteria.keyword(state.keywordScope), state.keywordScope.placeholder, vm::keyword,
+                        SearchField(state.criteria.keyword(state.keywordScope), "検索する語", vm::keyword,
                             scope = state.keywordScope, onScope = vm::keywordScope)
                         SavedSearchRow(state, saved, vm::applyPreset)
                         QuickFilterRow(state.criteria, onChange = vm::criteria)
@@ -206,32 +205,37 @@ private fun AgeAreaConditions(state: SearchUiState, vm: SearchViewModel) {
     val showFields = exact || bands == null
     var picking by rememberSaveable { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        ConditionLabel("年齢")
-        LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            items(AgeBand.entries) { band ->
-                QuietFilterChip(selected = band in bands.orEmpty(), label = band.label, onClick = {
+        // 見出しの行に今の年齢と「数字で指定」をまとめ、チップとの間を空けすぎない。
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            ConditionLabel("年齢")
+            Text(if (validAges) ageSummary(c.minAge, c.maxAge) else "入力を確かめてください",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (validAges) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(start = 8.dp).weight(1f))
+            if (bands != null) TextButton(onClick = { exact = !exact }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                Text(if (exact) "数字の欄を閉じる" else "数字で指定")
+            }
+        }
+        // 5 つの年代は横に並べきる（以前は横に流れて「50〜」が切れていた）。
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            AgeBand.entries.forEach { band ->
+                QuietFilterChip(selected = band in bands.orEmpty(), label = band.label, modifier = Modifier.weight(1f), onClick = {
                     val (min, max) = tapAgeBand(c.minAge.takeIf { validAges }, c.maxAge.takeIf { validAges }, band)
                     vm.ageRange(min, max)
                 })
             }
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(if (validAges) ageSummary(c.minAge, c.maxAge) else "年齢の入力を確かめてください",
-                style = MaterialTheme.typography.bodySmall,
-                color = if (validAges) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
-                modifier = Modifier.weight(1f))
-            if (bands != null) TextButton(onClick = { exact = !exact }) { Text(if (exact) "数字の欄を閉じる" else "数字で指定") }
-        }
         if (showFields) {
-            QuietFieldPair(first = { fieldModifier ->
+            // 縦に 2 段だとシートが伸びて地域が隠れるので、いつも 1 行に並べる。
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(state.minAgeInput, vm::minAge,
-                    label = { Text("最低年齢") }, singleLine = true, isError = !validAges,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = fieldModifier)
-            }, second = { fieldModifier ->
+                    label = { Text("最低", maxLines = 1) }, suffix = { Text("歳") }, singleLine = true, isError = !validAges,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
+                Text("〜", Modifier.padding(horizontal = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 OutlinedTextField(state.maxAgeInput, vm::maxAge,
-                    label = { Text("最高年齢") }, singleLine = true, isError = !validAges,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = fieldModifier)
-            })
+                    label = { Text("最高", maxLines = 1) }, suffix = { Text("歳") }, singleLine = true, isError = !validAges,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
+            }
             if (!validAges) Text(AGE_RANGE_ERROR, color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall)
         }
@@ -343,22 +347,20 @@ private fun KeywordScopeButton(scope: KeywordScope, onScope: (KeywordScope) -> U
 }
 
 /** 性別は 1 タップで切り替え、利用状況と公開設定は押すと「すべて／片方／もう片方」のメニューから選ぶ。それ以外の条件はタブに置く。 */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun QuickFilterRow(criteria: RoomSearchCriteria, onChange: (RoomSearchCriteria) -> Unit) {
-    LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        item {
-            QuietFilterChip(criteria.gender == Gender.FEMALE,
-                { onChange(criteria.copy(gender = if (criteria.gender == Gender.FEMALE) null else Gender.FEMALE)) },
-                label = "女性")
-        }
-        item {
-            QuietFilterChip(criteria.gender == Gender.MALE,
-                { onChange(criteria.copy(gender = if (criteria.gender == Gender.MALE) null else Gender.MALE)) },
-                label = "男性")
-        }
+    // 横に流すと端のチップ（女性・公開設定）が切れて見落とすので、収まらなければ折り返す。
+    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        QuietFilterChip(criteria.gender == Gender.FEMALE,
+            { onChange(criteria.copy(gender = if (criteria.gender == Gender.FEMALE) null else Gender.FEMALE)) },
+            label = "女性")
+        QuietFilterChip(criteria.gender == Gender.MALE,
+            { onChange(criteria.copy(gender = if (criteria.gender == Gender.MALE) null else Gender.MALE)) },
+            label = "男性")
         // 以前は押すたびに 3 つの状態を順に回していたが、次に何になるか読めないので、メニューで直接選ぶ。
-        item { TriStateMenuChip(criteria.waitingOnly, "利用状況", "待機中", "満室") { onChange(criteria.copy(waitingOnly = it)) } }
-        item { TriStateMenuChip(criteria.publicOnly, "公開設定", "公開", "非公開") { onChange(criteria.copy(publicOnly = it)) } }
+        TriStateMenuChip(criteria.waitingOnly, "利用状況", "待機中", "満室") { onChange(criteria.copy(waitingOnly = it)) }
+        TriStateMenuChip(criteria.publicOnly, "公開設定", "公開", "非公開") { onChange(criteria.copy(publicOnly = it)) }
     }
 }
 
