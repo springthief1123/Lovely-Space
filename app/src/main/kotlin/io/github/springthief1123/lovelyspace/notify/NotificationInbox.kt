@@ -4,7 +4,6 @@ import io.github.springthief1123.lovelyspace.settings.NoticeRetention
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 
 /** お知らせの履歴を端末内に残す先。 */
 interface NotificationInboxPersistence {
