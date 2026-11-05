@@ -74,6 +74,10 @@ class WaitlistRepository(
     private val now: () -> Long = System::currentTimeMillis,
 ) {
     private val mutex = Mutex()
+    /** 前面と背景が同じ ListSync の巡回位置を同時に更新しないよう、確認1回を直列にする。 */
+    private val checkMutex = Mutex()
+    /** 観測の反映と前回の未通知再送が並行しても、同じ空きを二度知らせない。 */
+    private val noticeMutex = Mutex()
     private val sync = ListSync(lists)
     private val seen = mutableMapOf<RoomQuery, Long>()
     private val _entries = MutableStateFlow(runCatching { persistence.load() }.getOrNull().orEmpty())
@@ -163,11 +167,11 @@ class WaitlistRepository(
      * 背景の実行と前面の [monitor] から呼ぶ。待っている部屋のページを [maxPages] まで取得して反映する。
      * 取得に失敗したら残りのページは取らずに止め（障害中に続けて取りに行かない）、true を返す。
      */
-    suspend fun check(maxPages: Int): Boolean {
+    suspend fun check(maxPages: Int): Boolean = checkMutex.withLock {
         expire()
         deliverPending()
         val queries = mutex.withLock { _entries.value.filter { it.active(now()) }.map { it.query } }
-        if (queries.isEmpty()) return false
+        if (queries.isEmpty()) return@withLock false
         var failed = false
         // 空き枠は秒単位で埋まるので、後ろのページの巡回より先に取る。
         sync.sync(queries, maxPages, force = false, priority = true, shouldFetch = { !failed }, onResult = { query, outcome ->
@@ -175,7 +179,7 @@ class WaitlistRepository(
             if (outcome is ListSyncOutcome.Fetched) lists.observation(query)?.let { apply(it) }
         })
         expire()
-        return failed
+        failed
     }
 
     /**
@@ -198,7 +202,6 @@ class WaitlistRepository(
         val opened = mutableListOf<WaitlistEntry>()
         mutex.withLock {
             if ((seen[o.query] ?: 0) >= o.revision) return
-            seen[o.query] = o.revision
             val at = now()
             var changed = false
             val window by lazy { lists.observations.value.genreWindow(o.query.genre) }
@@ -230,6 +233,8 @@ class WaitlistRepository(
                 }
             }
             if (changed) save(next)
+            // 保存に失敗した観測は未処理のまま残し、次の確認で同じrevisionを再評価する。
+            seen[o.query] = o.revision
         }
         notify(opened)
     }
@@ -246,19 +251,29 @@ class WaitlistRepository(
         else moved.copy(status = WaitlistStatus.OPENED, openedRoom = rebuilt, changedAt = o.confirmedAt)
     }
 
-    private suspend fun notify(entries: List<WaitlistEntry>) {
-        val done = entries.filter { entry ->
-            try { onOpened(entry); true }
+    private suspend fun notify(entries: List<WaitlistEntry>) = noticeMutex.withLock {
+        // 通知の前後で最新版を確認する。通知待ちの間に削除・再登録された部屋は処理しない。
+        for ((key, changedAt) in entries.map { it.key to it.changedAt }.distinct()) {
+            val entry = mutex.withLock {
+                _entries.value.firstOrNull { it.key == key && it.unnoticed && it.changedAt == changedAt }
+            } ?: continue
+            val delivered = try { onOpened(entry); true }
             catch (e: CancellationException) { throw e }
-            catch (e: Exception) { false }
-        }.map { it.key }.toSet()
-        if (done.isEmpty()) return
-        mutex.withLock { save(_entries.value.map { if (it.key in done && it.status == WaitlistStatus.OPENED) it.copy(noticed = true) else it }) }
+            catch (_: Exception) { false }
+            if (!delivered) continue
+            mutex.withLock {
+                val current = _entries.value
+                if (current.any { it.key == key && it.unnoticed && it.changedAt == changedAt }) {
+                    save(current.map { if (it.key == key && it.unnoticed && it.changedAt == changedAt) it.copy(noticed = true) else it })
+                }
+            }
+        }
     }
 
-    private fun save(entries: List<WaitlistEntry>) {
+    /** ディスク保存が成功してから画面上の状態を更新する。失敗した変更は再試行可能なままにする。 */
+    private suspend fun save(entries: List<WaitlistEntry>) {
+        withContext(Dispatchers.IO) { persistence.save(entries) }
         _entries.value = entries
-        runCatching { persistence.save(entries) }
     }
 
     companion object {
@@ -301,7 +316,9 @@ class WaitlistStore(private val prefs: android.content.SharedPreferences) : Wait
     }
 
     override fun save(entries: List<WaitlistEntry>) {
-        prefs.edit().putString(KEY, JSONArray(entries.map(::encode)).toString()).apply()
+        check(prefs.edit().putString(KEY, JSONArray(entries.map(::encode)).toString()).commit()) {
+            "順番待ちを保存できませんでした。"
+        }
     }
 
     private fun encode(e: WaitlistEntry) = JSONObject()
