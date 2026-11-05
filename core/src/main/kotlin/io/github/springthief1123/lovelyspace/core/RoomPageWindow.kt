@@ -15,6 +15,11 @@ import kotlin.time.Duration.Companion.hours
  * ずれても前後のページへは行かないので、そのページに無ければ閉じた部屋として、残していた部屋（[carried]）からも、
  * それより前に読んだ別のページからもすぐ外す。同じ秒に立った部屋は ID の順が前後することがあるので、
  * ページの端から [ID_MARGIN] 以内の部屋は外さず、上の残し方に任せる。ID を使い回した部屋で順が崩れたページでは範囲を使わない。
+ *
+ * 同じ人が部屋を閉じて作り直す「立て直し」（[isRebuildOf]）では、新しい部屋は 1 ページ目に出るが、古い部屋は後ろのページに載ったまま、
+ * そのページを読み直すまで（後ろのページは周に 1 つずつなので、大きいジャンルでは数十秒から数分）残ってしまう。本家では古い部屋はもう無いので、
+ * 古い部屋の載るページを最後に読んだ後に立て直しの部屋が初めて見えたら、古い部屋は [rooms] に出さない（[superseded]）。
+ * そのページを読み直して古い部屋がまだあれば（同じ人が 2 部屋立てている）、本家と同じく両方を出す。
  */
 data class RoomPageWindow(
     val pages: Map<Int, List<Room>> = emptyMap(),
@@ -23,6 +28,8 @@ data class RoomPageWindow(
     val revision: Long = 0,
     /** 取り直したページから消え、まだどのページでも見つかっていない部屋（部屋の ID → 消えたページと最後に見た内容）。 */
     val carried: Map<String, CarriedRoom> = emptyMap(),
+    /** 部屋（[roomIdentity]）ごとの、一覧で初めて見えた観測。今ある部屋の分だけ持つ。 */
+    val firstSeen: Map<String, Long> = emptyMap(),
 ) {
     fun observe(page: RoomListPage, observationRevision: Long? = null): RoomPageWindow {
         val nextRevision = observationRevision ?: revision + 1
@@ -38,16 +45,20 @@ data class RoomPageWindow(
         } + (page.page to page.rooms)).filterKeys { it <= limit }
         val present = nextPages.values.flatten().map(::roomIdentity).toSet()
         val vanished = if (limit > 1) pages[page.page].orEmpty().filter { roomIdentity(it) !in present } else emptyList()
+        val nextCarried = carried.filter { (id, c) ->
+            // 後ろへずれた部屋は次のページにあるので、消えた後に次のページを読むまでは閉じたと決めない。
+            val nextRead = c.page >= limit || (revisions[c.page + 1] ?: Long.MIN_VALUE) > c.revision
+            id !in present && c.page <= limit && !(c.page == page.page && nextRead) && !(c.revision < nextRevision && gone(c.room))
+        } + vanished.filterNot(::gone).associate { roomIdentity(it) to CarriedRoom(page.page, it, nextRevision) }
+        val seenFirst = firstSeen.toMutableMap()
+        seen.forEach { key -> seenFirst[key] = minOf(seenFirst[key] ?: nextRevision, nextRevision) }
         return copy(
             pages = nextPages,
             revisions = (revisions + (page.page to nextRevision)).filterKeys { it <= limit },
             lastPage = limit,
             revision = maxOf(revision, nextRevision),
-            carried = carried.filter { (id, c) ->
-                // 後ろへずれた部屋は次のページにあるので、消えた後に次のページを読むまでは閉じたと決めない。
-                val nextRead = c.page >= limit || (revisions[c.page + 1] ?: Long.MIN_VALUE) > c.revision
-                id !in present && c.page <= limit && !(c.page == page.page && nextRead) && !(c.revision < nextRevision && gone(c.room))
-            } + vanished.filterNot(::gone).associate { roomIdentity(it) to CarriedRoom(page.page, it, nextRevision) },
+            carried = nextCarried,
+            firstSeen = seenFirst.filterKeys { it in present || it in nextCarried },
         )
     }
 
@@ -86,7 +97,7 @@ data class RoomPageWindow(
      */
     fun isClosed(room: Room): Boolean {
         val key = roomIdentity(room)
-        if (rooms.any { roomIdentity(it) == key }) return false
+        if (listedRooms.any { roomIdentity(it) == key }) return false
         if (pages.values.any { closedRange(it)?.contains(room.id) == true }) return true
         val oldest = pages[lastPage]?.takeIf { it.size >= 3 }?.minOf { it.id } ?: return false
         return room.id < oldest - ID_MARGIN
@@ -120,7 +131,45 @@ data class RoomPageWindow(
         return result
     }
 
+    /**
+     * 立て直しで本家からはもう消えたと見られる古い部屋（[roomIdentity]）。[listedRooms] にはあるが [rooms] には出さない。
+     *
+     * 古い部屋の載るページを最後に読んだ観測より後に、その部屋の立て直し（[isRebuildOf]）が初めて見えたもの。
+     * 取り直したページから消えて残している部屋（[carried]）は、立て直しの部屋がページに載っていれば閉じたとみなす。
+     * 同じページの同じ観測で両方が見えていれば、本家にも両方あるので外さない。
+     */
+    val superseded: Set<String> get() = supersededIn(listedRooms)
+
+    private fun supersededIn(all: List<Room>): Set<String> {
+        val result = HashSet<String>()
+        val pageOf by lazy { roomPages }
+        // 立て直しは募集文の完全一致（表記の揺れをそろえる）が前提なので、募集文ごとに分けて照合する。
+        all.groupBy { KeywordFolding.fold(it.message).trim() }.forEach { (message, group) ->
+            if (message.isEmpty() || group.size < 2) return@forEach
+            group.forEach { old ->
+                val key = roomIdentity(old)
+                val c = carried[key]
+                val confirmed = if (c != null) null else revisions[pageOf[key]] ?: return@forEach
+                val replaced = group.any { new ->
+                    val newKey = roomIdentity(new)
+                    newKey != key && newKey !in carried && isRebuildOf(old, new) &&
+                        (confirmed == null || (firstSeen[newKey] ?: Long.MIN_VALUE) > confirmed)
+                }
+                if (replaced) result += key
+            }
+        }
+        return result
+    }
+
+    /** 画面に出す一覧。[listedRooms] から、立て直しで本家から消えたと見られる古い部屋（[superseded]）を除く。 */
     val rooms: List<Room> get() {
+        val all = listedRooms
+        val superseded = supersededIn(all)
+        return if (superseded.isEmpty()) all else all.filterNot { roomIdentity(it) in superseded }
+    }
+
+    /** 読んだページと、消えて残している部屋（[carried]）を、ページの順に並べた一覧。立て直された古い部屋（[superseded]）も含む。 */
+    val listedRooms: List<Room> get() {
         val newest = linkedMapOf<String, Room>()
         pages.keys.sortedByDescending { revisions[it] }.forEach { page ->
             pages[page].orEmpty().forEach { newest.putIfAbsent(roomIdentity(it), it) }
