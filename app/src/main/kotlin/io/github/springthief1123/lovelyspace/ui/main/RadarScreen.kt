@@ -156,6 +156,10 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
             if (snackbar.showSnackbar("ピンを外しました", actionLabel = "元に戻す", withDismissAction = true) == SnackbarResult.ActionPerformed) preferencesVm.restoreFavorite(value)
         }
     }
+    // 満室の部屋は右へスワイプすると順番待ち（ピンして空いたら知らせる）にする（見つける画面と同じ）。
+    val waitlistSwipe = rememberWaitlistSwipe(
+        onNotice = { message -> scope.launch { snackbar.showSnackbar(message, withDismissAction = true) } },
+    )
     val planCount = saved.count { it.id in state.plans }
     val requestNotifications = io.github.springthief1123.lovelyspace.notify.rememberNotificationPermissionRequest()
     // 背景の巡回は一致を通知で知らせる。通知が出せないなら、巡回していても知らせられないことを伝える。
@@ -321,7 +325,9 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                             io.github.springthief1123.lovelyspace.ui.rooms.RoomCard(room,
                                 onClick = { openRoom(room) },
                                 onDetailsClick = { details = room }, isFavorite = preferences.isFavorite(room),
-                                actionsEnabled = preferences.canEdit(room), onFavoriteClick = { preferencesVm.toggleFavorite(room) }, onHideClick = { preferencesVm.hide(room) })
+                                actionsEnabled = preferences.canEdit(room), onFavoriteClick = { preferencesVm.toggleFavorite(room) },
+                                onFavoriteSwipe = waitlistSwipe(room, preferences.isFavorite(room)), favoriteSwipeLabel = "順番待ち",
+                                onHideClick = { preferencesVm.hide(room) })
                             if (roomIdentity(room) in freshKeys) Text(if (roomIdentity(room) in found.rebuilt) "立て直し" else "新着", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.padding(start = 4.dp))
                         }
