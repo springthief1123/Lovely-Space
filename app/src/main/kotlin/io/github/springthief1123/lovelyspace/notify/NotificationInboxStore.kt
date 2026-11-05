@@ -22,10 +22,18 @@ class NotificationInboxStore(private val prefs: SharedPreferences) : Notificatio
     }
 
     override fun save(entries: List<AppNotification>) {
-        val array = JSONArray()
-        entries.forEach { array.put(encode(it)) }
-        prefs.edit().putString(KEY, array.toString()).apply()
+        prefs.edit().putString(KEY, serialize(entries)).apply()
     }
+
+    override fun saveDurably(entries: List<AppNotification>) {
+        check(prefs.edit().putString(KEY, serialize(entries)).commit()) {
+            "お知らせを保存できませんでした。"
+        }
+    }
+
+    private fun serialize(entries: List<AppNotification>): String = JSONArray().apply {
+        entries.forEach { put(encode(it)) }
+    }.toString()
 
     private fun encode(n: AppNotification) = JSONObject()
         .put("id", n.id).put("kind", n.kind.name).put("title", n.title).put("text", n.text)
