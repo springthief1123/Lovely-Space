@@ -5,6 +5,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Bookmark
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import io.github.springthief1123.lovelyspace.ui.components.QuietFilterChip
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Refresh
@@ -136,6 +143,9 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onQuic
     val c = state.criteria
     val validAges = state.validAges
     var searchOpen by rememberSaveable { mutableStateOf(false) }
+    // 閉じても最後に見ていたタブを覚えておく。一覧の上の条件のチップから開くときは、その条件のタブにする。
+    var sheetTab by rememberSaveable { mutableStateOf(SearchSheetTab.AGE_AREA) }
+    val savedSearches by savedSearchViewModel().state.collectAsStateWithLifecycle()
     var selectedRoom by remember { mutableStateOf<Room?>(null) }
     LaunchedEffect(state.initialized, refreshKey) { if (state.initialized) vm.onRefreshKey(refreshKey) }
     LaunchedEffect(state.genre) { onGenreChanged(state.genre) }
@@ -209,6 +219,15 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onQuic
                 onAutomaticChange = vm::automatic,
                 onRefresh = { vm.refresh() },
                 refreshEnabled = state.initialized,
+            )
+        }
+        val filters = activeFilters(c)
+        if (filters.isNotEmpty()) item {
+            ActiveFilterRow(
+                filters = filters,
+                presetLabel = savedSearches.presets.firstOrNull { presetMatches(it, state.genre.key, c) }?.label,
+                onOpen = { filter -> filter?.tab?.let { sheetTab = it }; searchOpen = true },
+                onClear = vm::clearFilter,
             )
         }
         item { SortRow(c.sort) { vm.criteria(c.copy(sort = it)) } }
@@ -292,6 +311,8 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onQuic
         state = state,
         vm = vm,
         resultCount = visibleResults.size,
+        tab = sheetTab,
+        onTab = { sheetTab = it },
         onDismiss = { searchOpen = false },
         onReset = resetSearch,
         ng = ngSummary.copy(onManage = { searchOpen = false; ngSummary.onManage() }),
@@ -376,6 +397,39 @@ private fun RefreshButton(refreshing: Boolean, refreshedCount: Int, onRefresh: (
             if (spinning) CircularProgressIndicator(Modifier.matchParentSize(), strokeWidth = 2.dp)
             if (done) Icon(Icons.Outlined.Check, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
             else Icon(Icons.Outlined.Refresh, null, Modifier.size(20.dp))
+        }
+    }
+}
+
+/**
+ * 一覧の上に出す、いま指定している条件。シートを閉じても何で絞っているかが分かるようにする。
+ * チップを押すとその条件のタブで検索シートを開き、✕ でその条件だけを外す。保存した条件そのものなら先頭にその名前を出す。
+ */
+@Composable
+private fun ActiveFilterRow(filters: List<ActiveFilter>, presetLabel: String?, onOpen: (ActiveFilter?) -> Unit, onClear: (ActiveFilterKind) -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        presetLabel?.let { label ->
+            item(key = "preset") {
+                QuietFilterChip(selected = true, onClick = { onOpen(null) }, label = label, leadingIcon = Icons.Outlined.Bookmark,
+                    modifier = Modifier.semantics { contentDescription = "保存した条件「$label」を適用中" })
+            }
+        }
+        items(filters, key = { it.kind }) { filter ->
+            QuietFilterChip(
+                selected = true,
+                onClick = { onOpen(filter) },
+                label = filter.label,
+                trailingIcon = {
+                    Box(Modifier.size(24.dp).clip(CircleShape).clickable(onClickLabel = "外す") { onClear(filter.kind) },
+                        contentAlignment = Alignment.Center) {
+                        Icon(Icons.Outlined.Close, contentDescription = "${filter.label}を外す", tint = scheme.onSecondaryContainer, modifier = Modifier.size(16.dp))
+                    }
+                },
+                modifier = Modifier.semantics {
+                    customActions = listOf(CustomAccessibilityAction("${filter.label}を外す") { onClear(filter.kind); true })
+                },
+            )
         }
     }
 }

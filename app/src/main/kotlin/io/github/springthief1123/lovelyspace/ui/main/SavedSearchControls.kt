@@ -3,14 +3,17 @@ package io.github.springthief1123.lovelyspace.ui.main
 import io.github.springthief1123.lovelyspace.ui.components.QuietConfirmDialog
 import io.github.springthief1123.lovelyspace.ui.components.QuietDialog
 import io.github.springthief1123.lovelyspace.ui.theme.LovelyShapes
-import io.github.springthief1123.lovelyspace.ui.components.QuietAssistChip
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.BookmarkAdd
+import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Save
@@ -22,6 +25,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
@@ -36,34 +42,41 @@ import io.github.springthief1123.lovelyspace.data.SearchPreset
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomActionMenu
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomMenuItem
 
-/**
- * 検索パネルの中に出す保存した条件。チップを押すと適用し、長押しで名前の変更・上書き・削除を選ぶ。
- */
-@OptIn(ExperimentalLayoutApi::class)
+/** 見つける画面の保存した条件。検索シートと一覧の上のチップで同じものを使う。 */
 @Composable
-internal fun SavedSearchControls(search: SearchUiState, onApply: (SearchPreset) -> Unit) {
+internal fun savedSearchViewModel(): SavedSearchViewModel {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
-    val vm: SavedSearchViewModel = viewModel(factory = viewModelFactory { initializer { SavedSearchViewModel(app.searchPresets) } })
+    return viewModel(factory = viewModelFactory { initializer { SavedSearchViewModel(app.searchPresets) } })
+}
+
+/**
+ * 検索シートの検索欄のすぐ下に出す、保存した条件の横並び。押すと適用し、長押しで名前の変更・上書き・削除を選ぶ。
+ * いまの条件とまったく同じものは選択中にする。新しく保存するのはシートの下端の「保存」（[SavedSearchNameDialog]）。
+ */
+@Composable
+internal fun SavedSearchRow(search: SearchUiState, vm: SavedSearchViewModel, onApply: (SearchPreset) -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
     var draft by rememberSaveable(stateSaver = SearchPresetSaver) { mutableStateOf<SearchPreset?>(null) }
     var replacing by rememberSaveable(stateSaver = SearchPresetSaver) { mutableStateOf<SearchPreset?>(null) }
     var deleting by rememberSaveable(stateSaver = SearchPresetSaver) { mutableStateOf<SearchPreset?>(null) }
+    val scheme = MaterialTheme.colorScheme
 
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("保存した条件", style = MaterialTheme.typography.labelMedium)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            QuietAssistChip(
-                onClick = {
-                    vm.clearEditError()
-                    draft = SearchPreset(label = "", genreKey = search.genre.key, criteria = search.criteria)
-                },
-                enabled = search.validAges && !state.working,
-                label = "今の条件を保存",
-                icon = Icons.Outlined.Add,
-            )
-            state.presets.forEach { value ->
+    when {
+        state.loading -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+        state.loadError != null -> Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(state.loadError.orEmpty(), color = scheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+            TextButton(onClick = vm::reload) { Text("もう一度読み込む") }
+        }
+        state.presets.isEmpty() -> Text("よく使う条件は下の「保存」で残すと、ここから 1 回で呼び出せます。",
+            style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
+        else -> LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            item {
+                Icon(Icons.Outlined.BookmarkBorder, contentDescription = "保存した条件", tint = scheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+            }
+            items(state.presets, key = { it.id }) { value ->
                 SavedSearchChip(
                     value = value,
+                    selected = presetMatches(value, search.genre.key, search.criteria),
                     enabled = !state.working,
                     canApply = Genres[value.genreKey] != null,
                     canReplace = search.validAges,
@@ -74,17 +87,6 @@ internal fun SavedSearchControls(search: SearchUiState, onApply: (SearchPreset) 
                 )
             }
         }
-        when {
-            state.loading -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-            state.loadError != null -> Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(state.loadError.orEmpty(), color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f))
-                TextButton(onClick = vm::reload) { Text("もう一度読み込む") }
-            }
-        }
-        // 別のジャンルの条件を呼び出すとそのジャンルの一覧を取りに行くので、「通信しない」とは書かない。
-        Text(if (state.presets.isEmpty()) "ジャンルと条件を端末に保存できます。"
-            else "押すと適用、長押しで名前の変更・上書き・削除。",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 
     draft?.let { value ->
@@ -104,10 +106,30 @@ internal fun SavedSearchControls(search: SearchUiState, onApply: (SearchPreset) 
     }
 }
 
+/** 検索シートの下端の「保存」。いまのジャンルと条件に名前を付けて保存する。 */
+@Composable
+internal fun SaveSearchButton(search: SearchUiState, vm: SavedSearchViewModel) {
+    val state by vm.state.collectAsStateWithLifecycle()
+    var draft by rememberSaveable(stateSaver = SearchPresetSaver) { mutableStateOf<SearchPreset?>(null) }
+    TextButton(
+        onClick = { vm.clearEditError(); draft = SearchPreset(label = "", genreKey = search.genre.key, criteria = search.criteria) },
+        enabled = search.validAges && !state.working,
+    ) {
+        Icon(Icons.Outlined.BookmarkAdd, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(4.dp))
+        Text("保存")
+    }
+    draft?.let { value ->
+        SavedSearchNameDialog(value, state.working, state.editError,
+            onDismiss = { draft = null }, onSave = { vm.save(it) { draft = null } })
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SavedSearchChip(
     value: SearchPreset,
+    selected: Boolean,
     enabled: Boolean,
     canApply: Boolean,
     canReplace: Boolean,
@@ -117,21 +139,29 @@ private fun SavedSearchChip(
     onDelete: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
-    // 隣の「今の条件を保存」（QuietAssistChip）と同じ角丸・境界にそろえる。
+    // 並ぶ絞り込みのチップ（QuietFilterChip）と同じ角丸・境界・選択中の色にそろえる。
     val shape = LovelyShapes.control
     val scheme = MaterialTheme.colorScheme
+    val isSelected = selected
+    val textColor = when {
+        !enabled -> scheme.onSurface.copy(alpha = 0.38f)
+        selected -> scheme.onSecondaryContainer
+        else -> scheme.onSurface
+    }
     Box {
         Text(
             value.label,
             style = MaterialTheme.typography.labelLarge,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            color = if (enabled) scheme.onSurface else scheme.onSurface.copy(alpha = 0.38f),
+            color = textColor,
             modifier = Modifier
                 .widthIn(max = 220.dp)
                 .heightIn(min = 32.dp)
                 .clip(shape)
-                .border(BorderStroke(1.dp, scheme.outlineVariant), shape)
+                .background(if (selected) scheme.secondaryContainer else Color.Transparent)
+                .border(BorderStroke(1.dp, if (selected) scheme.primary else scheme.outlineVariant), shape)
+                .semantics { this.selected = isSelected }
                 .combinedClickable(
                     enabled = enabled,
                     role = Role.Button,

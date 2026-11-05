@@ -40,8 +40,7 @@ class SearchHeaderTest {
         assertEquals(2, activeFilterCount(RoomSearchCriteria(waitingOnly = false, publicOnly = false)))
     }
 
-    @Test fun statusChipsCycleThroughAllThreeStates() {
-        assertEquals(listOf(true, false, null), listOf(nextTriState(null), nextTriState(true), nextTriState(false)))
+    @Test fun statusChipsShowChosenValue() {
         assertEquals("利用状況", triStateLabel(null, "利用状況", "待機中", "満室"))
         assertEquals("満室", triStateLabel(false, "利用状況", "待機中", "満室"))
     }

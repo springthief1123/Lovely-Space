@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import io.github.springthief1123.lovelyspace.settings.RoomListPreferenceStore
@@ -32,10 +33,10 @@ data class SearchDraft(val criteria: RoomSearchCriteria, val minAgeInput: String
  * 検索欄の語を探す場所。語は条件の 1 つの欄（共通検索欄 [RoomSearchCriteria.text]・名前・待機メッセージ）に入れる。
  * どの場所でも本家には渡さず、取得済みの一覧を端末で絞る。
  */
-enum class KeywordScope(val label: String, val placeholder: String) {
-    ALL("名前と待機メッセージ", "名前・待機メッセージを検索"),
-    NAME("名前", "名前を検索"),
-    MESSAGE("待機メッセージ", "待機メッセージを検索"),
+enum class KeywordScope(val label: String, val placeholder: String, /** 検索欄の右端に出す短い名前。 */ val short: String) {
+    ALL("名前と待機メッセージ", "名前・待機メッセージを検索", "名前＋待機"),
+    NAME("名前", "名前を検索", "名前"),
+    MESSAGE("待機メッセージ", "待機メッセージを検索", "待機"),
 }
 
 /** [scope] の欄に入っている語。 */
@@ -108,6 +109,8 @@ data class SearchUiState(
     val refreshing: Boolean = false,
     /** 押した取り直しが成功した回数。増えたら画面で「更新しました」を出す。 */
     val refreshedCount: Int = 0,
+    /** 最近選んだ地域。新しいものが先頭。検索シートの地域のチップに出す。 */
+    val recentAreas: List<String> = emptyList(),
 ) {
     val validAges: Boolean get() = (minAgeInput.isEmpty() || minAgeInput.toIntOrNull()?.let { it in 18..99 } == true) &&
         (maxAgeInput.isEmpty() || maxAgeInput.toIntOrNull()?.let { it in 18..99 } == true) && criteria.isValid
@@ -162,6 +165,10 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
             catch (e: CancellationException) { throw e }
             catch (e: Exception) { _state.update { it.copy(preferenceError = describeError(e)) }; Genres.default }
             _state.update { it.copy(genre = genre, initialized = true) }
+            launch {
+                try { preferences.roomListPreferences.map { it.recentAreas }.distinctUntilChanged().collect { areas -> _state.update { it.copy(recentAreas = areas) } } }
+                catch (e: CancellationException) { throw e } catch (_: Exception) {}
+            }
             seedShared()
             load(1, _state.value.page > 0)
             rememberGenre(genre.key)
@@ -212,12 +219,31 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
         val input = value.filter(Char::isDigit).take(2)
         _state.update { it.copy(maxAgeInput = input, criteria = it.criteria.copy(maxAge = input.toIntOrNull())) }
     }
+    /** 年齢の範囲をまとめて変える（年代のチップ）。入力欄の文字もそろえる。 */
+    fun ageRange(min: Int?, max: Int?) = _state.update {
+        it.copy(minAgeInput = min?.toString().orEmpty(), maxAgeInput = max?.toString().orEmpty(), criteria = it.criteria.copy(minAge = min, maxAge = max))
+    }
+    /** 地域を選ぶ。選んだ地域は「最近選んだ地域」として残す。 */
+    fun area(value: String?) {
+        _state.update { s -> s.copy(criteria = s.criteria.copy(area = value),
+            recentAreas = if (value == null) s.recentAreas else (listOf(value) + s.recentAreas.filter { it != value }).take(RECENT_AREAS)) }
+        val store = preferences ?: return
+        if (value != null) viewModelScope.launch {
+            // 候補のチップが出ないだけなので、保存に失敗しても知らせない。
+            try { store.addRecentArea(value) } catch (e: CancellationException) { throw e } catch (_: Exception) {}
+        }
+    }
+    /** 一覧の上のチップの ✕。その条件だけを外す。 */
+    fun clearFilter(kind: ActiveFilterKind) {
+        if (kind == ActiveFilterKind.AGE) { ageRange(null, null); return }
+        criteria(_state.value.criteria.without(kind))
+    }
     fun genre(value: Genre) {
         if (value == _state.value.genre) return
         cancelFetches()
         window = RoomPageWindow(); schedule = null
         _state.update { SearchUiState(automatic = it.automatic, genre = value, criteria = it.criteria, minAgeInput = it.minAgeInput, maxAgeInput = it.maxAgeInput,
-            keywordScope = it.keywordScope) }
+            keywordScope = it.keywordScope, recentAreas = it.recentAreas) }
         seedShared()
         rememberGenre(value.key)
     }
@@ -228,7 +254,7 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
         val sameGenre = genre == _state.value.genre
         if (!sameGenre) { cancelFetches(); window = RoomPageWindow(); schedule = null }
         _state.update {
-            val scoped = if (sameGenre) it else SearchUiState(genre = genre, automatic = it.automatic)
+            val scoped = if (sameGenre) it else SearchUiState(genre = genre, automatic = it.automatic, recentAreas = it.recentAreas)
             scoped.copy(criteria = value.criteria, minAgeInput = value.criteria.minAge?.toString().orEmpty(),
                 maxAgeInput = value.criteria.maxAge?.toString().orEmpty(), keywordScope = keywordScopeOf(value.criteria))
         }
@@ -394,3 +420,6 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
         const val SHARED_MAX_AGE_MS = 5 * 60_000L
     }
 }
+
+/** 検索シートの地域のチップに残す最近の地域の数。 */
+private const val RECENT_AREAS = 5

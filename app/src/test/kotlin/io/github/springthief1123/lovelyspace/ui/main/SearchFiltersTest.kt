@@ -1,0 +1,86 @@
+package io.github.springthief1123.lovelyspace.ui.main
+
+import io.github.springthief1123.lovelyspace.core.Gender
+import io.github.springthief1123.lovelyspace.core.KeywordMode
+import io.github.springthief1123.lovelyspace.core.Prefectures
+import io.github.springthief1123.lovelyspace.core.RoomSearchCriteria
+import io.github.springthief1123.lovelyspace.core.RoomSort
+import io.github.springthief1123.lovelyspace.data.SearchPreset
+import io.github.springthief1123.lovelyspace.settings.recentAreasWith
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class SearchFiltersTest {
+    @Test fun ageBandsFollowMinAndMax() {
+        assertEquals(emptyList<AgeBand>(), ageBandSelection(null, null))
+        assertEquals(listOf(AgeBand.TWENTIES), ageBandSelection(20, 29))
+        assertEquals(listOf(AgeBand.TEENS), ageBandSelection(null, 19))
+        assertEquals(listOf(AgeBand.THIRTIES, AgeBand.FORTIES, AgeBand.FIFTIES_UP), ageBandSelection(30, null))
+        // 年代の境目にそろっていない年齢はチップで表せないので、数字の欄で見せる。
+        assertNull(ageBandSelection(25, 33))
+        assertNull(ageBandSelection(18, 29))
+    }
+
+    @Test fun tappingAgeBandsSelectsWidensAndClears() {
+        assertEquals(20 to 29, tapAgeBand(null, null, AgeBand.TWENTIES))
+        assertEquals(20 to 39, tapAgeBand(20, 29, AgeBand.THIRTIES))
+        assertEquals(null to 29, tapAgeBand(20, 29, AgeBand.TEENS))
+        // 範囲の中を押すとその年代だけ、1 つだけのものを押すと外す。
+        assertEquals(30 to 39, tapAgeBand(20, 49, AgeBand.THIRTIES))
+        assertEquals(null to null, tapAgeBand(20, 29, AgeBand.TWENTIES))
+        // 数字で決めた年齢から押すと、その年代に置き換える。
+        assertEquals(40 to 49, tapAgeBand(25, 33, AgeBand.FORTIES))
+    }
+
+    @Test fun ageSummaryReadsNaturally() {
+        assertEquals("指定なし", ageSummary(null, null))
+        assertEquals("20〜29歳", ageSummary(20, 29))
+        assertEquals("30歳以上", ageSummary(30, null))
+        assertEquals("19歳以下", ageSummary(null, 19))
+    }
+
+    @Test fun activeFiltersListEveryConditionOnceAndCanBeCleared() {
+        val c = RoomSearchCriteria(text = "映画 ", keywordMode = KeywordMode.ANY, gender = Gender.FEMALE, waitingOnly = false,
+            publicOnly = true, minAge = 20, maxAge = 29, includeUnknownAge = false, area = "東京", excluded = "業者", sort = RoomSort.AGE)
+        val filters = activeFilters(c)
+        assertEquals(listOf("「映画」（どれか）", "女性", "満室", "公開", "20〜29歳", "年齢が秘密の部屋を除く", "東京", "除外「業者」"),
+            filters.map { it.label })
+        // 並び順は数えない。バッジの数と同じ数のチップを出す。
+        assertEquals(activeFilterCount(c), filters.size)
+        var cleared = c
+        filters.forEach { cleared = cleared.without(it.kind) }
+        assertEquals(RoomSearchCriteria(keywordMode = KeywordMode.ANY, sort = RoomSort.AGE), cleared)
+        assertEquals(SearchSheetTab.AGE_AREA, filters.first { it.kind == ActiveFilterKind.AREA }.tab)
+        assertEquals(SearchSheetTab.KEYWORD, filters.first { it.kind == ActiveFilterKind.EXCLUDED }.tab)
+        assertTrue(activeFilters(RoomSearchCriteria(sort = RoomSort.NAME)).isEmpty())
+    }
+
+    @Test fun presetMatchesIgnoresSortOnly() {
+        val preset = SearchPreset(label = "合成", genreKey = "zenkoku", criteria = RoomSearchCriteria(text = "雑談", sort = RoomSort.NAME))
+        assertTrue(presetMatches(preset, "zenkoku", RoomSearchCriteria(text = "雑談", sort = RoomSort.AGE)))
+        assertFalse(presetMatches(preset, "zenkoku", RoomSearchCriteria(text = "雑談", gender = Gender.MALE)))
+        assertFalse(presetMatches(preset, "kanto", RoomSearchCriteria(text = "雑談")))
+    }
+
+    @Test fun sheetTabsAreMarkedWhenTheyHoldConditions() {
+        assertFalse(sheetTabHasFilters(SearchSheetTab.AGE_AREA, RoomSearchCriteria(text = "雑談"), KeywordScope.ALL))
+        assertTrue(sheetTabHasFilters(SearchSheetTab.AGE_AREA, RoomSearchCriteria(area = "大阪"), KeywordScope.ALL))
+        assertTrue(sheetTabHasFilters(SearchSheetTab.KEYWORD, RoomSearchCriteria(excluded = "業者"), KeywordScope.ALL))
+        // 検索欄に出していない欄の語も、語の設定のタブに印を付ける。
+        assertTrue(sheetTabHasFilters(SearchSheetTab.KEYWORD, RoomSearchCriteria(name = "合成"), KeywordScope.ALL))
+    }
+
+    @Test fun regionsCoverEveryPrefectureOnce() {
+        assertEquals(Prefectures.names, PrefectureRegions.flatMap { it.second })
+    }
+
+    @Test fun areaShortcutsPutSelectionFirstAndRecentAfter() {
+        assertEquals(listOf("大阪", "東京", "福岡"), areaShortcuts("大阪", listOf("東京", "大阪", "福岡")))
+        assertEquals(listOf("東京", "神奈川", "埼玉", "千葉"), areaShortcuts(null, listOf("東京", "神奈川", "埼玉", "千葉", "茨城")))
+        assertEquals(listOf("北海道", "東京"), recentAreasWith(listOf("東京", "北海道"), "北海道"))
+        assertEquals(5, recentAreasWith(listOf("東京", "神奈川", "埼玉", "千葉", "茨城"), "栃木").size)
+    }
+}

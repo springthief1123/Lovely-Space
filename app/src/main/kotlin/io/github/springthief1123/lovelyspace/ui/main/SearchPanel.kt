@@ -16,6 +16,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -23,7 +25,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ArrowDropDown
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Map
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SwapVert
 import androidx.compose.material3.*
@@ -33,15 +37,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.springthief1123.lovelyspace.core.*
 import io.github.springthief1123.lovelyspace.ui.components.QuietFieldPair
-import io.github.springthief1123.lovelyspace.ui.components.QuietExposedMenu
+import io.github.springthief1123.lovelyspace.ui.components.QuietDropdownMenu
+import io.github.springthief1123.lovelyspace.ui.components.QuietDialog
+import io.github.springthief1123.lovelyspace.ui.components.QuietAssistChip
 import io.github.springthief1123.lovelyspace.ui.components.QuietMenuRow
 import io.github.springthief1123.lovelyspace.ui.theme.LovelyShapes
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
@@ -49,8 +59,8 @@ import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentBottomIns
 
 /**
  * 「見つける」の検索シート。トップバーの検索ボタンで開き、トップバーのすぐ下から降りてくる。
- * 上に検索欄とよく使う絞り込み、その下に詳しい条件を 3 つのタブ（年齢・地域／語の設定／保存した条件）に分けて出す。
- * 1 つのタブの中身を短くしてスクロールせずに済むようにし、「リセット」「N件を表示」は下端に固定する。
+ * 上に検索欄・保存した条件・よく使う絞り込み、その下に詳しい条件を 2 つのタブ（年齢・地域／語の設定）に分けて出す。
+ * タブの中身は高いほうに高さをそろえ、タブを替えても「リセット」「保存」「N件を表示」の位置が動かないようにする。
  * 画面の下（ボトムナビ）は覆わない。条件は変えた時点で取得済みの一覧に反映する。
  */
 @Composable
@@ -59,14 +69,15 @@ internal fun SearchSheet(
     state: SearchUiState,
     vm: SearchViewModel,
     resultCount: Int,
+    tab: SearchSheetTab,
+    onTab: (SearchSheetTab) -> Unit,
     onDismiss: () -> Unit,
     onReset: () -> Unit,
     ng: NgSummary? = null,
 ) {
-    // 閉じても最後に見ていたタブを覚えておく（中身は閉じると破棄されるので外に置く）。
-    var tab by rememberSaveable { mutableStateOf(SearchSheetTab.AGE_AREA) }
     BackHandler(enabled = visible, onBack = onDismiss)
     val scheme = MaterialTheme.colorScheme
+    val saved = savedSearchViewModel()
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + LovelySpacing.topBarHeight
     // キーボードが出ているときはその上まで、出ていないときはボトムナビの上までに収める。
     val bottom = maxOf(
@@ -103,19 +114,22 @@ internal fun SearchSheet(
                             .padding(horizontal = LovelySpacing.screenHorizontal).padding(top = 12.dp, bottom = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        SearchField(state.criteria.keyword(state.keywordScope), state.keywordScope.placeholder, vm::keyword)
+                        SearchField(state.criteria.keyword(state.keywordScope), state.keywordScope.placeholder, vm::keyword,
+                            scope = state.keywordScope, onScope = vm::keywordScope)
+                        SavedSearchRow(state, saved, vm::applyPreset)
                         QuickFilterRow(state.criteria, onChange = vm::criteria)
-                        SearchSheetTabs(tab) { tab = it }
-                        when (tab) {
-                            SearchSheetTab.AGE_AREA -> AgeAreaConditions(state, vm)
-                            SearchSheetTab.KEYWORD -> KeywordConditions(state, vm, ng)
-                            SearchSheetTab.SAVED -> SavedSearchControls(state, vm::applyPreset)
-                        }
+                        SearchSheetTabs(tab, marked = { sheetTabHasFilters(it, state.criteria, state.keywordScope) }, onSelect = onTab)
+                        EqualHeightPages(selected = tab.ordinal, pages = listOf(
+                            { AgeAreaConditions(state, vm) },
+                            { KeywordConditions(state, vm, ng) },
+                        ))
                     }
                     HorizontalDivider(color = scheme.outlineVariant)
                     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                         TextButton(onClick = onReset) { Text("リセット") }
                         Spacer(Modifier.weight(1f))
+                        SaveSearchButton(state, saved)
+                        Spacer(Modifier.width(4.dp))
                         Button(onClick = onDismiss) { Text(if (state.page == 0) "閉じる" else "${resultCount}件を表示") }
                     }
                 }
@@ -124,31 +138,40 @@ internal fun SearchSheet(
     }
 }
 
-/** 検索シートのタブ。どのタブも中身を数行に収める。 */
+/** 検索シートのタブ。保存した条件は検索欄の下に出すので、タブは詳しい条件だけ。 */
 internal enum class SearchSheetTab(val label: String) {
     AGE_AREA("年齢・地域"),
     KEYWORD("語の設定"),
-    SAVED("保存した条件"),
+}
+
+/** タブの中で条件を指定しているか。タブの名前の横に点を付ける。 */
+internal fun sheetTabHasFilters(tab: SearchSheetTab, c: RoomSearchCriteria, scope: KeywordScope): Boolean = when (tab) {
+    SearchSheetTab.AGE_AREA -> c.minAge != null || c.maxAge != null || !c.includeUnknownAge || c.area != null
+    SearchSheetTab.KEYWORD -> c.excluded.isNotBlank() || c.keywordMode == KeywordMode.ANY || hiddenKeywords(c, scope).isNotEmpty()
 }
 
 /** 下線で選択を示すタブの並び。Material の TabRow は色と高さが Quiet Rose から浮くので、同じ役割を小さく作る。 */
 @Composable
-private fun SearchSheetTabs(selected: SearchSheetTab, onSelect: (SearchSheetTab) -> Unit) {
+private fun SearchSheetTabs(selected: SearchSheetTab, marked: (SearchSheetTab) -> Boolean, onSelect: (SearchSheetTab) -> Unit) {
     val scheme = MaterialTheme.colorScheme
     Column {
         Row(Modifier.fillMaxWidth().selectableGroup()) {
             SearchSheetTab.entries.forEach { tab ->
                 val on = tab == selected
+                val hasFilters = marked(tab)
                 Column(
                     Modifier.weight(1f).heightIn(min = 44.dp)
-                        .selectable(selected = on, role = Role.Tab, onClick = { onSelect(tab) }),
+                        .selectable(selected = on, role = Role.Tab, onClick = { onSelect(tab) })
+                        .semantics { if (hasFilters) stateDescription = "条件あり" },
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Bottom,
                 ) {
-                    Text(tab.label, style = MaterialTheme.typography.labelLarge,
-                        fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
-                        color = if (on) scheme.primary else scheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 10.dp))
+                    Row(Modifier.padding(horizontal = 4.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(tab.label, style = MaterialTheme.typography.labelLarge,
+                            fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (on) scheme.primary else scheme.onSurfaceVariant)
+                        if (hasFilters) Box(Modifier.padding(start = 5.dp).size(6.dp).background(scheme.primary, CircleShape))
+                    }
                     Box(Modifier.fillMaxWidth(0.7f).height(2.dp).background(if (on) scheme.primary else scheme.surfaceContainerLow, LovelyShapes.control))
                 }
             }
@@ -157,34 +180,104 @@ private fun SearchSheetTabs(selected: SearchSheetTab, onSelect: (SearchSheetTab)
     }
 }
 
+/**
+ * タブの中身。どのページも測り、いちばん高いページの高さを取ったうえで、選んだページだけを置く。
+ * タブを替えてもシートの高さが変わらず、下端のボタンが上下に動かない。置かないページは描かれず、押せず、読み上げられない。
+ */
+@Composable
+private fun EqualHeightPages(selected: Int, pages: List<@Composable () -> Unit>) {
+    Layout(contents = pages, modifier = Modifier.fillMaxWidth()) { measurables, constraints ->
+        val loose = constraints.copy(minHeight = 0)
+        val placed = measurables.map { page -> page.map { it.measure(loose) } }
+        val height = placed.maxOf { page -> page.maxOfOrNull { it.height } ?: 0 }
+        layout(constraints.maxWidth, height.coerceAtLeast(constraints.minHeight)) {
+            placed[selected].forEach { it.placeRelative(0, 0) }
+        }
+    }
+}
+
 @Composable
 private fun AgeAreaConditions(state: SearchUiState, vm: SearchViewModel) {
     val c = state.criteria
     val validAges = state.validAges
+    val bands = if (validAges) ageBandSelection(c.minAge, c.maxAge) else null
+    var exact by rememberSaveable { mutableStateOf(false) }
+    // 年代にそろっていない年齢や、直している途中の入力は、数字の欄のまま見せる。
+    val showFields = exact || bands == null
+    var picking by rememberSaveable { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        QuietFieldPair(first = { fieldModifier ->
-            OutlinedTextField(state.minAgeInput, vm::minAge,
-                label = { Text("最低年齢") }, singleLine = true, isError = !validAges,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = fieldModifier)
-        }, second = { fieldModifier ->
-            OutlinedTextField(state.maxAgeInput, vm::maxAge,
-                label = { Text("最高年齢") }, singleLine = true, isError = !validAges,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = fieldModifier)
-        })
-        if (!validAges) Text(AGE_RANGE_ERROR, color = MaterialTheme.colorScheme.error,
-            style = MaterialTheme.typography.bodySmall)
+        ConditionLabel("年齢")
+        LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(AgeBand.entries) { band ->
+                QuietFilterChip(selected = band in bands.orEmpty(), label = band.label, onClick = {
+                    val (min, max) = tapAgeBand(c.minAge.takeIf { validAges }, c.maxAge.takeIf { validAges }, band)
+                    vm.ageRange(min, max)
+                })
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(if (validAges) ageSummary(c.minAge, c.maxAge) else "年齢の入力を確かめてください",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (validAges) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+                modifier = Modifier.weight(1f))
+            if (bands != null) TextButton(onClick = { exact = !exact }) { Text(if (exact) "数字の欄を閉じる" else "数字で指定") }
+        }
+        if (showFields) {
+            QuietFieldPair(first = { fieldModifier ->
+                OutlinedTextField(state.minAgeInput, vm::minAge,
+                    label = { Text("最低年齢") }, singleLine = true, isError = !validAges,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = fieldModifier)
+            }, second = { fieldModifier ->
+                OutlinedTextField(state.maxAgeInput, vm::maxAge,
+                    label = { Text("最高年齢") }, singleLine = true, isError = !validAges,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = fieldModifier)
+            })
+            if (!validAges) Text(AGE_RANGE_ERROR, color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall)
+        }
         QuietCheckboxRow(c.includeUnknownAge, { vm.criteria(c.copy(includeUnknownAge = it)) }, "年齢が秘密の部屋も含める")
         // 検索の未指定は「すべて」。プロフィール側の秘密とは別の意味。
-        AreaFilter(c.area) { vm.criteria(c.copy(area = it)) }
+        ConditionLabel("地域")
+        LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            item { QuietFilterChip(selected = c.area == null, onClick = { vm.area(null) }, label = "すべて") }
+            items(areaShortcuts(c.area, state.recentAreas)) { area ->
+                QuietFilterChip(selected = area == c.area, onClick = { vm.area(if (area == c.area) null else area) }, label = area)
+            }
+            item { QuietAssistChip(onClick = { picking = true }, label = "地方から選ぶ", icon = Icons.Outlined.Map) }
+        }
+    }
+    if (picking) AreaPickerDialog(c.area, onSelect = { vm.area(it); picking = false }, onDismiss = { picking = false })
+}
+
+/** 条件の小見出し。 */
+@Composable
+private fun ConditionLabel(text: String) {
+    Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.semantics { heading() })
+}
+
+/** 地方ごとに都道府県を並べて 1 つ選ぶ。48 項目の長いメニューの代わり。 */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AreaPickerDialog(selected: String?, onSelect: (String?) -> Unit, onDismiss: () -> Unit) {
+    QuietDialog(title = "地域を選ぶ", onDismissRequest = onDismiss, confirmLabel = "すべての地域", onConfirm = { onSelect(null) },
+        dismissLabel = "やめる", onDismiss = onDismiss) {
+        Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            PrefectureRegions.forEach { (region, areas) ->
+                ConditionLabel(region)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    areas.forEach { area -> QuietFilterChip(selected = area == selected, onClick = { onSelect(area) }, label = area) }
+                }
+            }
+        }
     }
 }
 
-/** 語は上の検索欄 1 つで入れ、ここでは探す場所・一致のしかた・除外する語を選ぶ。 */
+/** 語は上の検索欄 1 つで入れ（探す場所は検索欄の右端で選ぶ）、ここでは一致のしかたと除外する語を選ぶ。 */
 @Composable
 private fun KeywordConditions(state: SearchUiState, vm: SearchViewModel, ng: NgSummary?) {
     val c = state.criteria
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        ChoiceRow("探す場所", state.keywordScope, KeywordScope.entries.map { it to it.label }, vm::keywordScope)
         ChoiceRow("複数の語", c.keywordMode, listOf(KeywordMode.ALL to "すべて含む", KeywordMode.ANY to "どれかを含む")) { vm.criteria(c.copy(keywordMode = it)) }
         HiddenKeywords(hiddenKeywords(c, state.keywordScope), vm::clearHiddenKeywords)
         OutlinedTextField(c.excluded, { vm.criteria(c.copy(excluded = it)) }, label = { Text("除外する語（スペース区切り）") },
@@ -215,16 +308,41 @@ internal fun SortRow(selected: RoomSort, onSelect: (RoomSort) -> Unit) {
     }
 }
 
+/** 検索欄。[onScope] があれば、右端で探す場所（名前と待機メッセージ／名前／待機メッセージ）を選べる。 */
 @Composable
-internal fun SearchField(text: String, placeholder: String, onChange: (String) -> Unit) {
-    OutlinedTextField(text, onChange, placeholder = { Text(placeholder) },
+internal fun SearchField(text: String, placeholder: String, onChange: (String) -> Unit,
+    scope: KeywordScope? = null, onScope: ((KeywordScope) -> Unit)? = null) {
+    OutlinedTextField(text, onChange, placeholder = { Text(placeholder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         leadingIcon = { Icon(Icons.Outlined.Search, null) },
-        trailingIcon = if (text.isNotEmpty()) ({ IconButton(onClick = { onChange("") }) { Icon(Icons.Outlined.Close, "検索語を消す") } }) else null,
+        trailingIcon = if (text.isNotEmpty() || (scope != null && onScope != null)) ({
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (text.isNotEmpty()) IconButton(onClick = { onChange("") }) { Icon(Icons.Outlined.Close, "検索語を消す") }
+                if (scope != null && onScope != null) KeywordScopeButton(scope, onScope)
+            }
+        }) else null,
         // 下に並ぶ入力欄・チップと同じ角丸（以前は検索欄だけ 18dp）。
         singleLine = true, shape = LovelyShapes.control, modifier = Modifier.fillMaxWidth())
 }
 
-/** 性別・待機中・公開は1タップで切り替える。それ以外の条件はタブに置く。 */
+/** 検索欄の右端の「名前＋待機 ▾」。押すと探す場所のメニューを開く。 */
+@Composable
+private fun KeywordScopeButton(scope: KeywordScope, onScope: (KeywordScope) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        TextButton(onClick = { open = true }, contentPadding = PaddingValues(start = 8.dp, end = 4.dp),
+            modifier = Modifier.semantics { contentDescription = "探す場所：${scope.label}" }) {
+            Text(scope.short, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+            Icon(Icons.Outlined.ArrowDropDown, null, Modifier.size(18.dp))
+        }
+        QuietDropdownMenu(open, { open = false }) {
+            KeywordScope.entries.forEach { value ->
+                QuietMenuRow(value.label, onClick = { onScope(value); open = false }, selected = value == scope)
+            }
+        }
+    }
+}
+
+/** 性別は 1 タップで切り替え、利用状況と公開設定は押すと「すべて／片方／もう片方」のメニューから選ぶ。それ以外の条件はタブに置く。 */
 @Composable
 private fun QuickFilterRow(criteria: RoomSearchCriteria, onChange: (RoomSearchCriteria) -> Unit) {
     LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -238,19 +356,24 @@ private fun QuickFilterRow(criteria: RoomSearchCriteria, onChange: (RoomSearchCr
                 { onChange(criteria.copy(gender = if (criteria.gender == Gender.MALE) null else Gender.MALE)) },
                 label = "男性")
         }
-        // 利用状況と公開設定は、押すたびに「すべて → 片方 → もう片方 → すべて」と切り替える。
-        // 詳しい条件に同じ項目を二重に置かず、指定中の状態がチップだけで分かるようにする。
-        item {
-            QuietFilterChip(criteria.waitingOnly != null,
-                { onChange(criteria.copy(waitingOnly = nextTriState(criteria.waitingOnly))) },
-                label = triStateLabel(criteria.waitingOnly, "利用状況", "待機中", "満室"),
-                modifier = Modifier.semantics { stateDescription = triStateLabel(criteria.waitingOnly, "すべて", "待機中", "満室") })
-        }
-        item {
-            QuietFilterChip(criteria.publicOnly != null,
-                { onChange(criteria.copy(publicOnly = nextTriState(criteria.publicOnly))) },
-                label = triStateLabel(criteria.publicOnly, "公開設定", "公開", "非公開"),
-                modifier = Modifier.semantics { stateDescription = triStateLabel(criteria.publicOnly, "すべて", "公開", "非公開") })
+        // 以前は押すたびに 3 つの状態を順に回していたが、次に何になるか読めないので、メニューで直接選ぶ。
+        item { TriStateMenuChip(criteria.waitingOnly, "利用状況", "待機中", "満室") { onChange(criteria.copy(waitingOnly = it)) } }
+        item { TriStateMenuChip(criteria.publicOnly, "公開設定", "公開", "非公開") { onChange(criteria.copy(publicOnly = it)) } }
+    }
+}
+
+/** 「すべて／[yes]／[no]」から選ぶチップ。指定中はチップの名前が選んだ値になり、塗りになる。 */
+@Composable
+private fun TriStateMenuChip(value: Boolean?, label: String, yes: String, no: String, onChange: (Boolean?) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        QuietFilterChip(value != null, { open = true }, label = triStateLabel(value, label, yes, no),
+            trailingIcon = { Icon(Icons.Outlined.ArrowDropDown, null, Modifier.size(18.dp)) },
+            modifier = Modifier.semantics { stateDescription = "$label：" + triStateLabel(value, "すべて", yes, no) })
+        QuietDropdownMenu(open, { open = false }) {
+            listOf(null, true, false).forEach { option ->
+                QuietMenuRow(triStateLabel(option, "すべて", yes, no), onClick = { onChange(option); open = false }, selected = option == value)
+            }
         }
     }
 }
@@ -277,23 +400,5 @@ private fun <T> ChoiceRow(title: String, selected: T, options: List<Pair<T, Stri
         }
     }
 }
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun AreaFilter(selected: String?, onSelect: (String?) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    ExposedDropdownMenuBox(expanded, { expanded = it }) {
-        OutlinedTextField(selected ?: "すべて", {}, label = { Text("地域") }, readOnly = true,
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-            modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable))
-        QuietExposedMenu(expanded, { expanded = false }) {
-            QuietMenuRow("すべて", selected = selected == null, onClick = { onSelect(null); expanded = false })
-            Prefectures.names.forEach { area -> QuietMenuRow(area, selected = area == selected, onClick = { onSelect(area); expanded = false }) }
-        }
-    }
-}
-
-/** 3 段階のチップの次の値。未指定 → true → false → 未指定。 */
-internal fun nextTriState(value: Boolean?): Boolean? = when (value) { null -> true; true -> false; false -> null }
 
 internal fun triStateLabel(value: Boolean?, none: String, yes: String, no: String) = when (value) { null -> none; true -> yes; false -> no }
