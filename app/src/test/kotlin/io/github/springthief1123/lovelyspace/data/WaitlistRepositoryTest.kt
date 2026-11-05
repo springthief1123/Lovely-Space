@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+
 package io.github.springthief1123.lovelyspace.data
 
 import android.app.Application
@@ -7,9 +9,12 @@ import io.github.springthief1123.lovelyspace.core.*
 import io.github.springthief1123.lovelyspace.notify.NotificationKind
 import io.github.springthief1123.lovelyspace.notify.NotificationTarget
 import io.github.springthief1123.lovelyspace.notify.toOpenedNotification
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
@@ -32,9 +37,11 @@ class WaitlistRepositoryTest {
         var revision = 0L
         val calls = mutableListOf<RoomQuery>()
         var fail = false
+        var beforeResponse: suspend () -> Unit = {}
         override fun observation(query: RoomQuery) = observations.value[query]
         override suspend fun fetch(query: RoomQuery, force: Boolean): RoomListPage {
             calls += query
+            beforeResponse()
             if (fail) throw java.io.IOException("合成の通信失敗")
             val page = RoomListPage(query.genre.key, pages[query.page].orEmpty(), null, null, query.page, lastPage, emptyMap(), null)
             revision++
@@ -45,14 +52,149 @@ class WaitlistRepositoryTest {
 
     private class Memory : WaitlistPersistence {
         var saved: List<WaitlistEntry> = emptyList()
+        var failSave = false
         override fun load() = saved
-        override fun save(entries: List<WaitlistEntry>) { saved = entries }
+        override fun save(entries: List<WaitlistEntry>) {
+            if (failSave) throw IllegalStateException("合成の保存失敗")
+            saved = entries
+        }
+    }
+
+    @Test
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun concurrentForegroundAndBackgroundChecksDoNotRunTheSameSyncInParallel() = runTest {
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val lists = Lists().apply {
+            pages = mapOf(1 to listOf(full))
+            beforeResponse = {
+                if (calls.size == 1) {
+                    entered.complete(Unit)
+                    release.await()
+                }
+            }
+        }
+        val waitlist = WaitlistRepository(Memory(), lists, {}, backgroundScope, io = UnconfinedTestDispatcher(testScheduler)) { 0L }
+        waitlist.register(full)
+
+        val foreground = async { waitlist.check(1) }
+        entered.await()
+        val background = async { waitlist.check(1) }
+        runCurrent()
+        assertEquals("最初の取得が止まっている間は次の取得を開始しない", 1, lists.calls.size)
+
+        release.complete(Unit)
+        assertFalse(foreground.await())
+        assertFalse(background.await())
+        assertEquals(2, lists.calls.size)
+    }
+
+    @Test
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun concurrentPendingDeliveryAndObservationNotifyOnlyOnce() = runTest {
+        val opened = full.copy(status = RoomStatus.WAITING, action = RoomAction.ENTER, name = "合成の名前")
+        val lists = Lists().apply { pages = mapOf(1 to listOf(opened)) }
+        val memory = Memory()
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val received = mutableListOf<WaitlistEntry>()
+        val waitlist = WaitlistRepository(memory, lists, {
+            entered.complete(Unit)
+            release.await()
+            received += it
+        }, backgroundScope, io = UnconfinedTestDispatcher(testScheduler)) { 0L }
+        waitlist.register(full)
+
+        val observing = async { waitlist.check(1) }
+        entered.await()
+        val retry = async { waitlist.deliverPending() }
+        runCurrent()
+        assertTrue(received.isEmpty())
+
+        release.complete(Unit)
+        observing.await()
+        retry.await()
+        assertEquals(1, received.size)
+        assertTrue(memory.saved.single().noticed)
+    }
+
+    @Test fun failedStorageDoesNotAdvanceStateOrLoseAnOpening() = runTest {
+        val opened = full.copy(status = RoomStatus.WAITING, action = RoomAction.ENTER, name = "合成の名前")
+        val lists = Lists().apply { pages = mapOf(1 to listOf(opened)) }
+        val memory = Memory().apply { failSave = true }
+        val received = mutableListOf<WaitlistEntry>()
+        val waitlist = WaitlistRepository(memory, lists, { received += it }, backgroundScope, io = UnconfinedTestDispatcher(testScheduler)) { 0L }
+
+        val registerError = runCatching { waitlist.register(full) }.exceptionOrNull()
+        assertTrue(registerError is IllegalStateException)
+        assertTrue(waitlist.entries.value.isEmpty())
+        assertTrue(memory.saved.isEmpty())
+
+        memory.failSave = false
+        waitlist.register(full)
+        memory.failSave = true
+        val openingError = runCatching { waitlist.check(1) }.exceptionOrNull()
+        assertTrue(openingError is IllegalStateException)
+        assertEquals(WaitlistStatus.WATCHING, waitlist.entries.value.single().status)
+        assertTrue(received.isEmpty())
+
+        memory.failSave = false
+        waitlist.check(1)
+        assertEquals(1, received.size)
+        assertEquals(WaitlistStatus.OPENED, memory.saved.single().status)
+        assertTrue(memory.saved.single().noticed)
+    }
+
+    @Test fun failingToSaveTheNoticeKeepsItPendingWithoutThrowing() = runTest {
+        val opened = full.copy(status = RoomStatus.WAITING, action = RoomAction.ENTER, name = "合成の名前")
+        val lists = Lists().apply { pages = mapOf(1 to listOf(opened)) }
+        val memory = Memory()
+        val received = mutableListOf<WaitlistEntry>()
+        // 通知を出した直後に保存先が失敗する（通知済みを書けない）。
+        val waitlist = WaitlistRepository(memory, lists, { received += it; if (received.size == 1) memory.failSave = true }, backgroundScope, io = UnconfinedTestDispatcher(testScheduler)) { 0L }
+        waitlist.register(full)
+
+        assertFalse(waitlist.check(1))
+        assertEquals(1, received.size)
+        assertTrue("通知済みを保存できなければ未通知のまま残す", waitlist.entries.value.single().unnoticed)
+
+        // 起動時の出し直しは例外を外へ出さず、保存先が戻れば通知済みにする。
+        memory.failSave = false
+        waitlist.deliverPending()
+        assertEquals(2, received.size)
+        assertTrue(memory.saved.single().noticed)
+    }
+
+    @Test
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun removalDuringNotificationDoesNotMarkANewRegistrationAsNoticed() = runTest {
+        val opened = full.copy(status = RoomStatus.WAITING, action = RoomAction.ENTER, name = "合成の名前")
+        val lists = Lists().apply { pages = mapOf(1 to listOf(opened)) }
+        val memory = Memory()
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val waitlist = WaitlistRepository(memory, lists, {
+            entered.complete(Unit)
+            release.await()
+        }, backgroundScope, io = UnconfinedTestDispatcher(testScheduler)) { 0L }
+        waitlist.register(full)
+
+        val first = async { waitlist.check(1) }
+        entered.await()
+        waitlist.remove(roomIdentity(full))
+        waitlist.register(full)
+        release.complete(Unit)
+        first.await()
+
+        val newEntry = memory.saved.single()
+        assertEquals(WaitlistStatus.WATCHING, newEntry.status)
+        assertFalse(newEntry.noticed)
     }
 
     @Test fun aFullRoomThatStartsWaitingIsReportedOnceAndOpensItsEntryScreen() = runTest {
         val lists = Lists().apply { pages = mapOf(1 to listOf(full)) }
         val opened = mutableListOf<WaitlistEntry>()
-        val waitlist = WaitlistRepository(Memory(), lists, { opened += it }, backgroundScope) { 0L }
+        val waitlist = WaitlistRepository(Memory(), lists, { opened += it }, backgroundScope, io = UnconfinedTestDispatcher(testScheduler)) { 0L }
         waitlist.register(full, RoomQuery(zenkoku))
         waitlist.check(3)
         assertTrue(opened.isEmpty())
@@ -76,7 +218,7 @@ class WaitlistRepositoryTest {
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     fun whileTheAppIsOpenWaitingRoomsAreCheckedAtTheChosenIntervalAndFailuresBackOff() = runTest {
         val lists = Lists().apply { pages = mapOf(1 to listOf(full)) }
-        val waitlist = WaitlistRepository(Memory(), lists, {}, backgroundScope) { 0L }
+        val waitlist = WaitlistRepository(Memory(), lists, {}, backgroundScope, io = UnconfinedTestDispatcher(testScheduler)) { 0L }
         waitlist.register(full, RoomQuery(zenkoku))
         backgroundScope.launch { waitlist.monitor { 2_000L } }
         runCurrent()
@@ -95,7 +237,7 @@ class WaitlistRepositoryTest {
 
     @Test fun aFailedPageStopsTheRestOfTheCheck() = runTest {
         val lists = Lists().apply { fail = true }
-        val waitlist = WaitlistRepository(Memory(), lists, {}, backgroundScope) { 0L }
+        val waitlist = WaitlistRepository(Memory(), lists, {}, backgroundScope, io = UnconfinedTestDispatcher(testScheduler)) { 0L }
         waitlist.register(full, RoomQuery(zenkoku))
         waitlist.register(full.copy(id = 43), RoomQuery(zenkoku, page = 2))
         assertTrue(waitlist.check(3))
@@ -105,7 +247,7 @@ class WaitlistRepositoryTest {
 
     @Test fun aRoomMissingFromItsPageIsNotTreatedAsClosedAndTheNextPageIsChecked() = runTest {
         val lists = Lists().apply { lastPage = 2; pages = mapOf(1 to emptyList(), 2 to listOf(full)) }
-        val waitlist = WaitlistRepository(Memory(), lists, {}, backgroundScope) { 0L }
+        val waitlist = WaitlistRepository(Memory(), lists, {}, backgroundScope, io = UnconfinedTestDispatcher(testScheduler)) { 0L }
         waitlist.register(full, RoomQuery(zenkoku))
         waitlist.check(1)
         assertEquals(WaitlistStatus.WATCHING, waitlist.entries.value.single().status)
@@ -124,7 +266,7 @@ class WaitlistRepositoryTest {
         val lists = Lists()
         val opened = mutableListOf<WaitlistEntry>()
         val known = full.copy(age = 30)
-        val waitlist = WaitlistRepository(Memory(), lists, { opened += it }, backgroundScope) { 0L }
+        val waitlist = WaitlistRepository(Memory(), lists, { opened += it }, backgroundScope, io = UnconfinedTestDispatcher(testScheduler)) { 0L }
         waitlist.register(known)
         lists.pages = mapOf(1 to listOf(known.copy(status = RoomStatus.WAITING, action = RoomAction.ENTER, name = "別の合成", age = 41)))
         waitlist.check(3)
@@ -135,7 +277,7 @@ class WaitlistRepositoryTest {
     @Test fun limitsExpiryAndOnlyFullRooms() = runTest {
         var clock = 0L
         val lists = Lists()
-        val waitlist = WaitlistRepository(Memory(), lists, {}, backgroundScope) { clock }
+        val waitlist = WaitlistRepository(Memory(), lists, {}, backgroundScope, io = UnconfinedTestDispatcher(testScheduler)) { clock }
         assertThrows(IllegalArgumentException::class.java) {
             kotlinx.coroutines.runBlocking { waitlist.register(full.copy(status = RoomStatus.WAITING)) }
         }
@@ -154,7 +296,7 @@ class WaitlistRepositoryTest {
     @Test fun aRemovedEntryCanBeRestoredInPlaceWithItsDeadline() = runTest {
         var clock = 0L
         val memory = Memory()
-        val waitlist = WaitlistRepository(memory, Lists(), {}, backgroundScope) { clock }
+        val waitlist = WaitlistRepository(memory, Lists(), {}, backgroundScope, io = UnconfinedTestDispatcher(testScheduler)) { clock }
         (1L..3L).forEach { clock = it; waitlist.register(full.copy(id = it)) }
         val before = waitlist.entries.value
         // 続けて 2 件取り消し、取り消した順に戻しても元の並びに戻る。
@@ -199,7 +341,7 @@ class WaitlistRepositoryTest {
     @Test fun anOpeningSavedBeforeItsNotificationWasShownIsNotifiedOnTheNextCheck() = runTest {
         val lists = Lists().apply { pages = mapOf(1 to listOf(full.copy(status = RoomStatus.WAITING, action = RoomAction.ENTER, name = "合成の名前"))) }
         val memory = Memory()
-        val first = WaitlistRepository(memory, lists, { throw java.io.IOException("合成の通知失敗") }, backgroundScope) { 0L }
+        val first = WaitlistRepository(memory, lists, { throw java.io.IOException("合成の通知失敗") }, backgroundScope, io = UnconfinedTestDispatcher(testScheduler)) { 0L }
         first.register(full)
         first.check(3)
         assertFalse(memory.saved.single().noticed)
@@ -207,7 +349,7 @@ class WaitlistRepositoryTest {
         assertFalse(first.hasActive())
         assertTrue(first.hasPendingWork())
         val opened = mutableListOf<WaitlistEntry>()
-        val next = WaitlistRepository(memory, Lists(), { opened += it }, backgroundScope) { 0L }
+        val next = WaitlistRepository(memory, Lists(), { opened += it }, backgroundScope, io = UnconfinedTestDispatcher(testScheduler)) { 0L }
         next.check(3)
         assertEquals(listOf(WaitlistStatus.OPENED), opened.map { it.status })
         assertTrue(memory.saved.single().noticed)
@@ -218,7 +360,7 @@ class WaitlistRepositoryTest {
     @Test fun withoutASourcePageWaitingStartsFromThePageWhereTheRoomWasSeen() = runTest {
         val lists = Lists().apply { lastPage = 20; pages = mapOf(14 to listOf(full)) }
         lists.fetch(RoomQuery(zenkoku, page = 14), force = false)
-        val waitlist = WaitlistRepository(Memory(), lists, {}, backgroundScope) { 0L }
+        val waitlist = WaitlistRepository(Memory(), lists, {}, backgroundScope, io = UnconfinedTestDispatcher(testScheduler)) { 0L }
         waitlist.register(full)
         assertEquals(14, waitlist.entries.value.single().query.page)
         // 呼び出し元のページにその部屋が見えていなければ、見えたページを優先する。
@@ -232,7 +374,7 @@ class WaitlistRepositoryTest {
 
     @Test fun aRoomThatMovedToAnEarlierPageIsFoundByLookingAroundWhereItWasSeen() = runTest {
         val lists = Lists().apply { lastPage = 18; pages = mapOf(14 to listOf(full)) }
-        val waitlist = WaitlistRepository(Memory(), lists, {}, backgroundScope) { 0L }
+        val waitlist = WaitlistRepository(Memory(), lists, {}, backgroundScope, io = UnconfinedTestDispatcher(testScheduler)) { 0L }
         waitlist.register(full, RoomQuery(zenkoku, page = 14))
         waitlist.check(1)
         assertEquals(14, waitlist.entries.value.single().anchorPage)
@@ -260,7 +402,7 @@ class WaitlistRepositoryTest {
         val old = full.copy(id = base + 500, message = "合成の長い募集文です。よろしくお願いします")
         val lists = Lists().apply { pages = mapOf(1 to listOf(other(700), old, other(300), other(100))) }
         val opened = mutableListOf<WaitlistEntry>()
-        val waitlist = WaitlistRepository(Memory(), lists, { opened += it }, backgroundScope) { 0L }
+        val waitlist = WaitlistRepository(Memory(), lists, { opened += it }, backgroundScope, io = UnconfinedTestDispatcher(testScheduler)) { 0L }
         waitlist.register(old, RoomQuery(zenkoku))
         waitlist.check(3)
         assertTrue(opened.isEmpty())
@@ -281,7 +423,7 @@ class WaitlistRepositoryTest {
         val old = full.copy(id = base + 500, name = "合成の名前", gender = Gender.FEMALE, age = 25, message = message)
         val lists = Lists().apply { pages = mapOf(1 to listOf(other(700), old, other(300), other(100))) }
         val opened = mutableListOf<WaitlistEntry>()
-        val waitlist = WaitlistRepository(Memory(), lists, { opened += it }, backgroundScope) { 0L }
+        val waitlist = WaitlistRepository(Memory(), lists, { opened += it }, backgroundScope, io = UnconfinedTestDispatcher(testScheduler)) { 0L }
         waitlist.register(old, RoomQuery(zenkoku))
         waitlist.check(3)
         val hidden = full.copy(id = base + 800, message = message)
