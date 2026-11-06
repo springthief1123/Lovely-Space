@@ -8,11 +8,33 @@
 
 ジャンルは 3 つのサブドメインに分かれている（Cookie は `.shalove.net` で共有が必要になる可能性あり。未確認）。
 
-| サブドメイン | ジャンル（genre_key / 部屋数） |
-|---|---|
-| chat.shalove.net | zenkoku 全国, hokkaido 114, tohoku 84, kanto 1054, chubu 394, kinki 574, chugoku 206, kyushu 207, gazo 画像 151 |
-| 2shot.chat.shalove.net | imacha 833, chah 1189, tel 167, kikon 680, jukunen 298, sm 802, feti 193, pocha 163, dose 同性 210 |
-| lr.chat.shalove.net | talk 333, nonadult 18, cosplay 52, game 22, wait 待ち合わせ 122 |
+表示順は下表の上から順。部屋数は時々刻々変わるため、定義には含めない。
+
+| キー | 名称 | ホスト |
+|---|---|---|
+| zenkoku | 全国 | chat.shalove.net |
+| hokkaido | 北海道 | chat.shalove.net |
+| tohoku | 東北 | chat.shalove.net |
+| kanto | 関東 | chat.shalove.net |
+| chubu | 中部 | chat.shalove.net |
+| kinki | 近畿 | chat.shalove.net |
+| chugoku | 中国・四国 | chat.shalove.net |
+| kyushu | 九州・沖縄 | chat.shalove.net |
+| imacha | イメチャ | 2shot.chat.shalove.net |
+| chah | チャH | 2shot.chat.shalove.net |
+| gazo | 画像 | chat.shalove.net |
+| tel | 通話 | 2shot.chat.shalove.net |
+| kikon | 既婚 | 2shot.chat.shalove.net |
+| jukunen | 熟年 | 2shot.chat.shalove.net |
+| sm | SM | 2shot.chat.shalove.net |
+| feti | フェチ | 2shot.chat.shalove.net |
+| pocha | ぽっちゃり | 2shot.chat.shalove.net |
+| dose | 同性 | 2shot.chat.shalove.net |
+| talk | 雑談 | lr.chat.shalove.net |
+| nonadult | ノンアダルト | lr.chat.shalove.net |
+| cosplay | コスプレ | lr.chat.shalove.net |
+| game | ゲーム | lr.chat.shalove.net |
+| wait | 待ち合わせ | lr.chat.shalove.net |
 
 - 一覧 URL: `https://<sub>/g/<genre_key>/`
 - ジャンル横の `(N)` が部屋数、`総部屋数 7893` も表示される

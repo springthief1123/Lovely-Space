@@ -93,14 +93,13 @@ class ChatClientTest {
 
     @Test
     fun rejectedWhenFormComesBack() = runTest {
-        respond(fixture("chat/preenter.html"), "text/html; charset=UTF-8")
+        respond(fixture("chat/preenter_no_captcha.html"), "text/html; charset=UTF-8")
         respond("<html><body><div class=\"error\">名前を入力してください</div></body></html>", "text/html; charset=UTF-8")
         val entry = client.openEntry(host, 900000002, "chah")!!
-        val result = client.enter(entry, EntryProfile("", sex = 1, years = null), captchaToken = "tok")
+        val result = client.enter(entry, EntryProfile("", sex = 1, years = null))
         assertTrue(result is EntryResult.Rejected)
         val fields = form(requests.last().second)
-        assertEquals("tok", fields["cf-turnstile-response"])
-        assertEquals("tok", fields["h-captcha-response"])
+        assertTrue(listOf("cf-turnstile-response", "h-captcha-response", "g-recaptcha-response").none { it in fields })
         assertEquals("", fields["years"])
     }
 
