@@ -69,6 +69,9 @@ data class RoomListPage(
     val totalRooms: Int?,
     /** 一覧に載っていたページャのリンク（ページ番号 → URL）。絞り込み中の 2 ページ目以降はこの URL で取る。 */
     val pageUrls: Map<Int, String> = emptyMap(),
+    /** 部屋行のうち解析できなかった数。このページを閉鎖推定には使わない。 */
+    val droppedRowCount: Int = 0,
 ) {
+    val rowsComplete: Boolean get() = droppedRowCount == 0
     val hasNextPage: Boolean get() = page < lastPage
 }

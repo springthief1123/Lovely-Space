@@ -10,10 +10,10 @@ import io.github.springthief1123.lovelyspace.core.RoomQuery
 import io.github.springthief1123.lovelyspace.core.RoomStatus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.transform
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
+import java.util.UUID
+import org.json.JSONObject
 import kotlin.time.Duration.Companion.seconds
 
 fun RoomPreference.toRoom(): Room = Room(
@@ -112,6 +112,12 @@ private fun preferenceFromRoom(room: Room, favorite: Boolean, hidden: Boolean): 
     )
 }
 
+/** 立て直しは前の状態を引き継ぎ、利用者が承認した似た部屋は新しい状態を基準にする。 */
+enum class PinMoveKind { REBUILD, ADOPTED }
+
+/** Room DB の移動先と同じトランザクションで保存するイベント。ピン側が反映してから確認済みにする。 */
+data class PendingPinMove(val id: String, val from: String, val to: Room, val kind: PinMoveKind = PinMoveKind.REBUILD)
+
 interface RoomPreferenceStore {
     val preferences: Flow<List<RoomPreference>>
     suspend fun setFavorite(room: Room, enabled: Boolean)
@@ -130,14 +136,37 @@ interface RoomPreferenceStore {
      * 立て直しの照合（[followRebuilds]）やピンの表示に使う。
      */
     suspend fun rememberIdentity(from: RoomPreference, room: Room) {}
+    /** ピン記録の移動がディスクに保存された後、対応する移動イベントを消す。 */
+    suspend fun acknowledgePinMove(id: String) {}
 }
 
 class RoomPreferenceRepository(private val db: PresetDatabase) : RoomPreferenceStore {
     private val dao = db.roomPreferences()
     override val preferences = dao.preferences()
-    private val _moved = MutableSharedFlow<Pair<String, Room>>(extraBufferCapacity = 64)
-    /** 記録が立て直した部屋へ移ったとき（元の「サーバー/ID」と新しい部屋）。ピンの見張りの記録を引き継ぐのに使う。 */
-    val moved: SharedFlow<Pair<String, Room>> = _moved.asSharedFlow()
+    /** 移動を DB に永続化してから配信。アプリが途中で終了しても再起動後に同じイベントを復元する。 */
+    val moved: Flow<PendingPinMove> = db.presets().pinMoves().transform { rows ->
+        rows.forEach { row ->
+            runCatching {
+                val json = JSONObject(row.value)
+                // 旧形式は立て直しのイベントのみ。種別が無いレコードとの互換性を保つ。
+                val kind = if (json.has("kind")) PinMoveKind.valueOf(json.getString("kind")) else PinMoveKind.REBUILD
+                PendingPinMove(row.key.removePrefix(MOVE_PREFIX), json.getString("from"),
+                    readPinRoom(json.getJSONObject("to")), kind)
+            }.getOrNull()?.let { emit(it) }
+        }
+    }
+
+    private suspend fun queuePinMove(from: String, to: Room, kind: PinMoveKind) {
+        val key = MOVE_PREFIX + UUID.randomUUID().toString()
+        db.presets().put(LocalState(key, JSONObject().put("from", from)
+            .put("to", pinRoomJson(to)).put("kind", kind.name).toString()))
+    }
+
+    override suspend fun acknowledgePinMove(id: String) {
+        db.presets().deleteState(MOVE_PREFIX + id)
+    }
+
+    private companion object { const val MOVE_PREFIX = "pin-move/" }
 
     override suspend fun setFavorite(room: Room, enabled: Boolean) {
         if (!enabled) return clearFavorite(roomHost(room), room.id)
@@ -187,7 +216,7 @@ class RoomPreferenceRepository(private val db: PresetDatabase) : RoomPreferenceS
                     !existing.sameIdentity(room) -> existing.copy(stale = true)
                     // 名前の記録がない（満室でピンした）部屋に、待機メッセージの違う名前付きの部屋が載った。番号の使い回しかもしれないので、
                     // 記録の待機メッセージを書き換えない（書き換えると、次に見たときにその人を部屋主として覚えてしまう）。
-                    existing.identityName == null && room.name != null && room.message != existing.snapshotMessage -> existing
+                    existing.identityName == null && room.message != existing.snapshotMessage -> existing
                     else -> existing.refreshed(room)
                 }
                 // 経過時間（「◯分前」）は取得のたびに変わる。それだけの違いで書き直すと、取得のたびに保存の一覧が流れ直して
@@ -207,9 +236,7 @@ class RoomPreferenceRepository(private val db: PresetDatabase) : RoomPreferenceS
     }
 
     override suspend fun followRebuilds(window: RoomPageWindow) {
-        val moves = mutableListOf<Pair<String, Room>>()
         db.withTransaction {
-            moves.clear()
             val all = dao.all()
             val claimed = all.mapTo(HashSet()) { "${it.host}/${it.roomId}" }
             all.filterNot { it.stale }.forEach { existing ->
@@ -223,24 +250,23 @@ class RoomPreferenceRepository(private val db: PresetDatabase) : RoomPreferenceS
                 dao.put(existing.movedTo(rebuilt))
                 claimed -= key
                 claimed += "${existing.host}/${rebuilt.id}"
-                if (existing.favorite) moves += key to rebuilt
+                if (existing.favorite) queuePinMove(key, rebuilt, PinMoveKind.REBUILD)
             }
         }
-        moves.forEach { _moved.emit(it) }
     }
 
     override suspend fun moveFavorite(from: RoomPreference, to: Room) {
         if (Genres[to.genreKey]?.host != from.host) return
         val key = "${from.host}/${from.roomId}"
         db.withTransaction {
-            val current = dao.preference(from.host, from.roomId)?.takeIf { it.favorite } ?: return@withTransaction false
+            val current = dao.preference(from.host, from.roomId)?.takeIf { it.favorite } ?: return@withTransaction
             val existing = dao.preference(from.host, to.id)
             if (current.hidden) dao.clearFavorite(from.host, from.roomId).also { dao.deleteUnused(from.host, from.roomId) }
             else dao.delete(from.host, from.roomId)
             // 似た部屋は名前が違うことがあるので、照合用の名前は新しい部屋のものにする。
             dao.put(current.movedTo(to, keepIdentity = false).copy(favorite = true, hidden = existing?.takeIf { it.sameIdentity(to) }?.hidden == true))
-            true
-        }.let { if (it) _moved.emit(key to to) }
+            queuePinMove(key, to, PinMoveKind.ADOPTED)
+        }
     }
 
     private fun RoomPreference.movedTo(room: Room, keepIdentity: Boolean = true): RoomPreference = refreshed(room).copy(
