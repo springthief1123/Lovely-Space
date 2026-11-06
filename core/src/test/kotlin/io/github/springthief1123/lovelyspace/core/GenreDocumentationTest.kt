@@ -8,10 +8,9 @@ class GenreDocumentationTest {
     @Test fun documentedGenresMatchEveryKeyLabelHostAndPosition() {
         val doc = listOf(File("docs/site-protocol.md"), File("../docs/site-protocol.md")).first { it.isFile }
             .readText().substringAfter("## ドメインとジャンル").substringBefore("## 部屋一覧の行")
-        val row = Regex("""^\| ([a-z]+) \| ([^|]+) \| ([a-z0-9.]+) \|$""")
-        val documented = doc.lineSequence().mapNotNull { row.matchEntire(it) }.map {
-            listOf(it.groupValues[1], it.groupValues[2].trim(), it.groupValues[3])
-        }.toList()
+        val documented = doc.substringAfter("| キー | 名称 | ホスト |\n", "")
+            .lineSequence().drop(1).takeWhile { it.startsWith("|") }
+            .map { it.split('|').drop(1).dropLast(1).map(String::trim) }.toList()
         assertEquals(Genres.all.map { listOf(it.key, it.label, it.host) }, documented)
     }
 }
