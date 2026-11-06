@@ -177,6 +177,36 @@ class PinRepositoryTest {
         assertEquals(PinAlert.NOTIFY, moved.record.alert)
     }
 
+    @Test fun aPendingMoveRestoresPinSettingsAfterProcessRestart() {
+        val memory = Memory()
+        scope.cancel()
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        pins = PinRepository(memory, prefs, lists, onEvent = { events.send(it) }, moved = prefs.moved, scope = scope)
+        val old = room(500, RoomStatus.FULL)
+        wait { pins.pin(old, PinAlert.AUTO) }
+        wait { pins.setMemo(roomIdentity(old), "立て直し前のメモ") }
+        lists.publish(genre, listOf(room(600), old, room(400)))
+        awaitPins { it.singleOrNull()?.state == PinState.FULL }
+
+        // DB の移動だけが成功した直後にプロセス終了（ピン側に移動イベントが届かない）。
+        scope.cancel()
+        val rebuilt = old.copy(id = 950, status = RoomStatus.WAITING, action = RoomAction.ENTER)
+        val others = (900L downTo 100L step 100).filterNot { it == 500L }.map { room(it) }
+        lists.publish(genre, listOf(rebuilt) + others)
+        wait { prefs.followRebuilds(lists.observations.value.genreWindow(genre)) }
+        assertTrue(memory.saved.containsKey(roomIdentity(old)))
+
+        // 再起動しても未処理イベントが再配信され、新しいピンに設定とメモを引き継ぐ。
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val restarted = RoomPreferenceRepository(db)
+        pins = PinRepository(memory, restarted, lists, onEvent = { events.send(it) }, moved = restarted.moved, scope = scope)
+        val moved = awaitPins { it.singleOrNull()?.key == roomIdentity(rebuilt) &&
+            it.single().record.memo == "立て直し前のメモ" }.single()
+        assertEquals(PinAlert.AUTO, moved.record.alert)
+        assertEquals(1, moved.record.rebuilds)
+        wait { db.presets().pinMoves().first { it.isEmpty() } }
+    }
+
     @Test fun aSimilarRoomIsSuggestedAndAdoptingItMovesThePinWithoutCountingAVacancy() {
         val pinned = room(500, name = "合成さん", message = "寝る前にゆるく話そう。通話はなしでお願いします")
         wait { pins.pin(pinned, PinAlert.NOTIFY) }

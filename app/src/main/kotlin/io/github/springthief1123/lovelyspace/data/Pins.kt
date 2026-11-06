@@ -136,7 +136,7 @@ class PinRepository(
     private val preferences: RoomPreferenceStore,
     private val lists: ObservedRoomListSource,
     private val onEvent: suspend (PinEvent) -> Unit,
-    moved: Flow<Pair<String, Room>> = emptyFlow(),
+    moved: Flow<PendingPinMove> = emptyFlow(),
     private val named: (Room) -> Room? = { null },
     namedRevision: Flow<Long> = flowOf(0L),
     scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
@@ -208,7 +208,19 @@ class PinRepository(
                     }
             }
         }
-        scope.launch { moved.collect { (from, to) -> try { move(from, to) } catch (e: CancellationException) { throw e } catch (_: Exception) { } } }
+        scope.launch {
+            moved.collect { pending ->
+                // 前回の保存成功・確認済み書き込み前に終了した場合も再実行できる（move は冪等）。
+                while (true) {
+                    try {
+                        move(pending.from, pending.to)
+                        preferences.acknowledgePinMove(pending.id)
+                        break
+                    } catch (e: CancellationException) { throw e }
+                    catch (_: Exception) { delay(500) }
+                }
+            }
+        }
     }
 
     /** ピンのジャンル。1 ページ目を新着の確認で読み、立て直された部屋にすぐ気づく。 */
@@ -306,13 +318,11 @@ class PinRepository(
             // 古い部屋への未配信通知を、新しい部屋の通知として再送しない。移った先の部屋を「似た部屋」と知らせる通知も、
             // 引き継いだ時点で済んでいる（配信直後に引き継ぐと、配信済みの印を付ける前の通知が残って二度知らせてしまう）。
             pendingNotices = old.pendingNotices.filter { roomIdentity(it.room) == key && it.type != PinNoticeType.SIMILAR })
-        if (adopting.remove(key)) next = next.copy(state = if (to.status == RoomStatus.FULL) PinState.FULL else PinState.OPEN, stateAt = now())
-        // 移ったことの知らせ（[RoomPreferenceRepository.moved]）は 1 回しか来ないので、保存に失敗しても知らせ方・メモを
-        // 新しい部屋へ移したまま持ち、次に記録を保存するときに書き込む（失敗で既定の「空いたら知らせる」に戻して自動入室を外さない）。
-        val records = _records.value - from + (key to next)
-        try { save(records) }
-        catch (e: CancellationException) { throw e }
-        catch (_: Exception) { _records.value = records }
+        if (key in adopting) next = next.copy(state = if (to.status == RoomStatus.FULL) PinState.FULL else PinState.OPEN, stateAt = now())
+        // DB 側に未適用イベントが残るので、保存に失敗したらそのまま再試行する。
+        // 成功後に限り確認済みにすれば、再起動してもメモ・通知設定・履歴を失わない。
+        save(_records.value - from + (key to next))
+        adopting.remove(key)
     }
 
     private suspend fun process(favs: List<RoomPreference>, observations: Map<RoomQuery, ObservedRoomPage>, ordered: Boolean = false) = processMutex.withLock {
@@ -544,11 +554,11 @@ class PinStore(private val prefs: android.content.SharedPreferences) : PinPersis
 }
 
 /** 保存したイベントは再起動後にも同じ部屋の姿を使う。 */
-private fun pinRoomJson(r: Room) = JSONObject()
+internal fun pinRoomJson(r: Room) = JSONObject()
     .put("id", r.id).put("genre", r.genreKey).put("status", r.status.name).put("action", r.action.name)
     .put("name", r.name).put("gender", r.gender.name).put("age", r.age).put("area", r.area).put("message", r.message)
 
-private fun readPinRoom(j: JSONObject) = Room(
+internal fun readPinRoom(j: JSONObject) = Room(
     j.getLong("id"), j.getString("genre"), RoomStatus.valueOf(j.getString("status")), RoomAction.valueOf(j.getString("action")), null,
     if (j.isNull("name")) null else j.getString("name"), Gender.valueOf(j.getString("gender")),
     if (j.isNull("age")) null else j.getInt("age"), if (j.isNull("area")) null else j.getString("area"), j.getString("message"),

@@ -245,6 +245,28 @@ class RoomPreferenceRepositoryTest {
         }
     }
 
+    @Test fun aFavoriteMoveIsDurableUntilThePinRecordIsAcknowledged() = runTest {
+        val db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java)
+            .allowMainThreadQueries().build()
+        try {
+            val repo = RoomPreferenceRepository(db)
+            val old = room(500, "zenkoku", "合成さん", message = "再起動後も保持する募集文")
+            val newer = old.copy(id = 950)
+            repo.setFavorite(old, true)
+            val others = (900L downTo 100L step 100).filterNot { it == 500L }.map { room(it, "zenkoku", "別の人$it", message = "別の募集文$it") }
+            val window = io.github.springthief1123.lovelyspace.core.RoomPageWindow().observe(
+                io.github.springthief1123.lovelyspace.core.RoomListPage("zenkoku", listOf(newer) + others, null, null, 1, 1, emptyMap(), null))
+            repo.followRebuilds(window)
+            // 未配信のまま Repository インスタンスを作り直してもイベントがある。
+            val restarted = RoomPreferenceRepository(db)
+            val pending = restarted.moved.first()
+            assertEquals("${io.github.springthief1123.lovelyspace.core.Genres["zenkoku"]!!.host}/500", pending.from)
+            assertEquals(950L, pending.to.id)
+            restarted.acknowledgePinMove(pending.id)
+            assertTrue(db.presets().pinMoves().first().isEmpty())
+        } finally { db.close() }
+    }
+
     @Test fun aRoomPinnedWhileFullLearnsItsOwnerWhenSeenWaiting() = runTest {
         val context = ApplicationProvider.getApplicationContext<Application>()
         val db = Room.inMemoryDatabaseBuilder(context, PresetDatabase::class.java).allowMainThreadQueries().build()
