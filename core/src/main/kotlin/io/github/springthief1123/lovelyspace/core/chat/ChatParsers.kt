@@ -109,6 +109,7 @@ object ChatPageParser {
 object ChatUpdateParser {
     fun parse(body: String, previous: ChatState, baseUri: String = ""): ChatUpdate {
         val v = JsAssignments.parse(body)
+        if ("gRoomVars.fromsize" !in v && "die_msg" !in v) throw ChatResponseUnavailableException()
         val state = previous.copy(
             fromSize = v["gRoomVars.fromsize"].asLong() ?: v["size"].asLong() ?: previous.fromSize,
             mugonLimitSeconds = v["gRoomVars.mugonLimit"].asInt() ?: previous.mugonLimitSeconds,
@@ -199,3 +200,11 @@ internal fun String.stripInvisible(): String = replace(INVISIBLE, "")
 
 /** 開いたページが部屋の画面ではなかった。部屋が終了している可能性が高い。 */
 class RoomPageUnavailableException : IllegalStateException("部屋のページを読み取れませんでした。部屋が終了している可能性があります。")
+
+/** 本家のチャット応答を確認できなかった。本文は個人情報を含みうるため例外に残さない。 */
+class ChatResponseUnavailableException : java.io.IOException("チャットの応答を読み取れませんでした")
+
+/** POST は本家に届いている可能性があるため、自動再送せず利用者の確認を待つ。 */
+class ChatSendUnconfirmedException(cause: ChatResponseUnavailableException) : java.io.IOException(
+    "送信できたか確認できませんでした。会話を確認してから再送してください", cause,
+)

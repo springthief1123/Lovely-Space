@@ -242,7 +242,7 @@ class ChatClientTest {
         respond("<html><body>合成の応答ページ</body></html>", "text/html")
         val session = client.chatSession(page(fromSize = 540))
         val error = runCatching { session.send("合成の発言") }.exceptionOrNull()
-        assertTrue(error is java.io.IOException)
+        assertTrue(error is ChatSendUnconfirmedException)
         assertEquals(540L, session.state.fromSize)
         assertEquals(listOf("POST"), requests.map { it.first.method })
     }
@@ -253,6 +253,17 @@ class ChatClientTest {
         val update = session.updates().first()
         assertEquals("合成の終了案内", update.endMessage)
         assertEquals(540L, session.state.fromSize)
+    }
+
+
+    @Test fun emptyAndUnrelatedAssignmentsAreNotChatResponses() {
+        for (body in listOf("", "size = 10;", "information = '合成の案内';")) {
+            assertTrue(runCatching { ChatUpdateParser.parse(body, ChatState(fromSize = 540)) }
+                .exceptionOrNull() is ChatResponseUnavailableException)
+        }
+        val update = ChatUpdateParser.parse("gRoomVars.fromsize = 540; loglines = [];", ChatState(fromSize = 540))
+        assertEquals(540L, update.state.fromSize)
+        assertTrue(update.newLines.isEmpty())
     }
 
     private fun roomForm(vararg fields: Pair<String, String>) =
