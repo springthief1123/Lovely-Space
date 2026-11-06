@@ -149,6 +149,9 @@ class PinRepository(
     private val noticeMutex = Mutex()
     /** 利用者が同じ人と答えて引き継ぐ似た部屋。引き継いだ時点の様子をそのまま記録し、空いたとは数えない。 */
     private val adopting = HashSet<String>()
+    /** ピン（key）が最後に載っていたページと、ジャンルごとの最後のページ。見えなくなった空いていたピンを探し続けるのに使う（[openPages]）。 */
+    private val knownPages = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private val lastPages = java.util.concurrent.ConcurrentHashMap<String, Int>()
     private val _records = MutableStateFlow(runCatching { persistence.load() }.getOrNull().orEmpty())
     val records: StateFlow<Map<String, PinRecord>> = _records.asStateFlow()
 
@@ -195,10 +198,16 @@ class PinRepository(
      * 空いているピンの載るページ。空いた部屋はすぐ埋まる・閉じるので、満室のピン（[fastWatch]）と同じ間隔で読み直す
      * （[WaitlistRepository.extraQueries]）。読み直さないと、閉じた部屋が「空いています」のまま残る（2026-11-06 Yuya の報告）。
      */
-    fun openPages(): List<RoomQuery> = _pins.value.filter { it.state == PinState.OPEN }.mapNotNull { pin ->
-        val genre = Genres[pin.room.genreKey] ?: return@mapNotNull null
-        pin.page?.let { RoomQuery(genre, page = it) }
-    }.distinct()
+    fun openPages(): List<RoomQuery> = _pins.value
+        // 一覧から消えて閉じたと決めきれないピン（未確認）も、空いていたなら探し続ける。
+        .filter { it.state == PinState.OPEN || it.state == PinState.UNSEEN && it.record.state == PinState.OPEN }
+        .flatMap { pin ->
+            val genre = Genres[pin.room.genreKey] ?: return@flatMap emptyList()
+            val page = pin.page ?: knownPages[pin.key] ?: return@flatMap emptyList()
+            val last = lastPages[genre.key] ?: page
+            // 新しい部屋に押し出されると次のページへずれるので、載っていたページと次のページを読む（最後のページより先は読まない）。
+            listOf(page, page + 1).filter { it <= last }.map { RoomQuery(genre, page = it) }
+        }.distinct()
 
     /** いま手元にある一覧で見張りを進め、起きたことを知らせ終えるまで待つ（背景の実行が終わる前に呼ぶ）。 */
     suspend fun refresh() {
@@ -308,7 +317,10 @@ class PinRepository(
                 // 部屋の番号は使い回されるので、ピンしたときと待機メッセージが同じ部屋からだけ覚える。
                 if (pref.identityName == null) (observed?.takeIf { it.name != null && it.message == pref.snapshotMessage } ?: identity.takeIf { it.name != null })
                     ?.let { learned += pref to it }
-                val view = PinView(pref, record, state, room, window?.roomPages?.get(key), similar, listed = observed != null)
+                val page = window?.roomPages?.get(key)
+                page?.let { knownPages[key] = it }
+                window?.takeIf { it.pages.isNotEmpty() }?.let { lastPages[pref.genreKey] = it.lastPage }
+                val view = PinView(pref, record, state, room, page, similar, listed = observed != null)
                 if (seen == PinState.OPEN && before.state != null && before.state != PinState.OPEN && observed != null) {
                     val notice = PendingPinNotice("pin-$key-$at", PinNoticeType.OPENED, room, at, registered = identity,
                         autoEnter = record.autoEnters)
