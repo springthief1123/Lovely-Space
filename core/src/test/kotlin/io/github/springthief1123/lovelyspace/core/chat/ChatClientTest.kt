@@ -228,6 +228,33 @@ class ChatClientTest {
         )
     }
 
+
+    @Test fun unexpectedSuccessfulHtmlDoesNotAdvancePollState() = runTest {
+        respond("<html><body>合成の応答ページ</body></html>", "text/html")
+        val session = client.chatSession(page(fromSize = 540))
+        val error = runCatching { session.poll() }.exceptionOrNull()
+        assertTrue(error is java.io.IOException)
+        assertEquals(540L, session.state.fromSize)
+        assertEquals(1, requests.size)
+    }
+
+    @Test fun unexpectedSendResponseIsNotReposted() = runTest {
+        respond("<html><body>合成の応答ページ</body></html>", "text/html")
+        val session = client.chatSession(page(fromSize = 540))
+        val error = runCatching { session.send("合成の発言") }.exceptionOrNull()
+        assertTrue(error is java.io.IOException)
+        assertEquals(540L, session.state.fromSize)
+        assertEquals(listOf("POST"), requests.map { it.first.method })
+    }
+
+    @Test fun dieMessageWithoutFromsizeStillEndsTheRoom() = runTest {
+        respond("die_msg = '合成の終了案内';")
+        val session = client.chatSession(page(fromSize = 540))
+        val update = session.updates().first()
+        assertEquals("合成の終了案内", update.endMessage)
+        assertEquals(540L, session.state.fromSize)
+    }
+
     private fun roomForm(vararg fields: Pair<String, String>) =
         mapOf("room_id" to "900000001", "pwd" to room.pwd, "genre_key" to "chah") + fields
 
