@@ -52,6 +52,30 @@ class ShaloveClientTest {
     @After
     fun tearDown() = server.shutdown()
 
+
+    @Test fun retryAfterPausesAllAutomaticListsButAllowsManualRequests() = runTest {
+        val mapped = OkHttpClient.Builder().addInterceptor { chain ->
+            val original = chain.request()
+            chain.proceed(original.newBuilder().url(server.url(original.url.encodedPath)).build())
+                .newBuilder().request(original).build()
+        }.build()
+        val limited = ShaloveClient(http = mapped, clock = { now }, sleep = { now += it })
+        val empty = "<nobr><span class='wait'>待機中</span>0</nobr><nobr><span class='fill'>満室</span>0</nobr>"
+        server.enqueue(MockResponse().setResponseCode(429).setHeader("Retry-After", "60"))
+        repeat(4) { server.enqueue(MockResponse().setBody(empty).setHeader("Content-Type", "text/html; charset=UTF-8")) }
+        val query = RoomQuery(Genres.default)
+        assertTrue(runCatching { limited.fetchRoomList(query, forceRefresh = true) }.exceptionOrNull() is HttpStatusException)
+        // 検索とピン（priority）の両方で送信前に停止する。
+        assertTrue(runCatching { limited.fetchRoomList(query.copy(page = 2), forceRefresh = true) }.isFailure)
+        assertTrue(runCatching { limited.fetchRoomList(query, forceRefresh = true, priority = true) }.isFailure)
+        assertEquals(1, server.requestCount)
+        limited.fetchRoomList(query, manual = true)
+        limited.fetchRoomList(query.copy(page = 2), opened = true, forceRefresh = true)
+        assertEquals(3, server.requestCount)
+        now += 60_000
+        limited.fetchRoomList(query, forceRefresh = true)
+        assertEquals(4, server.requestCount)
+    }
     @Test
     fun cancellingAnOperationDuringRateLimitWaitReleasesGate() = runBlocking {
         val calls = IntArray(1)
