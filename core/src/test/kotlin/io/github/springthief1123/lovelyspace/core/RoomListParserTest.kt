@@ -12,6 +12,23 @@ import kotlin.time.Duration.Companion.seconds
 class RoomListParserTest {
     private val page = RoomListParser.parse(fixture("genre_kanto_page1.html"), "kanto")
 
+
+    @Test fun fullCellsReadHearttextRegardlessOfStyleSpelling() {
+        for (style in listOf("display:none", "DISPLAY: NONE", "display : none !important", "display:\nnone", "")) {
+            val html = """<table class="rooms"><tr class="roomcol">
+                <td><span>満室</span></td><td><form action="/PublicRoom"><input name="room_id" value="900000001"><input type="submit"></form></td>
+                <td><span class="heartmark">2ショットチャット中</span></td>
+                <td><span class="hearttext" style="$style">女</span>広告</td>
+                <td><span class="hearttext" style="$style">25</span>広告</td>
+                <td>広告<span class="hearttext" style="$style"><font class="small">合成地域</font>合成の募集文</span></td>
+                </tr></table>"""
+            val room = RoomListParser.parse(html, "kanto").rooms.single()
+            assertEquals(Gender.FEMALE, room.gender)
+            assertEquals(25, room.age)
+            assertEquals("合成地域", room.area)
+            assertEquals("合成の募集文", room.message)
+        }
+    }
     @Test
     fun parsesAllRoomsAcrossSplitTables() {
         assertEquals(listOf(900000001L, 900000002L, 900000003L, 900000004L), page.rooms.map { it.id })

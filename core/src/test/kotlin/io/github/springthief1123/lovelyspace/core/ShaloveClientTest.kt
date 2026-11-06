@@ -4,6 +4,7 @@ import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
 import io.github.springthief1123.lovelyspace.core.chat.EntryForm
 import io.github.springthief1123.lovelyspace.core.chat.EntryProfile
 import io.github.springthief1123.lovelyspace.core.chat.EntryResult
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.CompletableDeferred
@@ -29,6 +30,7 @@ import okio.Buffer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
@@ -52,6 +54,98 @@ class ShaloveClientTest {
     @After
     fun tearDown() = server.shutdown()
 
+
+
+
+
+    @Test fun aLongHostPauseDoesNotEndTheChatUpdateFlow() = runTest {
+        val mapped = OkHttpClient.Builder().addInterceptor { chain ->
+            val original = chain.request()
+            chain.proceed(original.newBuilder().url(server.url(original.url.encodedPath)).build())
+                .newBuilder().request(original).build()
+        }.build()
+        val waits = mutableListOf<Long>()
+        val limited = ShaloveClient(http = mapped, clock = { now }, sleep = { waits += it; now += it })
+        val host = Genres.default.host
+        server.enqueue(MockResponse().setResponseCode(429).setHeader("Retry-After", "120"))
+        runCatching { limited.get("https://$host/g/zenkoku/") }
+        val room = ChatRoomRef(host, 900000001, "synthetic", Genres.default.key)
+        val initial = io.github.springthief1123.lovelyspace.core.chat.ChatPageParser.parse(fixture("chat/chat_page_guest.html"), room)
+        val session = limited.chatSession(initial)
+        server.enqueue(MockResponse().setBody("die_msg = '合成の終了案内';"))
+        assertEquals("合成の終了案内", session.updates().first().endMessage)
+        assertEquals(listOf(120_000L), waits)
+        assertEquals(2, server.requestCount)
+    }
+    @Test fun pausedAutomaticEntryCannotFetchOrPostButExplicitEntryCan() = runTest {
+        val mapped = OkHttpClient.Builder().addInterceptor { chain ->
+            val original = chain.request()
+            chain.proceed(original.newBuilder().url(server.url(original.url.encodedPath)).build())
+                .newBuilder().request(original).build()
+        }.followRedirects(false).build()
+        val limited = ShaloveClient(http = mapped, clock = { now }, sleep = { now += it })
+        val host = "2shot.chat.shalove.net"
+        server.enqueue(MockResponse().setResponseCode(403))
+        assertTrue(runCatching { limited.get("https://$host/g/chah/") }.exceptionOrNull() is HttpStatusException)
+        assertTrue(runCatching { limited.openEntry(host, 900000002, "chah", automatic = true) }.exceptionOrNull() is AutomaticAccessPausedException)
+        assertEquals(1, server.requestCount)
+        server.enqueue(MockResponse().setBody(fixture("chat/preenter_no_captcha.html")).setHeader("Content-Type", "text/html; charset=UTF-8"))
+        val form = limited.openEntry(host, 900000002, "chah")!!
+        assertTrue(runCatching { limited.enter(form, EntryProfile("合成の名前", 1, 25), automatic = true) }.exceptionOrNull() is AutomaticAccessPausedException)
+        assertEquals(2, server.requestCount)
+        server.enqueue(MockResponse().setResponseCode(302).setHeader("Location", "/2shot.php?room_id=900000002&pwd=synthetic"))
+        assertTrue(limited.enter(form, EntryProfile("合成の名前", 1, 25)) is EntryResult.Entered)
+        assertEquals(3, server.requestCount)
+    }
+    @Test fun chatRestrictionPausesPollingAndAutomaticPagesButNotExplicitSend() = runTest {
+        val mapped = OkHttpClient.Builder().addInterceptor { chain ->
+            val original = chain.request()
+            chain.proceed(original.newBuilder().url(server.url(original.url.encodedPath)).build())
+                .newBuilder().request(original).build()
+        }.build()
+        val limited = ShaloveClient(http = mapped, clock = { now }, sleep = { now += it })
+        val room = ChatRoomRef(Genres.default.host, 900000001, "synthetic", Genres.default.key)
+        val initial = io.github.springthief1123.lovelyspace.core.chat.ChatPageParser.parse(fixture("chat/chat_page_guest.html"), room)
+        val session = limited.chatSession(initial)
+        server.enqueue(MockResponse().setResponseCode(503).setHeader("Retry-After", "60"))
+        assertTrue(runCatching { session.poll() }.exceptionOrNull() is HttpStatusException)
+        assertTrue(runCatching { session.poll() }.exceptionOrNull() is AutomaticAccessPausedException)
+        assertTrue(runCatching { limited.fetchRoomList(RoomQuery(Genres.default), forceRefresh = true) }.exceptionOrNull() is AutomaticAccessPausedException)
+        assertTrue(runCatching { limited.openPublicRoom(room.host, room.genreKey, room.roomId) }.exceptionOrNull() is AutomaticAccessPausedException)
+        assertEquals(1, server.requestCount)
+        server.enqueue(MockResponse().setBody("gRoomVars.fromsize = 100; loglines = [];"))
+        session.send("合成の発言")
+        assertEquals(2, server.requestCount)
+        assertFalse(limited.automaticAccessAllowed(room.host))
+        assertTrue(limited.automaticAccessAllowed("lr.chat.shalove.net"))
+        val resynced = limited.chatSession(initial, previous = session)
+        now += 10_000
+        assertTrue(runCatching { resynced.poll() }.exceptionOrNull() is AutomaticAccessPausedException)
+        assertEquals(2, server.requestCount)
+    }
+    @Test fun retryAfterPausesAllAutomaticListsButAllowsManualRequests() = runTest {
+        val mapped = OkHttpClient.Builder().addInterceptor { chain ->
+            val original = chain.request()
+            chain.proceed(original.newBuilder().url(server.url(original.url.encodedPath)).build())
+                .newBuilder().request(original).build()
+        }.build()
+        val limited = ShaloveClient(http = mapped, clock = { now }, sleep = { now += it })
+        val empty = "<nobr><span class='wait'>待機中</span>0</nobr><nobr><span class='fill'>満室</span>0</nobr>"
+        server.enqueue(MockResponse().setResponseCode(429).setHeader("Retry-After", "60"))
+        repeat(4) { server.enqueue(MockResponse().setBody(empty).setHeader("Content-Type", "text/html; charset=UTF-8")) }
+        val query = RoomQuery(Genres.default)
+        assertTrue(runCatching { limited.fetchRoomList(query, forceRefresh = true) }.exceptionOrNull() is HttpStatusException)
+        // 検索とピン（priority）の両方で送信前に停止する。
+        assertTrue(runCatching { limited.fetchRoomList(query.copy(page = 2), forceRefresh = true) }.isFailure)
+        assertTrue(runCatching { limited.fetchRoomList(query, forceRefresh = true, priority = true) }.isFailure)
+        assertEquals(1, server.requestCount)
+        limited.fetchRoomList(query, manual = true)
+        limited.fetchRoomList(query.copy(page = 2), opened = true, forceRefresh = true)
+        assertEquals(3, server.requestCount)
+        now += 60_000
+        limited.fetchRoomList(query, forceRefresh = true)
+        assertEquals(4, server.requestCount)
+    }
     @Test
     fun cancellingAnOperationDuringRateLimitWaitReleasesGate() = runBlocking {
         val calls = IntArray(1)

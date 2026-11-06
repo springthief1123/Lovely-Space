@@ -23,9 +23,16 @@ enum class PinState {
 fun RoomPageWindow.pinState(pinned: Room): Pair<PinState, Room?> {
     val key = roomIdentity(pinned)
     // 立て直しで画面の一覧から外した古い部屋（[RoomPageWindow.superseded]）も、閉じたと分かるまではピンの部屋として見る。
+    // carried は以前のページから消えた部屋を閉鎖確定まで保留しただけ。
+    // 実際の取得ページに載っていないなら、空いていると断言せず未確認にする。
     val observed = listedRooms.firstOrNull { roomIdentity(it) == key }
+    val onlyCarried = key in carried && pages.values.none { rooms -> rooms.any { roomIdentity(it) == key } }
     return when {
+        onlyCarried -> PinState.UNSEEN to null
         observed != null && roomIdentityEvidence(pinned, observed) == RoomIdentityEvidence.REUSED -> PinState.CLOSED to null
+        // 満室でピンして名前が不明な場合、同じ ID の別人を空きとして通知しない。
+        // 募集文が変わっただけか ID 再利用かは判別できないので、閉鎖確定にもせず未確認にする。
+        observed != null && pinned.name == null && pinned.message != observed.message -> PinState.UNSEEN to null
         observed != null -> (if (observed.status == RoomStatus.FULL) PinState.FULL else PinState.OPEN) to observed
         isClosed(pinned) -> PinState.CLOSED to null
         else -> PinState.UNSEEN to null

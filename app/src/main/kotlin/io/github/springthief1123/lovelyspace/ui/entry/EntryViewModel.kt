@@ -89,6 +89,8 @@ class EntryViewModel(
     private val registrationMark: () -> Long = { 0L },
     /** 入室できた部屋を、画面が開いているかに関わらず知らせる（自動入室を終えるため。[io.github.springthief1123.lovelyspace.data.AutoEntryController.entered]）。 */
     private val onEnteredRoom: (ChatRoomRef) -> Unit = {},
+    /** 自動入室による開始だけを休止対象にし、手動のワンタップ入室と区別する。 */
+    private val automatic: Boolean = false,
 ) : ViewModel() {
     private val _state = MutableStateFlow(EntryUiState(autoEntering = auto))
     val state: StateFlow<EntryUiState> = _state.asStateFlow()
@@ -115,7 +117,7 @@ class EntryViewModel(
                 null
             }
             try {
-                val form = client.openEntry(host, roomId, genreKey)
+                val form = client.openEntry(host, roomId, genreKey, automatic = automatic && autoPending)
                 // 利用者が押して開いた公開の部屋が埋まっていたら、本家で「覗く」を押し直すのと同じく公開ルームを開く。
                 // 「入室する」チップから確認を飛ばして開いたときも同じ。通知・自動入室からは listedPublic を渡さない。
                 val becamePublic = form == null && listedPublic
@@ -154,6 +156,9 @@ class EntryViewModel(
     private fun continueAutomatically(form: EntryForm, hasProfile: Boolean) {
         val s = _state.value
         when {
+            automatic && !client.automaticAccessAllowed(host) -> _state.update {
+                it.copy(autoEntering = false, autoNote = "本家からの制限応答により、自動入室を一時停止しています")
+            }
             !hasProfile || s.name.isBlank() || !s.yearsValid -> _state.update {
                 it.copy(autoEntering = false, autoNote = "プロフィールが決まっていないので、自動では入室しませんでした。入力を確かめて入室してください。")
             }
@@ -161,7 +166,7 @@ class EntryViewModel(
                 saveProfile()
                 _state.update { it.copy(openBrowser = true) }
             }
-            else -> enter()
+            else -> enterOnce(automatic)
         }
     }
 
@@ -176,7 +181,9 @@ class EntryViewModel(
     fun setSex(v: Int) = _state.update { it.copy(sex = v) }
     fun setYears(v: String) = _state.update { it.copy(years = v.filter(Char::isDigit).take(2), entryError = null) }
 
-    fun enter() {
+    fun enter() = enterOnce(automatic = false)
+
+    private fun enterOnce(automatic: Boolean) {
         val s = _state.value
         val form = s.form ?: return
         if (!s.canEnter) return
@@ -188,7 +195,7 @@ class EntryViewModel(
             try {
                 // 送信を始めた後に画面が閉じられても、本家では入室が済んでいることがある。戻り値は取り消しで捨てられるので、
                 // 入室できた部屋は応答を読んだ時点（onResult）で受け取って引き継ぐ。送信前の順番待ちの間に閉じたら何も送らない。
-                val result = client.enter(form, profile) { result ->
+                val result = client.enter(form, profile, automatic = automatic) { result ->
                     if (result is EntryResult.Entered) entered(result.room)
                 }
                 when (result) {

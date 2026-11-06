@@ -48,6 +48,11 @@ interface PresetDao {
     @Upsert suspend fun put(value: MessagePreset)
     @Query("SELECT value FROM local_state WHERE `key` = :key")
     suspend fun state(key: String): String?
+    /** 部屋の保存先を更新した同じトランザクションで記録した、ピン移動の未適用イベント。 */
+    @Query("SELECT * FROM local_state WHERE `key` LIKE 'pin-move/%' ORDER BY rowid")
+    fun pinMoves(): Flow<List<LocalState>>
+    @Query("DELETE FROM local_state WHERE `key` = :key")
+    suspend fun deleteState(key: String)
     @Upsert suspend fun put(value: LocalState)
     @Query("UPDATE profile_presets SET isDefault = 0") suspend fun clearProfileDefault()
     @Query("UPDATE message_presets SET isDefault = 0") suspend fun clearMessageDefault()

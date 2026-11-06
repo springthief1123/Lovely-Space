@@ -6,6 +6,9 @@ import java.io.IOException
 
 /** 通信の失敗を画面に出す文にする。 */
 fun describeError(e: Exception): String = when (e) {
+    is io.github.springthief1123.lovelyspace.core.AutomaticAccessPausedException -> e.message.orEmpty()
+    is io.github.springthief1123.lovelyspace.core.chat.ChatSendUnconfirmedException -> e.message.orEmpty()
+    is io.github.springthief1123.lovelyspace.core.chat.ChatResponseUnavailableException -> e.message.orEmpty()
     is io.github.springthief1123.lovelyspace.core.chat.RoomPageUnavailableException -> e.message.orEmpty()
     is RoomListUnavailableException -> e.message.orEmpty()
     is HttpStatusException -> "ラブルームから応答エラーが返りました（${e.code}）"

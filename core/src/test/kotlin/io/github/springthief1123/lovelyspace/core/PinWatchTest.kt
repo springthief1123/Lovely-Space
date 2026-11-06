@@ -27,6 +27,31 @@ class PinWatchTest {
         assertEquals(PinState.CLOSED to null, reused.pinState(pinned))
     }
 
+    @Test fun carriedRoomIsUnseenNotFalselyShownAsOpen() {
+        val original = room(500)
+        val first = io.github.springthief1123.lovelyspace.core.RoomPageWindow().observe(
+            io.github.springthief1123.lovelyspace.core.RoomListPage(original.genreKey, listOf(original), null, null, 2, 3, emptyMap(), null))
+        val carried = first.observe(io.github.springthief1123.lovelyspace.core.RoomListPage(
+            original.genreKey, emptyList(), null, null, 2, 3, emptyMap(), null))
+        assertTrue(roomIdentity(original) in carried.carried)
+        assertEquals(PinState.UNSEEN, carried.pinState(original).first)
+    }
+
+    @Test fun unknownOwnerWithChangedMessageDoesNotLookLikeThePinnedRoomOpening() {
+        val waiting = room(500)
+        val full = waiting.copy(status = RoomStatus.FULL, action = RoomAction.NONE,
+            name = null, gender = Gender.UNKNOWN, age = null)
+        val other = waiting.copy(name = "別の人", message = "別の人の募集文で同じ部屋番号")
+        val window = RoomPageWindow().observe(
+            RoomListPage(waiting.genreKey, listOf(other), null, null, 1, 1, emptyMap(), null))
+        assertEquals(PinState.UNSEEN, window.pinState(full).first)
+        assertNull(window.pinState(full).second)
+        // 元の募集文に戻って確認できたときは、従来どおり待機中として認識する。
+        val original = RoomPageWindow().observe(RoomListPage(waiting.genreKey,
+            listOf(waiting), null, null, 1, 1, emptyMap(), null))
+        assertEquals(PinState.OPEN, original.pinState(full).first)
+    }
+
     @Test fun aRoomOlderThanTheLastPageIsClosedOnceTheLastPageHasBeenRead() {
         val yesterday = room(10)
         val window = RoomPageWindow().observe(page(1, (900L downTo 700L step 50).map { room(it) }, last = 2))

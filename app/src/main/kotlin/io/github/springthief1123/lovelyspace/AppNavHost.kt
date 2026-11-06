@@ -78,6 +78,7 @@ fun AppNavHost() {
     )
 
     val originArg = navArgument("origin") { type = NavType.StringType; defaultValue = Routes.ROOMS }
+    val automaticArg = navArgument("automatic") { type = NavType.BoolType; defaultValue = false }
     val autoArg = navArgument("auto") { type = NavType.BoolType; defaultValue = false }
     val publicArg = navArgument("public") { type = NavType.BoolType; defaultValue = false }
 
@@ -115,8 +116,9 @@ fun AppNavHost() {
     }
     LaunchedEffect(Unit) {
         app.autoEntry.requests.collect { target ->
+            if (!app.client.automaticAccessAllowed(target.host)) return@collect
             val origin = Routes.mainOrigin(nav.currentDestination?.route)
-            nav.navigate(Routes.entry(target.host, target.genreKey, target.roomId, origin, auto = true)) { launchSingleTop = true }
+            nav.navigate(Routes.entry(target.host, target.genreKey, target.roomId, origin, auto = true, automatic = true)) { launchSingleTop = true }
         }
     }
 
@@ -286,13 +288,14 @@ fun AppNavHost() {
                     onViewFloating = { nav.navigateMain(Routes.ROOMS) },
                 )
             }
-            composable(Routes.ENTRY, arguments = roomArgs + originArg + autoArg + publicArg) { entry ->
+            composable(Routes.ENTRY, arguments = roomArgs + originArg + autoArg + publicArg + automaticArg) { entry ->
                 val args = entry.arguments!!
                 EntryScreen(
                     host = args.getString("host")!!,
                     genreKey = args.getString("genre")!!,
                     roomId = args.getLong("roomId"),
                     auto = args.getBoolean("auto"),
+                    automatic = args.getBoolean("automatic"),
                     listedPublic = args.getBoolean("public"),
                     onBack = { nav.popBackStack() },
                     onEntered = { room ->

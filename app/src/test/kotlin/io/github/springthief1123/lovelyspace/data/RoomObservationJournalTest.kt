@@ -21,6 +21,27 @@ class RoomObservationJournalTest {
 
     private fun page(room: Room) = RoomListPage(genre.key, listOf(room), null, null, 1, 1, emptyMap(), null)
 
+
+    @Test fun incompletePagesRemainIncompleteInEventsAndRebuiltGenreWindows() = runTest {
+        val journal = RoomObservationJournal()
+        val complete = RoomListPage(genre.key, (1000 downTo 300 step 100).map { full.copy(id = it.toLong(), message = "合成の募集文$it") },
+            null, null, 1, 1, emptyMap(), null)
+        val partial = complete.copy(rooms = complete.rooms.filterNot { it.id == 800L }, droppedRowCount = 1)
+        val pinned = complete.rooms.single { it.id == 800L }
+        val seen = mutableListOf<ObservedRoomChange>()
+        backgroundScope.launch { journal.changes.collect { seen += it } }
+        runCurrent()
+        journal.record(query, complete, 1_000)
+        journal.record(query, partial, 2_000)
+        runCurrent()
+        org.junit.Assert.assertFalse(seen.last().observation.page.rowsComplete)
+        val live = seen.fold(RoomPageWindow()) { window, change -> window.observe(change.observation.page, change.observation.revision) }
+        org.junit.Assert.assertTrue(live.listedRooms.any { it.id == pinned.id })
+        org.junit.Assert.assertFalse(live.isClosed(pinned))
+        val rebuilt = journal.observations.value.genreWindow(genre)
+        org.junit.Assert.assertFalse(rebuilt.isClosed(pinned))
+        assertEquals(setOf(1), rebuilt.incompletePages)
+    }
     @Test fun rapidFullOpenFullUpdatesAreDeliveredInOrderEvenWhenLatestStateHasReturnedToFull() = runTest {
         val journal = RoomObservationJournal()
         val seen = mutableListOf<ObservedRoomChange>()
