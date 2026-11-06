@@ -147,6 +147,7 @@ class ChatSession internal constructor(
         } catch (e: Throwable) {
             // 送れなくても、中断した取得は間隔を空けて再開させる。
             pollNotBefore = clock() + schedule.onFailure()
+            if (e is ChatResponseUnavailableException) throw ChatSendUnconfirmedException(e)
             throw e
         }
     }

@@ -4,6 +4,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ChatDraftRecoveryTest {
+
+    @Test fun unconfirmedSendExplainsTheStatusAndRequiresManualRecovery() {
+        val error = io.github.springthief1123.lovelyspace.ui.describeError(
+            io.github.springthief1123.lovelyspace.core.chat.ChatSendUnconfirmedException(
+                io.github.springthief1123.lovelyspace.core.chat.ChatResponseUnavailableException()))
+        assertTrue(error.contains("送信できたか確認できません"))
+        val state = ChatUiState(isLoading = false).sendingFailed("合成の発言", error)
+        assertFalse(state.canSend)
+        assertEquals("合成の発言", state.failedMessage)
+    }
     @Test fun failedSendKeepsBothSentTextAndTheNextDraftAndRequiresManualResolution() {
         val failed = ChatUiState(isLoading = false, input = "次に書いた文章", isSending = true)
             .sendingFailed("送信した文章", "合成の通信エラー")
