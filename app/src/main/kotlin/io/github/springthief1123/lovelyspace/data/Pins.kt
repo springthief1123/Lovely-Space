@@ -251,8 +251,9 @@ class PinRepository(
         val current = _records.value[key]
         var next = old.copy(key = key, rebuilds = old.rebuilds + 1, suggested = null, removedAt = null,
             vacancies = (old.vacancies + current?.vacancies.orEmpty()).distinct().sorted().takeLast(PinRecord.MAX_VACANCIES),
-            // 古い部屋への未配信通知を、新しい部屋の通知として再送しない。
-            pendingNotices = old.pendingNotices.filter { roomIdentity(it.room) == key })
+            // 古い部屋への未配信通知を、新しい部屋の通知として再送しない。移った先の部屋を「似た部屋」と知らせる通知も、
+            // 引き継いだ時点で済んでいる（配信直後に引き継ぐと、配信済みの印を付ける前の通知が残って二度知らせてしまう）。
+            pendingNotices = old.pendingNotices.filter { roomIdentity(it.room) == key && it.type != PinNoticeType.SIMILAR })
         if (adopting.remove(key)) next = next.copy(state = if (to.status == RoomStatus.FULL) PinState.FULL else PinState.OPEN, stateAt = now())
         // 移ったことの知らせ（[RoomPreferenceRepository.moved]）は 1 回しか来ないので、保存に失敗しても知らせ方・メモを
         // 新しい部屋へ移したまま持ち、次に記録を保存するときに書き込む（失敗で既定の「空いたら知らせる」に戻して自動入室を外さない）。
