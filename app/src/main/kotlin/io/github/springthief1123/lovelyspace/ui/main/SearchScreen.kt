@@ -9,14 +9,14 @@ import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import io.github.springthief1123.lovelyspace.ui.components.QuietFilterChip
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.Sync
-import androidx.compose.material.icons.outlined.SyncDisabled
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -351,7 +351,11 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onQuic
     )
 }
 
-/** ジャンル名の右端の、自動更新のオン・オフと今すぐ更新。 */
+/**
+ * ジャンル名の右端の、自動更新のオン・オフと今すぐ更新。
+ * 2 つとも丸い矢印のアイコンだと役割を取り違えやすいので、自動更新は「自動」と書いたスイッチにし、
+ * 押すと取り直すボタンだけを丸い矢印にする（2026-11-06 Yuya の決定、見本の案 A）。
+ */
 @Composable
 private fun RefreshControls(
     automatic: Boolean,
@@ -362,11 +366,17 @@ private fun RefreshControls(
     refreshEnabled: Boolean,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = { onAutomaticChange(!automatic) },
-            modifier = Modifier.semantics { stateDescription = if (automatic) "自動更新中" else "自動更新を停止中" }) {
-            Icon(if (automatic) Icons.Outlined.Sync else Icons.Outlined.SyncDisabled,
-                contentDescription = if (automatic) "自動更新を一時停止" else "自動更新を再開",
-                tint = if (automatic) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(
+            Modifier.heightIn(min = 48.dp).clip(CircleShape)
+                .toggleable(value = automatic, role = Role.Switch, onValueChange = onAutomaticChange)
+                .semantics { contentDescription = "自動更新"; stateDescription = if (automatic) "自動更新中" else "自動更新を停止中" }
+                .padding(horizontal = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text("自動", style = MaterialTheme.typography.labelMedium,
+                color = if (automatic) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+            Switch(checked = automatic, onCheckedChange = null)
         }
         RefreshButton(refreshing, refreshedCount, onRefresh, refreshEnabled)
     }
