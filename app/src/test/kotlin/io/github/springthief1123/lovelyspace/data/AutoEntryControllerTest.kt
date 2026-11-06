@@ -103,6 +103,17 @@ class AutoEntryControllerTest {
         assertTrue(restarted.offerPin(pinKey, full, open))
     }
 
+    @Test fun enteringAfterARestartStillFinishesTheTarget() = runTest {
+        val memory = Memory()
+        val (first) = controller(memory)
+        val rule = CandidateRule(id = "r", label = "合成", genreKey = "zenkoku", term = "合成の名前", autoEnterUntil = CandidateRule.AUTO_ENTER_ON)
+        assertTrue(first.offerNamed(rule, open))
+        // 入室画面を開いている間にアプリが落ち、画面だけ復元されて入室できた。
+        val (restarted, _, finished) = controller(memory)
+        restarted.entered(ref(open))
+        assertEquals(listOf(AutoEntryController.candidateTarget("r")), finished)
+    }
+
     @Test fun aWaitlistEntryEntersOnlyWhenTurnedOnForIt() = runTest {
         val (c, received, finished) = controller()
         assertFalse("1 件ずつオンにしていない", c.offer(opened()))

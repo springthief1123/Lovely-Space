@@ -47,11 +47,14 @@ class AutoEntryController(
 
     private val saved = runCatching { persistence.load() }.getOrNull() ?: AutoEntryRecord()
     private val lastRequested = saved.lastRequested.toMutableMap()
-    /** 自動で入室画面を開いた部屋（[roomKey]）と、それをオンにしていた 1 件。 */
-    private val openedTargets = java.util.concurrent.ConcurrentHashMap<String, String>()
+    /**
+     * 自動で入室画面を開いた部屋（[roomKey]）と、それをオンにしていた 1 件・開いた時刻。
+     * 入室画面を開いている間にアプリが落ちて画面だけ復元されても終えられるよう、保存する（[OPENED_TTL_MS] まで）。
+     */
+    private val openedTargets = java.util.concurrent.ConcurrentHashMap(saved.opened)
 
-    private fun save() {
-        runCatching { persistence.save(AutoEntryRecord(lastRequested.toMap())) }
+    @Synchronized private fun save() {
+        runCatching { persistence.save(AutoEntryRecord(lastRequested.toMap(), openedTargets.toMap())) }
     }
 
     /** 空いた順番待ち [entry]（1 件ずつ自動入室をオンにしたもの）について依頼を出したら true。 */
@@ -87,8 +90,9 @@ class AutoEntryController(
      * 入れなかった回（満室に戻っていた・断られた）は終えないので、次に空いたらまた開く。
      */
     fun entered(room: ChatRoomRef) {
-        val target = openedTargets.remove(roomKey(room.genreKey, room.roomId)) ?: return
-        _finished.tryEmit(target)
+        val opened = openedTargets.remove(roomKey(room.genreKey, room.roomId)) ?: return
+        save()
+        _finished.tryEmit(opened.target)
     }
 
     /** [room] の入室画面を開く依頼。[target] は自動入室をオンにした 1 件。 */
@@ -99,7 +103,8 @@ class AutoEntryController(
         if (lastRequested[key]?.let { at - it < COOLDOWN_MS } == true) return false
         // 受け取る画面が無いと依頼は捨てられるので、その場合は待ちに数えない。
         if (_requests.subscriptionCount.value == 0 || !_requests.tryEmit(NotificationTarget.Room(host, room.genreKey, room.id))) return false
-        openedTargets[roomKey(room.genreKey, room.id)] = target
+        openedTargets[roomKey(room.genreKey, room.id)] = OpenedTarget(target, at)
+        openedTargets.entries.removeAll { at - it.value.at >= OPENED_TTL_MS }
         lastRequested[key] = at
         lastRequested.entries.removeAll { at - it.value >= COOLDOWN_MS * 10 }
         save()
@@ -109,6 +114,8 @@ class AutoEntryController(
     companion object {
         /** 同じ部屋へ続けて自動で入らない間。 */
         const val COOLDOWN_MS = 60_000L
+        /** 自動で開いた入室画面から入室できたと結び付ける間（ロボット確認などで時間がかかっても足りる長さ）。 */
+        const val OPENED_TTL_MS = 60 * 60_000L
 
         fun waitlistTarget(key: String) = "waitlist/$key"
         fun candidateTarget(id: String) = "candidate/$id"
@@ -118,8 +125,11 @@ class AutoEntryController(
     }
 }
 
-/** [AutoEntryController] の同じ部屋への待ち（部屋ごとの最後の依頼の時刻）。 */
-data class AutoEntryRecord(val lastRequested: Map<String, Long> = emptyMap())
+/** [AutoEntryController] の同じ部屋への待ち（部屋ごとの最後の依頼の時刻）と、自動で入室画面を開いた部屋。 */
+data class AutoEntryRecord(val lastRequested: Map<String, Long> = emptyMap(), val opened: Map<String, OpenedTarget> = emptyMap())
+
+/** 自動で入室画面を開いた部屋の、自動入室をオンにしていた 1 件（[AutoEntryController.pinTarget] など）と開いた時刻。 */
+data class OpenedTarget(val target: String, val at: Long)
 
 interface AutoEntryPersistence {
     fun load(): AutoEntryRecord?
@@ -136,14 +146,20 @@ class AutoEntryStore(private val prefs: android.content.SharedPreferences) : Aut
     override fun load(): AutoEntryRecord? {
         val raw = prefs.getString(KEY, null) ?: return null
         return runCatching {
-            val last = org.json.JSONObject(raw).optJSONObject("lastRequested")
-            AutoEntryRecord(last?.keys()?.asSequence()?.associateWith { last.getLong(it) }.orEmpty())
+            val o = org.json.JSONObject(raw)
+            val last = o.optJSONObject("lastRequested")
+            val opened = o.optJSONObject("opened")
+            AutoEntryRecord(last?.keys()?.asSequence()?.associateWith { last.getLong(it) }.orEmpty(),
+                opened?.keys()?.asSequence()?.associateWith { k -> opened.getJSONObject(k).let { OpenedTarget(it.getString("target"), it.getLong("at")) } }.orEmpty())
         }.getOrNull()
     }
 
     override fun save(record: AutoEntryRecord) {
         val last = org.json.JSONObject().apply { record.lastRequested.forEach { (k, v) -> put(k, v) } }
-        prefs.edit().putString(KEY, org.json.JSONObject().put("lastRequested", last).toString()).apply()
+        val opened = org.json.JSONObject().apply {
+            record.opened.forEach { (k, v) -> put(k, org.json.JSONObject().put("target", v.target).put("at", v.at)) }
+        }
+        prefs.edit().putString(KEY, org.json.JSONObject().put("lastRequested", last).put("opened", opened).toString()).apply()
     }
 
     companion object {
