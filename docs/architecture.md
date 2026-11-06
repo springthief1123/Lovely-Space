@@ -42,7 +42,7 @@ app   (Android)     画面（Compose）・端末内の保存（Room / DataStore�
 ```
 LovelySpaceApp           アプリ全体で 1 つずつの ShaloveClient・リポジトリ・DB
 AppNavHost / LovelyAppShell
-  ├─ 見つける  ui/rooms (RoomListScreen), ui/main (SearchScreen)
+  ├─ 見つける  ui/main (SearchScreen)          ui/rooms の RoomListScreen は使っていない（片付け予定）
   ├─ レーダー  ui/main (RadarScreen …)        ピン（保存・追跡・順番待ちを統合）と保存した条件、前面での巡回
   └─ マイルーム ui/main (ProfileScreen)        プリセット管理・部屋作成・設定
   ├─ ui/entry   入室（プロフィール入力。ロボット確認が必要なら WebView）
@@ -56,7 +56,7 @@ AppNavHost / LovelyAppShell
 
 | パッケージ | 内容 |
 | --- | --- |
-| `data` | Room DB（`PresetDatabase`、現在 version 4）。プロフィール / 待機メッセージのプリセット、検索条件、部屋のお気に入り・非表示、レーダーの状態（`LocalState` に JSON で保存）。`RoomListRepository` は発見・巡回・追跡が同じ一覧の取得結果を共有するための層 |
+| `data` | Room DB（`PresetDatabase`、現在 version 5）。プロフィール / 待機メッセージのプリセット、検索条件、部屋のお気に入り・非表示、レーダーの状態（`LocalState` に JSON で保存）。`RoomListRepository` は発見・巡回・追跡が同じ一覧の取得結果を共有するための層 |
 | `lock` | アプリロック。設定とパスコード・パターンのハッシュ（塩つき PBKDF2）は起動直後に同期で読めるよう SharedPreferences（`app_lock`）に置く。`MainActivity` の `onStop` / `onStart` で背景にいた時間を測り、選んだ時間を過ぎていればロックする |
 | `disguise` | アイコンと名前のカモフラージュ。ランチャーのアイコンは実行時に描けないため 2 つに分ける。アプリ一覧は、マニフェストの `MainActivity` を指す activity-alias（`LauncherDefault` ほか。`LauncherPreset`）のどれか 1 つだけを有効にする（起動の入口は alias だけで、`MainActivity` 自体は LAUNCHER を持たない）。ホーム画面は、色・シンボル・名前から描いたアダプティブアイコンのピン留めショートカット（`ShortcutManagerCompat`、ID `disguise`）を置き、有効な alias を開く。alias を切り替えるときは新しい alias を有効にし、ショートカットを付け替えてから他を止める。最近のアプリの一覧の名前とアイコンは `MainActivity.onStart` で alias に合わせる。通知と端末の設定画面のアプリ名は変えられない |
 | `settings` | DataStore の設定（テーマ・文字サイズ・起動カテゴリなど）、WebView の Cookie 保管 |
