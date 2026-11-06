@@ -56,6 +56,14 @@ data class PinRecord(
     val removedAt: Long? = null,
     /** 保存済みだが通知処理が完了していない空き・類似部屋イベント。 */
     val pendingNotices: List<PendingPinNotice> = emptyList(),
+    /** 最後に一覧で実際に見つけたページ。再起動後も後ろのページから探し直せる。 */
+    val lastKnownPage: Int? = null,
+    /** 最後に取得したジャンルの総ページ数。 */
+    val lastPageCount: Int? = null,
+    /** 見失った空きピンの探査順（基準ページ・1つ前・1つ後…）。 */
+    val scanMissed: Int = 0,
+    /** 次に調べるページが最後に観測された時刻。新しい取得だけで探査を進める。 */
+    val scanAt: Long = 0L,
 ) {
     val autoEnters: Boolean get() = alert == PinAlert.AUTO
 
@@ -136,7 +144,7 @@ class PinRepository(
     private val preferences: RoomPreferenceStore,
     private val lists: ObservedRoomListSource,
     private val onEvent: suspend (PinEvent) -> Unit,
-    moved: Flow<Pair<String, Room>> = emptyFlow(),
+    moved: Flow<PendingPinMove> = emptyFlow(),
     private val named: (Room) -> Room? = { null },
     namedRevision: Flow<Long> = flowOf(0L),
     scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
@@ -145,13 +153,14 @@ class PinRepository(
     private val mutex = Mutex()
     /** 新規イベントを記録した処理より先に、別の観測が未配信扱いで再送しないようにする。 */
     private val processMutex = Mutex()
+    /** 変化イベントを順に処理し終えた最新の観測。途中の「空き」を StateFlow の conflation で落とさない。 */
+    private val processedRevision = MutableStateFlow(0L)
+    /** 順序付きイベントを持つ一覧では、他の更新も最後に処理済みの観測だけを使う。 */
+    private var chronologicalPages: Map<RoomQuery, ObservedRoomPage> = emptyMap()
     /** 通知コールバック中は状態のmutexを保持しない。再送同士だけを直列化する。 */
     private val noticeMutex = Mutex()
-    /** 利用者が同じ人と答えて引き継ぐ似た部屋。引き継いだ時点の様子をそのまま記録し、空いたとは数えない。 */
-    private val adopting = HashSet<String>()
-    /** ピン（key）が最後に載っていたページと、ジャンルごとの最後のページ。見えなくなった空いていたピンを探し続けるのに使う（[openPages]）。 */
-    private val knownPages = java.util.concurrent.ConcurrentHashMap<String, Int>()
-    private val lastPages = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    /** 類似部屋の引き継ぎ種別は DB の永続イベントから判断する（再起動後も失われない）。 */
+    /** ページ番号と探査位置は PinRecord に永続化し、プロセス終了後も復元する。 */
     private val _records = MutableStateFlow(runCatching { persistence.load() }.getOrNull().orEmpty())
     val records: StateFlow<Map<String, PinRecord>> = _records.asStateFlow()
 
@@ -172,14 +181,51 @@ class PinRepository(
     val added: SharedFlow<Set<String>> = _added.asSharedFlow()
 
     init {
-        scope.launch {
-            combine(favorites.filterNotNull(), lists.observations, _records, namedRevision) { favs, obs, _, _ -> favs to obs }
-                .conflate()
-                .collect { (favs, obs) ->
-                    try { process(favs, obs) } catch (e: CancellationException) { throw e } catch (_: Exception) { }
+        val changes = lists.changes
+        if (changes != null) {
+            // 観測の中間状態を捨てずに処理する。満室→空き→満室が一度に来ても空きを通知する。
+            scope.launch {
+                changes.collect { change ->
+                    while (true) {
+                        try {
+                            process(favorites.filterNotNull().first(), change.pages, ordered = true)
+                            processedRevision.value = maxOf(processedRevision.value, change.observation.revision)
+                            break
+                        } catch (e: CancellationException) { throw e }
+                        catch (_: Exception) { delay(500) } // 保存できるまで同じ観測を再試行する。
+                    }
                 }
+            }
+            scope.launch {
+                combine(favorites.filterNotNull(), _records, namedRevision) { favs, _, _ -> favs }
+                    .conflate().collect { favs ->
+                        try { process(favs, emptyMap()) }
+                        catch (e: CancellationException) { throw e }
+                        catch (_: Exception) { }
+                    }
+            }
+        } else {
+            // テスト用など、順序付きイベントを提供しない Source の互換経路。
+            scope.launch {
+                combine(favorites.filterNotNull(), lists.observations, _records, namedRevision) { favs, obs, _, _ -> favs to obs }
+                    .conflate().collect { (favs, obs) ->
+                        try { process(favs, obs) } catch (e: CancellationException) { throw e } catch (_: Exception) { }
+                    }
+            }
         }
-        scope.launch { moved.collect { (from, to) -> try { move(from, to) } catch (e: CancellationException) { throw e } catch (_: Exception) { } } }
+        scope.launch {
+            moved.collect { pending ->
+                // 前回の保存成功・確認済み書き込み前に終了した場合も再実行できる（move は冪等）。
+                while (true) {
+                    try {
+                        move(pending.from, pending.to, pending.kind)
+                        preferences.acknowledgePinMove(pending.id)
+                        break
+                    } catch (e: CancellationException) { throw e }
+                    catch (_: Exception) { delay(500) }
+                }
+            }
+        }
     }
 
     /** ピンのジャンル。1 ページ目を新着の確認で読み、立て直された部屋にすぐ気づく。 */
@@ -203,14 +249,25 @@ class PinRepository(
         .filter { it.state == PinState.OPEN || it.state == PinState.UNSEEN && it.record.state == PinState.OPEN }
         .flatMap { pin ->
             val genre = Genres[pin.room.genreKey] ?: return@flatMap emptyList()
-            val page = pin.page ?: knownPages[pin.key] ?: return@flatMap emptyList()
-            val last = lastPages[genre.key] ?: page
-            // 新しい部屋に押し出されると次のページへずれるので、載っていたページと次のページを読む（最後のページより先は読まない）。
-            listOf(page, page + 1).filter { it <= last }.map { RoomQuery(genre, page = it) }
+            val last = maxOf(pin.record.lastPageCount ?: 1, 1)
+            val anchor = (pin.page ?: pin.record.lastKnownPage ?: 1).coerceIn(1, last)
+            val checked = if (pin.state == PinState.OPEN) {
+                // ふだんは載っているページと押し出された先を確認する。
+                listOf(anchor, anchor + 1).filter { it <= last }
+            } else {
+                // 見失ったら、起点から前後へ1ページずつ広げて全ページを巡る。
+                listOf(anchor, searchPage(anchor, pin.record.scanMissed, last))
+            }
+            checked.distinct().map { RoomQuery(genre, page = it) }
         }.distinct()
 
     /** いま手元にある一覧で見張りを進め、起きたことを知らせ終えるまで待つ（背景の実行が終わる前に呼ぶ）。 */
     suspend fun refresh() {
+        if (lists.changes != null) {
+            // Worker が終わる前に今回の全観測の通知を確定する。追いつけなければ Worker 側に再試行させる。
+            val target = lists.observations.value.values.maxOfOrNull { it.revision } ?: 0L
+            withTimeout(10_000L) { processedRevision.first { it >= target } }
+        }
         process(favorites.filterNotNull().first(), lists.observations.value)
     }
 
@@ -242,9 +299,7 @@ class PinRepository(
 
     /** 似た部屋 [similar] を同じ人の部屋として、ピンを移す。 */
     suspend fun adopt(pin: PinView, similar: Room) {
-        mutex.withLock { adopting += roomIdentity(similar) }
-        try { preferences.moveFavorite(pin.preference, similar) }
-        catch (e: Exception) { mutex.withLock { adopting -= roomIdentity(similar) }; throw e }
+        preferences.moveFavorite(pin.preference, similar)
     }
 
     /** 似た部屋 [roomKey] を別の人の部屋として、以後候補にしない。 */
@@ -262,8 +317,9 @@ class PinRepository(
     /**
      * 保存の記録が [from] から新しい部屋 [to] へ移った（同じ名前・募集文の立て直し、または似た部屋の引き継ぎ）。見張りの記録を引き継ぐ。
      * 立て直しは、移る前の様子（閉じた・満室）を残しておき、次に一覧で確かめたときに空いたと分かるようにする（[process]）。
+     * 手動承認の類似部屋は空いたと数えず、移動先の状態を初期値にする。種別は再起動後も [PendingPinMove] で復元できる。
      */
-    private suspend fun move(from: String, to: Room) = mutex.withLock {
+    private suspend fun move(from: String, to: Room, kind: PinMoveKind) = mutex.withLock {
         val old = _records.value[from] ?: return@withLock
         val key = roomIdentity(to)
         val current = _records.value[key]
@@ -272,23 +328,30 @@ class PinRepository(
             // 古い部屋への未配信通知を、新しい部屋の通知として再送しない。移った先の部屋を「似た部屋」と知らせる通知も、
             // 引き継いだ時点で済んでいる（配信直後に引き継ぐと、配信済みの印を付ける前の通知が残って二度知らせてしまう）。
             pendingNotices = old.pendingNotices.filter { roomIdentity(it.room) == key && it.type != PinNoticeType.SIMILAR })
-        if (adopting.remove(key)) next = next.copy(state = if (to.status == RoomStatus.FULL) PinState.FULL else PinState.OPEN, stateAt = now())
-        // 移ったことの知らせ（[RoomPreferenceRepository.moved]）は 1 回しか来ないので、保存に失敗しても知らせ方・メモを
-        // 新しい部屋へ移したまま持ち、次に記録を保存するときに書き込む（失敗で既定の「空いたら知らせる」に戻して自動入室を外さない）。
-        val records = _records.value - from + (key to next)
-        try { save(records) }
-        catch (e: CancellationException) { throw e }
-        catch (_: Exception) { _records.value = records }
+        if (kind == PinMoveKind.ADOPTED) {
+            // 元が満室・閉鎖でも、承認した時点の待機中の部屋を「新たな空き」とはみなさない。
+            // AUTO のピンでも、ここで空き通知や自動入室を発生させない。
+            next = next.copy(state = if (to.status == RoomStatus.FULL) PinState.FULL else PinState.OPEN,
+                stateAt = now())
+        }
+        // DB 側に未適用イベントが残るので、保存に失敗したらそのまま再試行する。
+        // 成功後に限り確認済みにすれば、再起動してもメモ・通知設定・履歴を失わない。
+        save(_records.value - from + (key to next))
     }
 
-    private suspend fun process(favs: List<RoomPreference>, observations: Map<RoomQuery, ObservedRoomPage>) = processMutex.withLock {
+    private suspend fun process(favs: List<RoomPreference>, observations: Map<RoomQuery, ObservedRoomPage>, ordered: Boolean = false) = processMutex.withLock {
+        val pages = when {
+            lists.changes == null -> observations
+            ordered -> observations.also { chronologicalPages = it }
+            else -> chronologicalPages
+        }
         val freshIds = HashSet<String>()
         val learned = mutableListOf<Pair<RoomPreference, Room>>()
         mutex.withLock {
             val at = now()
             val records = _records.value.toMutableMap()
             val claimed = favs.mapTo(HashSet()) { it.pinKey() }
-            val windows = favs.mapNotNull { Genres[it.genreKey] }.distinct().associateWith { observations.genreWindow(it) }
+            val windows = favs.mapNotNull { Genres[it.genreKey] }.distinct().associateWith { pages.genreWindow(it) }
             val views = favs.map { pref ->
                 val key = pref.pinKey()
                 val stored = pref.identityRoom()
@@ -298,6 +361,24 @@ class PinRepository(
                 val (seen, observed) = window?.pinState(identity) ?: (PinState.UNSEEN to null)
                 val before = records[key] ?: PinRecord(key)
                 var record = before.copy(removedAt = null)
+                val page = window?.roomPages?.get(key)
+                val known = if (observed != null) page ?: before.lastKnownPage else before.lastKnownPage
+                val last = window?.takeIf { it.pages.isNotEmpty() }?.lastPage ?: before.lastPageCount
+                record = record.copy(lastKnownPage = known, lastPageCount = last)
+                if (seen != PinState.UNSEEN) {
+                    record = record.copy(scanMissed = 0, scanAt = 0)
+                } else if (before.state == PinState.OPEN) {
+                    val genre = Genres[pref.genreKey]
+                    if (genre != null) {
+                        val count = maxOf(last ?: 1, 1)
+                        val anchor = (known ?: 1).coerceIn(1, count)
+                        val probe = RoomQuery(genre, page = searchPage(anchor, before.scanMissed, count))
+                        val observedAt = observations[probe]?.confirmedAt ?: 0L
+                        if (observedAt > before.scanAt) {
+                            record = record.copy(scanMissed = before.scanMissed + 1, scanAt = observedAt)
+                        }
+                    }
+                }
                 if (seen != PinState.UNSEEN && seen != before.state) {
                     record = record.copy(state = seen, stateAt = at)
                     // 初めて確かめたときは記録するだけ。満室・閉じた部屋が待機中になったら空いたとする。
@@ -305,8 +386,13 @@ class PinRepository(
                 }
                 // 一覧で見えなくなっただけのピンは前に確かめた様子のまま出すが、「空いています」だけは一覧に載っているときに限る
                 // （閉じたと決めきれずに消えた部屋を、空いているように見せない。記録の様子は残し、また見えたときに空いたと数えない）。
+                val anonymousConflict = identity.name == null &&
+                    window?.listedRooms?.any { it.id == identity.id && it.genreKey == identity.genreKey &&
+                        it.message != identity.message } == true
                 val state = when {
                     seen != PinState.UNSEEN -> seen
+                    // 同じ部屋番号に違う募集文が載った匿名ピンは、以前の「満室」を確定表示しない。
+                    anonymousConflict -> PinState.UNSEEN
                     before.state == PinState.OPEN -> PinState.UNSEEN
                     else -> before.state ?: PinState.UNSEEN
                 }
@@ -317,9 +403,6 @@ class PinRepository(
                 // 部屋の番号は使い回されるので、ピンしたときと待機メッセージが同じ部屋からだけ覚える。
                 if (pref.identityName == null) (observed?.takeIf { it.name != null && it.message == pref.snapshotMessage } ?: identity.takeIf { it.name != null })
                     ?.let { learned += pref to it }
-                val page = window?.roomPages?.get(key)
-                page?.let { knownPages[key] = it }
-                window?.takeIf { it.pages.isNotEmpty() }?.let { lastPages[pref.genreKey] = it.lastPage }
                 val view = PinView(pref, record, state, room, page, similar, listed = observed != null)
                 if (seen == PinState.OPEN && before.state != null && before.state != PinState.OPEN && observed != null) {
                     val notice = PendingPinNotice("pin-$key-$at", PinNoticeType.OPENED, room, at, registered = identity,
@@ -452,6 +535,8 @@ class PinStore(private val prefs: android.content.SharedPreferences) : PinPersis
         .put("vacancies", JSONArray(r.vacancies)).put("rebuilds", r.rebuilds).put("dismissed", JSONArray(r.dismissed.toList()))
         .put("state", r.state?.name).put("stateAt", r.stateAt).put("suggested", r.suggested).put("removedAt", r.removedAt)
         .put("pending", JSONArray(r.pendingNotices.map(::encodePending)))
+        .put("lastKnownPage", r.lastKnownPage).put("lastPageCount", r.lastPageCount)
+        .put("scanMissed", r.scanMissed).put("scanAt", r.scanAt)
 
     /**
      * 以前は「自動で入室」に 3 時間の期限（autoUntil）があり、過ぎたものは「空いたら知らせる」として表示していた。
@@ -483,6 +568,10 @@ class PinStore(private val prefs: android.content.SharedPreferences) : PinPersis
             pendingNotices = o.optJSONArray("pending")?.let { array ->
                 (0 until array.length()).mapNotNull { i -> runCatching { decodePending(array.getJSONObject(i)) }.getOrNull() }
             }.orEmpty(),
+            lastKnownPage = long("lastKnownPage")?.toInt()?.takeIf { it > 0 },
+            lastPageCount = long("lastPageCount")?.toInt()?.takeIf { it > 0 },
+            scanMissed = o.optInt("scanMissed").coerceAtLeast(0),
+            scanAt = o.optLong("scanAt"),
         )
     }
 
@@ -505,11 +594,11 @@ class PinStore(private val prefs: android.content.SharedPreferences) : PinPersis
 }
 
 /** 保存したイベントは再起動後にも同じ部屋の姿を使う。 */
-private fun pinRoomJson(r: Room) = JSONObject()
+internal fun pinRoomJson(r: Room) = JSONObject()
     .put("id", r.id).put("genre", r.genreKey).put("status", r.status.name).put("action", r.action.name)
     .put("name", r.name).put("gender", r.gender.name).put("age", r.age).put("area", r.area).put("message", r.message)
 
-private fun readPinRoom(j: JSONObject) = Room(
+internal fun readPinRoom(j: JSONObject) = Room(
     j.getLong("id"), j.getString("genre"), RoomStatus.valueOf(j.getString("status")), RoomAction.valueOf(j.getString("action")), null,
     if (j.isNull("name")) null else j.getString("name"), Gender.valueOf(j.getString("gender")),
     if (j.isNull("age")) null else j.getInt("age"), if (j.isNull("area")) null else j.getString("area"), j.getString("message"),

@@ -28,10 +28,24 @@ class PinRepositoryTest {
         override val observations = MutableStateFlow<Map<RoomQuery, ObservedRoomPage>>(emptyMap())
         private var revision = 0L
         override suspend fun fetch(query: RoomQuery, force: Boolean): RoomListPage = error("通信しない")
-        fun publish(genre: Genre, rooms: List<Room>) {
+        fun publish(genre: Genre, rooms: List<Room>) = publishPage(genre, 1, 1, rooms)
+        fun publishPage(genre: Genre, page: Int, lastPage: Int, rooms: List<Room>) {
             revision++
+            val query = RoomQuery(genre, page = page)
+            observations.value = observations.value + (query to ObservedRoomPage(query,
+                RoomListPage(genre.key, rooms, null, null, page, lastPage, emptyMap(), null), revision * 1000, revision))
+        }
+    }
+
+    /** 本番の一覧と同じく順序付きイベントを発行する。 */
+    private class OrderedLists : ObservedRoomListSource {
+        private val journal = RoomObservationJournal()
+        override val observations = journal.observations
+        override val changes = journal.changes
+        override suspend fun fetch(query: RoomQuery, force: Boolean): RoomListPage = error("通信しない")
+        suspend fun publish(genre: Genre, rooms: List<Room>, at: Long) {
             val query = RoomQuery(genre)
-            observations.value = mapOf(query to ObservedRoomPage(query, RoomListPage(genre.key, rooms, null, null, 1, 1, emptyMap(), null), revision * 1000, revision))
+            journal.record(query, RoomListPage(genre.key, rooms, null, null, 1, 1, emptyMap(), null), at)
         }
     }
 
@@ -123,6 +137,45 @@ class PinRepositoryTest {
         assertNoEvent()
     }
 
+    @Test fun rapidFullOpenFullObservationsStillNotifyTheIntermediateVacancy() {
+        val ordered = OrderedLists()
+        scope.cancel()
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        pins = PinRepository(Memory(), prefs, ordered, onEvent = { events.send(it) },
+            moved = prefs.moved, scope = scope)
+        val full = room(500, RoomStatus.FULL)
+        wait { pins.pin(full) }
+        wait { ordered.publish(genre, listOf(room(600), full, room(400)), 1_000L) }
+        awaitPins { it.singleOrNull()?.state == PinState.FULL }
+        // 通知処理が追い付く前に戻っても、順序付きイベントに空きが残る。
+        wait {
+            ordered.publish(genre, listOf(room(600), room(500), room(400)), 2_000L)
+            ordered.publish(genre, listOf(room(600), full, room(400)), 3_000L)
+            pins.refresh()
+        }
+        assertEquals(500L, (wait { events.receive() } as PinEvent.Opened).pin.room.id)
+        val view = awaitPins { it.singleOrNull()?.state == PinState.FULL && it.single().record.vacancies.size == 1 }.single()
+        assertEquals(1, view.record.vacancies.size)
+        assertNoEvent()
+    }
+
+    @Test fun aReusedIdWithUnknownOwnerDoesNotCreateAVacancyOrNotice() {
+        val waiting = room(500)
+        val unknown = waiting.copy(status = RoomStatus.FULL, action = RoomAction.NONE,
+            name = null, gender = Gender.UNKNOWN, age = null)
+        wait { pins.pin(unknown) }
+        lists.publish(genre, listOf(room(600), unknown, room(400)))
+        awaitPins { it.singleOrNull()?.state == PinState.FULL }
+        val differentOwner = waiting.copy(name = "別の利用者", message = "別の人の待機メッセージ")
+        lists.publish(genre, listOf(room(600), differentOwner, room(400)))
+        awaitPins { it.singleOrNull()?.state == PinState.UNSEEN }
+        assertTrue(pins.record(roomIdentity(unknown)).vacancies.isEmpty())
+        assertNoEvent()
+        // 保存用スナップショットも別人の募集文で書き換えない。
+        wait { prefs.observe(listOf(differentOwner)) }
+        assertEquals(unknown.message, wait { prefs.preferences.first().single().snapshotMessage })
+    }
+
     @Test fun aRebuiltPinMovesToTheNewRoomAndTellsThatItIsOpen() {
         val pinned = room(500, RoomStatus.FULL)
         wait { pins.pin(pinned, PinAlert.NOTIFY) }
@@ -141,6 +194,87 @@ class PinRepositoryTest {
         val moved = awaitPins { it.singleOrNull()?.room?.id == 950L && it.single().state == PinState.OPEN }.single()
         assertEquals(1, moved.record.rebuilds)
         assertEquals(PinAlert.NOTIFY, moved.record.alert)
+    }
+
+    @Test fun aPendingMoveRestoresPinSettingsAfterProcessRestart() {
+        val memory = Memory()
+        scope.cancel()
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        pins = PinRepository(memory, prefs, lists, onEvent = { events.send(it) }, moved = prefs.moved, scope = scope)
+        val old = room(500, RoomStatus.FULL)
+        wait { pins.pin(old, PinAlert.AUTO) }
+        wait { pins.setMemo(roomIdentity(old), "立て直し前のメモ") }
+        lists.publish(genre, listOf(room(600), old, room(400)))
+        awaitPins { it.singleOrNull()?.state == PinState.FULL }
+
+        // DB の移動だけが成功した直後にプロセス終了（ピン側に移動イベントが届かない）。
+        scope.cancel()
+        val rebuilt = old.copy(id = 950, status = RoomStatus.WAITING, action = RoomAction.ENTER)
+        val others = (900L downTo 100L step 100).filterNot { it == 500L }.map { room(it) }
+        lists.publish(genre, listOf(rebuilt) + others)
+        wait { prefs.followRebuilds(lists.observations.value.genreWindow(genre)) }
+        assertTrue(memory.saved.containsKey(roomIdentity(old)))
+
+        // 再起動しても未処理イベントが再配信され、新しいピンに設定とメモを引き継ぐ。
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val restarted = RoomPreferenceRepository(db)
+        pins = PinRepository(memory, restarted, lists, onEvent = { events.send(it) }, moved = restarted.moved, scope = scope)
+        val moved = awaitPins { it.singleOrNull()?.key == roomIdentity(rebuilt) &&
+            it.single().record.memo == "立て直し前のメモ" }.single()
+        assertEquals(PinAlert.AUTO, moved.record.alert)
+        assertEquals(1, moved.record.rebuilds)
+        wait { db.presets().pinMoves().first { it.isEmpty() } }
+    }
+
+    @Test fun aManuallyAdoptedSimilarRoomAfterRestartDoesNotCreateFalseVacancyOrAutoEntry() {
+        val memory = Memory()
+        scope.cancel()
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        pins = PinRepository(memory, prefs, lists, onEvent = { events.send(it) }, moved = prefs.moved, scope = scope)
+
+        val original = room(500, RoomStatus.FULL, name = "合成さん",
+            message = "寝る前にゆるく話そう。通話はなしでお願いします")
+        wait { pins.pin(original, PinAlert.AUTO) }
+        lists.publish(genre, listOf(room(600), original, room(400)))
+        awaitPins { it.singleOrNull()?.state == PinState.FULL }
+
+        val others = (900L downTo 100L step 100).filterNot { it == 500L }.map { room(it) }
+        val similar = room(960, name = "合成さん", message = "今夜も寝る前にゆるく話そう。通話はなし")
+        lists.publish(genre, listOf(similar) + others)
+        val view = awaitPins { it.singleOrNull()?.state == PinState.CLOSED && it.single().similar != null }.single()
+        assertEquals(960L, (wait { events.receive() } as PinEvent.Similar).similar.room.id)
+        assertTrue(memory.saved.getValue(view.key).vacancies.isEmpty())
+
+        // DB の保存先だけ更新したところでプロセス終了。PinRepository の移動購読は動かない。
+        scope.cancel()
+        wait { pins.adopt(view, similar) }
+        val originalKey = roomIdentity(original)
+        assertTrue(originalKey in memory.saved)
+        val pending = wait { RoomPreferenceRepository(db).moved.first() }
+        assertEquals(PinMoveKind.ADOPTED, pending.kind)
+
+        // 再起動直後、移動先は既に空き。以前の CLOSED → OPEN を空きとして知らせてはならない。
+        val restartedLists = Lists().also { it.publish(genre, listOf(similar) + others) }
+        val restartedPrefs = RoomPreferenceRepository(db)
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        pins = PinRepository(memory, restartedPrefs, restartedLists,
+            onEvent = { events.send(it) }, moved = restartedPrefs.moved, scope = scope)
+        val moved = awaitPins {
+            it.singleOrNull()?.let { pin ->
+                pin.key == roomIdentity(similar) && pin.state == PinState.OPEN && pin.record.rebuilds == 1
+            } == true
+        }.single()
+        assertEquals(PinAlert.AUTO, moved.record.alert)
+        assertTrue(moved.record.vacancies.isEmpty())
+        assertNoEvent()
+        wait { db.presets().pinMoves().first { it.isEmpty() } }
+
+        // 後で本当に満室になり、再度空いた場合は通常どおり通知できる。
+        restartedLists.publish(genre, listOf(similar.copy(status = RoomStatus.FULL, action = RoomAction.NONE)) + others)
+        awaitPins { it.singleOrNull()?.state == PinState.FULL }
+        restartedLists.publish(genre, listOf(similar) + others)
+        assertEquals(960L, (wait { events.receive() } as PinEvent.Opened).pin.room.id)
+        assertEquals(1, awaitPins { it.singleOrNull()?.record?.vacancies?.size == 1 }.single().record.vacancies.size)
     }
 
     @Test fun aSimilarRoomIsSuggestedAndAdoptingItMovesThePinWithoutCountingAVacancy() {
@@ -314,6 +448,34 @@ class PinRepositoryTest {
         lists.publish(genre, listOf(room(600), open, room(400)))
         awaitPins { it.singleOrNull()?.state == PinState.OPEN }
         assertEquals(listOf(RoomQuery(genre, page = 1)), pins.openPages())
+    }
+
+    @Test fun restartingWithAnOpenPinKeepsItsPageAndCanContinueSearching() {
+        val memory = Memory()
+        scope.cancel()
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        pins = PinRepository(memory, prefs, lists, onEvent = { events.send(it) }, moved = prefs.moved, scope = scope)
+        val open = room(500)
+        wait { pins.pin(open) }
+        lists.publishPage(genre, 3, 5, listOf(open))
+        awaitPins { it.singleOrNull()?.state == PinState.OPEN }
+        assertEquals(3, pins.record(roomIdentity(open)).lastKnownPage)
+        assertEquals(5, pins.record(roomIdentity(open)).lastPageCount)
+
+        // 再起動直後は一覧の観測が空でも保存していたページから見張る。
+        scope.cancel()
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val restartedLists = Lists()
+        pins = PinRepository(memory, prefs, restartedLists, onEvent = { events.send(it) }, moved = prefs.moved, scope = scope)
+        awaitPins { it.singleOrNull()?.state == PinState.UNSEEN }
+        assertTrue(RoomQuery(genre, page = 3) in pins.openPages())
+        // 元のページから消えた後は隣を確認し、未発見ならさらに探す。
+        restartedLists.publishPage(genre, 3, 5, listOf(room(700)))
+        awaitPins { it.singleOrNull()?.record?.scanMissed ?: 0 >= 1 }
+        assertTrue(RoomQuery(genre, page = 2) in pins.openPages())
+        restartedLists.publishPage(genre, 2, 5, listOf(room(800)))
+        awaitPins { it.singleOrNull()?.record?.scanMissed ?: 0 >= 2 }
+        assertTrue(RoomQuery(genre, page = 4) in pins.openPages())
     }
 
     @Test fun pinWithoutChoosingNotifiesWhenItOpens() {
