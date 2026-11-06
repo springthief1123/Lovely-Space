@@ -69,7 +69,7 @@ class ChatParsersTest {
 
     @Test
     fun keepsPreviousStateForMissingValues() {
-        val u = ChatUpdateParser.parse("<?xml version=\"1.0\" ?>\nloglines = new Array();", initial.copy(loadAverage = 99))
+        val u = ChatUpdateParser.parse("<?xml version=\"1.0\" ?>\ngRoomVars.fromsize = 540; loglines = new Array();", initial.copy(loadAverage = 99))
         assertEquals(540L, u.state.fromSize)
         assertEquals(99, u.state.loadAverage)
         assertFalse(u.hasNewLines)

@@ -266,6 +266,22 @@ class ChatClientTest {
         assertTrue(update.newLines.isEmpty())
     }
 
+
+    @Test fun mockServerConfirmsUnknownSendIsOnlyPostedOnce() = runTest {
+        okhttp3.mockwebserver.MockWebServer().use { server ->
+            server.start()
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setBody("<html>合成の応答</html>"))
+            val mapped = OkHttpClient.Builder().addInterceptor { chain ->
+                chain.proceed(chain.request().newBuilder().url(server.url("/ajax.php")).build())
+            }.build()
+            val session = ShaloveClient(http = mapped).chatSession(page(fromSize = 540))
+            assertTrue(runCatching { session.send("合成の発言") }.exceptionOrNull() is ChatSendUnconfirmedException)
+            assertEquals(1, server.requestCount)
+            assertEquals("POST", server.takeRequest().method)
+            assertEquals(540L, session.state.fromSize)
+        }
+    }
+
     private fun roomForm(vararg fields: Pair<String, String>) =
         mapOf("room_id" to "900000001", "pwd" to room.pwd, "genre_key" to "chah") + fields
 
