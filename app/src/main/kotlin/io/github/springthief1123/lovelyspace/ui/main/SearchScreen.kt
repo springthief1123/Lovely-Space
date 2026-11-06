@@ -9,20 +9,21 @@ import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import io.github.springthief1123.lovelyspace.ui.components.QuietFilterChip
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.Sync
-import androidx.compose.material.icons.outlined.SyncDisabled
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import io.github.springthief1123.lovelyspace.ui.components.QuietPage
+import io.github.springthief1123.lovelyspace.ui.components.QuietSnackbarHost
 import io.github.springthief1123.lovelyspace.data.NgLoadState
 import io.github.springthief1123.lovelyspace.ui.components.QuietNotice
 import io.github.springthief1123.lovelyspace.ui.components.QuietFieldPair
@@ -68,6 +69,7 @@ import io.github.springthief1123.lovelyspace.ui.rooms.RoomPreferenceViewModel
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomPreferenceUiState
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
 import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentBottomInset
+import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainSnackbarBottomInset
 import io.github.springthief1123.lovelyspace.ui.theme.lovelyMainContentTopPadding
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalComposeUiApi::class)
@@ -229,8 +231,14 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onQuic
                     // 後ろのページは周ごとに 1 つずつ読み直すので、いちばん古いページの時刻は部屋の多いジャンルで 1 時間ほど遅れる。
                     state.pageTimes[RoomQuery(state.genre)]?.let(::formatCheckTime))
                 // 自動更新の状態をアイコンの形と色だけに頼らない。止めているときは文でも示す。
-                Text(if (state.automatic) status else "$status・自動更新停止中", style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                // NG ワードで外した件数は別の行にせず、状態行の右端に並べる（一覧を下へ押し下げない）。
+                Row(Modifier.fillMaxWidth().heightIn(min = 32.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (state.automatic) status else "$status・自動停止中", style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f))
+                    if (ngSuspended || ngExcluded.isNotEmpty())
+                        NgStatusButton(ngExcluded.size, ngSuspended, onShow = { ngSheetOpen = true }, onResume = { ngSuspended = false })
+                }
             }
         }
         val filters = activeFilters(c)
@@ -243,9 +251,6 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onQuic
             )
         }
         item { SortRow(c.sort) { vm.criteria(c.copy(sort = it)) } }
-        if (ngSuspended || ngExcluded.isNotEmpty()) item {
-            NgStatusRow(ngExcluded.size, ngSuspended, onShow = { ngSheetOpen = true }, onResume = { ngSuspended = false })
-        }
         (ngLoad as? NgLoadState.Failed)?.let { failed -> item {
             QuietNotice("NGワードを読み込めませんでした。除外せずに表示しています：${failed.message}", error = true,
                 actionLabel = "もう一度読み込む", onAction = app.ngWords::retry)
@@ -332,7 +337,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onQuic
         ng = ngSummary.copy(onManage = { searchOpen = false; ngSummary.onManage() }),
     )
     // シートの上に出す（リセットの「元に戻す」をシートを開いたまま押せるように）。
-    SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = lovelyMainContentBottomInset()))
+    QuietSnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 12.dp, end = 12.dp, bottom = lovelyMainSnackbarBottomInset()))
     }
     selectedRoom?.let { room -> RoomDetailsSheet(room, preferences.isFavorite(room), preferences.canEdit(room),
         onDismiss = { selectedRoom = null }, onFavorite = { preferencesVm.toggleFavorite(room) },
@@ -346,7 +351,11 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onQuic
     )
 }
 
-/** ジャンル名の右端の、自動更新のオン・オフと今すぐ更新。 */
+/**
+ * ジャンル名の右端の、自動更新のオン・オフと今すぐ更新。
+ * 2 つとも丸い矢印のアイコンだと役割を取り違えやすいので、自動更新は「自動」と書いたスイッチにし、
+ * 押すと取り直すボタンだけを丸い矢印にする（2026-11-06 Yuya の決定、見本の案 A）。
+ */
 @Composable
 private fun RefreshControls(
     automatic: Boolean,
@@ -357,11 +366,17 @@ private fun RefreshControls(
     refreshEnabled: Boolean,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = { onAutomaticChange(!automatic) },
-            modifier = Modifier.semantics { stateDescription = if (automatic) "自動更新中" else "自動更新を停止中" }) {
-            Icon(if (automatic) Icons.Outlined.Sync else Icons.Outlined.SyncDisabled,
-                contentDescription = if (automatic) "自動更新を一時停止" else "自動更新を再開",
-                tint = if (automatic) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(
+            Modifier.heightIn(min = 48.dp).clip(CircleShape)
+                .toggleable(value = automatic, role = Role.Switch, onValueChange = onAutomaticChange)
+                .semantics { contentDescription = "自動更新"; stateDescription = if (automatic) "自動更新中" else "自動更新を停止中" }
+                .padding(horizontal = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text("自動", style = MaterialTheme.typography.labelMedium,
+                color = if (automatic) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+            Switch(checked = automatic, onCheckedChange = null)
         }
         RefreshButton(refreshing, refreshedCount, onRefresh, refreshEnabled)
     }

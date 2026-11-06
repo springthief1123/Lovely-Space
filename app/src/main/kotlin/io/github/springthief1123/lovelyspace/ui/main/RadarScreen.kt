@@ -151,7 +151,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
             }
         }
     }
-    SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = lovelyMainContentBottomInset()))
+    QuietSnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 12.dp, end = 12.dp, bottom = lovelyMainSnackbarBottomInset()))
     }
     pins.firstOrNull { it.key == memoPin }?.let { pin ->
         PinMemoEditor(pin, working, error, onDismiss = { memoPin = null },

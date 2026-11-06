@@ -33,6 +33,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.onSizeChanged
 import io.github.springthief1123.lovelyspace.ui.theme.LocalLovelyBottomContentInset
+import io.github.springthief1123.lovelyspace.ui.theme.LocalLovelySnackbarBottomInset
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.notify.unreadCount
@@ -74,6 +75,13 @@ val MainDestinations = listOf(
 internal fun lovelyBottomContentInset(navigationHeight: Dp, showResumeBar: Boolean = false) =
     maxOf(LovelySpacing.bottomContentInset, navigationHeight + if (showResumeBar) 80.dp else 0.dp)
 
+/**
+ * お知らせ（Snackbar）の下端。ナビの実測高さには外側の上下 10dp が入っているので、見た目はナビの面から 10dp 上に出る。
+ * 「会話に戻る」の帯があるときはその上（浮かぶ通知と同じ 72dp）に出す。
+ */
+internal fun lovelySnackbarBottomInset(navigationHeight: Dp, showResumeBar: Boolean = false) =
+    navigationHeight + if (showResumeBar) 72.dp else 0.dp
+
 /** 「見つける」を表示中の再タップだけ、タブ遷移せず一覧の先頭へ戻す。 */
 internal fun shouldScrollFindTabToTop(currentRoute: String?, destinationRoute: String): Boolean =
     destinationRoute == Routes.ROOMS && (currentRoute == Routes.ROOMS || currentRoute == Routes.SEARCH)
@@ -111,6 +119,7 @@ fun LovelyAppShell(
     val density = LocalDensity.current
     var navigationHeight by remember { mutableStateOf(100.dp) }
     val bottomInset = lovelyBottomContentInset(navigationHeight, showChrome && resumeBar != null)
+    val snackbarInset = lovelySnackbarBottomInset(navigationHeight, showChrome && resumeBar != null)
     val shellState = remember { LovelyShellState() }
     var notificationsOpen by remember { mutableStateOf(false) }
     // 外枠を出さない画面（チャットなど）へ移ったら閉じる。
@@ -123,7 +132,7 @@ fun LovelyAppShell(
             Box(Modifier.fillMaxSize().then(if (panelOpen) Modifier.clearAndSetSemantics {}.focusProperties { enter = { FocusRequester.Cancel } }.focusGroup() else Modifier)) {
             Surface(Modifier.fillMaxSize().hazeSource(state = hazeState),
                 color = MaterialTheme.colorScheme.background, contentColor = MaterialTheme.colorScheme.onBackground) {
-                CompositionLocalProvider(LocalLovelyBottomContentInset provides bottomInset, LocalLovelyShellState provides shellState) { content() }
+                CompositionLocalProvider(LocalLovelyBottomContentInset provides bottomInset, LocalLovelySnackbarBottomInset provides snackbarInset, LocalLovelyShellState provides shellState) { content() }
             }
             if (showChrome) {
                 LovelyTopBar(onOpenBell = { notificationsOpen = !notificationsOpen }, shellState.searchButton, Modifier.align(Alignment.TopCenter))

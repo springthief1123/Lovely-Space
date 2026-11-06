@@ -23,7 +23,7 @@ import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SnackbarHost
+import io.github.springthief1123.lovelyspace.ui.components.QuietSnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -141,7 +141,7 @@ fun DisplaySettingsScreen(onBack: () -> Unit) {
             }
         }
         }
-        SnackbarHost(
+        QuietSnackbarHost(
             hostState = snackbar,
             modifier = Modifier
                 .align(Alignment.BottomCenter)

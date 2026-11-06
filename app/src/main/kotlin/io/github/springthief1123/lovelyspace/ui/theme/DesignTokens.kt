@@ -75,3 +75,12 @@ val LocalLovelyBottomContentInset = staticCompositionLocalOf { LovelySpacing.bot
 
 @Composable
 fun lovelyMainContentBottomInset(): Dp = LocalLovelyBottomContentInset.current
+
+/**
+ * 主画面のお知らせ（Snackbar）を下部ナビのすぐ上に出すための余白（ナビの実測高さ。「会話に戻る」の帯があればその分も）。
+ * 一覧の下の余白（[lovelyMainContentBottomInset]）は最低 124dp あり、そのまま使うとナビから離れて浮く。シェル外では既定値を使う。
+ */
+val LocalLovelySnackbarBottomInset = staticCompositionLocalOf { LovelySpacing.snackbarBottomInset }
+
+@Composable
+fun lovelyMainSnackbarBottomInset(): Dp = LocalLovelySnackbarBottomInset.current

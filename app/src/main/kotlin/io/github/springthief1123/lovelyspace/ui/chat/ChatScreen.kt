@@ -43,7 +43,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
+import io.github.springthief1123.lovelyspace.ui.components.QuietSnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import io.github.springthief1123.lovelyspace.ui.main.RoomMenuButton
 import androidx.compose.material3.Surface
@@ -219,7 +219,7 @@ fun ChatScreen(room: ChatRoomRef, vm: ChatController, onBrowse: () -> Unit, onEx
     val menuScope = rememberCoroutineScope()
     Scaffold(
         modifier = Modifier.imePadding(),
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = { QuietSnackbarHost(snackbar) },
         topBar = {
             QuietTopBar(
                 title = state.partnerName ?: state.title.ifEmpty { "チャット" },
