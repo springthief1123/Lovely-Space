@@ -35,9 +35,10 @@ internal class HostAccessPause(
     }
 
     fun check(host: String) {
-        if (remaining(host) > 0) throw AutomaticAccessPausedException()
+        val wait = remaining(host)
+        if (wait > 0) throw AutomaticAccessPausedException(wait)
     }
 }
 
 /** ホストやURL・認証情報を画面やログへ残さない。手動操作は休止の対象外。 */
-class AutomaticAccessPausedException : IOException("本家からの制限応答により、自動更新を一時停止しています")
+class AutomaticAccessPausedException(val retryAfterMs: Long = RoomPageSchedule.ERROR_INTERVAL_MS) : IOException("本家からの制限応答により、自動更新を一時停止しています")

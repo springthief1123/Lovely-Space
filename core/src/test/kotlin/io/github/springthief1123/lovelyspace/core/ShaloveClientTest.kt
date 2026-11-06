@@ -4,6 +4,7 @@ import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
 import io.github.springthief1123.lovelyspace.core.chat.EntryForm
 import io.github.springthief1123.lovelyspace.core.chat.EntryProfile
 import io.github.springthief1123.lovelyspace.core.chat.EntryResult
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.CompletableDeferred
@@ -56,6 +57,26 @@ class ShaloveClientTest {
 
 
 
+
+    @Test fun aLongHostPauseDoesNotEndTheChatUpdateFlow() = runTest {
+        val mapped = OkHttpClient.Builder().addInterceptor { chain ->
+            val original = chain.request()
+            chain.proceed(original.newBuilder().url(server.url(original.url.encodedPath)).build())
+                .newBuilder().request(original).build()
+        }.build()
+        val waits = mutableListOf<Long>()
+        val limited = ShaloveClient(http = mapped, clock = { now }, sleep = { waits += it; now += it })
+        val host = Genres.default.host
+        server.enqueue(MockResponse().setResponseCode(429).setHeader("Retry-After", "120"))
+        runCatching { limited.get("https://$host/g/zenkoku/") }
+        val room = ChatRoomRef(host, 900000001, "synthetic", Genres.default.key)
+        val initial = io.github.springthief1123.lovelyspace.core.chat.ChatPageParser.parse(fixture("chat/chat_page_guest.html"), room)
+        val session = limited.chatSession(initial)
+        server.enqueue(MockResponse().setBody("die_msg = '合成の終了案内';"))
+        assertEquals("合成の終了案内", session.updates().first().endMessage)
+        assertEquals(listOf(120_000L), waits)
+        assertEquals(2, server.requestCount)
+    }
     @Test fun pausedAutomaticEntryCannotFetchOrPostButExplicitEntryCan() = runTest {
         val mapped = OkHttpClient.Builder().addInterceptor { chain ->
             val original = chain.request()

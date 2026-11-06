@@ -1,5 +1,6 @@
 package io.github.springthief1123.lovelyspace.core.chat
 
+import io.github.springthief1123.lovelyspace.core.AutomaticAccessPausedException
 import io.github.springthief1123.lovelyspace.core.HttpStatusException
 import io.github.springthief1123.lovelyspace.core.ShaloveClient
 import kotlinx.coroutines.Dispatchers
@@ -65,7 +66,13 @@ class ChatSession internal constructor(
                 // PollSchedule は発言側からも変更されるので、すべて lock の中で触る。
                 lock.withLock { schedule.onPollStarted(state) }
                 // null は発言で中断された・取得の直前に発言があった。発言の応答が新着を含むので取り直さずに待つ。
-                val update = poll() ?: continue
+                val update = try {
+                    poll() ?: continue
+                } catch (e: AutomaticAccessPausedException) {
+                    // 制限による休止は接続障害に数えない。期限後に再確認して同じ受信ループを再開する。
+                    sleep(e.retryAfterMs)
+                    continue
+                }
                 emit(update)
                 if (update.endMessage != null) return@flow
                 sleep(lock.withLock { schedule.onResponse(update) })
