@@ -52,7 +52,7 @@ class ShaloveClient(
 ) {
     private val accessPause = HostAccessPause(clock)
     // すべての通信経路（転送を追わないPOST・ajaxも含む）の制限応答を共有する。
-    private val http = http.newBuilder().apply {
+    private val trackedHttp = http.newBuilder().apply {
         interceptors().add(0, okhttp3.Interceptor { chain ->
             chain.proceed(chain.request()).also { response ->
                 accessPause.observe(chain.request().url.host, response.code, response.header("Retry-After"))
@@ -145,7 +145,7 @@ class ShaloveClient(
     private class Fetched(val body: String, val finalUrl: String)
 
     private suspend fun requestPage(url: String): Fetched =
-        http.newCall(Request.Builder().url(url).header("User-Agent", USER_AGENT).build()).awaitBody()
+        trackedHttp.newCall(Request.Builder().url(url).header("User-Agent", USER_AGENT).build()).awaitBody()
 
     /** ヘッダー待ち・本文読み取り中のどちらでも、画面側の取消をHTTP通信へ伝える。 */
     private suspend fun Call.awaitBody(): Fetched = suspendCancellableCoroutine { cont ->
@@ -239,7 +239,7 @@ class ShaloveClient(
     suspend fun openEntry(host: String, roomId: Long, genreKey: String, automatic: Boolean = false): EntryForm? {
         val url = "https://$host/PreEnterRoom?room_id=$roomId&genre_key=$genreKey"
         return gated(operation = true, minIntervalMs = 0, automaticHost = if (automatic) host else null) {
-            http.newCall(Request.Builder().url(url).header("User-Agent", USER_AGENT).build()).execute().use { res ->
+            trackedHttp.newCall(Request.Builder().url(url).header("User-Agent", USER_AGENT).build()).execute().use { res ->
                 if (!res.isSuccessful) throw HttpStatusException(res.code, url)
                 val bytes = res.body?.bytes() ?: ByteArray(0)
                 val charset = detectCharset(res.header("Content-Type"), bytes)
@@ -400,12 +400,12 @@ class ShaloveClient(
     }
 
     private val noRedirectHttp: OkHttpClient by lazy {
-        http.newBuilder().followRedirects(false).followSslRedirects(false).build()
+        trackedHttp.newBuilder().followRedirects(false).followSslRedirects(false).build()
     }
 
     /** `ajax.php?live=1` はサーバーが新着まで応答を保留するので、読み取りの待ち時間を長く取る。 */
     private val longPollHttp: OkHttpClient by lazy {
-        http.newBuilder().readTimeout(LONG_POLL_TIMEOUT_SECONDS, TimeUnit.SECONDS).build()
+        trackedHttp.newBuilder().readTimeout(LONG_POLL_TIMEOUT_SECONDS, TimeUnit.SECONDS).build()
     }
 
     companion object {
