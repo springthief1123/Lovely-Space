@@ -7,6 +7,9 @@ import io.github.springthief1123.lovelyspace.core.Room
 import io.github.springthief1123.lovelyspace.core.RoomSearchCriteria
 import io.github.springthief1123.lovelyspace.core.partitionNg
 import io.github.springthief1123.lovelyspace.core.searchRooms
+import io.github.springthief1123.lovelyspace.core.roomIdentity
+import io.github.springthief1123.lovelyspace.core.roomIdentityEvidence
+import io.github.springthief1123.lovelyspace.core.RoomIdentityEvidence
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.conflate
 
@@ -32,6 +35,24 @@ internal class SearchResults(
      */
     fun canStandIn(genre: Genre, criteria: RoomSearchCriteria, ng: NgWordFilter = NgWordFilter.NONE): Boolean =
         this.genre == genre && this.criteria == criteria && this.ng === ng
+
+    /**
+     * 裏での絞り直しを待つ間も、カードの在室状態と入室動作は最新の一覧に合わせる。
+     * 前の結果にしかない部屋や、同じ ID が別人に再利用された部屋は操作させない。
+     */
+    fun currentCards(latestRooms: List<Room>): List<Room> {
+        if (rooms === latestRooms) return results
+        val latestByKey = latestRooms.associateBy(::roomIdentity)
+        return results.mapNotNull { old ->
+            val current = latestByKey[roomIdentity(old)] ?: return@mapNotNull null
+            if (roomIdentityEvidence(old, current) == RoomIdentityEvidence.REUSED ||
+                (old.message != current.message && (old.name == null || current.name == null))
+            ) return@mapNotNull null
+            if (criteria.waitingOnly != null && !current.isFull != criteria.waitingOnly) return@mapNotNull null
+            if (criteria.publicOnly != null && current.isPublic != criteria.publicOnly) return@mapNotNull null
+            current
+        }
+    }
 
     companion object {
         fun of(genre: Genre, rooms: List<Room>, criteria: RoomSearchCriteria, ng: NgWordFilter = NgWordFilter.NONE): SearchResults {
