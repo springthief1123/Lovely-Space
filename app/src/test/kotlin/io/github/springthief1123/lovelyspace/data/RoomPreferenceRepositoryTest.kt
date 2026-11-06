@@ -262,7 +262,38 @@ class RoomPreferenceRepositoryTest {
             val pending = restarted.moved.first()
             assertEquals("${io.github.springthief1123.lovelyspace.core.Genres["zenkoku"]!!.host}/500", pending.from)
             assertEquals(950L, pending.to.id)
+            assertEquals(PinMoveKind.REBUILD, pending.kind)
             restarted.acknowledgePinMove(pending.id)
+            assertTrue(db.presets().pinMoves().first().isEmpty())
+        } finally { db.close() }
+    }
+
+    @Test fun aManualSimilarMovePersistsItsKindAndReadsLegacyPendingMoves() = runTest {
+        val db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java)
+            .allowMainThreadQueries().build()
+        try {
+            val repo = RoomPreferenceRepository(db)
+            val original = room(500, "zenkoku", "合成さん", message = "寝る前にゆるく話そう。通話はなしでお願いします")
+            val similar = original.copy(id = 960, message = "今夜も寝る前にゆるく話そう。通話はなし")
+            repo.setFavorite(original, true)
+            val before = repo.preferences.first().single()
+            repo.moveFavorite(before, similar)
+
+            // 利用者が「同じ人」と認めた種別はプロセスをまたいでも残る。
+            val restored = RoomPreferenceRepository(db)
+            val adopted = restored.moved.first()
+            assertEquals(PinMoveKind.ADOPTED, adopted.kind)
+            assertEquals(960L, adopted.to.id)
+            assertEquals("${before.host}/${before.roomId}", adopted.from)
+
+            // 種別追加前の未処理イベントは立て直しとして読み込める。
+            val row = db.presets().pinMoves().first().single()
+            val legacy = org.json.JSONObject(row.value)
+            legacy.remove("kind")
+            db.presets().put(LocalState(row.key, legacy.toString()))
+            assertEquals(PinMoveKind.REBUILD, RoomPreferenceRepository(db).moved.first().kind)
+
+            restored.acknowledgePinMove(adopted.id)
             assertTrue(db.presets().pinMoves().first().isEmpty())
         } finally { db.close() }
     }

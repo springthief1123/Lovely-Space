@@ -112,8 +112,11 @@ private fun preferenceFromRoom(room: Room, favorite: Boolean, hidden: Boolean): 
     )
 }
 
+/** 立て直しは前の状態を引き継ぎ、利用者が承認した似た部屋は新しい状態を基準にする。 */
+enum class PinMoveKind { REBUILD, ADOPTED }
+
 /** Room DB の移動先と同じトランザクションで保存するイベント。ピン側が反映してから確認済みにする。 */
-data class PendingPinMove(val id: String, val from: String, val to: Room)
+data class PendingPinMove(val id: String, val from: String, val to: Room, val kind: PinMoveKind = PinMoveKind.REBUILD)
 
 interface RoomPreferenceStore {
     val preferences: Flow<List<RoomPreference>>
@@ -145,15 +148,18 @@ class RoomPreferenceRepository(private val db: PresetDatabase) : RoomPreferenceS
         rows.forEach { row ->
             runCatching {
                 val json = JSONObject(row.value)
+                // 旧形式は立て直しのイベントのみ。種別が無いレコードとの互換性を保つ。
+                val kind = if (json.has("kind")) PinMoveKind.valueOf(json.getString("kind")) else PinMoveKind.REBUILD
                 PendingPinMove(row.key.removePrefix(MOVE_PREFIX), json.getString("from"),
-                    readPinRoom(json.getJSONObject("to")))
+                    readPinRoom(json.getJSONObject("to")), kind)
             }.getOrNull()?.let { emit(it) }
         }
     }
 
-    private suspend fun queuePinMove(from: String, to: Room) {
+    private suspend fun queuePinMove(from: String, to: Room, kind: PinMoveKind) {
         val key = MOVE_PREFIX + UUID.randomUUID().toString()
-        db.presets().put(LocalState(key, JSONObject().put("from", from).put("to", pinRoomJson(to)).toString()))
+        db.presets().put(LocalState(key, JSONObject().put("from", from)
+            .put("to", pinRoomJson(to)).put("kind", kind.name).toString()))
     }
 
     override suspend fun acknowledgePinMove(id: String) {
@@ -244,7 +250,7 @@ class RoomPreferenceRepository(private val db: PresetDatabase) : RoomPreferenceS
                 dao.put(existing.movedTo(rebuilt))
                 claimed -= key
                 claimed += "${existing.host}/${rebuilt.id}"
-                if (existing.favorite) queuePinMove(key, rebuilt)
+                if (existing.favorite) queuePinMove(key, rebuilt, PinMoveKind.REBUILD)
             }
         }
     }
@@ -259,7 +265,7 @@ class RoomPreferenceRepository(private val db: PresetDatabase) : RoomPreferenceS
             else dao.delete(from.host, from.roomId)
             // 似た部屋は名前が違うことがあるので、照合用の名前は新しい部屋のものにする。
             dao.put(current.movedTo(to, keepIdentity = false).copy(favorite = true, hidden = existing?.takeIf { it.sameIdentity(to) }?.hidden == true))
-            queuePinMove(key, to)
+            queuePinMove(key, to, PinMoveKind.ADOPTED)
         }
     }
 

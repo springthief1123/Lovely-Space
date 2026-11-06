@@ -159,8 +159,7 @@ class PinRepository(
     private var chronologicalPages: Map<RoomQuery, ObservedRoomPage> = emptyMap()
     /** 通知コールバック中は状態のmutexを保持しない。再送同士だけを直列化する。 */
     private val noticeMutex = Mutex()
-    /** 利用者が同じ人と答えて引き継ぐ似た部屋。引き継いだ時点の様子をそのまま記録し、空いたとは数えない。 */
-    private val adopting = HashSet<String>()
+    /** 類似部屋の引き継ぎ種別は DB の永続イベントから判断する（再起動後も失われない）。 */
     /** ページ番号と探査位置は PinRecord に永続化し、プロセス終了後も復元する。 */
     private val _records = MutableStateFlow(runCatching { persistence.load() }.getOrNull().orEmpty())
     val records: StateFlow<Map<String, PinRecord>> = _records.asStateFlow()
@@ -219,7 +218,7 @@ class PinRepository(
                 // 前回の保存成功・確認済み書き込み前に終了した場合も再実行できる（move は冪等）。
                 while (true) {
                     try {
-                        move(pending.from, pending.to)
+                        move(pending.from, pending.to, pending.kind)
                         preferences.acknowledgePinMove(pending.id)
                         break
                     } catch (e: CancellationException) { throw e }
@@ -300,9 +299,7 @@ class PinRepository(
 
     /** 似た部屋 [similar] を同じ人の部屋として、ピンを移す。 */
     suspend fun adopt(pin: PinView, similar: Room) {
-        mutex.withLock { adopting += roomIdentity(similar) }
-        try { preferences.moveFavorite(pin.preference, similar) }
-        catch (e: Exception) { mutex.withLock { adopting -= roomIdentity(similar) }; throw e }
+        preferences.moveFavorite(pin.preference, similar)
     }
 
     /** 似た部屋 [roomKey] を別の人の部屋として、以後候補にしない。 */
@@ -320,8 +317,9 @@ class PinRepository(
     /**
      * 保存の記録が [from] から新しい部屋 [to] へ移った（同じ名前・募集文の立て直し、または似た部屋の引き継ぎ）。見張りの記録を引き継ぐ。
      * 立て直しは、移る前の様子（閉じた・満室）を残しておき、次に一覧で確かめたときに空いたと分かるようにする（[process]）。
+     * 手動承認の類似部屋は空いたと数えず、移動先の状態を初期値にする。種別は再起動後も [PendingPinMove] で復元できる。
      */
-    private suspend fun move(from: String, to: Room) = mutex.withLock {
+    private suspend fun move(from: String, to: Room, kind: PinMoveKind) = mutex.withLock {
         val old = _records.value[from] ?: return@withLock
         val key = roomIdentity(to)
         val current = _records.value[key]
@@ -330,11 +328,15 @@ class PinRepository(
             // 古い部屋への未配信通知を、新しい部屋の通知として再送しない。移った先の部屋を「似た部屋」と知らせる通知も、
             // 引き継いだ時点で済んでいる（配信直後に引き継ぐと、配信済みの印を付ける前の通知が残って二度知らせてしまう）。
             pendingNotices = old.pendingNotices.filter { roomIdentity(it.room) == key && it.type != PinNoticeType.SIMILAR })
-        if (key in adopting) next = next.copy(state = if (to.status == RoomStatus.FULL) PinState.FULL else PinState.OPEN, stateAt = now())
+        if (kind == PinMoveKind.ADOPTED) {
+            // 元が満室・閉鎖でも、承認した時点の待機中の部屋を「新たな空き」とはみなさない。
+            // AUTO のピンでも、ここで空き通知や自動入室を発生させない。
+            next = next.copy(state = if (to.status == RoomStatus.FULL) PinState.FULL else PinState.OPEN,
+                stateAt = now())
+        }
         // DB 側に未適用イベントが残るので、保存に失敗したらそのまま再試行する。
         // 成功後に限り確認済みにすれば、再起動してもメモ・通知設定・履歴を失わない。
         save(_records.value - from + (key to next))
-        adopting.remove(key)
     }
 
     private suspend fun process(favs: List<RoomPreference>, observations: Map<RoomQuery, ObservedRoomPage>, ordered: Boolean = false) = processMutex.withLock {

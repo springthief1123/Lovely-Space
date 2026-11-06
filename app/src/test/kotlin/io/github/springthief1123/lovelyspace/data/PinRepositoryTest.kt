@@ -226,6 +226,57 @@ class PinRepositoryTest {
         wait { db.presets().pinMoves().first { it.isEmpty() } }
     }
 
+    @Test fun aManuallyAdoptedSimilarRoomAfterRestartDoesNotCreateFalseVacancyOrAutoEntry() {
+        val memory = Memory()
+        scope.cancel()
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        pins = PinRepository(memory, prefs, lists, onEvent = { events.send(it) }, moved = prefs.moved, scope = scope)
+
+        val original = room(500, RoomStatus.FULL, name = "合成さん",
+            message = "寝る前にゆるく話そう。通話はなしでお願いします")
+        wait { pins.pin(original, PinAlert.AUTO) }
+        lists.publish(genre, listOf(room(600), original, room(400)))
+        awaitPins { it.singleOrNull()?.state == PinState.FULL }
+
+        val others = (900L downTo 100L step 100).filterNot { it == 500L }.map { room(it) }
+        val similar = room(960, name = "合成さん", message = "今夜も寝る前にゆるく話そう。通話はなし")
+        lists.publish(genre, listOf(similar) + others)
+        val view = awaitPins { it.singleOrNull()?.state == PinState.CLOSED && it.single().similar != null }.single()
+        assertEquals(960L, (wait { events.receive() } as PinEvent.Similar).similar.room.id)
+        assertTrue(memory.saved.getValue(view.key).vacancies.isEmpty())
+
+        // DB の保存先だけ更新したところでプロセス終了。PinRepository の移動購読は動かない。
+        scope.cancel()
+        wait { pins.adopt(view, similar) }
+        val originalKey = roomIdentity(original)
+        assertTrue(originalKey in memory.saved)
+        val pending = wait { RoomPreferenceRepository(db).moved.first() }
+        assertEquals(PinMoveKind.ADOPTED, pending.kind)
+
+        // 再起動直後、移動先は既に空き。以前の CLOSED → OPEN を空きとして知らせてはならない。
+        val restartedLists = Lists().also { it.publish(genre, listOf(similar) + others) }
+        val restartedPrefs = RoomPreferenceRepository(db)
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        pins = PinRepository(memory, restartedPrefs, restartedLists,
+            onEvent = { events.send(it) }, moved = restartedPrefs.moved, scope = scope)
+        val moved = awaitPins {
+            it.singleOrNull()?.let { pin ->
+                pin.key == roomIdentity(similar) && pin.state == PinState.OPEN && pin.record.rebuilds == 1
+            } == true
+        }.single()
+        assertEquals(PinAlert.AUTO, moved.record.alert)
+        assertTrue(moved.record.vacancies.isEmpty())
+        assertNoEvent()
+        wait { db.presets().pinMoves().first { it.isEmpty() } }
+
+        // 後で本当に満室になり、再度空いた場合は通常どおり通知できる。
+        restartedLists.publish(genre, listOf(similar.copy(status = RoomStatus.FULL, action = RoomAction.NONE)) + others)
+        awaitPins { it.singleOrNull()?.state == PinState.FULL }
+        restartedLists.publish(genre, listOf(similar) + others)
+        assertEquals(960L, (wait { events.receive() } as PinEvent.Opened).pin.room.id)
+        assertEquals(1, awaitPins { it.singleOrNull()?.record?.vacancies?.size == 1 }.single().record.vacancies.size)
+    }
+
     @Test fun aSimilarRoomIsSuggestedAndAdoptingItMovesThePinWithoutCountingAVacancy() {
         val pinned = room(500, name = "合成さん", message = "寝る前にゆるく話そう。通話はなしでお願いします")
         wait { pins.pin(pinned, PinAlert.NOTIFY) }
