@@ -55,6 +55,27 @@ class ShaloveClientTest {
 
 
 
+
+    @Test fun pausedAutomaticEntryCannotFetchOrPostButExplicitEntryCan() = runTest {
+        val mapped = OkHttpClient.Builder().addInterceptor { chain ->
+            val original = chain.request()
+            chain.proceed(original.newBuilder().url(server.url(original.url.encodedPath)).build())
+                .newBuilder().request(original).build()
+        }.followRedirects(false).build()
+        val limited = ShaloveClient(http = mapped, clock = { now }, sleep = { now += it })
+        val host = "2shot.chat.shalove.net"
+        server.enqueue(MockResponse().setResponseCode(403))
+        assertTrue(runCatching { limited.get("https://$host/g/chah/") }.exceptionOrNull() is HttpStatusException)
+        assertTrue(runCatching { limited.openEntry(host, 900000002, "chah", automatic = true) }.exceptionOrNull() is AutomaticAccessPausedException)
+        assertEquals(1, server.requestCount)
+        server.enqueue(MockResponse().setBody(fixture("chat/preenter_no_captcha.html")).setHeader("Content-Type", "text/html; charset=UTF-8"))
+        val form = limited.openEntry(host, 900000002, "chah")!!
+        assertTrue(runCatching { limited.enter(form, EntryProfile("合成の名前", 1, 25), automatic = true) }.exceptionOrNull() is AutomaticAccessPausedException)
+        assertEquals(2, server.requestCount)
+        server.enqueue(MockResponse().setResponseCode(302).setHeader("Location", "/2shot.php?room_id=900000002&pwd=synthetic"))
+        assertTrue(limited.enter(form, EntryProfile("合成の名前", 1, 25)) is EntryResult.Entered)
+        assertEquals(3, server.requestCount)
+    }
     @Test fun chatRestrictionPausesPollingAndAutomaticPagesButNotExplicitSend() = runTest {
         val mapped = OkHttpClient.Builder().addInterceptor { chain ->
             val original = chain.request()
