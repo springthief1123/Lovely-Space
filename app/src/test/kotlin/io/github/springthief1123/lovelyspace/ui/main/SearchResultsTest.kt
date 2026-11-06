@@ -91,6 +91,34 @@ class SearchResultsTest {
         assertEquals(emptyList<Any>(), resolved.excluded)
     }
 
+    @Test fun oldFilteredResultsImmediatelyShowTheLatestFullStatusAndDisableEntry() {
+        val waiting = room(1, "合成の募集文")
+        val shown = SearchResults.of(genre, listOf(waiting), RoomSearchCriteria())
+        // 計算中は古い検索結果を保持するが、カードの状態と操作には最新の部屋を使う。
+        val full = waiting.copy(status = RoomStatus.FULL, action = RoomAction.NONE, name = null)
+        val resolved = shown.resolve(genre, listOf(full), RoomSearchCriteria())
+        assertSame(shown, resolved)
+        assertEquals(full, resolved.currentCards(listOf(full)).single())
+        assertEquals(RoomAction.NONE, resolved.currentCards(listOf(full)).single().action)
+        assertTrue(resolved.currentCards(emptyList()).isEmpty())
+    }
+
+    @Test fun changedRoomIdentityIsNotOperableWhileBackgroundFiltering() {
+        val waiting = room(1, "合成の募集文")
+        val shown = SearchResults.of(genre, listOf(waiting), RoomSearchCriteria())
+        // 同じ ID を別人が使っていても、古い部屋のカードから操作させない。
+        assertTrue(shown.currentCards(listOf(waiting.copy(name = "別の合成名"))).isEmpty())
+        assertTrue(shown.currentCards(listOf(waiting.copy(name = null, message = "別の募集文"))).isEmpty())
+    }
+
+    @Test fun waitingOnlyFilterDoesNotExposeNewlyFullRoomDuringRecalculation() {
+        val waiting = room(1, "合成")
+        val criteria = RoomSearchCriteria(waitingOnly = true)
+        val shown = SearchResults.of(genre, listOf(waiting), criteria)
+        val full = waiting.copy(status = RoomStatus.FULL, action = RoomAction.PEEK, name = null)
+        assertTrue(shown.currentCards(listOf(full)).isEmpty())
+    }
+
     private fun room(id: Long, message: String) = Room(id, genre.key, RoomStatus.WAITING, RoomAction.ENTER,
         null, "合成$id", Gender.UNKNOWN, null, null, message)
 }
