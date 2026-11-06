@@ -30,6 +30,9 @@ fun RoomPageWindow.pinState(pinned: Room): Pair<PinState, Room?> {
     return when {
         onlyCarried -> PinState.UNSEEN to null
         observed != null && roomIdentityEvidence(pinned, observed) == RoomIdentityEvidence.REUSED -> PinState.CLOSED to null
+        // 満室でピンして名前が不明な場合、同じ ID の別人を空きとして通知しない。
+        // 募集文が変わっただけか ID 再利用かは判別できないので、閉鎖確定にもせず未確認にする。
+        observed != null && pinned.name == null && pinned.message != observed.message -> PinState.UNSEEN to null
         observed != null -> (if (observed.status == RoomStatus.FULL) PinState.FULL else PinState.OPEN) to observed
         isClosed(pinned) -> PinState.CLOSED to null
         else -> PinState.UNSEEN to null

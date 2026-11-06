@@ -210,7 +210,7 @@ class RoomPreferenceRepository(private val db: PresetDatabase) : RoomPreferenceS
                     !existing.sameIdentity(room) -> existing.copy(stale = true)
                     // 名前の記録がない（満室でピンした）部屋に、待機メッセージの違う名前付きの部屋が載った。番号の使い回しかもしれないので、
                     // 記録の待機メッセージを書き換えない（書き換えると、次に見たときにその人を部屋主として覚えてしまう）。
-                    existing.identityName == null && room.name != null && room.message != existing.snapshotMessage -> existing
+                    existing.identityName == null && room.message != existing.snapshotMessage -> existing
                     else -> existing.refreshed(room)
                 }
                 // 経過時間（「◯分前」）は取得のたびに変わる。それだけの違いで書き直すと、取得のたびに保存の一覧が流れ直して

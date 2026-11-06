@@ -159,6 +159,23 @@ class PinRepositoryTest {
         assertNoEvent()
     }
 
+    @Test fun aReusedIdWithUnknownOwnerDoesNotCreateAVacancyOrNotice() {
+        val waiting = room(500)
+        val unknown = waiting.copy(status = RoomStatus.FULL, action = RoomAction.NONE,
+            name = null, gender = Gender.UNKNOWN, age = null)
+        wait { pins.pin(unknown) }
+        lists.publish(genre, listOf(room(600), unknown, room(400)))
+        awaitPins { it.singleOrNull()?.state == PinState.FULL }
+        val differentOwner = waiting.copy(name = "別の利用者", message = "別の人の待機メッセージ")
+        lists.publish(genre, listOf(room(600), differentOwner, room(400)))
+        awaitPins { it.singleOrNull()?.state == PinState.UNSEEN }
+        assertTrue(pins.record(roomIdentity(unknown)).vacancies.isEmpty())
+        assertNoEvent()
+        // 保存用スナップショットも別人の募集文で書き換えない。
+        wait { prefs.observe(listOf(differentOwner)) }
+        assertEquals(unknown.message, wait { prefs.preferences.first().single().snapshotMessage })
+    }
+
     @Test fun aRebuiltPinMovesToTheNewRoomAndTellsThatItIsOpen() {
         val pinned = room(500, RoomStatus.FULL)
         wait { pins.pin(pinned, PinAlert.NOTIFY) }
