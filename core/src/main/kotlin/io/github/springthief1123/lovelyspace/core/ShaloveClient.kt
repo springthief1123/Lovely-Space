@@ -237,11 +237,11 @@ class ShaloveClient(
 
     /**
      * 入室する。成功するとサイトが本人用の pwd を付けた `2shot.php` へ転送するので、その URL から部屋を特定する。
-     * [captchaToken] はロボット除け認証が求められたとき（[EntryForm.requiresCaptcha]）に WebView で得た値。
+     * ロボット確認が必要なフォームは、この経路を使わず本家の WebView で利用者が送信する。
      * [onResult] は本家の応答を読んだ時点で必ず呼ぶ。送信を始めた後に呼び出し元が取り消されると戻り値は捨てられるが、
      * 本家では入室が済んでいることがあるので、結果をここで受け取って引き継ぐ。送信を始める前（順番待ちの間）の取り消しでは何も送らない。
      */
-    suspend fun enter(form: EntryForm, profile: EntryProfile, captchaToken: String? = null, onResult: (EntryResult) -> Unit = {}): EntryResult {
+    suspend fun enter(form: EntryForm, profile: EntryProfile, onResult: (EntryResult) -> Unit = {}): EntryResult {
         val charset = runCatching { Charset.forName(form.formCharset) }.getOrDefault(Charsets.UTF_8)
         val body = FormBody.Builder(charset)
             .add("room_id", form.roomId.toString())
@@ -251,14 +251,6 @@ class ShaloveClient(
             .add("name", profile.name)
             .add("sex", profile.sex.toString())
             .add("years", profile.years?.toString().orEmpty())
-            .apply {
-                if (captchaToken != null) {
-                    // どの認証が出たかでフィールド名が違うので、すべてに入れる（ブラウザも該当欄だけを送る）。
-                    add("cf-turnstile-response", captchaToken)
-                    add("h-captcha-response", captchaToken)
-                    add("g-recaptcha-response", captchaToken)
-                }
-            }
             .build()
         val url = "https://${form.host}/PreEnterRoom"
         return gated(operation = true, minIntervalMs = 0) {
@@ -436,7 +428,6 @@ class ShaloveClient(
     }
 }
 
-/** [url] はログに残っても困らないよう、部屋の pwd を伏せた形で持つ。 */
 /**
  * 本家から返ったページが部屋の一覧として読めなかった。[page] は返ったページの題名と形（[RoomListParser.describePage]）で、
  * 本家が何を返したのかを利用者が確かめられるように文に添える。
@@ -445,6 +436,7 @@ class RoomListUnavailableException(val page: String? = null) : IOException(
     "部屋の一覧を読み取れませんでした。少し待ってから更新してください" + (page?.let { "（本家の表示：$it）" } ?: ""),
 )
 
+/** [url] はログに残っても困らないよう、部屋の pwd を伏せた形で持つ。 */
 class HttpStatusException(val code: Int, url: String) : IOException("HTTP $code: ${redact(url)}") {
     val url: String = redact(url)
 
