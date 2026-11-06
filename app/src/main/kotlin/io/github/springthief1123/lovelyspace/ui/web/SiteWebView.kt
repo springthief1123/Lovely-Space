@@ -15,6 +15,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
+import io.github.springthief1123.lovelyspace.core.chat.ChatRoomHandover
 import io.github.springthief1123.lovelyspace.core.chat.ChatRoomFormParser
 import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
 import org.json.JSONObject
@@ -65,9 +66,11 @@ fun SiteWebView(
      * [onRoomOpened] と一緒に使う。
      */
     findRoomInPage: Boolean = false,
+    handover: ChatRoomHandover? = null,
 ) {
     require(Uri.parse(url).isShalove()) { "Only HTTPS shalove.net pages can be opened in SiteWebView" }
     val currentOnRoomOpened = rememberUpdatedState(onRoomOpened)
+    val currentHandover = rememberUpdatedState(handover)
     val currentScript = rememberUpdatedState(onLoadScript)
     val currentOnceScript = rememberUpdatedState(onceScript)
     val currentCaptchaOnly = rememberUpdatedState(captchaOnly)
@@ -89,7 +92,7 @@ fun SiteWebView(
                     /** チャット画面へ引き継いだら true。 */
                     private fun interceptRoom(uri: Uri?): Boolean {
                         val handler = currentOnRoomOpened.value ?: return false
-                        val room = uri?.toChatRoom(genreKey) ?: return false
+                        val room = uri?.let { currentHandover.value?.fromUrl(it.toString()) } ?: return false
                         if (!done) {
                             done = true
                             handler(room)
@@ -125,12 +128,19 @@ fun SiteWebView(
                             // ページは pwd を含むので、ログには出さない。
                             view.evaluateJavascript(PAGE_HTML_SCRIPT) { result ->
                                 val html = decodeScriptString(result) ?: return@evaluateJavascript
-                                val room = ChatRoomFormParser.parse(html, uri.toString(), genreKey) ?: return@evaluateJavascript
-                                if (interceptRoom(Uri.parse(room.pageUrl))) view.stopLoading()
+                                // 解析を待つ間に別ページへ移っていたら、古いフォームは引き継がない。
+                                if (view.url != uri.toString()) return@evaluateJavascript
+                                val policy = currentHandover.value ?: return@evaluateJavascript
+                                val room = ChatRoomFormParser.parse(html, uri.toString(), genreKey, policy) ?: return@evaluateJavascript
+                                if (!done) {
+                                    done = true
+                                    currentOnRoomOpened.value?.invoke(room)
+                                    view.stopLoading()
+                                }
                             }
                         }
                         val path = scriptPath ?: return
-                        if (!uri.isShalove() || uri.path?.endsWith(path) != true) return
+                        if (!uri.isShalove() || currentHandover.value?.acceptsPage(uri.toString()) == false || uri.path?.endsWith(path) != true) return
                         currentScript.value?.let { view.evaluateJavascript(it, null) }
                         captchaOnlyStyle?.let { view.evaluateJavascript(captchaOnlyScript(it, currentCaptchaOnly.value), null) }
                         page.ready = true
@@ -153,7 +163,7 @@ fun SiteWebView(
             view.isFocusable = shown
             view.isFocusableInTouchMode = shown
             val uri = view.url?.let(Uri::parse) ?: return@AndroidView
-            if (!uri.isShalove() || scriptPath == null || uri.path?.endsWith(scriptPath) != true) return@AndroidView
+            if (!uri.isShalove() || handover?.acceptsPage(uri.toString()) == false || scriptPath == null || uri.path?.endsWith(scriptPath) != true) return@AndroidView
             // 表示の切り替え。確認欄の無いページでは何もしない。
             captchaOnlyStyle?.let { view.evaluateJavascript(captchaOnlyScript(it, captchaOnly), null) }
             if (!page.ready) return@AndroidView
@@ -216,12 +226,6 @@ internal fun decodeScriptString(result: String?): String? =
 private fun Uri.isShalove(): Boolean =
     scheme == "https" && (host == "shalove.net" || host?.endsWith(".shalove.net") == true)
 
-private fun Uri.toChatRoom(genreKey: String): ChatRoomRef? {
-    if (!isShalove() || path?.endsWith("/2shot.php") != true) return null
-    val roomId = getQueryParameter("room_id")?.toLongOrNull() ?: return null
-    val pwd = getQueryParameter("pwd")?.takeIf { it.isNotEmpty() } ?: return null
-    return ChatRoomRef(host!!, roomId, pwd, genreKey)
-}
 
 /**
  * フォーム [formName] の各欄に値を入れる JavaScript。値が null の欄は触らない。

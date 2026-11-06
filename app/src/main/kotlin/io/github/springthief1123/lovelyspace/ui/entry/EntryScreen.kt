@@ -121,6 +121,7 @@ fun EntryScreen(
             if (showBrowser || preload) RobotCheckView(
                 url = SitePages.preEnter(host, genreKey, roomId),
                 genreKey = genreKey,
+                handover = io.github.springthief1123.lovelyspace.core.chat.ChatRoomHandover.entry(genreKey, host, roomId),
                 guide = if (entrySettings?.autoSubmit == true) {
                     "下のロボット確認を済ませてください。確認が通るとアプリが「入室する」を押します。"
                 } else {

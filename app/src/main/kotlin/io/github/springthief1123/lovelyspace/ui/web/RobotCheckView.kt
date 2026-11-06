@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
+import io.github.springthief1123.lovelyspace.core.chat.ChatRoomHandover
 import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
 import io.github.springthief1123.lovelyspace.ui.components.QuietNotice
 import org.json.JSONObject
@@ -27,6 +28,7 @@ import kotlin.math.roundToInt
 fun RobotCheckView(
     url: String,
     genreKey: String,
+    handover: ChatRoomHandover,
     /** 確認欄だけを出しているときの案内（このあと何が起きるか）。 */
     guide: String,
     onLoadScript: String?,
@@ -54,6 +56,7 @@ fun RobotCheckView(
         SiteWebView(
             url = url,
             genreKey = genreKey,
+            handover = handover,
             onLoadScript = onLoadScript,
             scriptPath = scriptPath,
             onceScript = onceScript,

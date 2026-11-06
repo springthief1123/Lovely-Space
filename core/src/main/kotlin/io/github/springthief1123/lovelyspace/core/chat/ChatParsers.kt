@@ -179,16 +179,24 @@ object EntryFormParser {
  * [pageUrl] はフォームの送信先を解決する基準で、部屋のホストは送信先から取る。
  */
 object ChatRoomFormParser {
-    fun parse(html: String, pageUrl: String, genreKey: String): ChatRoomRef? {
+    fun parse(
+        html: String,
+        pageUrl: String,
+        genreKey: String,
+        handover: ChatRoomHandover = ChatRoomHandover.reentry(genreKey),
+    ): ChatRoomRef? {
+        if (handover.genreKey != genreKey || !handover.acceptsPage(pageUrl)) return null
         val doc = Jsoup.parse(html, pageUrl)
         for (form in doc.select("form[action]")) {
-            val action = runCatching { java.net.URI(form.absUrl("action")) }.getOrNull() ?: continue
-            val host = action.host ?: continue
-            if (action.scheme != "https" || !(host == "shalove.net" || host.endsWith(".shalove.net"))) continue
-            if (action.path?.endsWith("/2shot.php") != true) continue
-            val roomId = form.selectFirst("input[name=room_id]")?.attr("value")?.trim()?.toLongOrNull() ?: continue
-            val pwd = form.selectFirst("input[name=pwd]")?.attr("value")?.trim()?.takeIf { it.isNotEmpty() } ?: continue
-            return ChatRoomRef(host, roomId, pwd, genreKey)
+            val action = form.absUrl("action")
+            if (!handover.acceptsPage(action) || runCatching { java.net.URI(action).path }.getOrNull() != "/2shot.php") continue
+            val host = runCatching { java.net.URI(action).host }.getOrNull() ?: continue
+            val roomId = form.select("input[name=room_id]").singleOrNull()?.attr("value")?.trim()?.toLongOrNull() ?: continue
+            val pwd = form.select("input[name=pwd]").singleOrNull()?.attr("value")?.trim() ?: continue
+            val genres = form.select("input[name=genre_key]")
+            if (genres.size > 1) continue
+            val observedGenre = genres.singleOrNull()?.attr("value")?.trim()
+            handover.fromForm(host, roomId, pwd, observedGenre)?.let { return it }
         }
         return null
     }
