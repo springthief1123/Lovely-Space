@@ -2,9 +2,10 @@ package io.github.springthief1123.lovelyspace.ui.create
 
 import android.app.Application
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import io.github.springthief1123.lovelyspace.core.Genres
@@ -34,8 +35,8 @@ class CreateRoomFormTest {
             LovelySpaceTheme {
                 val settings = SettingsRepository(context)
                 val vm = androidx.lifecycle.viewmodel.compose.viewModel<CreateRoomViewModel>(
-                    factory = androidx.lifecycle.viewmodel.viewModelFactory {
-                        androidx.lifecycle.viewmodel.initializer { CreateRoomViewModel(settings, PresetRepository(db, settings)) }
+                    factory = viewModelFactory {
+                        initializer { CreateRoomViewModel(settings, PresetRepository(db, settings)) }
                     })
                 CreateRoomForm(Genres.default, CreateRoomUiState(isLoaded = true), vm, {}, Modifier)
             }
