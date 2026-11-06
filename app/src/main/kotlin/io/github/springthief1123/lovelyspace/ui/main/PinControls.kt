@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.disabled
 import io.github.springthief1123.lovelyspace.data.PinAlert
 import io.github.springthief1123.lovelyspace.ui.components.QuietFilterChip
 
@@ -18,8 +19,13 @@ internal fun autoEntryNotice(on: Boolean): String =
  * オンの間は淡いローズの面で示す。入室できたら自動入室は終わり、チップはオフに戻る（[io.github.springthief1123.lovelyspace.data.PinRepository.finishAutoEntry]）。
  */
 @Composable
-internal fun AutoEntryChip(alert: PinAlert, enabled: Boolean, onToggle: (Boolean) -> Unit, modifier: Modifier = Modifier) {
+internal fun AutoEntryChip(alert: PinAlert, enabled: Boolean, onToggle: (Boolean) -> Unit, modifier: Modifier = Modifier,
+    saving: Boolean = false) {
     val on = alert == PinAlert.AUTO
-    QuietFilterChip(selected = on, onClick = { onToggle(!on) }, label = "自動入室", enabled = enabled,
-        leadingIcon = Icons.Outlined.MeetingRoom, modifier = modifier.semantics { stateDescription = if (on) "オン" else "オフ" })
+    // 保存中も押した結果の色を保つ。連打は受け付けず、読み上げにも保存中と伝える。
+    QuietFilterChip(selected = on, onClick = { if (!saving) onToggle(!on) }, label = "自動入室", enabled = enabled || saving,
+        leadingIcon = Icons.Outlined.MeetingRoom, modifier = modifier.semantics {
+            stateDescription = (if (on) "オン" else "オフ") + if (saving) "・保存中" else ""
+            if (saving) disabled()
+        })
 }

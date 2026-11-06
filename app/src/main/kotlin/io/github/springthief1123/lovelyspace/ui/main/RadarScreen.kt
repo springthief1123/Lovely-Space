@@ -69,22 +69,25 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
     val observations by app.roomLists.observations.collectAsStateWithLifecycle()
     val pacing by app.pacing.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
-    var working by remember { mutableStateOf(false) }
+    val workingKeys = remember { mutableStateMapOf<String, Boolean>() }
+    val pendingAlerts = remember { mutableStateMapOf<String, PinAlert>() }
+    val working = workingKeys.isNotEmpty()
     var error by remember { mutableStateOf<String?>(null) }
     var details by remember { mutableStateOf<Room?>(null) }
     var memoPin by rememberSaveable { mutableStateOf<String?>(null) }
     // 操作の失敗（error）を「再試行」したときに、失敗した操作そのものをやり直す。やり直せない失敗では null。
     var retry by remember { mutableStateOf<(() -> Unit)?>(null) }
     fun fail(message: String, again: (() -> Unit)? = null) { error = message; retry = again }
-    fun action(block: suspend () -> Unit) {
-        if (working) return
-        working = true
+    fun action(key: String, block: suspend () -> Unit) {
+        if (key in workingKeys) return
+        workingKeys[key] = true
+        error = null; retry = null
         scope.launch {
-            try { block(); error = null; retry = null }
+            try { block() }
             catch (e: kotlinx.coroutines.CancellationException) { throw e }
             catch (e: IllegalArgumentException) { fail(e.message ?: "設定を保存できませんでした。") }
-            catch (e: Exception) { fail("設定を保存できませんでした。もう一度お試しください。", again = { action(block) }) }
-            finally { working = false }
+            catch (e: Exception) { fail("設定を保存できませんでした。もう一度お試しください。", again = { action(key, block) }) }
+            finally { workingKeys.remove(key) }
         }
     }
     val snackbar = remember { SnackbarHostState() }
@@ -139,10 +142,14 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
         sections.forEach { (title, list) ->
             item(key = "section/$title") { QuietSectionHeader(title, "${list.size}件") }
             items(list, key = { "pin/${it.key}" }) { pin ->
-                PinCard(pin, enabled = !working && preferences.canEdit(pin.room),
+                PinCard(pin.copy(record = pin.record.copy(alert = pendingAlerts[pin.key] ?: pin.record.alert)),
+                    enabled = pin.key !in workingKeys && preferences.canEdit(pin.room), autoEntrySaving = pin.key in pendingAlerts,
                     onAutoEntry = { on ->
-                        action {
-                            app.pins.setAlert(pin.key, if (on) PinAlert.AUTO else PinAlert.NOTIFY)
+                        val alert = if (on) PinAlert.AUTO else PinAlert.NOTIFY
+                        action(pin.key) {
+                            pendingAlerts[pin.key] = alert
+                            try { app.pins.setAlert(pin.key, alert) }
+                            finally { pendingAlerts.remove(pin.key) }
                         }
                     },
                     onEnter = { onQuickEnterRoom(pin.room) },
@@ -150,8 +157,8 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                     onDetails = { details = pin.room },
                     onMemo = { memoPin = pin.key; error = null },
                     onUnpin = { preferencesVm.clearFavorite(pin.preference) },
-                    onAdopt = { room -> action { app.pins.adopt(pin, room) } },
-                    onDismissSimilar = { room -> action { app.pins.dismiss(pin.key, roomIdentity(room)) } },
+                    onAdopt = { room -> action(pin.key) { app.pins.adopt(pin, room) } },
+                    onDismissSimilar = { room -> action(pin.key) { app.pins.dismiss(pin.key, roomIdentity(room)) } },
                     onEnterSimilar = { room -> if (room.action == RoomAction.ENTER) onEnterRoom(room) else if (room.action == RoomAction.PEEK) onPeekRoom(room) else details = room })
             }
         }
@@ -160,7 +167,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
     }
     pins.firstOrNull { it.key == memoPin }?.let { pin ->
         PinMemoEditor(pin, working, error, onDismiss = { memoPin = null },
-            onSave = { memo -> action { app.pins.setMemo(pin.key, memo); memoPin = null } })
+            onSave = { memo -> action(pin.key) { app.pins.setMemo(pin.key, memo); memoPin = null } })
     }
     details?.let { room -> RoomDetailsSheet(room, preferences.isFavorite(room), preferences.canEdit(room),
         onDismiss = { details = null }, onFavorite = { preferencesVm.toggleFavorite(room) },
@@ -204,7 +211,7 @@ private fun pinStateChip(pin: PinView): Pair<String, androidx.compose.ui.graphic
 @Composable
 private fun PinCard(pin: PinView, enabled: Boolean, onAutoEntry: (Boolean) -> Unit,
     onEnter: () -> Unit, onPeek: () -> Unit, onDetails: () -> Unit, onMemo: () -> Unit, onUnpin: () -> Unit,
-    onAdopt: (Room) -> Unit, onDismissSimilar: (Room) -> Unit, onEnterSimilar: (Room) -> Unit) {
+    onAdopt: (Room) -> Unit, onDismissSimilar: (Room) -> Unit, onEnterSimilar: (Room) -> Unit, autoEntrySaving: Boolean = false) {
     val room = pin.room
     val record = pin.record
     // 一覧に載っていない（閉じた・まだ確かめていない）ピンの状態や経過時間は古いので、押して動ける表示は出さない。
@@ -244,12 +251,8 @@ private fun PinCard(pin: PinView, enabled: Boolean, onAutoEntry: (Boolean) -> Un
                 Genres[room.genreKey]?.let { MetaChip(it.label, MaterialTheme.colorScheme.onSurfaceVariant, filled = false) }
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AutoEntryChip(record.alert, enabled, onAutoEntry)
-                Text(listOfNotNull(
-                    record.vacancies.size.takeIf { it > 0 }?.let { "空き${it}回" },
-                    record.rebuilds.takeIf { it > 0 }?.let { "立て直し${it}回" },
-                ).joinToString("・"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                AutoEntryChip(record.alert, enabled, onAutoEntry, saving = autoEntrySaving)
+                Spacer(Modifier.weight(1f))
                 // 見つける画面のカードと同じ「入室する」チップ。押せる範囲は 48dp を取る。
                 if (current) cardActionLabel(room.action)?.let { label ->
                     val enter = room.action == RoomAction.ENTER

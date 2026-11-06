@@ -290,6 +290,8 @@ class PinRepository(
     suspend fun setAlert(key: String, alert: PinAlert) = mutex.withLock {
         val record = _records.value[key] ?: PinRecord(key)
         save(_records.value + (key to record.copy(alert = alert)))
+        // 観測や通知の処理待ちにせず、保存した選択を同じロック内でカードにも反映する。
+        _pins.value = _pins.value.map { if (it.key == key) it.copy(record = it.record.copy(alert = alert)) else it }
     }
 
     /**

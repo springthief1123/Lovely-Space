@@ -140,7 +140,10 @@ interface RoomPreferenceStore {
     suspend fun acknowledgePinMove(id: String) {}
 }
 
-class RoomPreferenceRepository(private val db: PresetDatabase) : RoomPreferenceStore {
+class RoomPreferenceRepository(
+    private val db: PresetDatabase,
+    private val named: (Room) -> Room? = { null },
+) : RoomPreferenceStore {
     private val dao = db.roomPreferences()
     override val preferences = dao.preferences()
     /** 移動を DB に永続化してから配信。アプリが途中で終了しても再起動後に同じイベントを復元する。 */
@@ -168,12 +171,18 @@ class RoomPreferenceRepository(private val db: PresetDatabase) : RoomPreferenceS
 
     private companion object { const val MOVE_PREFIX = "pin-move/" }
 
+    /** 登録操作でも既知の名前を保存する。満室の姿で上書きして、ピンの照合用の名前を消さない。 */
+    private fun rememberedRoom(room: Room, existing: RoomPreference?): Room {
+        val stored = existing?.takeIf { !it.stale && it.sameIdentity(room) }?.identityRoom()
+        return borrowNamed(room, stored) ?: borrowNamed(room, named(room)) ?: room
+    }
+
     override suspend fun setFavorite(room: Room, enabled: Boolean) {
         if (!enabled) return clearFavorite(roomHost(room), room.id)
         db.withTransaction {
             val existing = dao.preference(roomHost(room), room.id)
             val hidden = existing?.takeIf { it.sameIdentity(room) }?.hidden == true
-            dao.put(preferenceFromRoom(room, favorite = true, hidden = hidden))
+            dao.put(preferenceFromRoom(rememberedRoom(room, existing), favorite = true, hidden = hidden))
         }
     }
 
@@ -182,7 +191,7 @@ class RoomPreferenceRepository(private val db: PresetDatabase) : RoomPreferenceS
         db.withTransaction {
             val existing = dao.preference(roomHost(room), room.id)
             val favorite = existing?.takeIf { it.sameIdentity(room) }?.favorite == true
-            dao.put(preferenceFromRoom(room, favorite = favorite, hidden = true))
+            dao.put(preferenceFromRoom(rememberedRoom(room, existing), favorite = favorite, hidden = true))
         }
     }
 

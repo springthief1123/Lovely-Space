@@ -43,6 +43,31 @@ class RoomPreferenceRepositoryTest {
         message = message,
     )
 
+    @Test fun pinningAFullRoomSavesItsPreviouslySeenNameAndHidingKeepsIt() = runTest {
+        val db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), PresetDatabase::class.java).build()
+        try {
+            val known = room(42, "zenkoku", "合成の部屋主", message = "合成の待機メッセージです")
+            val full = known.copy(status = RoomStatus.FULL, action = RoomAction.NONE, name = null, gender = Gender.UNKNOWN, age = null)
+            val repo = RoomPreferenceRepository(db, named = { known })
+            repo.setFavorite(full, true)
+            assertEquals(known.name, repo.preferences.first().single().identityRoom().name)
+            // 後で名前キャッシュがなくても、満室の姿で非表示にして照合用の名前を消さない。
+            val withoutCache = RoomPreferenceRepository(db)
+            withoutCache.setHidden(full, true)
+            val saved = withoutCache.preferences.first().single()
+            assertTrue(saved.favorite)
+            assertTrue(saved.hidden)
+            assertEquals(known.name, saved.identityName)
+            assertEquals(known.name, saved.snapshotName)
+            assertEquals(RoomStatus.FULL.name, saved.snapshotStatus)
+            // IDが同じでも待機メッセージが違うと名前を借りない。
+            repo.setFavorite(full.copy(id = 43, message = "別の合成メッセージ"), true)
+            assertNull(repo.preferences.first().single { it.roomId == 43L }.identityName)
+            repo.setFavorite(full.copy(message = "別人の合成メッセージ"), true)
+            assertNull(repo.preferences.first().single { it.roomId == 42L }.identityName)
+        } finally { db.close() }
+    }
+
     @Test fun persistsFavoritesAndHiddenSeparatelyByHostAndRejectsReusedIdentity() = runTest {
         val context = ApplicationProvider.getApplicationContext<Application>()
         val name = "room-preferences-${UUID.randomUUID()}.db"

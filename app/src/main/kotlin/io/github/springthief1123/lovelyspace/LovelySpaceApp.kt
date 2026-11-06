@@ -200,7 +200,7 @@ class LovelySpaceApp : Application() {
             // 自動入室をオンにした名前で追う人の新しい部屋（立て直しを含む）は、順番待ちと同じ歯止めで入室画面を開く。
             onNamedRoom = { rule, room -> autoEntry.offerNamed(rule, room) })
     }
-    val roomPreferences: RoomPreferenceRepository by lazy { RoomPreferenceRepository(database) }
+    val roomPreferences: RoomPreferenceRepository by lazy { RoomPreferenceRepository(database, named = { roomLists.lastNamed(it) }) }
     /** NG ワードのセット。見つける・レーダーで、ON のセットに当たる部屋を最初から外す。 */
     val ngWords: io.github.springthief1123.lovelyspace.data.NgWordRepository by lazy { io.github.springthief1123.lovelyspace.data.NgWordRepository(database) }
 
