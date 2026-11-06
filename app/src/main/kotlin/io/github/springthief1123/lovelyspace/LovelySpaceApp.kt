@@ -78,11 +78,11 @@ class LovelySpaceApp : Application() {
         }
         // 一覧を読むたびに、保存・非表示の部屋が立て直されていれば新しい部屋へ移す。
         appScope.launch { roomPreferences.followRebuilds(roomLists.observations) }
-        // ピンが立て直しで新しい部屋へ移っても、自動で入室の回数（5 回まで）は引き継ぐ。
+        // 自動で入室した部屋に入れたら、その 1 件の自動入室を終える（ピンは「空いたら知らせる」に戻す）。
+        // 追い出されたり退室したりして部屋がまた空いても、入り直し続けない（Yuya の決定、2026-11-05）。
         appScope.launch {
-            roomPreferences.moved.collect { (from, to) ->
-                try { autoEntry.moveTarget(AutoEntryController.pinTarget(from), AutoEntryController.pinTarget(roomIdentity(to))) }
-                catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { }
+            autoEntry.finished.collect { target ->
+                try { finishAutoEntry(target) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { }
             }
         }
         // 背景で巡回する計画か、待っている（または通知を出し終えていない）順番待ちがあるときだけ周期実行を登録し、
@@ -110,6 +110,28 @@ class LovelySpaceApp : Application() {
             val genre = io.github.springthief1123.lovelyspace.core.Genres[pin.room.genreKey] ?: return@forEach
             // 同時に待てる数を超えたら、その分は一覧の巡回と新着の確認だけで追う。
             runCatching { waitlist.register(pin.room, pin.page?.let { io.github.springthief1123.lovelyspace.core.RoomQuery(genre, page = it) }, forPin = true) }
+        }
+    }
+
+    /**
+     * 入室できた部屋（自動でも手でも）。自動で入室画面を開いた 1 件と、その部屋の「自動で入室」のピンの自動入室を終える。
+     */
+    fun onEnteredRoom(room: io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef) {
+        autoEntry.entered(room)
+        appScope.launch {
+            try { pins.finishAutoEntry(room.genreKey, room.roomId) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { }
+        }
+    }
+
+    /** 入室できて自動入室を終える 1 件（[AutoEntryController.finished]）をオフにする。 */
+    private suspend fun finishAutoEntry(target: String) {
+        when {
+            target.startsWith("pin/") -> {
+                val key = target.removePrefix("pin/")
+                if (pins.record(key).alert == PinAlert.AUTO) pins.setAlert(key, PinAlert.NOTIFY)
+            }
+            target.startsWith("candidate/") -> radar.setCandidateAutoEnter(target.removePrefix("candidate/"), false)
+            target.startsWith("waitlist/") -> waitlist.setAutoEnter(target.removePrefix("waitlist/"), false)
         }
     }
 
@@ -181,7 +203,6 @@ class LovelySpaceApp : Application() {
     /** 順番待ちの自動入室。有効なら、空いた部屋の入室画面を画面側に開かせる。 */
     val autoEntry: io.github.springthief1123.lovelyspace.data.AutoEntryController by lazy {
         io.github.springthief1123.lovelyspace.data.AutoEntryController(
-            startedAt = { settings.entrySettings.first().autoEntryStartedAt },
             persistence = io.github.springthief1123.lovelyspace.data.AutoEntryStore(
                 getSharedPreferences(io.github.springthief1123.lovelyspace.data.AutoEntryStore.PREFS, MODE_PRIVATE)),
         )
@@ -207,8 +228,8 @@ class LovelySpaceApp : Application() {
         PinRepository(pinStore, roomPreferences, roomLists,
             onEvent = { event ->
                 // 自動入室は通知より先に始める。通知の失敗で入室を遅らせない。
-                if (event is PinEvent.Opened && !event.replayed) {
-                    try { autoEntry.offerPin(event.pin.key, event.registered, event.pin.room, event.autoEnter) }
+                if (event is PinEvent.Opened && !event.replayed && event.autoEnter) {
+                    try { autoEntry.offerPin(event.pin.key, event.registered, event.pin.room) }
                     catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { }
                 }
                 event.toNotification()?.let { notifier.post(it) }

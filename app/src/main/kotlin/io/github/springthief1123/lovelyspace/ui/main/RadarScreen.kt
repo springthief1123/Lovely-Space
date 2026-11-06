@@ -232,7 +232,6 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                         onAlert = { alert ->
                             if (alert != PinAlert.OFF) requestNotifications()
                             action {
-                                if (alert == PinAlert.AUTO) app.autoEntry.resetTarget(AutoEntryController.pinTarget(pin.key))
                                 app.pins.setAlert(pin.key, alert)
                             }
                         },
@@ -260,7 +259,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                         switchEnabled = state.loaded && !working,
                         onEnabled = { enabled -> action { app.radar.setCandidateEnabled(rule.id, enabled) } },
                         status = (if (found == null) "まだ確認していません" else "${formatObservationTime(found.at)}・${found.pagesRead}/${found.lastPage}ページ分") +
-                            (if (rule.autoEnterActive(now)) "・新しい部屋に自動で入室（${formatObservationTime(rule.autoEnterUntil)}まで）" else "") +
+                            (if (rule.autoEnterActive(now)) "・新しい部屋に自動で入室" else "") +
                             if (rule.notify) "" else "・通知しない",
                         matches = found?.rooms?.size,
                         onMatches = { found?.let { result = RadarRoomsDisplay("いま一致している部屋", it.at, it::pageOf, "${it.pagesRead}/${it.lastPage}ページ分の一覧情報", it.rooms) } },
@@ -274,8 +273,8 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                             },
                         ) + (if (rule.mode != CandidateMode.EXACT_NAME) emptyList<QuietMenuItem>() else if (rule.autoEnterActive(now))
                             listOf(QuietMenuItem("自動入室をやめる", enabled = state.loaded && !working) { action { app.radar.setCandidateAutoEnter(rule.id, false) } })
-                        else listOf(QuietMenuItem("新しい部屋に自動で入室する（${AutoEntryController.PINNED_MS / 3_600_000}時間）", enabled = state.loaded && !working && rule.enabled) {
-                            action { app.autoEntry.resetTarget(AutoEntryController.candidateTarget(rule.id)); app.radar.setCandidateAutoEnter(rule.id, true) }
+                        else listOf(QuietMenuItem("新しい部屋に自動で入室する（入室できたら止まる）", enabled = state.loaded && !working && rule.enabled) {
+                            action { app.radar.setCandidateAutoEnter(rule.id, true) }
                         })) + listOf(
                             QuietMenuItem("条件を削除", enabled = state.loaded && !working, destructive = true) { error = null; deletingCandidate = rule },
                         ),
@@ -474,11 +473,10 @@ private fun PinCard(pin: PinView, expanded: Boolean, enabled: Boolean, now: Long
                 Genres[room.genreKey]?.let { MetaChip(it.label, MaterialTheme.colorScheme.onSurfaceVariant, filled = false) }
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PinAlertChip(record.alert, record.autoActive(now), enabled, onAlert)
+                PinAlertChip(record.alert, enabled, onAlert)
                 Text(listOfNotNull(
                     record.vacancies.size.takeIf { it > 0 }?.let { "空き${it}回" },
                     record.rebuilds.takeIf { it > 0 }?.let { "立て直し${it}回" },
-                    if (record.alert == PinAlert.AUTO && record.autoActive(now)) record.autoUntil?.let { "${formatObservationTime(it)}まで自動" } else null,
                 ).joinToString("・"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 // 見つける画面のカードと同じ「入室する」チップ。押せる範囲は 48dp を取る。

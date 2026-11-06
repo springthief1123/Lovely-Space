@@ -14,7 +14,7 @@ enum class PinAlert {
     OFF,
     /** 空いた・似た部屋が建ったら知らせる。 */
     NOTIFY,
-    /** 空いたら入室画面を自動で開く（[PinRecord.autoUntil] まで。歯止めは [AutoEntryController]）。 */
+    /** 空いたら入室画面を自動で開く（入室できたら [NOTIFY] に戻る。歯止めは [AutoEntryController]）。 */
     AUTO,
 }
 
@@ -38,8 +38,6 @@ data class PendingPinNotice(
 data class PinRecord(
     val key: String,
     val alert: PinAlert = PinAlert.OFF,
-    /** 自動で入室をオンにした期限。過ぎたら「空いたら知らせる」と同じに扱う。 */
-    val autoUntil: Long? = null,
     val memo: String = "",
     /** 空いた（満室・閉じた → 待機中）時刻。新しい [MAX_VACANCIES] 件まで。 */
     val vacancies: List<Long> = emptyList(),
@@ -57,7 +55,7 @@ data class PinRecord(
     /** 保存済みだが通知処理が完了していない空き・類似部屋イベント。 */
     val pendingNotices: List<PendingPinNotice> = emptyList(),
 ) {
-    fun autoActive(now: Long): Boolean = alert == PinAlert.AUTO && (autoUntil ?: 0L) > now
+    val autoEnters: Boolean get() = alert == PinAlert.AUTO
     /** 知らせるか（自動で入室の期限が過ぎても知らせる）。 */
     val notifies: Boolean get() = alert != PinAlert.OFF
 
@@ -195,8 +193,18 @@ class PinRepository(
     suspend fun setAlert(key: String, alert: PinAlert) = mutex.withLock {
         if (alert != PinAlert.OFF) requireAlertSlot(key)
         val record = _records.value[key] ?: PinRecord(key)
-        save(_records.value + (key to record.copy(alert = alert, autoUntil = if (alert == PinAlert.AUTO) now() + AutoEntryController.PINNED_MS else null,
+        save(_records.value + (key to record.copy(alert = alert,
             pendingNotices = if (alert == PinAlert.OFF) emptyList() else record.pendingNotices)))
+    }
+
+    /**
+     * [genreKey] の部屋 [roomId] に入室できたとき。その部屋の「自動で入室」のピンを「空いたら知らせる」に戻す。
+     * 自動で開いた入室画面からでなく手で入室したときも戻し、退室・追い出しで部屋がまた空いても自動で入り直さない（Yuya の決定、2026-11-05）。
+     */
+    suspend fun finishAutoEntry(genreKey: String, roomId: Long) = mutex.withLock {
+        val keys = _pins.value.filter { it.room.genreKey == genreKey && it.room.id == roomId }.map { it.key }
+            .filter { _records.value[it]?.alert == PinAlert.AUTO }
+        if (keys.isNotEmpty()) save(_records.value + keys.associateWith { _records.value.getValue(it).copy(alert = PinAlert.NOTIFY) })
     }
 
     private fun requireAlertSlot(key: String) {
@@ -279,7 +287,7 @@ class PinRepository(
                 val view = PinView(pref, record, state, room, window?.roomPages?.get(key), similar, listed = observed != null)
                 if (record.notifies && seen == PinState.OPEN && before.state != null && before.state != PinState.OPEN && observed != null) {
                     val notice = PendingPinNotice("pin-$key-$at", PinNoticeType.OPENED, room, at, registered = identity,
-                        autoEnter = record.autoActive(at))
+                        autoEnter = record.autoEnters)
                     record = record.copy(pendingNotices = record.pendingNotices + notice)
                     freshIds += notice.id
                 }
@@ -404,10 +412,20 @@ class PinStore(private val prefs: android.content.SharedPreferences) : PinPersis
         set(value) { prefs.edit().putBoolean(MIGRATED, value).apply() }
 
     private fun encode(r: PinRecord) = JSONObject()
-        .put("key", r.key).put("alert", r.alert.name).put("autoUntil", r.autoUntil).put("memo", r.memo)
+        .put("key", r.key).put("alert", r.alert.name).put("memo", r.memo)
         .put("vacancies", JSONArray(r.vacancies)).put("rebuilds", r.rebuilds).put("dismissed", JSONArray(r.dismissed.toList()))
         .put("state", r.state?.name).put("stateAt", r.stateAt).put("suggested", r.suggested).put("removedAt", r.removedAt)
         .put("pending", JSONArray(r.pendingNotices.map(::encodePending)))
+
+    /**
+     * 以前は「自動で入室」に 3 時間の期限（autoUntil）があり、過ぎたものは「空いたら知らせる」として表示していた。
+     * 期限をなくしたので、期限の過ぎたものは見たとおり「空いたら知らせる」に戻し、知らないうちに自動入室が再開しないようにする。
+     */
+    private fun decodeAlert(o: JSONObject): PinAlert {
+        val alert = PinAlert.entries.firstOrNull { it.name == o.optString("alert") } ?: PinAlert.OFF
+        val until = if (o.has("autoUntil") && !o.isNull("autoUntil")) o.getLong("autoUntil") else null
+        return if (alert == PinAlert.AUTO && until != null && until <= System.currentTimeMillis()) PinAlert.NOTIFY else alert
+    }
 
     private fun decode(o: JSONObject): PinRecord {
         fun long(key: String) = if (o.isNull(key)) null else o.getLong(key)
@@ -416,8 +434,7 @@ class PinStore(private val prefs: android.content.SharedPreferences) : PinPersis
         val dismissed = o.optJSONArray("dismissed")
         return PinRecord(
             key = o.getString("key"),
-            alert = PinAlert.entries.firstOrNull { it.name == o.optString("alert") } ?: PinAlert.OFF,
-            autoUntil = long("autoUntil"),
+            alert = decodeAlert(o),
             memo = o.optString("memo"),
             vacancies = vacancies?.let { a -> (0 until a.length()).map { a.getLong(it) } }.orEmpty(),
             rebuilds = o.optInt("rebuilds"),
