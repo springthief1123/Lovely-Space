@@ -28,6 +28,7 @@ data class CreateRoomUiState(
     /** 1〜47 都道府県, 48 海外, null は秘密。 */
     val prefecture: Int? = null,
     val message: String = "",
+    val email: String = "",
     /** 作成できた部屋。画面はこれを見てチャット画面へ移る。 */
     val created: ChatRoomRef? = null,
 ) {
@@ -47,6 +48,12 @@ data class CreateRoomUiState(
             "年齢（${MIN_YEARS}〜${MAX_YEARS}、空欄なら秘密）".takeIf { !yearsValid },
             "待機メッセージ（${MESSAGE_MAX_WIDTH}文字以内、全角は2文字）".takeIf { !messageValid },
         )
+
+    /** 本家の作成フォームへ渡す値。認証と公開設定の判断は本家に任せる。 */
+    val formFields: Map<String, String> get() = mapOf(
+        "name" to name.trim(), "sex" to sex.toString(), "years" to yearsValue?.toString().orEmpty(),
+        "prefecture" to prefecture?.toString().orEmpty(), "message" to message.trim(), "email" to email.trim(),
+    )
 
     companion object {
         const val MIN_YEARS = 18
@@ -74,6 +81,7 @@ class CreateRoomViewModel(private val settings: SettingsRepository, val presets:
                     years = profile?.years?.toString().orEmpty(),
                     prefecture = if (savedProfile != null) savedProfile.prefecture else details.prefecture,
                     message = savedMessage?.message ?: details.message,
+                    email = details.email,
                 )
             }
         }
@@ -83,6 +91,7 @@ class CreateRoomViewModel(private val settings: SettingsRepository, val presets:
     fun applyMessage(preset: MessagePreset) = _state.update { it.copy(message = preset.message) }
 
     fun setName(v: String) = _state.update { it.copy(name = v) }
+    fun setEmail(v: String) = _state.update { it.copy(email = v) }
     fun setSex(v: Int) = _state.update { it.copy(sex = v) }
     fun setYears(v: String) = _state.update { it.copy(years = v.filter(Char::isDigit).take(2)) }
     fun setPrefecture(v: Int?) = _state.update { it.copy(prefecture = v) }
@@ -95,7 +104,7 @@ class CreateRoomViewModel(private val settings: SettingsRepository, val presets:
         val s = _state.value
         viewModelScope.launch {
             quietly { settings.setLastEntryProfile(EntryProfile(s.name.trim(), s.sex, s.yearsValue)) }
-            quietly { settings.setLastRoomDetails(RoomDetails(s.prefecture, s.message.trim())) }
+            quietly { settings.setLastRoomDetails(RoomDetails(s.prefecture, s.message.trim(), s.email.trim())) }
         }
     }
 
@@ -110,3 +119,5 @@ class CreateRoomViewModel(private val settings: SettingsRepository, val presets:
 
     fun onCreated(room: ChatRoomRef) = _state.update { it.copy(created = room) }
 }
+
+internal const val CREATE_ROOM_PUBLIC_NOTICE = "公開ルームとして作成され、誰でも会話を覗けます。非公開にできるのは、本家の条件を満たす会員のみです。"

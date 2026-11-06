@@ -93,25 +93,24 @@ fun CreateRoomScreen(genre: Genre, onBack: () -> Unit, onCreated: (ChatRoomRef) 
         Box(modifier) {
             // 部屋作成は毎回ロボット確認があるので、入力している間に本家の作成画面を見せずに読み込み、確認を先に進めておく。
             // 先読みから表示へ移っても同じ WebView を使い続けるよう、呼び出す場所は 1 つにする。
-            if (showBrowser || state.isLoaded) RobotCheckView(
-                url = url,
-                genreKey = genre.key,
-                guide = "下のロボット確認を済ませてから、作成のボタンを押してください。入力した内容はそのまま送られます。",
-                onLoadScript = prefillFormScript(
-                    "makeroom",
-                    mapOf(
-                        "name" to state.name.trim(),
-                        "sex" to state.sex.toString(),
-                        "years" to state.yearsValue?.toString().orEmpty(),
-                        "prefecture" to state.prefecture?.toString().orEmpty(),
-                        "message" to state.message.trim(),
+            if (showBrowser || state.isLoaded) Column(Modifier.fillMaxSize()) {
+                if (showBrowser) Text(CREATE_ROOM_PUBLIC_NOTICE,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp))
+                RobotCheckView(
+                    url = url,
+                    genreKey = genre.key,
+                    guide = "下のロボット確認を済ませてから、作成のボタンを押してください。入力した内容はそのまま送られます。",
+                    onLoadScript = prefillFormScript(
+                        "makeroom",
+                        state.formFields,
                     ),
-                ),
-                scriptPath = "/PreMakeRoom",
-                onRoomOpened = vm::onCreated,
-                shown = showBrowser,
-                modifier = Modifier.fillMaxSize(),
-            )
+                    scriptPath = "/PreMakeRoom",
+                    onRoomOpened = vm::onCreated,
+                    shown = showBrowser,
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                )
+            }
             if (!showBrowser && !state.isLoaded) {
                 // 前回の値を読み終えるまでは入力欄を出さない（読み込みで入力が上書きされないように）。
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -136,6 +135,7 @@ internal fun CreateRoomForm(genre: Genre, state: CreateRoomUiState, vm: CreateRo
         ) {
             // 見出しはツールバーの「部屋を作る」に任せ、本文ではどのジャンルに作るかを出す。
             Text("ジャンル：${genre.label}", style = MaterialTheme.typography.titleSmall)
+            Text(CREATE_ROOM_PUBLIC_NOTICE, style = MaterialTheme.typography.bodyMedium)
             QuietPanel {
                 Text("あなたのプロフィール", style = MaterialTheme.typography.titleSmall)
                 ProfilePresetPicker(profiles, onSelect = vm::applyProfile)
@@ -177,6 +177,14 @@ internal fun CreateRoomForm(genre: Genre, state: CreateRoomUiState, vm: CreateRo
                 )
 
                 PrefectureField(state.prefecture, vm::setPrefecture)
+                OutlinedTextField(
+                    value = state.email,
+                    onValueChange = vm::setEmail,
+                    label = { Text("メールアドレス（任意）") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+                    modifier = Modifier.fillMaxWidth(),
+                )
 
             }
             QuietPanel {

@@ -89,6 +89,7 @@ class SettingsRepository(private val context: Context) : RoomListPreferenceStore
     private val entryYearsKey = intPreferencesKey("entry_years")
     private val roomPrefectureKey = intPreferencesKey("room_prefecture")
     private val roomMessageKey = stringPreferencesKey("room_message")
+    private val roomEmailKey = stringPreferencesKey("room_email")
     private val notificationPreviewKey = stringPreferencesKey("notification_preview")
     private val minIntervalKey = longPreferencesKey("pacing_min_interval_ms")
     private val hotKey = longPreferencesKey("pacing_hot_ms")
@@ -262,9 +263,9 @@ class SettingsRepository(private val context: Context) : RoomListPreferenceStore
         }
     }
 
-    /** 前回の部屋作成で使った都道府県（null は秘密）と待機メッセージ。 */
+    /** 前回の部屋作成で使った都道府県（null は秘密）・待機メッセージ・任意のメール。端末内だけに保存する。 */
     val lastRoomDetails: Flow<RoomDetails> = context.dataStore.data.map { prefs ->
-        RoomDetails(prefecture = prefs[roomPrefectureKey], message = prefs[roomMessageKey].orEmpty())
+        RoomDetails(prefecture = prefs[roomPrefectureKey], message = prefs[roomMessageKey].orEmpty(), email = prefs[roomEmailKey].orEmpty())
     }
 
     suspend fun setLastRoomDetails(details: RoomDetails) {
@@ -272,6 +273,7 @@ class SettingsRepository(private val context: Context) : RoomListPreferenceStore
             val prefecture = details.prefecture
             if (prefecture != null) it[roomPrefectureKey] = prefecture else it.remove(roomPrefectureKey)
             it[roomMessageKey] = details.message
+            it[roomEmailKey] = details.email
         }
     }
 }
@@ -283,4 +285,4 @@ class SettingsRepository(private val context: Context) : RoomListPreferenceStore
  */
 data class EntrySettings(val fromNotification: Boolean = true, val autoSubmit: Boolean = true)
 
-data class RoomDetails(val prefecture: Int?, val message: String)
+data class RoomDetails(val prefecture: Int?, val message: String, val email: String = "")
