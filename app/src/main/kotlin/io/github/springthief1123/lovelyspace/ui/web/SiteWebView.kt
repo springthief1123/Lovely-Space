@@ -6,10 +6,15 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.view.View
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -72,6 +77,11 @@ fun SiteWebView(
     val currentOnceScript = rememberUpdatedState(onceScript)
     val currentCaptchaOnly = rememberUpdatedState(captchaOnly)
     val currentShown = rememberUpdatedState(shown)
+    val chooser = remember { FileChooserProgress() }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        chooser.finish(WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data))
+    }
+    DisposableEffect(chooser) { onDispose { chooser.cancel() } }
     val page = remember { PageProgress() }
     AndroidView(
         modifier = modifier,
@@ -83,6 +93,26 @@ fun SiteWebView(
                 settings.allowFileAccess = false
                 settings.allowContentAccess = false
                 settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                webChromeClient = object : WebChromeClient() {
+                    override fun onShowFileChooser(
+                        webView: WebView,
+                        filePathCallback: ValueCallback<Array<Uri>>,
+                        fileChooserParams: FileChooserParams,
+                    ): Boolean {
+                        // 先読み中には開かない。選択中の依頼を別のフォームの依頼で上書きしない。
+                        if (!currentShown.value || !chooser.begin(filePathCallback)) {
+                            filePathCallback.onReceiveValue(null)
+                            return true
+                        }
+                        try {
+                            // accept・複数選択など、本家の input の条件は Android の選択画面へ渡す。
+                            filePicker.launch(fileChooserParams.createIntent())
+                        } catch (_: ActivityNotFoundException) {
+                            chooser.finish(null)
+                        }
+                        return true
+                    }
+                }
                 webViewClient = object : WebViewClient() {
                     private var done = false
 
@@ -172,8 +202,34 @@ fun SiteWebView(
             view.evaluateJavascript(hiddenFlagScript(true), null)
             page.runOnce(view, onceScript)
         },
-        onRelease = { it.destroy() },
+        onRelease = { chooser.cancel(); it.webChromeClient = null; it.destroy() },
     )
+}
+
+/** 選択結果は本家のフォームに一度だけ返し、URIや画像をアプリ内へ保存しない。 */
+private class FileChooserProgress {
+    private var callback: ValueCallback<Array<Uri>>? = null
+    private var inFlight = false
+
+    fun begin(next: ValueCallback<Array<Uri>>): Boolean {
+        if (inFlight) return false
+        callback = next
+        inFlight = true
+        return true
+    }
+
+    fun finish(uris: Array<Uri>?) {
+        val pending = callback
+        callback = null
+        inFlight = false
+        pending?.onReceiveValue(uris)
+    }
+
+    fun cancel() {
+        val pending = callback
+        callback = null
+        pending?.onReceiveValue(null)
+    }
 }
 
 /** 画面を隠しているかをページに伝え、見せたら [autoSubmitScript] の自動送信を確かめ直す JavaScript。 */
