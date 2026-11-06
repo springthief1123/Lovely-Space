@@ -373,6 +373,26 @@ class SearchViewModelTest {
         } finally { Dispatchers.resetMain() }
     }
 
+    @Test fun visibleOlderPagesArePrioritizedWithoutRepeatingFreshOrFirstPage() {
+        val genre = Genres.default
+        val first = room(301)
+        val second = room(201)
+        val third = room(101)
+        val window = RoomPageWindow()
+            .observe(page(genre.key, 1, listOf(first)).copy(lastPage = 3), 1)
+            .observe(page(genre.key, 2, listOf(second)).copy(lastPage = 3), 2)
+            .observe(page(genre.key, 3, listOf(third)).copy(lastPage = 3), 3)
+        val p2 = RoomQuery(genre, page = 2)
+        val p3 = RoomQuery(genre, page = 3)
+        val visible = setOf(roomIdentity(first), roomIdentity(second), roomIdentity(third))
+        val checked = mapOf(p2 to 9_000L, p3 to 11_000L)
+        assertEquals(p2, focusedRoomPage(window, visible, genre, checked, 20_000L, 5_000L))
+        assertEquals(p3, focusedRoomPage(window, visible, genre, checked + (p2 to 19_000L), 20_000L, 5_000L))
+        assertNull(focusedRoomPage(window, visible, genre, mapOf(p2 to 19_000L, p3 to 18_000L), 20_000L, 5_000L))
+        assertNull(focusedRoomPage(window, setOf(roomIdentity(first)), genre, checked, 20_000L, 5_000L))
+        assertNull(focusedRoomPage(window, emptySet(), genre, checked, 20_000L, 5_000L))
+    }
+
     @Test fun readingMoreFetchesTheFirstPageWhenOnlyALaterPageCameFromOtherFeatures() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {
