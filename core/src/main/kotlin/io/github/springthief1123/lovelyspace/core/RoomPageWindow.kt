@@ -41,7 +41,9 @@ data class RoomPageWindow(
         val nextRevision = observationRevision ?: revision + 1
         // キャッシュを再利用した呼び出しを新たな観測として数えない。
         if (observationRevision != null && nextRevision <= (revisions[page.page] ?: Long.MIN_VALUE)) return this
-        val limit = if (nextRevision >= revision && page.rowsComplete) page.lastPage.coerceAtLeast(1) else maxOf(lastPage, page.lastPage, page.page)
+        val limit = if (nextRevision < revision) lastPage
+            else if (page.rowsComplete) page.lastPage.coerceAtLeast(1)
+            else maxOf(lastPage, page.lastPage, page.page)
         val seen = page.rooms.mapTo(HashSet(), ::roomIdentity)
         val closed = if (page.rowsComplete) closedRange(page.rooms) else null
         // このページの範囲にあるのに載っていない部屋は閉じた。このページより前に読んだページからも外す。
