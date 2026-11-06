@@ -310,7 +310,7 @@ private fun PinMemoEditor(pin: PinView, working: Boolean, error: String?, onDism
 @Composable
 private fun SimilarRoomBlock(candidate: SimilarRoom, enabled: Boolean, onAdopt: (Room) -> Unit, onDismiss: (Room) -> Unit, onOpen: (Room) -> Unit) {
     val room = candidate.room
-    androidx.compose.material3.Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+    androidx.compose.material3.Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = LovelyShapes.control, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             RoomCardHeading(room, placeholder = "名前の見えない部屋", elapsed = room.elapsed)
             Text("${statusLabel(room.status)}・待機メッセージが${(candidate.similarity * 100).roundToInt()}%同じ部屋が建ちました", style = MaterialTheme.typography.bodySmall,
