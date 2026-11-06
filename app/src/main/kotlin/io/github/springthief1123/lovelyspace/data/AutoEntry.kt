@@ -18,7 +18,7 @@ import kotlinx.coroutines.sync.withLock
  * 空きを見つけたら [requests] に入室画面を開く依頼を出し、画面側がそれを受けて入力済みの入室画面を「自動」で開く。
  *
  * 入室は既定ではワンタップまでで、自動にするのは利用者が 1 件ずつオンにしたものだけ（Yuya の決定、2026-11-05）。
- * - ピンの知らせ方「自動で入室」（[offerPin]）
+ * - ピンの「自動入室」（[offerPin]）
  * - 名前で追う 1 件（[CandidateRule.autoEnterActive]、名前が完全に一致する新しい部屋。[offerNamed]）
  * - 以前の順番待ちで 1 件ずつオンにしたもの（[WaitlistEntry.autoEnter]。[offer]）
  * 回数や期限では止めない。代わりに、その部屋へ入室できたら（[entered]）その 1 件の自動入室を終え（[finished]）、

@@ -60,7 +60,7 @@ internal fun observedRoom(observations: Collection<ObservedRoomPage>, genreKey: 
 
 /**
  * 部屋の中（トーク画面・公開ルーム）の右上に置くメニュー。長押しメニューと同じパネルで、
- * 部屋主の名前・待機メッセージと、ピン・知らせ方を出す。部屋の情報は取得済みの一覧から探すので、一覧で見ていない部屋では選べない。
+ * 部屋主の名前・待機メッセージと、ピン・自動入室を出す。部屋の情報は取得済みの一覧から探すので、一覧で見ていない部屋では選べない。
  */
 @Composable
 internal fun RoomMenuButton(genreKey: String, roomId: Long, fallbackTitle: String, onNotice: (String) -> Unit, waitingMessage: String? = null) {
@@ -73,6 +73,7 @@ internal fun RoomMenuButton(genreKey: String, roomId: Long, fallbackTitle: Strin
     )
     val preferences by preferencesVm.state.collectAsStateWithLifecycle()
     val quickActions = rememberRoomQuickActions(onNotice)
+    val askNotifications = rememberPinNotificationPrompt()
     var open by remember { mutableStateOf(false) }
 
     val items = if (room == null) {
@@ -85,6 +86,7 @@ internal fun RoomMenuButton(genreKey: String, roomId: Long, fallbackTitle: Strin
             RoomMenuItem(if (favorite) "ピンを外す" else "ピンする",
                 if (favorite) Icons.Filled.PushPin else Icons.Outlined.PushPin,
                 enabled = !preferences.loading && preferences.canEdit(room)) {
+                if (!favorite) askNotifications()
                 preferencesVm.toggleFavorite(room)
             },
         ) + quickActions(room, null)

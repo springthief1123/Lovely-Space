@@ -84,8 +84,8 @@ fun EntrySettingsScreen(onBack: () -> Unit) {
                 }
                 item {
                     Text(
-                        "空いた部屋に自動で入室するかは、ピンごとに知らせ方を「自動で入室」にして選びます。" +
-                            "アプリで一覧などを見ている間だけ、待機メッセージがピンしたときと同じ部屋に入り、入室できたらそのピンは「空いたら知らせる」に戻ります。",
+                        "空いた部屋に自動で入室するかは、ピンのタブでピンごとに「自動入室」をオンにして選びます。" +
+                            "アプリで一覧などを見ている間だけ、待機メッセージがピンしたときと同じ部屋に入り、入室できたらそのピンの自動入室はオフに戻ります。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 10.dp),

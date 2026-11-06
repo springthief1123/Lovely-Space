@@ -279,7 +279,7 @@ class SettingsRepository(private val context: Context) : RoomListPreferenceStore
 /**
  * [fromNotification]: 順番待ちの空きの通知から開いたら、入力済みのまま入室まで進める。
  * [autoSubmit]: ロボット確認がある本家の入室画面で、送信ボタンが押せるようになったらアプリが押す。
- * 空いた部屋への自動入室はここでは選ばず、ピンごとの知らせ方「自動で入室」で選ぶ（Yuya の決定、2026-11-05）。
+ * 空いた部屋への自動入室はここでは選ばず、ピンごとの「自動入室」で選ぶ（Yuya の決定、2026-11-05）。
  */
 data class EntrySettings(val fromNotification: Boolean = true, val autoSubmit: Boolean = true)
 

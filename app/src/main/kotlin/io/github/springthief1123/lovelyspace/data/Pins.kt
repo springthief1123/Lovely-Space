@@ -9,10 +9,11 @@ import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** ピンした部屋の知らせ方。 */
+/**
+ * ピンした部屋の知らせ方。ピンはどれも空いた・似た部屋が建ったら知らせ、利用者が選ぶのは自動で入室するかだけ（Yuya の決定、2026-11-06）。
+ * 以前の「知らせない」（OFF）は読み込むと [NOTIFY] になる。
+ */
 enum class PinAlert {
-    /** 見張って記録するだけ。 */
-    OFF,
     /** 空いた・似た部屋が建ったら知らせる。 */
     NOTIFY,
     /** 空いたら入室画面を自動で開く（入室できたら [NOTIFY] に戻る。歯止めは [AutoEntryController]）。 */
@@ -38,7 +39,7 @@ data class PendingPinNotice(
  */
 data class PinRecord(
     val key: String,
-    val alert: PinAlert = PinAlert.OFF,
+    val alert: PinAlert = PinAlert.NOTIFY,
     val memo: String = "",
     /** 空いた（満室・閉じた → 待機中）時刻。新しい [MAX_VACANCIES] 件まで。 */
     val vacancies: List<Long> = emptyList(),
@@ -57,8 +58,6 @@ data class PinRecord(
     val pendingNotices: List<PendingPinNotice> = emptyList(),
 ) {
     val autoEnters: Boolean get() = alert == PinAlert.AUTO
-    /** 知らせるか（自動で入室の期限が過ぎても知らせる）。 */
-    val notifies: Boolean get() = alert != PinAlert.OFF
 
     companion object {
         const val MAX_VACANCIES = 200
@@ -76,7 +75,7 @@ data class PinView(val preference: RoomPreference, val record: PinRecord, val st
     val name: String get() = room.name ?: preference.identityName ?: preference.snapshotName ?: "名前の見えない部屋"
 }
 
-/** ピンの見張りで起きたこと。知らせるピン（[PinRecord.notifies]）だけ。 */
+/** ピンの見張りで起きたこと。ピンはどれも知らせる。 */
 sealed interface PinEvent {
     val pin: PinView
     /** 通知済みマークの保存に失敗して再送しても、同じ端末通知を更新する。 */
@@ -200,7 +199,7 @@ class PinRepository(
     fun record(key: String): PinRecord = _records.value[key] ?: PinRecord(key)
 
     /** [room] をピンし、知らせ方を [alert] にする。 */
-    suspend fun pin(room: Room, alert: PinAlert = PinAlert.OFF) {
+    suspend fun pin(room: Room, alert: PinAlert = PinAlert.NOTIFY) {
         preferences.setFavorite(room, true)
         setAlert(roomIdentity(room), alert)
     }
@@ -208,8 +207,7 @@ class PinRepository(
     /** 知らせ方を変える。知らせるピンの数に上限はない（満室のピンはすべて空きを確かめるため。[fastWatch]）。 */
     suspend fun setAlert(key: String, alert: PinAlert) = mutex.withLock {
         val record = _records.value[key] ?: PinRecord(key)
-        save(_records.value + (key to record.copy(alert = alert,
-            pendingNotices = if (alert == PinAlert.OFF) emptyList() else record.pendingNotices)))
+        save(_records.value + (key to record.copy(alert = alert)))
     }
 
     /**
@@ -257,7 +255,7 @@ class PinRepository(
             pendingNotices = old.pendingNotices.filter { roomIdentity(it.room) == key })
         if (adopting.remove(key)) next = next.copy(state = if (to.status == RoomStatus.FULL) PinState.FULL else PinState.OPEN, stateAt = now())
         // 移ったことの知らせ（[RoomPreferenceRepository.moved]）は 1 回しか来ないので、保存に失敗しても知らせ方・メモを
-        // 新しい部屋へ移したまま持ち、次に記録を保存するときに書き込む（失敗で既定の「知らせない」に戻さない）。
+        // 新しい部屋へ移したまま持ち、次に記録を保存するときに書き込む（失敗で既定の「空いたら知らせる」に戻して自動入室を外さない）。
         val records = _records.value - from + (key to next)
         try { save(records) }
         catch (e: CancellationException) { throw e }
@@ -295,13 +293,13 @@ class PinRepository(
                 if (pref.identityName == null) (observed?.takeIf { it.name != null && it.message == pref.snapshotMessage } ?: identity.takeIf { it.name != null })
                     ?.let { learned += pref to it }
                 val view = PinView(pref, record, state, room, window?.roomPages?.get(key), similar, listed = observed != null)
-                if (record.notifies && seen == PinState.OPEN && before.state != null && before.state != PinState.OPEN && observed != null) {
+                if (seen == PinState.OPEN && before.state != null && before.state != PinState.OPEN && observed != null) {
                     val notice = PendingPinNotice("pin-$key-$at", PinNoticeType.OPENED, room, at, registered = identity,
                         autoEnter = record.autoEnters)
                     record = record.copy(pendingNotices = record.pendingNotices + notice)
                     freshIds += notice.id
                 }
-                if (record.notifies && similar != null && record.suggested != roomIdentity(similar.room)) {
+                if (similar != null && record.suggested != roomIdentity(similar.room)) {
                     val notice = PendingPinNotice("pin-similar-$key-${similar.room.id}", PinNoticeType.SIMILAR, similar.room, at,
                         similarity = similar.similarity)
                     record = record.copy(suggested = roomIdentity(similar.room), pendingNotices = record.pendingNotices + notice)
@@ -348,7 +346,7 @@ class PinRepository(
             val candidate = mutex.withLock {
                 val activeKeys = favorites.value.orEmpty().mapTo(HashSet()) { it.pinKey() }
                 _records.value.entries.asSequence()
-                    .filter { (key, record) -> key in activeKeys && record.notifies }
+                    .filter { (key, _) -> key in activeKeys }
                     .flatMap { (key, record) -> record.pendingNotices.asSequence().map { Triple(key, record, it) } }
                     .firstOrNull { (_, _, pending) -> pending.id !in attempted }
                     ?.let { (key, record, pending) ->
@@ -432,7 +430,8 @@ class PinStore(private val prefs: android.content.SharedPreferences) : PinPersis
      * 期限をなくしたので、期限の過ぎたものは見たとおり「空いたら知らせる」に戻し、知らないうちに自動入室が再開しないようにする。
      */
     private fun decodeAlert(o: JSONObject): PinAlert {
-        val alert = PinAlert.entries.firstOrNull { it.name == o.optString("alert") } ?: PinAlert.OFF
+        // 以前の「知らせない」（OFF）や知らない値は、いまの既定の「空いたら知らせる」にする。
+        val alert = PinAlert.entries.firstOrNull { it.name == o.optString("alert") } ?: PinAlert.NOTIFY
         val until = if (o.has("autoUntil") && !o.isNull("autoUntil")) o.getLong("autoUntil") else null
         return if (alert == PinAlert.AUTO && until != null && until <= System.currentTimeMillis()) PinAlert.NOTIFY else alert
     }
