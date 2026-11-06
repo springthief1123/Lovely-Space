@@ -56,6 +56,14 @@ data class PinRecord(
     val removedAt: Long? = null,
     /** 保存済みだが通知処理が完了していない空き・類似部屋イベント。 */
     val pendingNotices: List<PendingPinNotice> = emptyList(),
+    /** 最後に一覧で実際に見つけたページ。再起動後も後ろのページから探し直せる。 */
+    val lastKnownPage: Int? = null,
+    /** 最後に取得したジャンルの総ページ数。 */
+    val lastPageCount: Int? = null,
+    /** 見失った空きピンの探査順（基準ページ・1つ前・1つ後…）。 */
+    val scanMissed: Int = 0,
+    /** 次に調べるページが最後に観測された時刻。新しい取得だけで探査を進める。 */
+    val scanAt: Long = 0L,
 ) {
     val autoEnters: Boolean get() = alert == PinAlert.AUTO
 
@@ -153,9 +161,7 @@ class PinRepository(
     private val noticeMutex = Mutex()
     /** 利用者が同じ人と答えて引き継ぐ似た部屋。引き継いだ時点の様子をそのまま記録し、空いたとは数えない。 */
     private val adopting = HashSet<String>()
-    /** ピン（key）が最後に載っていたページと、ジャンルごとの最後のページ。見えなくなった空いていたピンを探し続けるのに使う（[openPages]）。 */
-    private val knownPages = java.util.concurrent.ConcurrentHashMap<String, Int>()
-    private val lastPages = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    /** ページ番号と探査位置は PinRecord に永続化し、プロセス終了後も復元する。 */
     private val _records = MutableStateFlow(runCatching { persistence.load() }.getOrNull().orEmpty())
     val records: StateFlow<Map<String, PinRecord>> = _records.asStateFlow()
 
@@ -244,10 +250,16 @@ class PinRepository(
         .filter { it.state == PinState.OPEN || it.state == PinState.UNSEEN && it.record.state == PinState.OPEN }
         .flatMap { pin ->
             val genre = Genres[pin.room.genreKey] ?: return@flatMap emptyList()
-            val page = pin.page ?: knownPages[pin.key] ?: return@flatMap emptyList()
-            val last = lastPages[genre.key] ?: page
-            // 新しい部屋に押し出されると次のページへずれるので、載っていたページと次のページを読む（最後のページより先は読まない）。
-            listOf(page, page + 1).filter { it <= last }.map { RoomQuery(genre, page = it) }
+            val last = maxOf(pin.record.lastPageCount ?: 1, 1)
+            val anchor = (pin.page ?: pin.record.lastKnownPage ?: 1).coerceIn(1, last)
+            val checked = if (pin.state == PinState.OPEN) {
+                // ふだんは載っているページと押し出された先を確認する。
+                listOf(anchor, anchor + 1).filter { it <= last }
+            } else {
+                // 見失ったら、起点から前後へ1ページずつ広げて全ページを巡る。
+                listOf(anchor, searchPage(anchor, pin.record.scanMissed, last))
+            }
+            checked.distinct().map { RoomQuery(genre, page = it) }
         }.distinct()
 
     /** いま手元にある一覧で見張りを進め、起きたことを知らせ終えるまで待つ（背景の実行が終わる前に呼ぶ）。 */
@@ -347,6 +359,24 @@ class PinRepository(
                 val (seen, observed) = window?.pinState(identity) ?: (PinState.UNSEEN to null)
                 val before = records[key] ?: PinRecord(key)
                 var record = before.copy(removedAt = null)
+                val page = window?.roomPages?.get(key)
+                val known = if (observed != null) page ?: before.lastKnownPage else before.lastKnownPage
+                val last = window?.takeIf { it.pages.isNotEmpty() }?.lastPage ?: before.lastPageCount
+                record = record.copy(lastKnownPage = known, lastPageCount = last)
+                if (seen != PinState.UNSEEN) {
+                    record = record.copy(scanMissed = 0, scanAt = 0)
+                } else if (before.state == PinState.OPEN) {
+                    val genre = Genres[pref.genreKey]
+                    if (genre != null) {
+                        val count = maxOf(last ?: 1, 1)
+                        val anchor = (known ?: 1).coerceIn(1, count)
+                        val probe = RoomQuery(genre, page = searchPage(anchor, before.scanMissed, count))
+                        val observedAt = observations[probe]?.confirmedAt ?: 0L
+                        if (observedAt > before.scanAt) {
+                            record = record.copy(scanMissed = before.scanMissed + 1, scanAt = observedAt)
+                        }
+                    }
+                }
                 if (seen != PinState.UNSEEN && seen != before.state) {
                     record = record.copy(state = seen, stateAt = at)
                     // 初めて確かめたときは記録するだけ。満室・閉じた部屋が待機中になったら空いたとする。
@@ -366,9 +396,6 @@ class PinRepository(
                 // 部屋の番号は使い回されるので、ピンしたときと待機メッセージが同じ部屋からだけ覚える。
                 if (pref.identityName == null) (observed?.takeIf { it.name != null && it.message == pref.snapshotMessage } ?: identity.takeIf { it.name != null })
                     ?.let { learned += pref to it }
-                val page = window?.roomPages?.get(key)
-                page?.let { knownPages[key] = it }
-                window?.takeIf { it.pages.isNotEmpty() }?.let { lastPages[pref.genreKey] = it.lastPage }
                 val view = PinView(pref, record, state, room, page, similar, listed = observed != null)
                 if (seen == PinState.OPEN && before.state != null && before.state != PinState.OPEN && observed != null) {
                     val notice = PendingPinNotice("pin-$key-$at", PinNoticeType.OPENED, room, at, registered = identity,
@@ -501,6 +528,8 @@ class PinStore(private val prefs: android.content.SharedPreferences) : PinPersis
         .put("vacancies", JSONArray(r.vacancies)).put("rebuilds", r.rebuilds).put("dismissed", JSONArray(r.dismissed.toList()))
         .put("state", r.state?.name).put("stateAt", r.stateAt).put("suggested", r.suggested).put("removedAt", r.removedAt)
         .put("pending", JSONArray(r.pendingNotices.map(::encodePending)))
+        .put("lastKnownPage", r.lastKnownPage).put("lastPageCount", r.lastPageCount)
+        .put("scanMissed", r.scanMissed).put("scanAt", r.scanAt)
 
     /**
      * 以前は「自動で入室」に 3 時間の期限（autoUntil）があり、過ぎたものは「空いたら知らせる」として表示していた。
@@ -532,6 +561,10 @@ class PinStore(private val prefs: android.content.SharedPreferences) : PinPersis
             pendingNotices = o.optJSONArray("pending")?.let { array ->
                 (0 until array.length()).mapNotNull { i -> runCatching { decodePending(array.getJSONObject(i)) }.getOrNull() }
             }.orEmpty(),
+            lastKnownPage = long("lastKnownPage")?.toInt()?.takeIf { it > 0 },
+            lastPageCount = long("lastPageCount")?.toInt()?.takeIf { it > 0 },
+            scanMissed = o.optInt("scanMissed").coerceAtLeast(0),
+            scanAt = o.optLong("scanAt"),
         )
     }
 

@@ -27,6 +27,16 @@ class PinWatchTest {
         assertEquals(PinState.CLOSED to null, reused.pinState(pinned))
     }
 
+    @Test fun carriedRoomIsUnseenNotFalselyShownAsOpen() {
+        val original = room(500)
+        val first = io.github.springthief1123.lovelyspace.core.RoomPageWindow().observe(
+            io.github.springthief1123.lovelyspace.core.RoomListPage(original.genreKey, listOf(original), null, null, 2, 3, emptyMap(), null))
+        val carried = first.observe(io.github.springthief1123.lovelyspace.core.RoomListPage(
+            original.genreKey, emptyList(), null, null, 2, 3, emptyMap(), null))
+        assertTrue(roomIdentity(original) in carried.carried)
+        assertEquals(PinState.UNSEEN, carried.pinState(original).first)
+    }
+
     @Test fun aRoomOlderThanTheLastPageIsClosedOnceTheLastPageHasBeenRead() {
         val yesterday = room(10)
         val window = RoomPageWindow().observe(page(1, (900L downTo 700L step 50).map { room(it) }, last = 2))

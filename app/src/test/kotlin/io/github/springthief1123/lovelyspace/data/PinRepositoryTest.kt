@@ -28,10 +28,12 @@ class PinRepositoryTest {
         override val observations = MutableStateFlow<Map<RoomQuery, ObservedRoomPage>>(emptyMap())
         private var revision = 0L
         override suspend fun fetch(query: RoomQuery, force: Boolean): RoomListPage = error("通信しない")
-        fun publish(genre: Genre, rooms: List<Room>) {
+        fun publish(genre: Genre, rooms: List<Room>) = publishPage(genre, 1, 1, rooms)
+        fun publishPage(genre: Genre, page: Int, lastPage: Int, rooms: List<Room>) {
             revision++
-            val query = RoomQuery(genre)
-            observations.value = mapOf(query to ObservedRoomPage(query, RoomListPage(genre.key, rooms, null, null, 1, 1, emptyMap(), null), revision * 1000, revision))
+            val query = RoomQuery(genre, page = page)
+            observations.value = observations.value + (query to ObservedRoomPage(query,
+                RoomListPage(genre.key, rooms, null, null, page, lastPage, emptyMap(), null), revision * 1000, revision))
         }
     }
 
@@ -378,6 +380,34 @@ class PinRepositoryTest {
         lists.publish(genre, listOf(room(600), open, room(400)))
         awaitPins { it.singleOrNull()?.state == PinState.OPEN }
         assertEquals(listOf(RoomQuery(genre, page = 1)), pins.openPages())
+    }
+
+    @Test fun restartingWithAnOpenPinKeepsItsPageAndCanContinueSearching() {
+        val memory = Memory()
+        scope.cancel()
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        pins = PinRepository(memory, prefs, lists, onEvent = { events.send(it) }, moved = prefs.moved, scope = scope)
+        val open = room(500)
+        wait { pins.pin(open) }
+        lists.publishPage(genre, 3, 5, listOf(open))
+        awaitPins { it.singleOrNull()?.state == PinState.OPEN }
+        assertEquals(3, pins.record(roomIdentity(open)).lastKnownPage)
+        assertEquals(5, pins.record(roomIdentity(open)).lastPageCount)
+
+        // 再起動直後は一覧の観測が空でも保存していたページから見張る。
+        scope.cancel()
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val restartedLists = Lists()
+        pins = PinRepository(memory, prefs, restartedLists, onEvent = { events.send(it) }, moved = prefs.moved, scope = scope)
+        awaitPins { it.singleOrNull()?.state == PinState.UNSEEN }
+        assertTrue(RoomQuery(genre, page = 3) in pins.openPages())
+        // 元のページから消えた後は隣を確認し、未発見ならさらに探す。
+        restartedLists.publishPage(genre, 3, 5, listOf(room(700)))
+        awaitPins { it.singleOrNull()?.record?.scanMissed ?: 0 >= 1 }
+        assertTrue(RoomQuery(genre, page = 2) in pins.openPages())
+        restartedLists.publishPage(genre, 2, 5, listOf(room(800)))
+        awaitPins { it.singleOrNull()?.record?.scanMissed ?: 0 >= 2 }
+        assertTrue(RoomQuery(genre, page = 4) in pins.openPages())
     }
 
     @Test fun pinWithoutChoosingNotifiesWhenItOpens() {
