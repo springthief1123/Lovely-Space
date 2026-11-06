@@ -1,6 +1,16 @@
 package io.github.springthief1123.lovelyspace.ui.chat
 
 import android.app.Application
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.UriHandler
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.click
+import org.junit.Rule
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.LinkAnnotation
 import org.junit.Assert.*
@@ -12,6 +22,22 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class ChatMessageTextTest {
+    @get:Rule val compose = createComposeRule()
+
+    @Test fun tappingASelectableMessageDelegatesTheUrlToTheBrowserHandler() {
+        val url = "https://example.com/test"
+        var opened: String? = null
+        compose.setContent {
+            CompositionLocalProvider(LocalUriHandler provides object : UriHandler {
+                override fun openUri(uri: String) { opened = uri }
+            }) {
+                MaterialTheme { SelectionContainer { ChatMessageText(url) } }
+            }
+        }
+        compose.onNodeWithText(url).performTouchInput { click(center) }
+        compose.runOnIdle { assertEquals(url, opened) }
+    }
+
     @Test fun multipleWebLinksKeepTextNewlinesQueriesAndFragments() {
         val text = "こちら https://example.com/path?q=1&x=2#part\n次は http://example.org/test"
         val linked = linkifiedChatText(text, Color.Red)
