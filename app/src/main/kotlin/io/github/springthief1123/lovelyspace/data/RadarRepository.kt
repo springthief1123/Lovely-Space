@@ -260,6 +260,17 @@ class RadarRepository(
         resetCandidate(id)
         state.copy(candidateRules = state.candidateRules.filterNot { it.id == id }, candidateResults = state.candidateResults - id, nextCandidatePages = state.nextCandidatePages - id)
     }
+    /**
+     * 名前で待つ（候補条件）をすべて消す。同じ名前の人が多く役に立たないので、ピンのタブへ作り直したときに廃止した（Yuya の決定、2026-11-06）。
+     * 消すものが無ければ保存しない。
+     */
+    suspend fun removeAllCandidates() {
+        if (_state.value.candidateRules.isEmpty()) return
+        edit { state ->
+            state.candidateRules.forEach { resetCandidate(it.id) }
+            state.copy(candidateRules = emptyList(), candidateResults = emptyMap(), nextCandidatePages = emptyMap())
+        }
+    }
     private fun resetCandidate(id: String) {
         candidateBaselines.keys.removeAll { it.startsWith("$id/") }
         candidateKnown.keys.removeAll { it.startsWith("$id/") }

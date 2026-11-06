@@ -26,7 +26,7 @@ import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.PersonOutline
-import androidx.compose.material.icons.outlined.Radar
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
@@ -66,7 +66,7 @@ data class MainDestination(val route: String, val label: String, val icon: Image
 
 val MainDestinations = listOf(
     MainDestination(Routes.ROOMS, "見つける", Icons.Outlined.Explore),
-    MainDestination(Routes.RADAR, "レーダー", Icons.Outlined.Radar),
+    MainDestination(Routes.RADAR, "ピン", Icons.Outlined.PushPin),
     MainDestination(Routes.PROFILE, "マイルーム", Icons.Outlined.PersonOutline),
 )
 

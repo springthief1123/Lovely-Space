@@ -407,6 +407,15 @@ class WaitlistRepositoryTest {
         assertEquals(WaitlistRepository.MAX_ACTIVE - 1, waitlist.entries.value.size)
     }
 
+    @Test fun pinRegistrationsAreNotCountedAgainstTheLimit() = runTest {
+        val waitlist = WaitlistRepository(Memory(), Lists(), {}, backgroundScope, io = UnconfinedTestDispatcher(testScheduler)) { 0L }
+        // ピン用の登録はいくつでもでき、以前の順番待ちの上限にも数えない。
+        (1..WaitlistRepository.MAX_ACTIVE + 3).forEach { waitlist.register(full.copy(id = it.toLong()), forPin = true) }
+        (100 until 100 + WaitlistRepository.MAX_ACTIVE).forEach { waitlist.register(full.copy(id = it.toLong())) }
+        assertThrows(IllegalArgumentException::class.java) { kotlinx.coroutines.runBlocking { waitlist.register(full.copy(id = 999)) } }
+        assertEquals(WaitlistRepository.MAX_ACTIVE * 2 + 3, waitlist.entries.value.size)
+    }
+
     @Test fun aRemovedEntryCanBeRestoredInPlaceWithItsDeadline() = runTest {
         var clock = 0L
         val memory = Memory()

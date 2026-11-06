@@ -17,10 +17,9 @@ class RoomDetailsTextTest {
         assertTrue("男性" !in roomDetailsSubtitle(room.copy(gender = Gender.UNKNOWN)))
     }
 
-    @Test fun pinAndRadarWordingFollowsTheNotificationPermission() {
+    @Test fun pinWordingFollowsTheNotificationPermission() {
         assertTrue("空いたら通知します" in pinNoticeText(true))
         assertTrue("通知がオフ" in pinNoticeText(false))
-        assertTrue("通知がオフ" in backgroundRadarNoticeText())
     }
 
     @Test fun cardsShowWhatTappingDoes() {

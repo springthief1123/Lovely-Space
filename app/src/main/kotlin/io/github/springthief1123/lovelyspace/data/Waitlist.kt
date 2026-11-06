@@ -143,7 +143,8 @@ class WaitlistRepository(
         val genre = requireNotNull(Genres[room.genreKey]) { "ジャンルを確認できませんでした。" }
         val at = now()
         val others = _entries.value.filterNot { it.key == roomIdentity(room) }
-        require(others.count { it.active(at) } < MAX_ACTIVE) { "順番待ちは同時に${MAX_ACTIVE}件までです。" }
+        // ピン用の登録（[forPin]）は数えない。ピンはすべて空きを確かめ、同じページのピンは 1 回の取得にまとまる（[ListSync]）。
+        if (!forPin) require(others.count { it.active(at) && !it.forPin } < MAX_ACTIVE) { "順番待ちは同時に${MAX_ACTIVE}件までです。" }
         val query = startQuery(room, sourceQuery) ?: RoomQuery(genre)
         save(listOf(WaitlistEntry(room, query, at, at + hours * HOUR_MS, lastSeenAt = at, forPin = forPin)) + others)
     }

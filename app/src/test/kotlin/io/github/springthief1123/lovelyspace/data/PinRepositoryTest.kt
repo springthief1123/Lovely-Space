@@ -283,16 +283,13 @@ class PinRepositoryTest {
         assertEquals(PinAlert.OFF, memory.saved.getValue(roomIdentity(full)).alert)
     }
 
-    @Test fun onlyFiveRoomsCanBeNotifiedAtOnce() {
-        (1L..PinRepository.MAX_NOTIFYING).forEach { id -> wait { pins.pin(room(id * 100, RoomStatus.FULL), PinAlert.NOTIFY) } }
-        awaitPins { it.size == PinRepository.MAX_NOTIFYING }
-        val extra = room(900, RoomStatus.FULL)
-        assertThrows(IllegalArgumentException::class.java) { wait { pins.pin(extra, PinAlert.NOTIFY) } }
-        // 知らせないピンはいくつでもでき、ほかを止めれば知らせられる。
-        wait { pins.pin(extra) }
-        awaitPins { it.size == PinRepository.MAX_NOTIFYING + 1 }
-        wait { pins.setAlert(roomIdentity(room(100, RoomStatus.FULL)), PinAlert.OFF) }
-        wait { pins.setAlert(roomIdentity(extra), PinAlert.NOTIFY) }
-        assertEquals(PinAlert.NOTIFY, pins.record(roomIdentity(extra)).alert)
+    @Test fun everyFullPinIsWatchedRegardlessOfHowItNotifies() {
+        // 知らせるピンに上限はなく、知らせないピンも満室なら空きを確かめる対象にする（2026-11-06）。
+        (1L..7L).forEach { id -> wait { pins.pin(room(id * 100, RoomStatus.FULL), PinAlert.NOTIFY) } }
+        wait { pins.pin(room(900, RoomStatus.FULL)) }
+        awaitPins { it.size == 8 }
+        assertEquals(7, (1L..7L).count { pins.record(roomIdentity(room(it * 100, RoomStatus.FULL))).alert == PinAlert.NOTIFY })
+        val watched = wait { pins.fastWatch.first { it.size == 8 } }
+        assertTrue(watched.any { it.key == roomIdentity(room(900, RoomStatus.FULL)) })
     }
 }

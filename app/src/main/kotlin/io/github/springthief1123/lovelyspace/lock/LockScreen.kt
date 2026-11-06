@@ -125,7 +125,7 @@ fun LockScreen(controller: AppLockController, state: AppLockState) {
     when (forgotStep) {
         1 -> QuietConfirmDialog(
             title = "ロックを解除できないとき",
-            text = "パスコード・パターンは端末内にハッシュで保存しているため、取り出せません。アプリのデータをすべて消すと、ロックも消えて最初の状態から使えます。保存した部屋・条件・プリセット・レーダーの設定もすべて消えます。",
+            text = "パスコード・パターンは端末内にハッシュで保存しているため、取り出せません。アプリのデータをすべて消すと、ロックも消えて最初の状態から使えます。保存した部屋・条件・プリセット・ピンの設定もすべて消えます。",
             confirmLabel = "データの消去へ進む",
             onConfirm = { forgotStep = 2 },
             onDismiss = { forgotStep = 0 },

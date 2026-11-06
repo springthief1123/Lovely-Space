@@ -16,7 +16,6 @@ import io.github.springthief1123.lovelyspace.core.RoomQuery
 import io.github.springthief1123.lovelyspace.core.RoomStatus
 import io.github.springthief1123.lovelyspace.core.roomIdentity
 import io.github.springthief1123.lovelyspace.data.PinAlert
-import io.github.springthief1123.lovelyspace.data.PinRepository
 import io.github.springthief1123.lovelyspace.notify.rememberNotificationPermissionRequest
 import io.github.springthief1123.lovelyspace.ui.rooms.RoomMenuItem
 import kotlinx.coroutines.CancellationException
@@ -73,7 +72,7 @@ internal fun rememberRoomQuickActions(
 
 /**
  * 満室の部屋を右へスワイプしたときの動き。ピンするだけでなく「空いたら知らせる」にする（順番待ち）。
- * 知らせるピンが上限に達しているときは、知らせずにピンだけして理由を [onNotice] で知らせる。
+ * 結果は [onNotice] で知らせる。
  * 満室でない・ピン済みの部屋は null（スワイプは通常のピン・ピンを外す）。
  */
 @Composable
@@ -91,14 +90,8 @@ internal fun rememberWaitlistSwipe(
             scope.launch {
                 val message = try {
                     app.pins.pin(room, PinAlert.NOTIFY)
-                    "順番待ちにしました。空いたら知らせます"
+                    "ピンしました。空いたら知らせます"
                 } catch (e: CancellationException) { throw e }
-                catch (_: IllegalArgumentException) {
-                    // 知らせるピンの上限。ピンだけは残し、知らせ方はレーダーで変えられるようにする。
-                    try { app.pins.pin(room, PinAlert.OFF); "ピンしました。知らせるピンは同時に${PinRepository.MAX_NOTIFYING}件までなので、空いても知らせません" }
-                    catch (e: CancellationException) { throw e }
-                    catch (_: Exception) { "ピンを保存できませんでした。" }
-                }
                 catch (_: Exception) { "ピンを保存できませんでした。" }
                 currentNotice(message)
             }

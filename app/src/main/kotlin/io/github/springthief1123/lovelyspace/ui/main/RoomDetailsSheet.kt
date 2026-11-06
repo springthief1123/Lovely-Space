@@ -118,5 +118,5 @@ internal fun roomDetailsSubtitle(room: Room): String = listOfNotNull(
 
 /** 知らせるピンの文言。通知が出せないときは、空いても知らせられないことを伝える。 */
 internal fun pinNoticeText(notificationsAllowed: Boolean): String =
-    if (notificationsAllowed) "ピンした部屋が空いたら通知します。レーダーの「ピン」で知らせ方を変えられます。"
+    if (notificationsAllowed) "ピンした部屋が空いたら通知します。下の「ピン」タブで知らせ方を変えられます。"
     else "通知がオフのため、ピンした部屋が空いても知らせられません。"
