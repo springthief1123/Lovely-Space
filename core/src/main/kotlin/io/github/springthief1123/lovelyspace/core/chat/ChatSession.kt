@@ -1,5 +1,6 @@
 package io.github.springthief1123.lovelyspace.core.chat
 
+import io.github.springthief1123.lovelyspace.core.AutomaticAccessPausedException
 import io.github.springthief1123.lovelyspace.core.HttpStatusException
 import io.github.springthief1123.lovelyspace.core.ShaloveClient
 import kotlinx.coroutines.Dispatchers
@@ -34,6 +35,7 @@ class ChatSession internal constructor(
     initialState: ChatState,
     private val clock: () -> Long,
     private val sleep: suspend (Long) -> Unit,
+    private val checkAutomaticAccess: () -> Unit = {},
 ) {
     @Volatile
     var state: ChatState = initialState
@@ -64,7 +66,13 @@ class ChatSession internal constructor(
                 // PollSchedule は発言側からも変更されるので、すべて lock の中で触る。
                 lock.withLock { schedule.onPollStarted(state) }
                 // null は発言で中断された・取得の直前に発言があった。発言の応答が新着を含むので取り直さずに待つ。
-                val update = poll() ?: continue
+                val update = try {
+                    poll() ?: continue
+                } catch (e: AutomaticAccessPausedException) {
+                    // 制限による休止は接続障害に数えない。期限後に再確認して同じ受信ループを再開する。
+                    sleep(e.retryAfterMs)
+                    continue
+                }
                 emit(update)
                 if (update.endMessage != null) return@flow
                 sleep(lock.withLock { schedule.onResponse(update) })
@@ -103,6 +111,7 @@ class ChatSession internal constructor(
         val (call, from) = lock.withLock {
             // 発言後の間隔が空いていない（lock を待つ間に発言があったなど）。
             if (pollNotBefore?.let { clock() < it } == true) return null
+            checkAutomaticAccess()
             val from = state.fromSize
             val call = http.newCall(ajaxRequest(from, live = live, chat = null))
             pending = call
@@ -127,7 +136,7 @@ class ChatSession internal constructor(
      * 直近の発言間隔と、発言後の次回 poll 許可時刻は引き継ぎ、本家より短い間隔で通信しない。
      */
     internal fun resynchronized(initialState: ChatState): ChatSession =
-        ChatSession(http, room, initialState, clock, sleep).also { next ->
+        ChatSession(http, room, initialState, clock, sleep, checkAutomaticAccess).also { next ->
             next.lastSendAt = lastSendAt
             next.pollNotBefore = pollNotBefore
         }

@@ -43,13 +43,25 @@ import kotlin.coroutines.resumeWithException
  * 発言は 1.5 秒以上空ける）で通信し、ページ操作用の最小間隔とは別に管理する。
  */
 class ShaloveClient(
-    private val http: OkHttpClient = defaultHttpClient(),
+    http: OkHttpClient = defaultHttpClient(),
     /** 通信の間隔の設定。通信のたびに読むので、設定の変更は次の通信から効く。 */
     private val pacing: () -> RefreshPacing = { RefreshPacing() },
     /** 経過時間の計測用（ミリ秒）。端末の時計合わせの影響を受けないよう単調増加の時計を使う。 */
     private val clock: () -> Long = { System.nanoTime() / 1_000_000 },
     private val sleep: suspend (Long) -> Unit = { delay(it) },
 ) {
+    private val accessPause = HostAccessPause(clock)
+    // すべての通信経路（転送を追わないPOST・ajaxも含む）の制限応答を共有する。
+    private val trackedHttp = http.newBuilder().apply {
+        interceptors().add(0, okhttp3.Interceptor { chain ->
+            chain.proceed(chain.request()).also { response ->
+                accessPause.observe(chain.request().url.host, response.code, response.header("Retry-After"))
+            }
+        })
+    }.build()
+
+    fun automaticAccessAllowed(host: String): Boolean = accessPause.remaining(host) == 0L
+
     private val gate = Mutex()
     /** 順番を待っている、利用者の操作による通信の数。一覧の取得はこれが 0 になるまで譲る。 */
     private val waitingOperations = java.util.concurrent.atomic.AtomicInteger()
@@ -99,7 +111,7 @@ class ShaloveClient(
             // 本家のリンクでも、今の条件・ページと食い違うもの（別の性別など）は使わず、自前で組み立てた URL で取る。
             val requestUrl = pagerLinks[firstUrl]?.get(query.page)?.takeIf { isListUrl(it, query.genre) && query.matchesPagerUrl(it) } ?: url
             val html = if (manual || opened) gated(operation = true, minIntervalMs = 0) { request(requestUrl) }
-                else gated(priority = priority) { request(requestUrl) }
+                else gated(priority = priority, automaticHost = query.genre.host) { request(requestUrl) }
             // 一覧として読めない応答（連続で取り直したときなど）は、0 件の一覧として扱わずに取得の失敗にする。
             // キャッシュもページャも更新しないので、手元の一覧は前回のまま残る。
             val page = parsing {
@@ -125,7 +137,7 @@ class ShaloveClient(
      * レート制限付きの GET。レスポンス本文をサイトの文字コードで文字列にして返す。
      * [operation] は利用者が開いた画面の読み込み（部屋・公開ルームなど）で、順番待ちの一覧の取得より先に通す。
      */
-    suspend fun get(url: String, operation: Boolean = false): String = gated(operation) { request(url) }
+    suspend fun get(url: String, operation: Boolean = false): String = gated(operation, automaticHost = if (operation) null else url.toHttpUrlOrNull()?.host) { request(url) }
 
     private suspend fun request(url: String): String = requestPage(url).body
 
@@ -133,7 +145,7 @@ class ShaloveClient(
     private class Fetched(val body: String, val finalUrl: String)
 
     private suspend fun requestPage(url: String): Fetched =
-        http.newCall(Request.Builder().url(url).header("User-Agent", USER_AGENT).build()).awaitBody()
+        trackedHttp.newCall(Request.Builder().url(url).header("User-Agent", USER_AGENT).build()).awaitBody()
 
     /** ヘッダー待ち・本文読み取り中のどちらでも、画面側の取消をHTTP通信へ伝える。 */
     private suspend fun Call.awaitBody(): Fetched = suspendCancellableCoroutine { cont ->
@@ -165,7 +177,7 @@ class ShaloveClient(
      * 入室（入室前画面・送信・入室後のチャット画面）、部屋の中の操作（退室・部屋を閉じる・追い出し・ログ消去・待機メッセージ・公開の切り替え）だけ。
      * [priority]（新着の確認・順番待ち）は一覧の取得と同じく間隔を待つ間は順番を手放すが、待っている間は後ろのページの巡回を先に通さない。
      */
-    private suspend fun <T> gated(operation: Boolean = false, minIntervalMs: Long? = null, priority: Boolean = false, block: suspend () -> T): T {
+    private suspend fun <T> gated(operation: Boolean = false, minIntervalMs: Long? = null, priority: Boolean = false, automaticHost: String? = null, block: suspend () -> T): T {
         var waitingAsPriority = priority && !operation
         if (waitingAsPriority) waitingPriority.incrementAndGet()
         try {
@@ -173,6 +185,7 @@ class ShaloveClient(
                 acquire(operation, waitingAsPriority)
                 var holdsGate = true
                 try {
+                    automaticHost?.let(accessPause::check)
                     val interval = minIntervalMs ?: pacing().sanitized().minIntervalMs
                     val wait = lastRequestAt?.let { it + interval - clock() } ?: 0
                     if (wait > 0 && !operation) {
@@ -223,10 +236,10 @@ class ShaloveClient(
      * 入室前画面を開く。部屋が埋まった・閉じられた場合など、フォームが無ければ null。
      * 入室は空き枠の取り合いなので、ブラウザでリンクを押すのと同じく前の通信から間隔を空けない（[enter]・[openChat] も同じ）。
      */
-    suspend fun openEntry(host: String, roomId: Long, genreKey: String): EntryForm? {
+    suspend fun openEntry(host: String, roomId: Long, genreKey: String, automatic: Boolean = false): EntryForm? {
         val url = "https://$host/PreEnterRoom?room_id=$roomId&genre_key=$genreKey"
-        return gated(operation = true, minIntervalMs = 0) {
-            http.newCall(Request.Builder().url(url).header("User-Agent", USER_AGENT).build()).execute().use { res ->
+        return gated(operation = true, minIntervalMs = 0, automaticHost = if (automatic) host else null) {
+            trackedHttp.newCall(Request.Builder().url(url).header("User-Agent", USER_AGENT).build()).execute().use { res ->
                 if (!res.isSuccessful) throw HttpStatusException(res.code, url)
                 val bytes = res.body?.bytes() ?: ByteArray(0)
                 val charset = detectCharset(res.header("Content-Type"), bytes)
@@ -241,7 +254,7 @@ class ShaloveClient(
      * [onResult] は本家の応答を読んだ時点で必ず呼ぶ。送信を始めた後に呼び出し元が取り消されると戻り値は捨てられるが、
      * 本家では入室が済んでいることがあるので、結果をここで受け取って引き継ぐ。送信を始める前（順番待ちの間）の取り消しでは何も送らない。
      */
-    suspend fun enter(form: EntryForm, profile: EntryProfile, captchaToken: String? = null, onResult: (EntryResult) -> Unit = {}): EntryResult {
+    suspend fun enter(form: EntryForm, profile: EntryProfile, captchaToken: String? = null, automatic: Boolean = false, onResult: (EntryResult) -> Unit = {}): EntryResult {
         val charset = runCatching { Charset.forName(form.formCharset) }.getOrDefault(Charsets.UTF_8)
         val body = FormBody.Builder(charset)
             .add("room_id", form.roomId.toString())
@@ -261,7 +274,7 @@ class ShaloveClient(
             }
             .build()
         val url = "https://${form.host}/PreEnterRoom"
-        return gated(operation = true, minIntervalMs = 0) {
+        return gated(operation = true, minIntervalMs = 0, automaticHost = if (automatic) form.host else null) {
             val request = Request.Builder().url(url).post(body)
                 .header("User-Agent", USER_AGENT)
                 .header("Referer", "$url?room_id=${form.roomId}&genre_key=${form.genreKey}")
@@ -302,10 +315,10 @@ class ShaloveClient(
     suspend fun openPublicRoom(host: String, genreKey: String, roomId: Long, manual: Boolean = false): io.github.springthief1123.lovelyspace.core.chat.PublicRoomPage {
         val url = SitePages.publicRoom(host, genreKey, roomId)
         val gap = if (manual) 0L else null
-        val page = gated(operation = true, minIntervalMs = gap) { requestPage(url) }
+        val page = gated(operation = manual, minIntervalMs = gap, automaticHost = if (manual) null else host) { requestPage(url) }
         val frame = parsing { io.github.springthief1123.lovelyspace.core.chat.PublicRoomParser.chatFrameUrl(page.body, page.finalUrl, roomId) }
             ?: return parsing { io.github.springthief1123.lovelyspace.core.chat.PublicRoomParser.parse(page.body, url, page.finalUrl) }
-        val inner = gated(operation = true, minIntervalMs = gap) { requestPage(frame) }
+        val inner = gated(operation = manual, minIntervalMs = gap, automaticHost = if (manual) null else frame.toHttpUrlOrNull()?.host) { requestPage(frame) }
         return parsing { io.github.springthief1123.lovelyspace.core.chat.PublicRoomParser.parse(inner.body, frame, inner.finalUrl) }
     }
 
@@ -317,7 +330,7 @@ class ShaloveClient(
         previous
             ?.takeIf { it.room == page.room }
             ?.resynchronized(page.state)
-            ?: ChatSession(longPollHttp, page.room, page.state, clock, sleep)
+            ?: ChatSession(longPollHttp, page.room, page.state, clock, sleep) { accessPause.check(page.room.host) }
 
     /** 退室する（作成者は [close] で部屋ごと閉じる）。 */
     suspend fun leave(room: ChatRoomRef) {
@@ -387,12 +400,12 @@ class ShaloveClient(
     }
 
     private val noRedirectHttp: OkHttpClient by lazy {
-        http.newBuilder().followRedirects(false).followSslRedirects(false).build()
+        trackedHttp.newBuilder().followRedirects(false).followSslRedirects(false).build()
     }
 
     /** `ajax.php?live=1` はサーバーが新着まで応答を保留するので、読み取りの待ち時間を長く取る。 */
     private val longPollHttp: OkHttpClient by lazy {
-        http.newBuilder().readTimeout(LONG_POLL_TIMEOUT_SECONDS, TimeUnit.SECONDS).build()
+        trackedHttp.newBuilder().readTimeout(LONG_POLL_TIMEOUT_SECONDS, TimeUnit.SECONDS).build()
     }
 
     companion object {

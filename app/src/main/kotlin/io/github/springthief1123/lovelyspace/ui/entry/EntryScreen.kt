@@ -69,6 +69,7 @@ fun EntryScreen(
     auto: Boolean = false,
     /** 一覧で公開の部屋だった。開いたときに満室になっていたら [onPeek] で公開ルームへ移る。 */
     listedPublic: Boolean = false,
+    automatic: Boolean = false,
 ) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val vm: EntryViewModel = viewModel(
@@ -76,7 +77,7 @@ fun EntryScreen(
             initializer {
                 EntryViewModel(app.client, app.settings, app.presets, host, genreKey, roomId, auto, listedPublic,
                     onEnteredAfterClose = app::adoptEnteredAfterClose, registrationMark = app.activeRooms::registrations,
-                    onEnteredRoom = app::onEnteredRoom)
+                    onEnteredRoom = app::onEnteredRoom, automatic = automatic)
             }
         },
     )
