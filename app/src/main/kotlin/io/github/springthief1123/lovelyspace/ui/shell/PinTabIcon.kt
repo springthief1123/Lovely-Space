@@ -24,6 +24,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
@@ -68,8 +70,8 @@ internal fun PinTabIcon(currentRoute: String?, tint: Color) {
     val pins by app.pins.pins.collectAsStateWithLifecycle()
     val live = livePinCount(pins)
     // 0 件になって消えていく間は、最後に出していた件数のまま消す。
-    val shown = remember { intArrayOf(0) }
-    if (live > 0) shown[0] = live
+    var shown by remember { mutableIntStateOf(0) }
+    if (live > 0 && shown != live) shown = live
     val route by rememberUpdatedState(currentRoute)
     val offsetY = remember { Animatable(0f) }
     val squash = remember { Animatable(1f) }
@@ -112,11 +114,11 @@ internal fun PinTabIcon(currentRoute: String?, tint: Color) {
             })
         AnimatedVisibility(live > 0, Modifier.align(Alignment.TopEnd).offset(x = 7.dp, y = (-3).dp),
             enter = fadeIn() + scaleIn(initialScale = 0.6f), exit = fadeOut() + scaleOut(targetScale = 0.6f)) {
-            val text = pinBadgeText(shown[0])
+            val text = pinBadgeText(shown)
             Box(Modifier.heightIn(min = 13.dp).widthIn(min = 13.dp)
                 .background(MaterialTheme.colorScheme.primary, CircleShape)
                 .padding(horizontal = 3.dp)
-                .clearAndSetSemantics { contentDescription = "部屋のあるピン${shown[0]}件" },
+                .clearAndSetSemantics { contentDescription = "部屋のあるピン${shown}件" },
                 contentAlignment = Alignment.Center) {
                 Text(text, color = MaterialTheme.colorScheme.onPrimary, fontSize = 8.sp, lineHeight = 8.sp,
                     style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center, maxLines = 1)
