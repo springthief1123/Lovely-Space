@@ -149,6 +149,8 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
     private var inFlight = 0
     /** いまのジャンルの巡回位置。画面に戻って [monitor] を呼び直しても、ジャンルを変えるまでは最初の周からやり直さない。 */
     private var schedule: RoomPageSchedule? = null
+    /** 表示中の部屋。古いページでも満室への変化を早く反映する。 */
+    private var visibleRoomKeys: Set<String> = emptySet()
     /** [monitor] が動いている（画面が前面）。タブを移っても ViewModel は残るので、新着の確認はこの間だけ頼む。 */
     private val monitoring = MutableStateFlow(false)
     init {
@@ -290,6 +292,7 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
         load(next, false)
     }
     fun automatic(enabled: Boolean) = _state.update { it.copy(automatic = enabled) }
+    fun visibleRooms(keys: Set<String>) { visibleRoomKeys = keys }
     fun clearNewRooms() = _state.update { it.copy(newRoomIds = emptySet()) }
     fun clearPreferenceError() = _state.update { it.copy(preferenceError = null) }
     fun stopRefresh() { cancelFetches(); _state.update { it.copy(loading = false, refreshing = false) } }
@@ -321,9 +324,16 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
                 val page = schedule.next(window)
                 val fetched = fetchPage(page, force = false)
                 if (fetched && _state.value.error == null && _state.value.genre == genre) schedule.completed(page, window)
-                // ページ同士は通信の最小間隔で順に取る（間隔は ShaloveClient も守る）。
-                // 取れなかったときは、案内を出さない失敗（部屋の表が無いページ）でも 20 秒空ける。
-                delay(if (!fetched || _state.value.error != null) RoomPageSchedule.ERROR_INTERVAL_MS else pacing().sanitized().minIntervalMs)
+                // 後方ページの表示中の部屋は、そのページへの巡回を何分も待たずに確認する。
+                // 通信は既存の fetch を使い、ShaloveClient の間隔とキャッシュを守る。
+                val focused = if (fetched && _state.value.genre == genre) focusedRoomPage(
+                    window, visibleRoomKeys, genre, _state.value.pageTimes, now(),
+                    maxOf(pacing().sanitized().searchHeadMs, MIN_VISIBLE_PAGE_AGE_MS),
+                ) else null
+                val focusedFetched = focused?.let { fetchPage(it.page, force = false) }
+                // 通常巡回の位置は変えない。取れなかったときは従来どおり20秒空ける。
+                delay(if (!fetched || focusedFetched == false || _state.value.error != null) RoomPageSchedule.ERROR_INTERVAL_MS
+                    else pacing().sanitized().minIntervalMs)
             }
         } finally { monitoring.value = false; stopRefresh() }
     }
@@ -418,7 +428,27 @@ class SearchViewModel(private val repository: RoomListSource, private val prefer
         private const val HOT_OWNER = "search"
         /** 他の機能が読んだページを取り込むのは、確認からこの時間（ミリ秒）以内のものだけ。古い一覧で閉じた部屋を出さない。 */
         const val SHARED_MAX_AGE_MS = 5 * 60_000L
+        private const val MIN_VISIBLE_PAGE_AGE_MS = 5_000L
     }
+}
+
+/** 画面内の部屋が載るページから、確認時刻が古い後方ページを一つ選ぶ。 */
+internal fun focusedRoomPage(
+    window: RoomPageWindow,
+    keys: Set<String>,
+    genre: Genre,
+    checkedAt: Map<RoomQuery, Long>,
+    now: Long,
+    minimumAgeMs: Long,
+): RoomQuery? {
+    if (keys.isEmpty()) return null
+    val roomPages = window.roomPages
+    return keys.mapNotNull { roomPages[it] }.asSequence().distinct()
+        // 1ページ目は新着確認で優先しているので二重に読まない。
+        .filter { it in 2..window.lastPage }
+        .map { RoomQuery(genre, page = it) }
+        .filter { query -> checkedAt[query]?.let { now - it >= minimumAgeMs } ?: true }
+        .minByOrNull { checkedAt[it] ?: Long.MIN_VALUE }
 }
 
 /** 検索シートの地域のチップに残す最近の地域の数。 */
