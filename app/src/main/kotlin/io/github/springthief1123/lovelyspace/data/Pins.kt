@@ -384,8 +384,13 @@ class PinRepository(
                 }
                 // 一覧で見えなくなっただけのピンは前に確かめた様子のまま出すが、「空いています」だけは一覧に載っているときに限る
                 // （閉じたと決めきれずに消えた部屋を、空いているように見せない。記録の様子は残し、また見えたときに空いたと数えない）。
+                val anonymousConflict = identity.name == null &&
+                    window?.listedRooms?.any { it.id == identity.id && it.genreKey == identity.genreKey &&
+                        it.message != identity.message } == true
                 val state = when {
                     seen != PinState.UNSEEN -> seen
+                    // 同じ部屋番号に違う募集文が載った匿名ピンは、以前の「満室」を確定表示しない。
+                    anonymousConflict -> PinState.UNSEEN
                     before.state == PinState.OPEN -> PinState.UNSEEN
                     else -> before.state ?: PinState.UNSEEN
                 }
