@@ -81,8 +81,9 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
     fun action(key: String, block: suspend () -> Unit) {
         if (key in workingKeys) return
         workingKeys[key] = true
+        error = null; retry = null
         scope.launch {
-            try { block(); error = null; retry = null }
+            try { block() }
             catch (e: kotlinx.coroutines.CancellationException) { throw e }
             catch (e: IllegalArgumentException) { fail(e.message ?: "設定を保存できませんでした。") }
             catch (e: Exception) { fail("設定を保存できませんでした。もう一度お試しください。", again = { action(key, block) }) }
@@ -208,7 +209,7 @@ private fun pinStateChip(pin: PinView): Pair<String, androidx.compose.ui.graphic
  */
 @OptIn(ExperimentalLayoutApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-internal fun PinCard(pin: PinView, enabled: Boolean, onAutoEntry: (Boolean) -> Unit,
+private fun PinCard(pin: PinView, enabled: Boolean, onAutoEntry: (Boolean) -> Unit,
     onEnter: () -> Unit, onPeek: () -> Unit, onDetails: () -> Unit, onMemo: () -> Unit, onUnpin: () -> Unit,
     onAdopt: (Room) -> Unit, onDismissSimilar: (Room) -> Unit, onEnterSimilar: (Room) -> Unit, autoEntrySaving: Boolean = false) {
     val room = pin.room
