@@ -362,7 +362,8 @@ internal fun LovelyBottomNavigation(currentRoute: String?, onSelect: (MainDestin
                                 onClick = { onSelect(destination) }).padding(vertical = 7.dp, horizontal = 2.dp),
                             verticalArrangement = Arrangement.spacedBy(3.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             val color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                            Icon(destination.icon, contentDescription = null, tint = color, modifier = Modifier.size(22.dp))
+                            if (destination.route == Routes.RADAR) PinTabIcon(currentRoute, color)
+                            else Icon(destination.icon, contentDescription = null, tint = color, modifier = Modifier.size(22.dp))
                             Text(destination.label, style = MaterialTheme.typography.labelSmall, color = color)
                         }
                     }

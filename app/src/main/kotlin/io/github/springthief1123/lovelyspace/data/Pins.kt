@@ -2,6 +2,7 @@ package io.github.springthief1123.lovelyspace.data
 
 import io.github.springthief1123.lovelyspace.core.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -111,6 +112,16 @@ internal fun RoomPreference.identityRoom(): Room {
         gender = identityGender?.let(Gender::valueOf) ?: snapshot.gender, age = identityAge ?: snapshot.age)
 }
 
+/**
+ * 前回の一覧（[previous]、まだ無ければ null）から増えたピン。立て直し・似た部屋への引き継ぎは 1 件外れて 1 件増えるので、
+ * 外れた数より多く増えたときだけ、利用者が新しくピンしたとみなす。
+ */
+internal fun newlyPinnedKeys(previous: Set<String>?, current: Set<String>): Set<String> {
+    if (previous == null) return emptySet()
+    val added = current - previous
+    return if (added.size > (previous - current).size) added else emptySet()
+}
+
 private fun RoomPreference.pinKey(): String = "$host/$roomId"
 
 /**
@@ -152,6 +163,11 @@ class PinRepository(
     val pins: StateFlow<List<PinView>> = _pins.asStateFlow()
     private val _loaded = MutableStateFlow(false)
     val loaded: StateFlow<Boolean> = _loaded.asStateFlow()
+    /** 前回の一覧に無かったピン（key）。読み込み直後の 1 回目と、立て直し・似た部屋への引き継ぎ（外れたピンと同じ数だけ増えた）は含めない。 */
+    private var processedKeys: Set<String>? = null
+    private val _added = MutableSharedFlow<Set<String>>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    /** 新しくピンした部屋。ボトムナビのピンのアイコンを刺すように動かすのに使う（[newlyPinnedKeys]）。 */
+    val added: SharedFlow<Set<String>> = _added.asSharedFlow()
 
     init {
         scope.launch {
@@ -307,6 +323,8 @@ class PinRepository(
             if (records != _records.value) save(records)
             _pins.value = views.sortedWith(compareBy<PinView> { order(it) }.thenByDescending { it.record.stateAt ?: 0L })
             _loaded.value = true
+            newlyPinnedKeys(processedKeys, claimed).takeIf { it.isNotEmpty() }?.let(_added::tryEmit)
+            processedKeys = claimed
         }
         // 補った名前は保存の記録にも残す（記録が変わると一覧を作り直すので、ロックの外で）。
         learned.forEach { (pref, room) ->
