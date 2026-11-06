@@ -11,51 +11,35 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
-import io.github.springthief1123.lovelyspace.data.AutoEntryController
 import io.github.springthief1123.lovelyspace.settings.EntrySettings
 import io.github.springthief1123.lovelyspace.ui.components.QuietSwitchRow
 import io.github.springthief1123.lovelyspace.ui.describeError
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** 入室を速くする設定。空き枠は秒単位で埋まるので、通知からの入室・ロボット確認後の送信・順番待ちの自動入室を選べる。 */
+/** 入室を速くする設定。空き枠は秒単位で埋まるので、通知からの入室・ロボット確認後の送信を選べる（自動入室はピンごとに選ぶ）。 */
 @Composable
 fun EntrySettingsScreen(onBack: () -> Unit) {
     val app = LocalContext.current.applicationContext as LovelySpaceApp
     val settings by app.settings.entrySettings.collectAsStateWithLifecycle(initialValue = EntrySettings())
-    val attempts by app.autoEntry.attempts.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     val bottomContentPadding = 14.dp +
         WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    // 自動入室の残り時間を出すため、開いている間だけ時計を進める。
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            now = System.currentTimeMillis()
-            delay(15_000)
-        }
-    }
-    val autoActive = AutoEntryController.active(settings.autoEntryStartedAt, now)
 
     fun save(block: suspend () -> Unit) {
         scope.launch {
@@ -99,23 +83,12 @@ fun EntrySettingsScreen(onBack: () -> Unit) {
                     )
                 }
                 item {
-                    HorizontalDivider(
-                        color = MaterialTheme.colorScheme.outlineVariant,
-                        modifier = Modifier.padding(vertical = 10.dp),
-                    )
-                }
-                item {
-                    QuietSwitchRow(
-                        checked = autoActive,
-                        onCheckedChange = { enabled ->
-                            save {
-                                app.autoEntry.reset()
-                                app.settings.setAutoEntryStartedAt(if (enabled) System.currentTimeMillis() else 0L)
-                                now = System.currentTimeMillis()
-                            }
-                        },
-                        title = "ピンした部屋が空いたら自動で入室する",
-                        description = autoEntryDescription(autoActive, settings.autoEntryStartedAt, now, attempts),
+                    Text(
+                        "空いた部屋に自動で入室するかは、ピンごとに知らせ方を「自動で入室」にして選びます。" +
+                            "アプリで一覧などを見ている間だけ、待機メッセージがピンしたときと同じ部屋に入り、入室できたらそのピンは「空いたら知らせる」に戻ります。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 10.dp),
                     )
                 }
             }
@@ -128,15 +101,4 @@ fun EntrySettingsScreen(onBack: () -> Unit) {
                 .padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
         )
     }
-}
-
-/** 自動入室の説明。動いている間は残り時間と回数を出す。 */
-internal fun autoEntryDescription(active: Boolean, startedAt: Long, now: Long, attempts: Int): String {
-    val rules = "アプリを開いて一覧などを見ている間だけ動きます。待機メッセージが登録時と同じ部屋に限り、" +
-        "${AutoEntryController.DURATION_MS / 60_000}分たつか${AutoEntryController.MAX_ATTEMPTS}回入室すると止まります。"
-    if (!active) return rules
-    val left = ((startedAt + AutoEntryController.DURATION_MS - now + 59_999) / 60_000).coerceAtLeast(1)
-    val status = if (attempts >= AutoEntryController.MAX_ATTEMPTS) "回数の上限に達したので止まっています。もう一度オンにすると再開します。"
-    else "あと${left}分（${attempts}/${AutoEntryController.MAX_ATTEMPTS}回）。"
-    return "$status$rules"
 }

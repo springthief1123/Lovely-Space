@@ -98,7 +98,6 @@ class SettingsRepository(private val context: Context) : RoomListPreferenceStore
     private val publicRoomKey = longPreferencesKey("pacing_public_room_ms")
     private val entryFromNotificationKey = booleanPreferencesKey("entry_from_notification")
     private val entryAutoSubmitKey = booleanPreferencesKey("entry_auto_submit")
-    private val autoEntryStartedAtKey = longPreferencesKey("auto_entry_started_at")
     private val disguiseColorKey = intPreferencesKey("disguise_color")
     private val disguiseSymbolKey = stringPreferencesKey("disguise_symbol")
     private val disguiseLabelKey = stringPreferencesKey("disguise_label")
@@ -219,7 +218,6 @@ class SettingsRepository(private val context: Context) : RoomListPreferenceStore
         EntrySettings(
             fromNotification = prefs[entryFromNotificationKey] ?: true,
             autoSubmit = prefs[entryAutoSubmitKey] ?: true,
-            autoEntryStartedAt = prefs[autoEntryStartedAtKey] ?: 0L,
         )
     }
 
@@ -229,11 +227,6 @@ class SettingsRepository(private val context: Context) : RoomListPreferenceStore
 
     suspend fun setEntryAutoSubmit(enabled: Boolean) {
         context.dataStore.edit { it[entryAutoSubmitKey] = enabled }
-    }
-
-    /** 順番待ちの自動入室を [startedAt]（0 で止める）から有効にする。 */
-    suspend fun setAutoEntryStartedAt(startedAt: Long) {
-        context.dataStore.edit { it[autoEntryStartedAtKey] = startedAt }
     }
 
     /** ホーム画面のショートカット（カモフラージュ）の色・シンボル・名前。最後に置いた・更新したときの値。 */
@@ -286,8 +279,8 @@ class SettingsRepository(private val context: Context) : RoomListPreferenceStore
 /**
  * [fromNotification]: 順番待ちの空きの通知から開いたら、入力済みのまま入室まで進める。
  * [autoSubmit]: ロボット確認がある本家の入室画面で、送信ボタンが押せるようになったらアプリが押す。
- * [autoEntryStartedAt]: 順番待ちの自動入室を有効にした時刻（0 は無効）。一定時間で止まる。
+ * 空いた部屋への自動入室はここでは選ばず、ピンごとの知らせ方「自動で入室」で選ぶ（Yuya の決定、2026-11-05）。
  */
-data class EntrySettings(val fromNotification: Boolean = true, val autoSubmit: Boolean = true, val autoEntryStartedAt: Long = 0L)
+data class EntrySettings(val fromNotification: Boolean = true, val autoSubmit: Boolean = true)
 
 data class RoomDetails(val prefecture: Int?, val message: String)

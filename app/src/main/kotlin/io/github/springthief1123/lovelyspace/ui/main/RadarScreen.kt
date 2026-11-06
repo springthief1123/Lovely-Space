@@ -137,7 +137,6 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                     onAlert = { alert ->
                         if (alert != PinAlert.OFF) requestNotifications()
                         action {
-                            if (alert == PinAlert.AUTO) app.autoEntry.resetTarget(AutoEntryController.pinTarget(pin.key))
                             app.pins.setAlert(pin.key, alert)
                         }
                     },
@@ -222,11 +221,10 @@ private fun PinCard(pin: PinView, expanded: Boolean, enabled: Boolean, now: Long
                 Genres[room.genreKey]?.let { MetaChip(it.label, MaterialTheme.colorScheme.onSurfaceVariant, filled = false) }
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PinAlertChip(record.alert, record.autoActive(now), enabled, onAlert)
+                PinAlertChip(record.alert, enabled, onAlert)
                 Text(listOfNotNull(
                     record.vacancies.size.takeIf { it > 0 }?.let { "空き${it}回" },
                     record.rebuilds.takeIf { it > 0 }?.let { "立て直し${it}回" },
-                    if (record.alert == PinAlert.AUTO && record.autoActive(now)) record.autoUntil?.let { "${formatObservationTime(it)}まで自動" } else null,
                 ).joinToString("・"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 // 見つける画面のカードと同じ「入室する」チップ。押せる範囲は 48dp を取る。

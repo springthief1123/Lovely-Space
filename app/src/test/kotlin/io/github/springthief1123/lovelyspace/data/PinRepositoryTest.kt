@@ -95,6 +95,18 @@ class PinRepositoryTest {
         assertNull(borrowNamed(room(400, RoomStatus.FULL, name = null), reused))
     }
 
+    @Test fun enteringAnAutoPinsRoomByHandTurnsItBackToNotify() {
+        val waiting = room(500)
+        val other = room(600)
+        wait { pins.pin(waiting, PinAlert.AUTO) }
+        wait { pins.pin(other, PinAlert.AUTO) }
+        lists.publish(genre, listOf(other, waiting))
+        awaitPins { it.size == 2 && it.all { pin -> pin.state == PinState.OPEN } }
+        wait { pins.finishAutoEntry(genre.key, 500) }
+        assertEquals(PinAlert.NOTIFY, pins.record(roomIdentity(waiting)).alert)
+        assertEquals("別の部屋のピンはそのまま", PinAlert.AUTO, pins.record(roomIdentity(other)).alert)
+    }
+
     @Test fun aFullPinThatOpensIsNotifiedOnceAndItsVacancyIsRecorded() {
         val full = room(500, RoomStatus.FULL)
         wait { pins.pin(full, PinAlert.NOTIFY) }
@@ -264,6 +276,22 @@ class PinRepositoryTest {
         val records = mapOf(key to PinRecord(key, alert = PinAlert.NOTIFY, state = PinState.OPEN, pendingNotices = notices))
         store.save(records)
         assertEquals(records, store.load())
+    }
+
+    @Test fun pinStoreTurnsAnExpiredAutoEntryBackToNotify() {
+        // 以前の「自動で入室」は 3 時間の期限（autoUntil）があり、過ぎたものは「空いたら知らせる」として表示していた。
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        val prefs = context.getSharedPreferences("pin-auto-legacy-test", android.content.Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val raw = org.json.JSONArray()
+            .put(org.json.JSONObject().put("key", "expired").put("alert", "AUTO").put("autoUntil", now - 1))
+            .put(org.json.JSONObject().put("key", "running").put("alert", "AUTO").put("autoUntil", now + 3_600_000))
+            .put(org.json.JSONObject().put("key", "new").put("alert", "AUTO"))
+        prefs.edit().putString("records", raw.toString()).commit()
+        val loaded = PinStore(prefs).load()
+        assertEquals(PinAlert.NOTIFY, loaded.getValue("expired").alert)
+        assertEquals(PinAlert.AUTO, loaded.getValue("running").alert)
+        assertEquals(PinAlert.AUTO, loaded.getValue("new").alert)
     }
 
     @Test fun turningOffNotificationsClearsUnsentPinEvents() {

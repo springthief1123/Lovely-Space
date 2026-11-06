@@ -15,7 +15,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.core.*
-import io.github.springthief1123.lovelyspace.data.AutoEntryController
 import io.github.springthief1123.lovelyspace.data.PinAlert
 import io.github.springthief1123.lovelyspace.data.statusName
 import io.github.springthief1123.lovelyspace.notify.NotificationKind
@@ -74,10 +73,9 @@ internal fun RoomDetailsSheet(room: Room, favorite: Boolean, actionsEnabled: Boo
             }
             if (favorite) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("知らせ方", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                PinAlertChip(record?.alert ?: PinAlert.OFF, record?.autoActive(System.currentTimeMillis()) == true, enabled = !working && actionsEnabled, onSelect = { alert ->
+                PinAlertChip(record?.alert ?: PinAlert.OFF, enabled = !working && actionsEnabled, onSelect = { alert ->
                     if (alert != PinAlert.OFF && !notificationsAllowed) requestNotifications()
                     save {
-                        if (alert == PinAlert.AUTO) app.autoEntry.resetTarget(AutoEntryController.pinTarget(roomIdentity(room)))
                         app.pins.setAlert(roomIdentity(room), alert)
                     }
                 })
