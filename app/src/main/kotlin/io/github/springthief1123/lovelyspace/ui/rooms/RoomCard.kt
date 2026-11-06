@@ -660,9 +660,9 @@ private fun RoomCardSurface(
     isFavorite: Boolean,
     isHidden: Boolean,
 ) {
-    var menuOpen by remember(key) { mutableStateOf(false) }
+    var menuOpen by remember(room.id, room.genreKey) { mutableStateOf(false) }
     // 長押しした指の位置。メニューをそこへ出す。
-    var pressAt by remember(key) { mutableStateOf(Offset.Zero) }
+    var pressAt by remember(room.id, room.genreKey) { mutableStateOf(Offset.Zero) }
     val menuItems = buildList {
         detailsAction?.let { add(RoomMenuItem("部屋の詳細", Icons.Outlined.Info, onClick = it)) }
         favoriteAction?.let {
