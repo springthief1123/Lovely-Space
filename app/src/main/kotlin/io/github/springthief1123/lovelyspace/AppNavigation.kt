@@ -25,7 +25,7 @@ internal object Routes {
     const val SETTINGS_LOCK = "settings/lock"
     const val SETTINGS_DISGUISE = "settings/disguise"
     /** [auto] は入力済みのまま入室まで進める（順番待ちの通知・自動入室から開いたとき）。 */
-    const val ENTRY = "entry/{host}/{genre}/{roomId}?origin={origin}&auto={auto}&public={public}"
+    const val ENTRY = "entry/{host}/{genre}/{roomId}?origin={origin}&auto={auto}&public={public}&automatic={automatic}"
     /** pwdはrouteに載せず、ActiveRoomsの一時IDだけを渡す。 */
     const val CHAT = "chat/{session}?origin={origin}"
     /** [origin] は部屋の作成を始めた主画面。会話の後はそこへ戻る。 */
@@ -33,8 +33,8 @@ internal object Routes {
     const val PUBLIC = "public/{host}/{genre}/{roomId}"
 
     /** [listedPublic] は一覧で公開の部屋だったか。開いたときに満室になっていたら、公開ルームとして覗く。 */
-    fun entry(host: String, genre: String, roomId: Long, origin: String = ROOMS, auto: Boolean = false, listedPublic: Boolean = false) =
-        "entry/${Uri.encode(host)}/${Uri.encode(genre)}/$roomId?origin=${mainOrigin(origin)}&auto=$auto&public=$listedPublic"
+    fun entry(host: String, genre: String, roomId: Long, origin: String = ROOMS, auto: Boolean = false, listedPublic: Boolean = false, automatic: Boolean = false) =
+        "entry/${Uri.encode(host)}/${Uri.encode(genre)}/$roomId?origin=${mainOrigin(origin)}&auto=$auto&public=$listedPublic&automatic=$automatic"
     fun create(genre: String, origin: String = ROOMS) = "create/${Uri.encode(genre)}?origin=${mainOrigin(origin)}"
     fun public(host: String, genre: String, roomId: Long) = "public/${Uri.encode(host)}/${Uri.encode(genre)}/$roomId"
     fun chat(sessionId: String, origin: String) = "chat/${Uri.encode(sessionId)}?origin=${mainOrigin(origin)}"

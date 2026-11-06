@@ -33,6 +33,7 @@ class AutoEntryController(
     /** 部屋ごとの最後の依頼を残す。アプリが落ちて開き直されても、同じ部屋への待ちを引き継ぐ。 */
     private val persistence: AutoEntryPersistence = AutoEntryPersistence.None,
     private val now: () -> Long = System::currentTimeMillis,
+    private val canAutomaticallyAccess: (String) -> Boolean = { true },
 ) {
     private val mutex = Mutex()
     private val _requests = MutableSharedFlow<NotificationTarget.Room>(extraBufferCapacity = 1)
@@ -99,7 +100,7 @@ class AutoEntryController(
     private fun request(room: Room, key: String, target: String): Boolean {
         val host = Genres[room.genreKey]?.host ?: return false
         val at = now()
-        if (!ready) return false
+        if (!ready || !canAutomaticallyAccess(host)) return false
         if (lastRequested[key]?.let { at - it < COOLDOWN_MS } == true) return false
         // 受け取る画面が無いと依頼は捨てられるので、その場合は待ちに数えない。
         if (_requests.subscriptionCount.value == 0 || !_requests.tryEmit(NotificationTarget.Room(host, room.genreKey, room.id))) return false

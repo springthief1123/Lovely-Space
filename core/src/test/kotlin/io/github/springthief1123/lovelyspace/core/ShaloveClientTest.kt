@@ -29,6 +29,7 @@ import okio.Buffer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
@@ -53,6 +54,33 @@ class ShaloveClientTest {
     fun tearDown() = server.shutdown()
 
 
+
+    @Test fun chatRestrictionPausesPollingAndAutomaticPagesButNotExplicitSend() = runTest {
+        val mapped = OkHttpClient.Builder().addInterceptor { chain ->
+            val original = chain.request()
+            chain.proceed(original.newBuilder().url(server.url(original.url.encodedPath)).build())
+                .newBuilder().request(original).build()
+        }.build()
+        val limited = ShaloveClient(http = mapped, clock = { now }, sleep = { now += it })
+        val room = ChatRoomRef(Genres.default.host, 900000001, "synthetic", Genres.default.key)
+        val initial = io.github.springthief1123.lovelyspace.core.chat.ChatPageParser.parse(fixture("chat/chat_page_guest.html"), room)
+        val session = limited.chatSession(initial)
+        server.enqueue(MockResponse().setResponseCode(503).setHeader("Retry-After", "60"))
+        assertTrue(runCatching { session.poll() }.exceptionOrNull() is HttpStatusException)
+        assertTrue(runCatching { session.poll() }.exceptionOrNull() is AutomaticAccessPausedException)
+        assertTrue(runCatching { limited.fetchRoomList(RoomQuery(Genres.default), forceRefresh = true) }.exceptionOrNull() is AutomaticAccessPausedException)
+        assertTrue(runCatching { limited.openPublicRoom(room.host, room.genreKey, room.roomId) }.exceptionOrNull() is AutomaticAccessPausedException)
+        assertEquals(1, server.requestCount)
+        server.enqueue(MockResponse().setBody("gRoomVars.fromsize = 100; loglines = [];"))
+        session.send("合成の発言")
+        assertEquals(2, server.requestCount)
+        assertFalse(limited.automaticAccessAllowed(room.host))
+        assertTrue(limited.automaticAccessAllowed("lr.chat.shalove.net"))
+        val resynced = limited.chatSession(initial, previous = session)
+        now += 10_000
+        assertTrue(runCatching { resynced.poll() }.exceptionOrNull() is AutomaticAccessPausedException)
+        assertEquals(2, server.requestCount)
+    }
     @Test fun retryAfterPausesAllAutomaticListsButAllowsManualRequests() = runTest {
         val mapped = OkHttpClient.Builder().addInterceptor { chain ->
             val original = chain.request()

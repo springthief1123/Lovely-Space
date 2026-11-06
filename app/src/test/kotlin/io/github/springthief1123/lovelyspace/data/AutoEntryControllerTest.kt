@@ -41,6 +41,18 @@ class AutoEntryControllerTest {
 
     private fun ref(room: Room) = ChatRoomRef(zenkoku.host, room.id, "合成", room.genreKey)
 
+
+    @Test fun hostPauseStopsAnOfferWithoutConsumingItsCooldown() = runTest {
+        var allowed = false
+        val c = AutoEntryController(now = { now }, canAutomaticallyAccess = { allowed }).apply { ready = true }
+        val received = mutableListOf<NotificationTarget.Room>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { c.requests.toList(received) }
+        assertFalse(c.offerPin(pinKey, full, open))
+        assertTrue(received.isEmpty())
+        allowed = true
+        assertTrue(c.offerPin(pinKey, full, open))
+        assertEquals(1, received.size)
+    }
     @Test fun opensTheEntryOfAnAutoPinThatOpened() = runTest {
         val (c, received) = controller()
         assertTrue(c.offerPin(pinKey, full, open))

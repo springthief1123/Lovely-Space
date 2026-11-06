@@ -34,6 +34,7 @@ class ChatSession internal constructor(
     initialState: ChatState,
     private val clock: () -> Long,
     private val sleep: suspend (Long) -> Unit,
+    private val checkAutomaticAccess: () -> Unit = {},
 ) {
     @Volatile
     var state: ChatState = initialState
@@ -103,6 +104,7 @@ class ChatSession internal constructor(
         val (call, from) = lock.withLock {
             // 発言後の間隔が空いていない（lock を待つ間に発言があったなど）。
             if (pollNotBefore?.let { clock() < it } == true) return null
+            checkAutomaticAccess()
             val from = state.fromSize
             val call = http.newCall(ajaxRequest(from, live = live, chat = null))
             pending = call
@@ -127,7 +129,7 @@ class ChatSession internal constructor(
      * 直近の発言間隔と、発言後の次回 poll 許可時刻は引き継ぎ、本家より短い間隔で通信しない。
      */
     internal fun resynchronized(initialState: ChatState): ChatSession =
-        ChatSession(http, room, initialState, clock, sleep).also { next ->
+        ChatSession(http, room, initialState, clock, sleep, checkAutomaticAccess).also { next ->
             next.lastSendAt = lastSendAt
             next.pollNotBefore = pollNotBefore
         }
