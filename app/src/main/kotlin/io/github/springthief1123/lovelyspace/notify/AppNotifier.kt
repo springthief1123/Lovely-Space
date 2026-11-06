@@ -123,7 +123,7 @@ class AppNotifier(
         val builder = NotificationCompat.Builder(context, notification.kind.channelId)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(notification.title(preview))
-            .setContentText(body)
+            .setContentText(notification.compactBody(preview))
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setWhen(notification.at)
             .setShowWhen(true)

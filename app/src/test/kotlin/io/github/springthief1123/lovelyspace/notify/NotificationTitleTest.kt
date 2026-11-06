@@ -30,6 +30,16 @@ class NotificationTitleTest {
         assertNull(room("  ").ownerLabel())
     }
 
+    @Test fun compactNotificationsPrioritizeTheMessageAndRespectHiddenPreviews() {
+        val r = room("合成の名前").copy(message = "合成の募集文\n2行目")
+        val n = AppNotification("compact", NotificationKind.WAITLIST, "ピンした部屋が空きました", "全国",
+            NotificationTarget.Radar, 0L, message = "${r.name}\n${r.message}", room = r)
+        assertEquals("合成の募集文 2行目 · 全国", n.compactBody(NotificationPreview.FULL))
+        assertEquals(n.compactBody(NotificationPreview.FULL), n.compactBody(NotificationPreview.HIDE_ON_LOCK_SCREEN))
+        assertEquals("全国", n.compactBody(NotificationPreview.NO_MESSAGE))
+        assertEquals("全国\n${r.name}\n${r.message}", n.body(NotificationPreview.FULL))
+    }
+
     @Test fun testNotificationsLookLikeRealOnes() {
         val pin = NotificationSamples.of(NotificationKind.WAITLIST)
         assertEquals("テストさんの部屋が空きました", pin.displayTitle)

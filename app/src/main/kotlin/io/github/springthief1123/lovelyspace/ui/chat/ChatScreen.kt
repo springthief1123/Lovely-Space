@@ -503,7 +503,7 @@ private fun Bubble(ui: UiLine, showName: Boolean = false, isOwnerSide: Boolean, 
                 modifier = Modifier.widthIn(max = bubbleWidth)) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                     SelectionContainer {
-                        if (line.text.isNotEmpty()) Text(line.text, style = MaterialTheme.typography.bodyLarge)
+                        if (line.text.isNotEmpty()) ChatMessageText(line.text)
                     }
                     line.imageUrls.forEach { url ->
                         TextButton(onClick = { uriHandler.openUri(url) }) { Text("画像を開く") }
