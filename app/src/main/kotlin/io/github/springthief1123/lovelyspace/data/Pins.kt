@@ -145,6 +145,10 @@ class PinRepository(
     private val mutex = Mutex()
     /** 新規イベントを記録した処理より先に、別の観測が未配信扱いで再送しないようにする。 */
     private val processMutex = Mutex()
+    /** 変化イベントを順に処理し終えた最新の観測。途中の「空き」を StateFlow の conflation で落とさない。 */
+    private val processedRevision = MutableStateFlow(0L)
+    /** 順序付きイベントを持つ一覧では、他の更新も最後に処理済みの観測だけを使う。 */
+    private var chronologicalPages: Map<RoomQuery, ObservedRoomPage> = emptyMap()
     /** 通知コールバック中は状態のmutexを保持しない。再送同士だけを直列化する。 */
     private val noticeMutex = Mutex()
     /** 利用者が同じ人と答えて引き継ぐ似た部屋。引き継いだ時点の様子をそのまま記録し、空いたとは数えない。 */
@@ -172,12 +176,37 @@ class PinRepository(
     val added: SharedFlow<Set<String>> = _added.asSharedFlow()
 
     init {
-        scope.launch {
-            combine(favorites.filterNotNull(), lists.observations, _records, namedRevision) { favs, obs, _, _ -> favs to obs }
-                .conflate()
-                .collect { (favs, obs) ->
-                    try { process(favs, obs) } catch (e: CancellationException) { throw e } catch (_: Exception) { }
+        val changes = lists.changes
+        if (changes != null) {
+            // 観測の中間状態を捨てずに処理する。満室→空き→満室が一度に来ても空きを通知する。
+            scope.launch {
+                changes.collect { change ->
+                    while (true) {
+                        try {
+                            process(favorites.filterNotNull().first(), change.pages, ordered = true)
+                            processedRevision.value = maxOf(processedRevision.value, change.observation.revision)
+                            break
+                        } catch (e: CancellationException) { throw e }
+                        catch (_: Exception) { delay(500) } // 保存できるまで同じ観測を再試行する。
+                    }
                 }
+            }
+            scope.launch {
+                combine(favorites.filterNotNull(), _records, namedRevision) { favs, _, _ -> favs }
+                    .conflate().collect { favs ->
+                        try { process(favs, emptyMap()) }
+                        catch (e: CancellationException) { throw e }
+                        catch (_: Exception) { }
+                    }
+            }
+        } else {
+            // テスト用など、順序付きイベントを提供しない Source の互換経路。
+            scope.launch {
+                combine(favorites.filterNotNull(), lists.observations, _records, namedRevision) { favs, obs, _, _ -> favs to obs }
+                    .conflate().collect { (favs, obs) ->
+                        try { process(favs, obs) } catch (e: CancellationException) { throw e } catch (_: Exception) { }
+                    }
+            }
         }
         scope.launch { moved.collect { (from, to) -> try { move(from, to) } catch (e: CancellationException) { throw e } catch (_: Exception) { } } }
     }
@@ -211,6 +240,11 @@ class PinRepository(
 
     /** いま手元にある一覧で見張りを進め、起きたことを知らせ終えるまで待つ（背景の実行が終わる前に呼ぶ）。 */
     suspend fun refresh() {
+        if (lists.changes != null) {
+            // Worker が終わる前に今回の全観測の通知を確定する。追いつけなければ Worker 側に再試行させる。
+            val target = lists.observations.value.values.maxOfOrNull { it.revision } ?: 0L
+            withTimeout(10_000L) { processedRevision.first { it >= target } }
+        }
         process(favorites.filterNotNull().first(), lists.observations.value)
     }
 
@@ -281,14 +315,19 @@ class PinRepository(
         catch (_: Exception) { _records.value = records }
     }
 
-    private suspend fun process(favs: List<RoomPreference>, observations: Map<RoomQuery, ObservedRoomPage>) = processMutex.withLock {
+    private suspend fun process(favs: List<RoomPreference>, observations: Map<RoomQuery, ObservedRoomPage>, ordered: Boolean = false) = processMutex.withLock {
+        val pages = when {
+            lists.changes == null -> observations
+            ordered -> observations.also { chronologicalPages = it }
+            else -> chronologicalPages
+        }
         val freshIds = HashSet<String>()
         val learned = mutableListOf<Pair<RoomPreference, Room>>()
         mutex.withLock {
             val at = now()
             val records = _records.value.toMutableMap()
             val claimed = favs.mapTo(HashSet()) { it.pinKey() }
-            val windows = favs.mapNotNull { Genres[it.genreKey] }.distinct().associateWith { observations.genreWindow(it) }
+            val windows = favs.mapNotNull { Genres[it.genreKey] }.distinct().associateWith { pages.genreWindow(it) }
             val views = favs.map { pref ->
                 val key = pref.pinKey()
                 val stored = pref.identityRoom()

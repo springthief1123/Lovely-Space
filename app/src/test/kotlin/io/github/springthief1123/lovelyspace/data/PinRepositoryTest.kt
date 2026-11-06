@@ -35,6 +35,18 @@ class PinRepositoryTest {
         }
     }
 
+    /** 本番の一覧と同じく順序付きイベントを発行する。 */
+    private class OrderedLists : ObservedRoomListSource {
+        private val journal = RoomObservationJournal()
+        override val observations = journal.observations
+        override val changes = journal.changes
+        override suspend fun fetch(query: RoomQuery, force: Boolean): RoomListPage = error("通信しない")
+        suspend fun publish(genre: Genre, rooms: List<Room>, at: Long) {
+            val query = RoomQuery(genre)
+            journal.record(query, RoomListPage(genre.key, rooms, null, null, 1, 1, emptyMap(), null), at)
+        }
+    }
+
     private class Memory : PinPersistence {
         var saved: Map<String, PinRecord> = emptyMap()
         var failSave = false
@@ -120,6 +132,28 @@ class PinRepositoryTest {
         assertEquals(1, awaitPins { it.single().record.vacancies.isNotEmpty() }.single().record.vacancies.size)
         // 同じ様子を読み直しても、もう一度は知らせない。
         lists.publish(genre, listOf(room(700), room(600), room(500), room(400)))
+        assertNoEvent()
+    }
+
+    @Test fun rapidFullOpenFullObservationsStillNotifyTheIntermediateVacancy() {
+        val ordered = OrderedLists()
+        scope.cancel()
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        pins = PinRepository(Memory(), prefs, ordered, onEvent = { events.send(it) },
+            moved = prefs.moved, scope = scope)
+        val full = room(500, RoomStatus.FULL)
+        wait { pins.pin(full) }
+        wait { ordered.publish(genre, listOf(room(600), full, room(400)), 1_000L) }
+        awaitPins { it.singleOrNull()?.state == PinState.FULL }
+        // 通知処理が追い付く前に戻っても、順序付きイベントに空きが残る。
+        wait {
+            ordered.publish(genre, listOf(room(600), room(500), room(400)), 2_000L)
+            ordered.publish(genre, listOf(room(600), full, room(400)), 3_000L)
+            pins.refresh()
+        }
+        assertEquals(500L, (wait { events.receive() } as PinEvent.Opened).pin.room.id)
+        val view = awaitPins { it.singleOrNull()?.state == PinState.FULL && it.single().record.vacancies.size == 1 }.single()
+        assertEquals(1, view.record.vacancies.size)
         assertNoEvent()
     }
 
