@@ -4,6 +4,7 @@ import io.github.springthief1123.lovelyspace.core.fixture
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertThrows
 import org.junit.Test
@@ -13,6 +14,15 @@ class ChatParsersTest {
     private val room = ChatRoomRef("2shot.chat.shalove.net", 900000001, "0123456789abcdef0123456789abcdef", "chah")
     private val initial = ChatState(fromSize = 540)
 
+
+    @Test fun reentryRequiresObservedGenreAndRejectsUnrelatedSubdomains() {
+        fun form(genre: String?, host: String) = """<form action="https://$host/2shot.php"><input name="room_id" value="900000001"><input name="pwd" value="synthetic">${genre?.let { "<input name='genre_key' value='$it'>" }.orEmpty()}</form>"""
+        val page = "https://chat.shalove.net/?submit=submit_rein2shot&genre_key=chah"
+        assertNull(ChatRoomFormParser.parse(form("kanto", "chat.shalove.net"), page, "chah"))
+        assertNull(ChatRoomFormParser.parse(form(null, "chat.shalove.net"), page, "chah"))
+        assertNull(ChatRoomFormParser.parse(form("chah", "unrelated.shalove.net"), page, "chah"))
+        assertNotNull(ChatRoomFormParser.parse(form("chah", "chat.shalove.net"), page, "chah"))
+    }
     @Test
     fun parsesPartnerLineFromLivePoll() {
         val u = ChatUpdateParser.parse(fixture("chat/ajax_live_partner.txt"), initial)

@@ -100,6 +100,7 @@ fun CreateRoomScreen(genre: Genre, onBack: () -> Unit, onCreated: (ChatRoomRef) 
                 RobotCheckView(
                     url = url,
                     genreKey = genre.key,
+                    handover = io.github.springthief1123.lovelyspace.core.chat.ChatRoomHandover.create(genre.key),
                     guide = "下のロボット確認を済ませてから、作成のボタンを押してください。入力した内容はそのまま送られます。",
                     onLoadScript = prefillFormScript(
                         "makeroom",

@@ -113,6 +113,7 @@ fun SiteReentryScreen(onBack: () -> Unit, onRoomOpened: (ChatRoomRef) -> Unit) {
                     SiteWebView(
                         url = SitePages.reenterRoom(genre),
                         genreKey = genre.key,
+                handover = io.github.springthief1123.lovelyspace.core.chat.ChatRoomHandover.reentry(genre.key),
                         modifier = Modifier.fillMaxSize(),
                         onRoomOpened = onRoomOpened,
                         findRoomInPage = true,
