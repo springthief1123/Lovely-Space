@@ -214,16 +214,23 @@ class PinRepository(
             }
         }
         scope.launch {
-            moved.collect { pending ->
-                // 前回の保存成功・確認済み書き込み前に終了した場合も再実行できる（move は冪等）。
-                while (true) {
-                    try {
-                        move(pending.from, pending.to, pending.kind)
-                        preferences.acknowledgePinMove(pending.id)
-                        break
-                    } catch (e: CancellationException) { throw e }
-                    catch (_: Exception) { delay(500) }
-                }
+            // 購読自体が（DB クローズと競合するなどして）例外で終わっても未処理例外として漏らさず、張り直す。
+            while (true) {
+                try {
+                    moved.collect { pending ->
+                        // 前回の保存成功・確認済み書き込み前に終了した場合も再実行できる（move は冪等）。
+                        while (true) {
+                            try {
+                                move(pending.from, pending.to, pending.kind)
+                                preferences.acknowledgePinMove(pending.id)
+                                break
+                            } catch (e: CancellationException) { throw e }
+                            catch (_: Exception) { delay(500) }
+                        }
+                    }
+                    break
+                } catch (e: CancellationException) { throw e }
+                catch (_: Exception) { delay(500) }
             }
         }
     }
@@ -411,10 +418,15 @@ class PinRepository(
                     freshIds += notice.id
                 }
                 if (similar != null && record.suggested != roomIdentity(similar.room)) {
-                    val notice = PendingPinNotice("pin-similar-$key-${similar.room.id}", PinNoticeType.SIMILAR, similar.room, at,
-                        similarity = similar.similarity)
-                    record = record.copy(suggested = roomIdentity(similar.room), pendingNotices = record.pendingNotices + notice)
-                    freshIds += notice.id
+                    // 初めて確かめたときは空きと同じく記録するだけにし、知らせは出さない。引き継ぎ済みのピンが
+                    // お気に入り側の反映遅れで一瞬だけ古い部屋として処理されても、同じ候補を二度知らせないため。
+                    record = record.copy(suggested = roomIdentity(similar.room))
+                    if (before.state != null) {
+                        val notice = PendingPinNotice("pin-similar-$key-${similar.room.id}", PinNoticeType.SIMILAR, similar.room, at,
+                            similarity = similar.similarity)
+                        record = record.copy(pendingNotices = record.pendingNotices + notice)
+                        freshIds += notice.id
+                    }
                 }
                 if (record != before || key !in records) records[key] = record
                 view.copy(record = record)
