@@ -17,6 +17,7 @@ import io.github.springthief1123.lovelyspace.ui.chat.UiLine
 import io.github.springthief1123.lovelyspace.ui.chat.ownerGender
 import io.github.springthief1123.lovelyspace.ui.components.ForegroundPolling
 import io.github.springthief1123.lovelyspace.ui.components.QuietTopBar
+import io.github.springthief1123.lovelyspace.ui.components.QuietSnackbarHost
 import io.github.springthief1123.lovelyspace.ui.main.RoomMenuButton
 import io.github.springthief1123.lovelyspace.ui.main.observedRoom
 import io.github.springthief1123.lovelyspace.core.Gender
@@ -46,7 +47,7 @@ fun PublicRoomScreen(host: String, genreKey: String, roomId: Long, onBack: () ->
     val snackbar = remember { SnackbarHostState() }
     val menuScope = rememberCoroutineScope()
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = { QuietSnackbarHost(snackbar) },
         topBar = {
             QuietTopBar("公開ルーム", onBack = onBack, actions = {
                 RoomMenuButton(genreKey, roomId, fallbackTitle = "公開ルーム",

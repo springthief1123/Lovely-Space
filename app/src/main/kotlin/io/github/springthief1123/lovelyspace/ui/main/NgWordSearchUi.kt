@@ -8,6 +8,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
@@ -17,6 +22,7 @@ import io.github.springthief1123.lovelyspace.core.Room
 import io.github.springthief1123.lovelyspace.core.roomIdentity
 import io.github.springthief1123.lovelyspace.ui.components.QuietSheet
 import io.github.springthief1123.lovelyspace.ui.components.QuietSheetHeader
+import io.github.springthief1123.lovelyspace.ui.theme.LovelyShapes
 import io.github.springthief1123.lovelyspace.ui.theme.LovelySpacing
 
 /** 見つける画面に出す NG ワードの状態。[activeSets] は効いているセットの数、[suspended] は「今だけ外す」中か、[failed] は読み込めなかったか。 */
@@ -39,17 +45,29 @@ internal fun ngSummaryText(activeSets: Int, suspended: Boolean, failed: Boolean 
     else -> "ほかに、NGワード ${activeSets}セットに当たる部屋をいつも除外しています。"
 }
 
-/** 状態行の下に置く、NG ワードで外した件数。押すと中身を確認できる。「今だけ外す」中は戻すボタンを出す。 */
+/**
+ * 取得の状態行の右端に置く、NG ワードで外した件数（「NG除外 31件 ›」）。押すと中身を確認できる。
+ * 「今だけ外す」中は「NGを戻す」になり、押すと NG ワードを掛け直す。行を 1 つ増やさないよう、状態行に並べる小さなボタンにする。
+ */
 @Composable
-internal fun NgStatusRow(count: Int, suspended: Boolean, onShow: () -> Unit, onResume: () -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(if (suspended) "NGワードを今だけ外しています" else "NGワードで${count}件を除外",
-            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f).semantics { stateDescription = if (suspended) "NGワードを外し中" else "NGワードを適用中" })
-        if (suspended) TextButton(onClick = onResume) { Text("NGワードを戻す") }
-        else TextButton(onClick = onShow) { Text("確認") }
+internal fun NgStatusButton(count: Int, suspended: Boolean, onShow: () -> Unit, onResume: () -> Unit) {
+    val label = if (suspended) "NGを戻す" else ngStatusLabel(count)
+    Row(
+        Modifier.heightIn(min = 32.dp).clip(LovelyShapes.control)
+            .clickable(onClickLabel = if (suspended) "NGワードを戻す" else "除外した部屋を確認", role = Role.Button) { if (suspended) onResume() else onShow() }
+            .semantics {
+                contentDescription = if (suspended) "NGワードを今だけ外しています" else "NGワードで${count}件を除外"
+                stateDescription = if (suspended) "NGワードを外し中" else "NGワードを適用中"
+            }
+            .padding(start = 8.dp, end = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, maxLines = 1)
+        Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
     }
 }
+
+internal fun ngStatusLabel(count: Int): String = "NG除外 ${count}件"
 
 /** NG ワードで外した部屋の一覧。誤って外れた部屋に気づけるよう、当たった語を添える。 */
 @OptIn(ExperimentalMaterial3Api::class)

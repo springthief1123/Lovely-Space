@@ -36,6 +36,9 @@ class LovelyAppShellNavigationTest {
         assertFalse(shouldShowFloatingPreview(Routes.ROOMS, 0))
         assertEquals(108.dp, floatingNoticeBottomOffset(Routes.ROOMS, true, 100.dp, false))
         assertEquals(180.dp, floatingNoticeBottomOffset(Routes.ROOMS, true, 100.dp, true))
+        // お知らせ（Snackbar）は一覧の下の余白（最低 124dp）ではなく、ナビのすぐ上に出す。
+        assertEquals(100.dp, lovelySnackbarBottomInset(100.dp, showResumeBar = false))
+        assertEquals(172.dp, lovelySnackbarBottomInset(100.dp, showResumeBar = true))
         assertEquals(16.dp, floatingNoticeBottomOffset(Routes.SETTINGS_NOTIFICATIONS, false, 100.dp, false))
         assertEquals(8.dp, floatingNoticeBottomOffset(Routes.CHAT, false, 100.dp, false))
         assertEquals(160.dp, floatingNoticeBottomOffset(Routes.CHAT, false, 100.dp, false, 152.dp))
