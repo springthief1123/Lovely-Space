@@ -42,7 +42,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.Routes
-import io.github.springthief1123.lovelyspace.data.PinState
+import io.github.springthief1123.lovelyspace.core.PinState
 import io.github.springthief1123.lovelyspace.data.PinView
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch

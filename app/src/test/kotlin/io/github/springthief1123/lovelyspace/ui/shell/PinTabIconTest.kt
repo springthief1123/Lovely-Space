@@ -3,7 +3,6 @@ package io.github.springthief1123.lovelyspace.ui.shell
 import io.github.springthief1123.lovelyspace.Routes
 import io.github.springthief1123.lovelyspace.core.*
 import io.github.springthief1123.lovelyspace.data.PinRecord
-import io.github.springthief1123.lovelyspace.data.PinState
 import io.github.springthief1123.lovelyspace.data.PinView
 import io.github.springthief1123.lovelyspace.data.RoomPreference
 import io.github.springthief1123.lovelyspace.data.newlyPinnedKeys
