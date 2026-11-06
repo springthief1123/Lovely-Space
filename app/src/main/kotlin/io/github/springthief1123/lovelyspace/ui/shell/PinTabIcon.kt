@@ -45,6 +45,7 @@ import io.github.springthief1123.lovelyspace.Routes
 import io.github.springthief1123.lovelyspace.core.PinState
 import io.github.springthief1123.lovelyspace.data.PinView
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -66,8 +67,10 @@ internal fun shouldStabPinIcon(currentRoute: String?): Boolean = currentRoute ==
  */
 @Composable
 internal fun PinTabIcon(currentRoute: String?, tint: Color) {
-    val app = LocalContext.current.applicationContext as LovelySpaceApp
-    val pins by app.pins.pins.collectAsStateWithLifecycle()
+    // 画面のテスト（アプリ本体の無い環境）では、ピンの無い姿で描く。
+    val repository = (LocalContext.current.applicationContext as? LovelySpaceApp)?.pins
+    val none = remember { MutableStateFlow(emptyList<PinView>()) }
+    val pins by (repository?.pins ?: none).collectAsStateWithLifecycle()
     val live = livePinCount(pins)
     // 0 件になって消えていく間は、最後に出していた件数のまま消す。
     var shown by remember { mutableIntStateOf(0) }
@@ -75,8 +78,8 @@ internal fun PinTabIcon(currentRoute: String?, tint: Color) {
     val route by rememberUpdatedState(currentRoute)
     val offsetY = remember { Animatable(0f) }
     val squash = remember { Animatable(1f) }
-    LaunchedEffect(app.pins) {
-        app.pins.added.collect {
+    LaunchedEffect(repository) {
+        repository?.added?.collect {
             if (!shouldStabPinIcon(route)) return@collect
             offsetY.snapTo(0f)
             squash.snapTo(1f)
