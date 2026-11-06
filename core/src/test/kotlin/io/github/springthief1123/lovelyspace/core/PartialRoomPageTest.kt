@@ -42,4 +42,22 @@ class PartialRoomPageTest {
         assertFalse(partial.isClosed(before.rooms.single { it.id == 700L }))
         assertFalse(partial.observe(page(listOf(600, 500, 400), number = 2)).listedRooms.any { it.id == 700L })
     }
+    @Test fun partialObservationCannotCloseAnUnseenPinAtEitherEdge() {
+        val ids = listOf(1000, 900, 800, 700, 600, 500, 400, 300)
+        val original = page(ids)
+        val window = RoomPageWindow().observe(page(ids, broken = 800, last = 1))
+        for (id in listOf(800L, 1200L, 100L)) {
+            assertFalse(window.isClosed(original.rooms.first().copy(id = id)))
+        }
+        assertEquals(1, page(ids, broken = 800).droppedRowCount)
+        assertFalse(page(ids, broken = 800).rowsComplete)
+        assertTrue(original.rowsComplete)
+        assertTrue(window.observe(page(ids, last = 1)).incompletePages.isEmpty())
+    }
+
+    @Test fun advertisingOutsideRoomRowsDoesNotMakeAPageIncomplete() {
+        val html = "<table class='rooms'><tr><td>広告用の合成文</td></tr></table>"
+        assertTrue(RoomListParser.parse(html, "zenkoku").rowsComplete)
+    }
+
 }

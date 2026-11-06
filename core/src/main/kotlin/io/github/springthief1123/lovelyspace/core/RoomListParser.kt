@@ -18,9 +18,12 @@ object RoomListParser {
 
     fun parse(html: String, genreKey: String, page: Int = 1, baseUri: String = ""): RoomListPage {
         val doc = Jsoup.parse(html, baseUri)
+        val rows = doc.select("table.rooms tr.roomcol")
+        val rooms = rows.mapNotNull { parseRow(it, genreKey) }
         return RoomListPage(
             genreKey = genreKey,
-            rooms = parseRooms(doc, genreKey),
+            rooms = rooms,
+            droppedRowCount = rows.size - rooms.size,
             waitingCount = headerCount(doc, "wait"),
             fullCount = headerCount(doc, "fill"),
             page = page,
@@ -66,9 +69,6 @@ object RoomListParser {
             "${html.length} 文字",
         ).joinToString("・")
     }
-
-    private fun parseRooms(doc: Document, genreKey: String): List<Room> =
-        doc.select("table.rooms tr.roomcol").mapNotNull { parseRow(it, genreKey) }
 
     private fun parseRow(row: Element, genreKey: String): Room? {
         val cells = row.children().filter { it.tagName() == "td" }

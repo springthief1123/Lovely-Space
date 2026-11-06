@@ -34,23 +34,26 @@ data class RoomPageWindow(
     val carried: Map<String, CarriedRoom> = emptyMap(),
     /** 部屋（[roomIdentity]）ごとの、一覧で初めて見えた観測。今ある部屋の分だけ持つ。 */
     val firstSeen: Map<String, Long> = emptyMap(),
+    /** 部分解析のページは、不在を根拠とする閉鎖推定から外す。 */
+    val incompletePages: Set<Int> = emptySet(),
 ) {
     fun observe(page: RoomListPage, observationRevision: Long? = null): RoomPageWindow {
         val nextRevision = observationRevision ?: revision + 1
         // キャッシュを再利用した呼び出しを新たな観測として数えない。
         if (observationRevision != null && nextRevision <= (revisions[page.page] ?: Long.MIN_VALUE)) return this
-        val limit = if (nextRevision >= revision) page.lastPage.coerceAtLeast(1) else lastPage
+        val limit = if (nextRevision >= revision && page.rowsComplete) page.lastPage.coerceAtLeast(1) else maxOf(lastPage, page.lastPage, page.page)
         val seen = page.rooms.mapTo(HashSet(), ::roomIdentity)
-        val closed = closedRange(page.rooms)
+        val closed = if (page.rowsComplete) closedRange(page.rooms) else null
         // このページの範囲にあるのに載っていない部屋は閉じた。このページより前に読んだページからも外す。
         fun gone(room: Room) = closed != null && room.id in closed && roomIdentity(room) !in seen
         val nextPages = (pages.mapValues { (number, rooms) ->
             if ((revisions[number] ?: Long.MIN_VALUE) < nextRevision) rooms.filterNot(::gone) else rooms
         } + (page.page to page.rooms)).filterKeys { it <= limit }
         val present = nextPages.values.flatten().map(::roomIdentity).toSet()
-        val vanished = if (limit > 1) pages[page.page].orEmpty().filter { roomIdentity(it) !in present } else emptyList()
+        val vanished = if (limit > 1 || !page.rowsComplete) pages[page.page].orEmpty().filter { roomIdentity(it) !in present } else emptyList()
         val nextCarried = carried.filter { (id, c) ->
-            id !in present && c.page <= limit && !(c.revision < nextRevision && gone(c.room))
+            id !in present && c.page <= limit &&
+                !(page.rowsComplete && limit == 1) && !(c.revision < nextRevision && gone(c.room))
         } + vanished.filterNot(::gone).associate {
             roomIdentity(it) to CarriedRoom(page.page, it, nextRevision, revisions[page.page] ?: Long.MIN_VALUE,
                 keyOf(pages[page.page].orEmpty(), it, pages[page.page + 1]?.firstOrNull()?.id))
@@ -59,6 +62,7 @@ data class RoomPageWindow(
         seen.forEach { key -> seenFirst[key] = minOf(seenFirst[key] ?: nextRevision, nextRevision) }
         return copy(
             pages = nextPages,
+            incompletePages = (if (page.rowsComplete) incompletePages - page.page else incompletePages + page.page).filterTo(HashSet()) { it <= limit },
             revisions = (revisions + (page.page to nextRevision)).filterKeys { it <= limit },
             lastPage = limit,
             revision = maxOf(revision, nextRevision),
@@ -67,7 +71,7 @@ data class RoomPageWindow(
         ).run {
             if (carried.isEmpty()) return@run this
             // ページごとの、立てた順の位置の最初と最後。最後の部屋は使い回しの ID でも見分けられないので、2 部屋以上あれば最後から 2 番目を使う。
-            val bounds = pages.filterValues { it.isNotEmpty() }.mapValues { (n, rooms) ->
+            val bounds = pages.filterKeys { it !in incompletePages }.filterValues { it.isNotEmpty() }.mapValues { (n, rooms) ->
                 sortKeys(rooms, pages[n + 1]?.firstOrNull()?.id).let { it.first() to it[(it.size - 2).coerceAtLeast(0)] }
             }
             copy(carried = carried.filterValues { !closedByRun(it, bounds) })
@@ -82,7 +86,7 @@ data class RoomPageWindow(
         if (numbers.none { it in pages }) this
         else (pages - numbers).let { kept ->
             val present = kept.values.flatten().mapTo(HashSet(), ::roomIdentity)
-            copy(pages = kept, revisions = revisions - numbers, carried = emptyMap(), firstSeen = firstSeen.filterKeys { it in present })
+            copy(pages = kept, revisions = revisions - numbers, incompletePages = incompletePages - numbers, carried = emptyMap(), firstSeen = firstSeen.filterKeys { it in present })
         }
 
     /**
@@ -144,9 +148,9 @@ data class RoomPageWindow(
     fun isClosed(room: Room): Boolean {
         val key = roomIdentity(room)
         if (listedRooms.any { roomIdentity(it) == key }) return false
-        if (pages.values.any { closedRange(it)?.contains(room.id) == true }) return true
-        pages[1]?.let(::closedRange)?.let { if (room.id >= it.first) return true }
-        val oldest = pages[lastPage]?.takeIf { it.size >= 3 }?.minOf { it.id } ?: return false
+        if (pages.filterKeys { it !in incompletePages }.values.any { closedRange(it)?.contains(room.id) == true }) return true
+        pages[1]?.takeIf { 1 !in incompletePages }?.let(::closedRange)?.let { if (room.id >= it.first) return true }
+        val oldest = pages[lastPage]?.takeIf { lastPage !in incompletePages && it.size >= 3 }?.minOf { it.id } ?: return false
         return room.id < oldest - ID_MARGIN
     }
 
