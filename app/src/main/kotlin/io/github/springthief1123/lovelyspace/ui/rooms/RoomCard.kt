@@ -225,17 +225,63 @@ fun RoomCard(
     onFavoriteClick: (() -> Unit)? = null,
     onHideClick: (() -> Unit)? = null,
     actionsEnabled: Boolean = true,
-    /**
-     * 右へのスワイプ（と開いた面のタップ）だけを [onFavoriteClick] と別の動きにするとき。長押しメニューの「ピンする」は [onFavoriteClick] のまま。
-     * 満室の部屋を「空いたら知らせる」でピンする（順番待ち）のに使う。[favoriteSwipeLabel] はそのときの背後の文言。
-     */
-    onFavoriteSwipe: (() -> Unit)? = null,
-    favoriteSwipeLabel: String? = null,
     onDetailsClick: (() -> Unit)? = null,
     /** 長押しメニューで保存の次に並べる操作（追跡・順番待ちなど）。 */
     menuItems: List<RoomMenuItem> = emptyList(),
     /** 「入室する」チップを押したときの動き（入室前の確認を飛ばして入る）。null ならチップは表示だけで、押すとカードと同じ。 */
     onEnterChipClick: (() -> Unit)? = null,
+) {
+    RoomCardSwipeBox(
+        key = room.genreKey to room.id,
+        isFavorite = isFavorite,
+        isHidden = isHidden,
+        onFavoriteClick = onFavoriteClick,
+        onHideClick = onHideClick,
+        actionsEnabled = actionsEnabled,
+        modifier = modifier,
+    ) { swipe ->
+        RoomCardSurface(
+            room = room,
+            actionsEnabled = actionsEnabled,
+            favoriteAction = swipe.favorite,
+            detailsAction = onDetailsClick,
+            extraMenuItems = menuItems,
+            hiddenAction = swipe.hide,
+            isFavorite = isFavorite,
+            isHidden = isHidden,
+            enabled = enabled || swipe.open,
+            onClick = { swipe.tap { if (enabled) onClick() } },
+            onEnterChipClick = onEnterChipClick?.let { action -> { swipe.tap { if (enabled) action() } } },
+        )
+    }
+}
+
+/**
+ * [RoomCardSwipeBox] の中身に渡す操作。[tap] は押した操作を、開いているカードがあれば閉じるだけにして行う。
+ * [favorite]・[hide] は長押しメニューなどから右・左の操作をするとき（開いていれば閉じる）。[open] はこのカードが開いているか。
+ */
+@Stable
+internal class RoomCardSwipeActions(
+    val tap: (() -> Unit) -> Unit,
+    val favorite: (() -> Unit)?,
+    val hide: (() -> Unit)?,
+    val open: Boolean,
+)
+
+/**
+ * 部屋カードの左右のスワイプ。右へ払うとピン（ピン済みならピンを外す）、左へ払うと非表示（[onHideClick] が無ければ左へは動かない）。
+ * 見つける画面の部屋カードとピンのタブのカードで共通にする。[key] が変わると、開き具合などを持ち直す。
+ */
+@Composable
+internal fun RoomCardSwipeBox(
+    key: Any,
+    isFavorite: Boolean,
+    isHidden: Boolean,
+    onFavoriteClick: (() -> Unit)?,
+    onHideClick: (() -> Unit)?,
+    actionsEnabled: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable (RoomCardSwipeActions) -> Unit,
 ) {
     val density = LocalDensity.current
     val haptics = LocalHapticFeedback.current
@@ -243,25 +289,22 @@ fun RoomCard(
     val favoriteEnabled = actionsEnabled && onFavoriteClick != null
     val hiddenEnabled = actionsEnabled && onHideClick != null
 
-    var cardWidthPx by remember(room.id, room.genreKey) { mutableFloatStateOf(0f) }
-    var offsetPx by remember(room.id, room.genreKey) { mutableFloatStateOf(0f) }
+    var cardWidthPx by remember(key) { mutableFloatStateOf(0f) }
+    var offsetPx by remember(key) { mutableFloatStateOf(0f) }
     // 指の実移動量。確定域では見た目だけ端へ吸着させ、これを残すことで逆方向へ戻して取り消せる。
-    var dragPositionPx by remember(room.id, room.genreKey) { mutableFloatStateOf(0f) }
-    var commitArmed by remember(room.id, room.genreKey) { mutableStateOf(false) }
-    var settleJob by remember(room.id, room.genreKey) { mutableStateOf<Job?>(null) }
-    var settleTarget by remember(room.id, room.genreKey) { mutableFloatStateOf(0f) }
-    var dragging by remember(room.id, room.genreKey) { mutableStateOf(false) }
+    var dragPositionPx by remember(key) { mutableFloatStateOf(0f) }
+    var commitArmed by remember(key) { mutableStateOf(false) }
+    var settleJob by remember(key) { mutableStateOf<Job?>(null) }
+    var settleTarget by remember(key) { mutableFloatStateOf(0f) }
+    var dragging by remember(key) { mutableStateOf(false) }
     // 確定後に戻り終わるまで、背後の文言を確定前（ピン／ピンを外すなど）のままにする。
-    var commitLabels by remember(room.id, room.genreKey) { mutableStateOf<Pair<Boolean, Boolean>?>(null) }
-    var commitSwipeLabel by remember(room.id, room.genreKey) { mutableStateOf<String?>(null) }
-    val swipeFavorite = if (onFavoriteClick != null) onFavoriteSwipe ?: onFavoriteClick else null
-    val swipeLabel = favoriteSwipeLabel.takeIf { onFavoriteSwipe != null && !isFavorite }
+    var commitLabels by remember(key) { mutableStateOf<Pair<Boolean, Boolean>?>(null) }
     // 開いた状態から始めた操作では反対側へ通り抜けさせない（戻しすぎ防止）。
-    var gestureStartSide by remember(room.id, room.genreKey) { mutableFloatStateOf(0f) }
+    var gestureStartSide by remember(key) { mutableFloatStateOf(0f) }
     // 開いた時点の縦位置。ここから一定以上動いたらスクロールとみなして閉じる。
-    var openedRootY by remember(room.id, room.genreKey) { mutableStateOf<Float?>(null) }
+    var openedRootY by remember(key) { mutableStateOf<Float?>(null) }
     val coordinator = LocalRoomCardSwipeCoordinator.current
-    val swipeToken = remember(room.id, room.genreKey) { Any() }
+    val swipeToken = remember(key) { Any() }
 
     val revealWidthPx = min(
         with(density) { SWIPE_ACTION_WIDTH.toPx() },
@@ -306,9 +349,9 @@ fun RoomCard(
         if (openToken !== swipeToken && !dragging && settleTarget != 0f) launchSettle(0f)
     }
 
-    fun invokeMenuAction(side: SwipeSide, favorite: (() -> Unit)? = onFavoriteClick) {
+    fun invokeMenuAction(side: SwipeSide) {
         val action = when (side) {
-            SwipeSide.FAVORITE -> favorite
+            SwipeSide.FAVORITE -> onFavoriteClick
             SwipeSide.HIDDEN -> onHideClick
             SwipeSide.NONE -> null
         } ?: return
@@ -320,7 +363,7 @@ fun RoomCard(
 
     fun commitFullSwipe(side: SwipeSide) {
         val action = when (side) {
-            SwipeSide.FAVORITE -> swipeFavorite
+            SwipeSide.FAVORITE -> onFavoriteClick
             SwipeSide.HIDDEN -> onHideClick
             SwipeSide.NONE -> null
         } ?: return
@@ -334,7 +377,6 @@ fun RoomCard(
         settleTarget = 0f
         coordinator.closed(swipeToken)
         commitLabels = isFavorite to isHidden
-        commitSwipeLabel = swipeLabel
         commitArmed = true
         settleJob = scope.launch {
             var acted = false
@@ -349,7 +391,6 @@ fun RoomCard(
                 // 戻る途中で掴み直されたり一覧から外れたりしても、確定した操作は取り消さない。
                 if (!acted) action()
                 commitLabels = null
-                commitSwipeLabel = null
             }
         }
     }
@@ -417,7 +458,7 @@ fun RoomCard(
 
     // 指の動きのたびにカード全体を組み立て直さないよう、どちら側が出ているかが変わったときだけ読み直す。
     // 位置そのものは offset と graphicsLayer が配置・描画のときに読む。
-    val side by remember(room.id, room.genreKey) { derivedStateOf {
+    val side by remember(key) { derivedStateOf {
         when {
             offsetPx > 0.5f -> SwipeSide.FAVORITE
             offsetPx < -0.5f -> SwipeSide.HIDDEN
@@ -432,7 +473,7 @@ fun RoomCard(
             coordinator.closeAll()
         } else if (side != SwipeSide.NONE) {
             launchSettle(0f)
-        } else if (enabled) {
+        } else {
             action()
         }
     }
@@ -462,10 +503,9 @@ fun RoomCard(
                 armed = commitArmed,
                 isFavorite = commitLabels?.first ?: isFavorite,
                 isHidden = commitLabels?.second ?: isHidden,
-                favoriteLabel = if (commitLabels != null) commitSwipeLabel else swipeLabel,
                 enabled = side != SwipeSide.NONE,
                 labelProgress = { roomCardSwipeLabelProgress(offsetPx, revealWidthPx) },
-                onClick = { invokeMenuAction(side, swipeFavorite) },
+                onClick = { invokeMenuAction(side) },
             )
 
             Box(
@@ -518,19 +558,12 @@ fun RoomCard(
                         }
                     },
             ) {
-                RoomCardSurface(
-                    room = room,
-                    actionsEnabled = actionsEnabled,
-                    favoriteAction = onFavoriteClick?.let { { invokeMenuAction(SwipeSide.FAVORITE) } },
-                    detailsAction = onDetailsClick,
-                    extraMenuItems = menuItems,
-                    hiddenAction = onHideClick?.let { { invokeMenuAction(SwipeSide.HIDDEN) } },
-                    isFavorite = isFavorite,
-                    isHidden = isHidden,
-                    enabled = enabled || side != SwipeSide.NONE,
-                    onClick = { tap(onClick) },
-                    onEnterChipClick = onEnterChipClick?.let { action -> { tap(action) } },
-                )
+                content(RoomCardSwipeActions(
+                    tap = ::tap,
+                    favorite = onFavoriteClick?.let { { invokeMenuAction(SwipeSide.FAVORITE) } },
+                    hide = onHideClick?.let { { invokeMenuAction(SwipeSide.HIDDEN) } },
+                    open = side != SwipeSide.NONE,
+                ))
             }
         }
     }
@@ -542,8 +575,6 @@ private fun BoxScope.SwipeActionBackground(
     armed: Boolean,
     isFavorite: Boolean,
     isHidden: Boolean,
-    /** ピンしていない部屋を右へスワイプしたときの文言（null なら「ピン」）。 */
-    favoriteLabel: String?,
     enabled: Boolean,
     labelProgress: () -> Float,
     onClick: () -> Unit,
@@ -593,7 +624,7 @@ private fun BoxScope.SwipeActionBackground(
                         tint = if (armed) content else scheme.primary,
                     )
                     Text(
-                        if (isFavorite) "ピンを外す" else favoriteLabel ?: "ピン",
+                        if (isFavorite) "ピンを外す" else "ピン",
                         style = MaterialTheme.typography.labelLarge,
                         color = content,
                     )
@@ -738,9 +769,11 @@ internal fun RoomCardPanel(full: Boolean, modifier: Modifier = Modifier, content
 /**
  * 部屋カードの見出し。性別の色の丸に名前の頭文字、名前とプロフィール、右上に経過時間（[elapsed]）。
  * 名前が見えない部屋は [placeholder] を薄く出す。性別の色は満室でも残す。
+ * [talking] は名前の横に「（会話中）」を添えるか。ピンのように手元の姿が古いことがある部屋では、いまの様子から渡す。
  */
 @Composable
-internal fun RoomCardHeading(room: Room, placeholder: String, elapsed: Duration?, modifier: Modifier = Modifier) {
+internal fun RoomCardHeading(room: Room, placeholder: String, elapsed: Duration?, modifier: Modifier = Modifier,
+    talking: Boolean = room.isFull) {
     val lovely = LocalLovelyColors.current
     val (genderColor, genderContainer) = when (room.gender) {
         Gender.FEMALE -> lovely.female to lovely.femaleContainer
@@ -764,7 +797,7 @@ internal fun RoomCardHeading(room: Room, placeholder: String, elapsed: Duration?
                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                 // 満室の部屋は本家の一覧に名前が出ない。名前があるのは待機中に見えた名前を補ったときなので、会話中だと添える。
                 // 名前が長くても切れないよう、名前とは別に置く。名前を補えなかった部屋は従来どおり「会話中」だけ。
-                if (name != null && room.isFull) {
+                if (name != null && talking) {
                     Text("（会話中）", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                 }
             }

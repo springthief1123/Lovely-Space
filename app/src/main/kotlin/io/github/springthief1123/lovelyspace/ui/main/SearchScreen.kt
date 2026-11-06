@@ -175,10 +175,8 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onQuic
     val quickActions = rememberRoomQuickActions(
         onNotice = { message -> scope.launch { snackbar.showSnackbar(message, withDismissAction = true) } },
     )
-    // 満室の部屋は右へスワイプすると順番待ち（ピンして空いたら知らせる）にする。
-    val waitlistSwipe = rememberWaitlistSwipe(
-        onNotice = { message -> scope.launch { snackbar.showSnackbar(message, withDismissAction = true) } },
-    )
+    // ピンはどれも空いたら知らせるので、ピンするときに通知の許可を求める（まだ求めたことがなければ）。
+    val askNotifications = rememberPinNotificationPrompt()
     // 引っ張って更新したときだけインジケーターを出す。自動取得のたびには出さない。
     // 押した取り直しは state.refreshing で分かる。最初の読み込み（まだ 1 ページも無いとき）だけは loading で見る。
     var userRefreshing by remember { mutableStateOf(false) }
@@ -278,9 +276,7 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onQuic
                 onDetailsClick = { selectedRoom = room },
                 isFavorite = preferences.isFavorite(room),
                 actionsEnabled = preferences.canEdit(room),
-                onFavoriteClick = { preferencesVm.toggleFavorite(room) },
-                onFavoriteSwipe = waitlistSwipe(room, preferences.isFavorite(room)),
-                favoriteSwipeLabel = "順番待ち",
+                onFavoriteClick = { if (!preferences.isFavorite(room)) askNotifications(); preferencesVm.toggleFavorite(room) },
                 onHideClick = { preferencesVm.hide(room) },
                 menuItems = remember(room, quickActions) { quickActions(room, null) },
                 onEnterChipClick = { onQuickEnterRoom(room) },

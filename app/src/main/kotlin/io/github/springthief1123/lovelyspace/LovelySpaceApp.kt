@@ -61,6 +61,8 @@ class LovelySpaceApp : Application() {
         appScope.launch { radar.hotGenres.distinctUntilChanged().collect { hotPages.want("radar", it) } }
         appScope.launch { waitlist.genres.distinctUntilChanged().collect { hotPages.want("waitlist", it) } }
         appScope.launch { pins.genres.distinctUntilChanged().collect { hotPages.want("pins", it) } }
+        // 空いているピンのページも、満室のピンと同じ確認で読み直す（閉じた・満室になったことに気づくため）。
+        waitlist.extraQueries = pins::openPages
         // 以前の順番待ち・追跡をピンへ移してから、満室のピンの空きを順番待ちの確認で早く追う。
         appScope.launch {
             try { migrateToPins() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { }
@@ -143,7 +145,7 @@ class LovelySpaceApp : Application() {
 
     /**
      * 一度だけ、以前の順番待ち（待っているもの）とレーダーの追跡をピンへ移す。順番待ちは「空いたら知らせる」
-     * （1 件ずつ自動入室をオンにしていたものは「自動で入室」）、追跡は知らせ方なしでメモを引き継ぐ。
+     * （1 件ずつ自動入室をオンにしていたものは「自動で入室」）、追跡はメモを引き継ぐ（ピンはどれも空いたら知らせる）。
      */
     private suspend fun migrateToPins() {
         val store = pinStore
@@ -229,7 +231,7 @@ class LovelySpaceApp : Application() {
         )
     }
     private val pinStore: PinStore by lazy { PinStore(getSharedPreferences(PinStore.PREFS, MODE_PRIVATE)) }
-    /** ピン。保存した部屋を見張り、空いた・似た部屋が建ったら（知らせ方に従って）知らせ、自動で入室画面を開く。 */
+    /** ピン。保存した部屋を見張り、空いた・似た部屋が建ったら知らせ、自動入室をオンにしたピンは自動で入室画面を開く。 */
     val pins: PinRepository by lazy {
         PinRepository(pinStore, roomPreferences, roomLists,
             onEvent = { event ->

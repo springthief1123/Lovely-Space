@@ -165,15 +165,15 @@ class PinRepositoryTest {
 
     @Test fun answeringDifferentPersonStopsSuggestingThatRoom() {
         val pinned = room(500, name = "合成さん", message = "寝る前にゆるく話そう。通話はなしでお願いします")
-        wait { pins.pin(pinned, PinAlert.OFF) }
+        wait { pins.pin(pinned) }
         lists.publish(genre, listOf(room(600), pinned, room(400)))
         awaitPins { it.singleOrNull()?.state == PinState.OPEN }
         val others = (900L downTo 100L step 100).filterNot { it == 500L }.map { room(it) }
         val rewritten = room(960, name = "合成さん", message = "今夜も寝る前にゆるく話そう。通話はなし")
         lists.publish(genre, listOf(rewritten) + others)
         val view = awaitPins { it.singleOrNull()?.similar != null }.single()
-        // 知らせないピンは、似た部屋もレーダーに出すだけ。
-        assertNoEvent()
+        // ピンはどれも知らせるので、似た部屋も 1 回だけ知らせる（2026-11-06）。
+        assertEquals(960L, (wait { events.receive() } as PinEvent.Similar).similar.room.id)
         wait { pins.dismiss(view.key, roomIdentity(rewritten)) }
         awaitPins { it.singleOrNull()?.let { p -> p.similar == null && p.state == PinState.CLOSED } == true }
     }
@@ -294,25 +294,41 @@ class PinRepositoryTest {
         assertEquals(PinAlert.AUTO, loaded.getValue("new").alert)
     }
 
-    @Test fun turningOffNotificationsClearsUnsentPinEvents() {
-        val memory = Memory()
-        scope.cancel()
-        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        pins = PinRepository(memory, prefs, lists, onEvent = { throw java.io.IOException("合成の通知失敗") },
-            moved = prefs.moved, scope = scope)
+    @Test fun pinStoreTurnsLegacyOffIntoNotify() {
+        // 以前の「知らせない」（OFF）のピンも、ピンはもれなく知らせるので「空いたら知らせる」として読む（2026-11-06）。
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        val prefs = context.getSharedPreferences("pin-off-legacy-test", android.content.Context.MODE_PRIVATE)
+        val raw = org.json.JSONArray()
+            .put(org.json.JSONObject().put("key", "off").put("alert", "OFF"))
+            .put(org.json.JSONObject().put("key", "missing"))
+        prefs.edit().putString("records", raw.toString()).commit()
+        val loaded = PinStore(prefs).load()
+        assertEquals(PinAlert.NOTIFY, loaded.getValue("off").alert)
+        assertEquals(PinAlert.NOTIFY, loaded.getValue("missing").alert)
+    }
+
+    @Test fun openPinsPageIsReadAgainLikeFullPins() {
+        // 空いているピンのページも確認のたびに読み直し、閉じた部屋を「空いています」のまま残さない（2026-11-06）。
+        val open = room(500)
+        wait { pins.pin(open) }
+        lists.publish(genre, listOf(room(600), open, room(400)))
+        awaitPins { it.singleOrNull()?.state == PinState.OPEN }
+        assertEquals(listOf(RoomQuery(genre, page = 1)), pins.openPages())
+    }
+
+    @Test fun pinWithoutChoosingNotifiesWhenItOpens() {
         val full = room(500, RoomStatus.FULL)
-        wait { pins.pin(full, PinAlert.NOTIFY) }
+        wait { pins.pin(full) }
         lists.publish(genre, listOf(room(600), full, room(400)))
         awaitPins { it.singleOrNull()?.state == PinState.FULL }
         lists.publish(genre, listOf(room(600), room(500), room(400)))
-        wait { pins.records.first { it[roomIdentity(full)]?.pendingNotices?.isNotEmpty() == true } }
-        wait { pins.setAlert(roomIdentity(full), PinAlert.OFF) }
-        assertTrue(memory.saved.getValue(roomIdentity(full)).pendingNotices.isEmpty())
-        assertEquals(PinAlert.OFF, memory.saved.getValue(roomIdentity(full)).alert)
+        val opened = wait { events.receive() } as PinEvent.Opened
+        assertEquals(500L, opened.pin.room.id)
+        assertEquals(false, opened.autoEnter)
     }
 
     @Test fun everyFullPinIsWatchedRegardlessOfHowItNotifies() {
-        // 知らせるピンに上限はなく、知らせないピンも満室なら空きを確かめる対象にする（2026-11-06）。
+        // 知らせるピンに上限はなく、満室のピンはすべて空きを確かめる対象にする（2026-11-06）。
         (1L..7L).forEach { id -> wait { pins.pin(room(id * 100, RoomStatus.FULL), PinAlert.NOTIFY) } }
         wait { pins.pin(room(900, RoomStatus.FULL)) }
         awaitPins { it.size == 8 }

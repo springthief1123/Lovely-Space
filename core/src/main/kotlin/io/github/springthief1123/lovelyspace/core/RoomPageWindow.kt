@@ -139,11 +139,13 @@ data class RoomPageWindow(
      * 読んだページの ID の範囲（[closedRange]）に [room] の ID が入っているとき。
      * 最後のページまで読んでいて、[room] の ID が最後のページのいちばん古い部屋より [ID_MARGIN] 以上小さいときも閉じている
      * （日をまたいだ前の部屋など。部屋は最長 8 時間で閉じ、一覧は立てた順に並ぶ）。
+     * 1 ページ目より新しい部屋の載るページは無いので、1 ページ目の範囲は上の端を開けて見る（立ってすぐ閉じた部屋が分かるように）。
      */
     fun isClosed(room: Room): Boolean {
         val key = roomIdentity(room)
         if (listedRooms.any { roomIdentity(it) == key }) return false
         if (pages.values.any { closedRange(it)?.contains(room.id) == true }) return true
+        pages[1]?.let(::closedRange)?.let { if (room.id >= it.first) return true }
         val oldest = pages[lastPage]?.takeIf { it.size >= 3 }?.minOf { it.id } ?: return false
         return room.id < oldest - ID_MARGIN
     }

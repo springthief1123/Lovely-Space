@@ -24,9 +24,11 @@ import androidx.core.app.NotificationManagerCompat
  * 端末通知を許可してもらう。Android 13 以降は実行時権限を求め、一度断られた後や
  * アプリの通知がオフにされている場合は端末の通知設定を開く。[onResult] には許可されたかを渡す。
  * 背景機能を初めてオンにするとき（#46）もこれを使う。
+ * [openSettings] が false なら、まだ求めたことがないときだけダイアログを出し、端末の設定は開かない
+ * （ピンするたびに設定へ飛ばさない。通知がオフなことはピンのタブで伝える）。
  */
 @Composable
-fun rememberNotificationPermissionRequest(onResult: (Boolean) -> Unit = {}): () -> Unit {
+fun rememberNotificationPermissionRequest(openSettings: Boolean = true, onResult: (Boolean) -> Unit = {}): () -> Unit {
     val context = LocalContext.current
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission(), onResult)
     return {
@@ -38,7 +40,7 @@ fun rememberNotificationPermissionRequest(onResult: (Boolean) -> Unit = {}): () 
                 launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
             !hasPermission || !NotificationManagerCompat.from(context).areNotificationsEnabled() ->
-                context.startActivity(appNotificationSettingsIntent(context))
+                if (openSettings) context.startActivity(appNotificationSettingsIntent(context)) else onResult(false)
             else -> onResult(true)
         }
     }
