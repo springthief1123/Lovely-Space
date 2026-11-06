@@ -164,15 +164,16 @@ class PinRepository(
         scope.launch { moved.collect { (from, to) -> try { move(from, to) } catch (e: CancellationException) { throw e } catch (_: Exception) { } } }
     }
 
-    /** 知らせるピンのジャンル。1 ページ目を新着の確認で読み、立て直された部屋にすぐ気づく。 */
-    val genres: Flow<Set<Genre>> = pins.map { list -> list.filter { it.record.notifies }.mapNotNullTo(HashSet()) { Genres[it.room.genreKey] } }
+    /** ピンのジャンル。1 ページ目を新着の確認で読み、立て直された部屋にすぐ気づく。 */
+    val genres: Flow<Set<Genre>> = pins.map { list -> list.mapNotNullTo(HashSet()) { Genres[it.room.genreKey] } }
 
     /**
-     * 空きを早く確かめたい満室のピン（知らせるもの）。順番待ちに登録して、部屋のページを設定の間隔で読む。
+     * 空きを早く確かめたい満室のピン。ピンは入りたい部屋なので、知らせ方に関係なくすべて含める（Yuya の決定、2026-11-06）。
+     * 順番待ちに登録して、部屋のページを設定の「空き枠の確認」の間隔で読む（同じページのピンは 1 回の取得にまとまる）。
      * まだ一覧で確かめていないピンも、ピンしたときに満室だったものは含める（起動直後に以前の順番待ちの登録を外さない）。
      */
     val fastWatch: Flow<List<PinView>> = pins.map { list ->
-        list.filter { it.record.notifies && (it.state == PinState.FULL || it.state == PinState.UNSEEN && it.room.status == RoomStatus.FULL) }
+        list.filter { it.state == PinState.FULL || it.state == PinState.UNSEEN && it.room.status == RoomStatus.FULL }
     }
 
     /** いま手元にある一覧で見張りを進め、起きたことを知らせ終えるまで待つ（背景の実行が終わる前に呼ぶ）。 */
@@ -184,14 +185,12 @@ class PinRepository(
 
     /** [room] をピンし、知らせ方を [alert] にする。 */
     suspend fun pin(room: Room, alert: PinAlert = PinAlert.OFF) {
-        if (alert != PinAlert.OFF) mutex.withLock { requireAlertSlot(roomIdentity(room)) }
         preferences.setFavorite(room, true)
         setAlert(roomIdentity(room), alert)
     }
 
-    /** 知らせ方を変える。知らせるピンは [MAX_NOTIFYING] 件まで（満室のピンは順番待ちの登録で確かめ、その数に限りがあるため）。 */
+    /** 知らせ方を変える。知らせるピンの数に上限はない（満室のピンはすべて空きを確かめるため。[fastWatch]）。 */
     suspend fun setAlert(key: String, alert: PinAlert) = mutex.withLock {
-        if (alert != PinAlert.OFF) requireAlertSlot(key)
         val record = _records.value[key] ?: PinRecord(key)
         save(_records.value + (key to record.copy(alert = alert,
             pendingNotices = if (alert == PinAlert.OFF) emptyList() else record.pendingNotices)))
@@ -205,11 +204,6 @@ class PinRepository(
         val keys = _pins.value.filter { it.room.genreKey == genreKey && it.room.id == roomId }.map { it.key }
             .filter { _records.value[it]?.alert == PinAlert.AUTO }
         if (keys.isNotEmpty()) save(_records.value + keys.associateWith { _records.value.getValue(it).copy(alert = PinAlert.NOTIFY) })
-    }
-
-    private fun requireAlertSlot(key: String) {
-        val others = _pins.value.count { it.key != key && _records.value[it.key]?.notifies == true }
-        require(others < MAX_NOTIFYING) { "知らせるピンは同時に${MAX_NOTIFYING}件までです。ほかのピンの知らせ方を「知らせない」にしてください。" }
     }
 
     suspend fun setMemo(key: String, memo: String) = edit(key) { it.copy(memo = memo.trim().take(PinRecord.MAX_MEMO)) }
@@ -382,8 +376,6 @@ class PinRepository(
     companion object {
         /** 外したピンの見張りの記録を残す間。 */
         const val PRUNE_MS = 7 * 24 * 60 * 60_000L
-        /** 同時に知らせられるピンの数。満室のピンを確かめる順番待ちの登録の上限と同じ。 */
-        const val MAX_NOTIFYING = WaitlistRepository.MAX_ACTIVE
     }
 }
 

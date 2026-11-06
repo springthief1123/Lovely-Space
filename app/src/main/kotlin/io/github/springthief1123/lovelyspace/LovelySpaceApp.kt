@@ -68,6 +68,13 @@ class LovelySpaceApp : Application() {
                 try { syncPinWatch(fast, entries) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { }
             }
         }
+        // 名前で待つは廃止した（2026-11-06）。以前に作った条件は、読み込みを待って消す。
+        appScope.launch {
+            try {
+                val state = radar.state.first { it.loaded || it.error != null }
+                if (state.loaded) radar.removeAllCandidates()
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { }
+        }
         // 前回の実行が空きの通知を出す前に止まっていれば、起動時に出し直す。
         appScope.launch { waitlist.deliverPending() }
         // 条件・名前で待つの新しい一致は、見つけたらすぐ（アプリを開いている間も）お知らせ・端末通知に出す。
@@ -104,11 +111,10 @@ class LovelySpaceApp : Application() {
     /** 満室のピン（知らせるもの）を、順番待ちの確認（ピン用の登録）で追う。ピンでなくなった・空いた登録は外す。 */
     private suspend fun syncPinWatch(fast: List<PinView>, entries: List<WaitlistEntry>) {
         val at = System.currentTimeMillis()
-        val wanted = fast.take(WaitlistRepository.MAX_ACTIVE).associateBy { it.key }
+        val wanted = fast.associateBy { it.key }
         entries.filter { it.forPin && (it.key !in wanted || !it.active(at)) }.forEach { waitlist.remove(it.key) }
         wanted.values.filter { pin -> entries.none { it.key == pin.key && it.forPin && it.active(at) } }.forEach { pin ->
             val genre = io.github.springthief1123.lovelyspace.core.Genres[pin.room.genreKey] ?: return@forEach
-            // 同時に待てる数を超えたら、その分は一覧の巡回と新着の確認だけで追う。
             runCatching { waitlist.register(pin.room, pin.page?.let { io.github.springthief1123.lovelyspace.core.RoomQuery(genre, page = it) }, forPin = true) }
         }
     }

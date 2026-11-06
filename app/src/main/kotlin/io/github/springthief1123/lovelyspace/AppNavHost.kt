@@ -202,7 +202,6 @@ fun AppNavHost() {
             }
             composable(Routes.RADAR) {
                 RadarScreen(onFindRooms = { nav.navigate(Routes.ROOMS) { launchSingleTop = true } },
-                    onApplyPreset = { pendingPreset = it; nav.navigate(Routes.ROOMS) { popUpTo(Routes.ROOMS); launchSingleTop = true } },
                     onEnterRoom = { room -> Genres[room.genreKey]?.host?.let { host ->
                         nav.navigate(Routes.entry(host, room.genreKey, room.id, Routes.RADAR, listedPublic = room.isPublic)) { launchSingleTop = true }
                     } },

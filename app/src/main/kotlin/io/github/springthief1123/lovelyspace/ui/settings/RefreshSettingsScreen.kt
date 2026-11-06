@@ -82,7 +82,7 @@ fun RefreshSettingsScreen(onBack: () -> Unit) {
                 item {
                     IntervalPicker(
                         title = "新着の確認",
-                        description = "新しい部屋は必ず1ページ目に出るので、見つける画面・レーダー・ピンで見ているジャンルの1ページ目を、アプリを開いている間はこの間隔で読み直します（ジャンルが複数あるときや、通信の最小間隔が長いときは、通信の半分を超えないよう伸ばします）",
+                        description = "新しい部屋は必ず1ページ目に出るので、見つける画面・ピン・条件の新着通知で見ているジャンルの1ページ目を、アプリを開いている間はこの間隔で読み直します（ジャンルが複数あるときや、通信の最小間隔が長いときは、通信の半分を超えないよう伸ばします）",
                         value = pacing.hotMs,
                         choices = RefreshPacing.HOT_CHOICES,
                         defaultValue = RefreshPacing.DEFAULT_HOT_MS,
@@ -101,18 +101,8 @@ fun RefreshSettingsScreen(onBack: () -> Unit) {
                 }
                 item {
                     IntervalPicker(
-                        title = "レーダーの自動巡回",
-                        description = "レーダー画面を開いている間に、直近1時間の部屋が並ぶページを読み直す1周の間隔（1ページ目の新しい部屋は、ほかの画面でも新着の確認で見つけます）",
-                        value = pacing.radarHeadMs,
-                        choices = RefreshPacing.LIST_CHOICES,
-                        defaultValue = RefreshPacing.DEFAULT_RADAR_HEAD_MS,
-                        onSelect = { value -> save { it.copy(radarHeadMs = value) } },
-                    )
-                }
-                item {
-                    IntervalPicker(
                         title = "空き枠の確認",
-                        description = "知らせるピンの満室の部屋が空いたかを、アプリを開いている間に確かめる間隔（閉じている間は15分ごと）",
+                        description = "満室のピンが空いたかを、アプリを開いている間（どの画面でも）確かめる間隔。同じページのピンは1回の読み込みでまとめて確かめます（閉じている間は15分ごと）",
                         value = pacing.waitlistMs,
                         choices = RefreshPacing.WAITLIST_CHOICES,
                         defaultValue = RefreshPacing.DEFAULT_WAITLIST_MS,
