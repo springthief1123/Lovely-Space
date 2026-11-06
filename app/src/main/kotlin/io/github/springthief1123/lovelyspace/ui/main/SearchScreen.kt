@@ -36,6 +36,7 @@ import androidx.compose.runtime.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.collect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.focusGroup
@@ -108,7 +109,8 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onQuic
         // 計算中にジャンル・条件・NG ワードが変わったら、その結果は出さない（変えたときは resolve がその場で計算している）。
         if (result.canStandIn(latest.genre, latest.criteria, latest.ng)) computed = result
     }
-    val results = shown.results
+    // 絞り込みの再計算中も、空室/満室と入室の操作は最新の取得結果に追従させる。
+    val results = remember(shown, rooms) { shown.currentCards(rooms) }
     val filteredResults = remember(results, preferences) { results.filterNot(preferences::isHidden) }
     // 非表示にした部屋は、NG ワードで外した数にも数えない。
     val ngExcluded = remember(shown.excluded, preferences) { shown.excluded.filterNot { preferences.isHidden(it.room) } }
@@ -142,6 +144,13 @@ fun SearchScreen(onEnterRoom: (Room) -> Unit, onPeekRoom: (Room) -> Unit, onQuic
     }
     io.github.springthief1123.lovelyspace.ui.components.ForegroundPolling(state.automatic, state.genre.key, vm::stopRefresh) { vm.monitor() }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    // 画面内で見えている後方ページは次の巡回で優先確認し、古い状態を長時間見せない。
+    LaunchedEffect(vm, listState) {
+        try {
+            snapshotFlow { listState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? String }.toSet() }
+                .collect { vm.visibleRooms(it) }
+        } finally { vm.visibleRooms(emptySet()) }
+    }
     val scope = rememberCoroutineScope()
     val c = state.criteria
     val validAges = state.validAges
