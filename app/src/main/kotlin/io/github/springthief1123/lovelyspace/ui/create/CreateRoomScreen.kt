@@ -123,7 +123,7 @@ fun CreateRoomScreen(genre: Genre, onBack: () -> Unit, onCreated: (ChatRoomRef) 
 }
 
 @Composable
-private fun CreateRoomForm(genre: Genre, state: CreateRoomUiState, vm: CreateRoomViewModel, onContinue: () -> Unit, modifier: Modifier) {
+internal fun CreateRoomForm(genre: Genre, state: CreateRoomUiState, vm: CreateRoomViewModel, onContinue: () -> Unit, modifier: Modifier) {
     val profiles by vm.presets.profiles.collectAsStateWithLifecycle(initialValue = emptyList())
     val messages by vm.presets.messages.collectAsStateWithLifecycle(initialValue = emptyList())
     Box(modifier, contentAlignment = Alignment.TopCenter) {
