@@ -61,6 +61,8 @@ class LovelySpaceApp : Application() {
         appScope.launch { radar.hotGenres.distinctUntilChanged().collect { hotPages.want("radar", it) } }
         appScope.launch { waitlist.genres.distinctUntilChanged().collect { hotPages.want("waitlist", it) } }
         appScope.launch { pins.genres.distinctUntilChanged().collect { hotPages.want("pins", it) } }
+        // 空いているピンのページも、満室のピンと同じ確認で読み直す（閉じた・満室になったことに気づくため）。
+        waitlist.extraQueries = pins::openPages
         // 以前の順番待ち・追跡をピンへ移してから、満室のピンの空きを順番待ちの確認で早く追う。
         appScope.launch {
             try { migrateToPins() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { }

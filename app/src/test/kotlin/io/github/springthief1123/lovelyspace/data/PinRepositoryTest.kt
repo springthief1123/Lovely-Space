@@ -307,6 +307,15 @@ class PinRepositoryTest {
         assertEquals(PinAlert.NOTIFY, loaded.getValue("missing").alert)
     }
 
+    @Test fun openPinsPageIsReadAgainLikeFullPins() {
+        // 空いているピンのページも確認のたびに読み直し、閉じた部屋を「空いています」のまま残さない（2026-11-06）。
+        val open = room(500)
+        wait { pins.pin(open) }
+        lists.publish(genre, listOf(room(600), open, room(400)))
+        awaitPins { it.singleOrNull()?.state == PinState.OPEN }
+        assertEquals(listOf(RoomQuery(genre, page = 1)), pins.openPages())
+    }
+
     @Test fun pinWithoutChoosingNotifiesWhenItOpens() {
         val full = room(500, RoomStatus.FULL)
         wait { pins.pin(full) }

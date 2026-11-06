@@ -77,6 +77,11 @@ class WaitlistRepository(
     private val io: CoroutineDispatcher = Dispatchers.IO,
     private val now: () -> Long = System::currentTimeMillis,
 ) {
+    /**
+     * 待っている部屋のほかに、確認のたびに読み直すページ。空いているピンが閉じた・満室になったことに気づくのに使う（[PinRepository.openPages]）。
+     * 待っている部屋と同じページは 1 回の取得にまとまり、間隔は待っている部屋と同じ（設定の「空き枠の確認」）。
+     */
+    @Volatile var extraQueries: () -> List<RoomQuery> = { emptyList() }
     private val mutex = Mutex()
     /** 前面と背景が同じ ListSync の巡回位置を同時に更新しないよう、確認1回を直列にする。 */
     private val checkMutex = Mutex()
@@ -207,7 +212,8 @@ class WaitlistRepository(
     suspend fun check(maxPages: Int): Boolean = checkMutex.withLock {
         expire()
         deliverPending()
-        val queries = mutex.withLock { _entries.value.filter { it.active(now()) }.map { it.query } }
+        val waiting = mutex.withLock { _entries.value.filter { it.active(now()) }.map { it.query } }
+        val queries = (waiting + runCatching(extraQueries).getOrDefault(emptyList())).distinct()
         if (queries.isEmpty()) return@withLock false
         var failed = false
         // 空き枠は秒単位で埋まるので、後ろのページの巡回より先に取る。

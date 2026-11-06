@@ -191,6 +191,15 @@ class PinRepository(
         list.filter { it.state == PinState.FULL || it.state == PinState.UNSEEN && it.room.status == RoomStatus.FULL }
     }
 
+    /**
+     * 空いているピンの載るページ。空いた部屋はすぐ埋まる・閉じるので、満室のピン（[fastWatch]）と同じ間隔で読み直す
+     * （[WaitlistRepository.extraQueries]）。読み直さないと、閉じた部屋が「空いています」のまま残る（2026-11-06 Yuya の報告）。
+     */
+    fun openPages(): List<RoomQuery> = _pins.value.filter { it.state == PinState.OPEN }.mapNotNull { pin ->
+        val genre = Genres[pin.room.genreKey] ?: return@mapNotNull null
+        pin.page?.let { RoomQuery(genre, page = it) }
+    }.distinct()
+
     /** いま手元にある一覧で見張りを進め、起きたことを知らせ終えるまで待つ（背景の実行が終わる前に呼ぶ）。 */
     suspend fun refresh() {
         process(favorites.filterNotNull().first(), lists.observations.value)
@@ -285,7 +294,13 @@ class PinRepository(
                     // 初めて確かめたときは記録するだけ。満室・閉じた部屋が待機中になったら空いたとする。
                     if (seen == PinState.OPEN && before.state != null) record = record.copy(vacancies = (record.vacancies + at).takeLast(PinRecord.MAX_VACANCIES))
                 }
-                val state = if (seen == PinState.UNSEEN) before.state ?: PinState.UNSEEN else seen
+                // 一覧で見えなくなっただけのピンは前に確かめた様子のまま出すが、「空いています」だけは一覧に載っているときに限る
+                // （閉じたと決めきれずに消えた部屋を、空いているように見せない。記録の様子は残し、また見えたときに空いたと数えない）。
+                val state = when {
+                    seen != PinState.UNSEEN -> seen
+                    before.state == PinState.OPEN -> PinState.UNSEEN
+                    else -> before.state ?: PinState.UNSEEN
+                }
                 val similar = if (state == PinState.CLOSED) window?.similarRoomOf(identity, record.dismissed + claimed) else null
                 val room = observed?.let { o ->
                     o.copy(name = o.name ?: identity.name, gender = if (o.gender == Gender.UNKNOWN) identity.gender else o.gender, age = o.age ?: identity.age)

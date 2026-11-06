@@ -36,6 +36,15 @@ class PinWatchTest {
         assertEquals(PinState.CLOSED, both.pinState(yesterday).first)
     }
 
+    @Test fun aNewRoomMissingFromTheFirstPageIsClosedEvenNearItsTop() {
+        // 1 ページ目より新しい部屋の載るページは無いので、立ってすぐ閉じた部屋（1 ページ目の上の端の近く）も閉じたと分かる。
+        val window = RoomPageWindow().observe(page(1, (1000L downTo 700L step 50).map { room(it) }, last = 3))
+        assertEquals(PinState.CLOSED, window.pinState(room(1100)).first)
+        assertEquals(PinState.CLOSED, window.pinState(room(980)).first)
+        // 1 ページ目の下の端の近く（2 ページ目へずれたかもしれない）は、まだ決めない。
+        assertEquals(PinState.UNSEEN, window.pinState(room(720)).first)
+    }
+
     @Test fun similarityIgnoresSpacingAndKanaButDropsWithRewrites() {
         assertEquals(1.0, messageSimilarity("ゆるく お話 しよう", "ユルクお話しよう"), 1e-9)
         assertTrue(messageSimilarity("寝る前にゆるく話そう。通話はなしで", "今夜も寝る前にゆるく話そう。通話はなしで") >= 0.85)
