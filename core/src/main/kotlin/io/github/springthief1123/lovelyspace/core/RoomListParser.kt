@@ -104,8 +104,8 @@ object RoomListParser {
             action = action,
             elapsed = statusCell.selectFirst(".room_time")?.text()?.let(::parseElapsed),
             name = name,
-            gender = parseGender(genderCell.text()),
-            age = ageCell.text().trim().toIntOrNull(),
+            gender = parseGender(cellText(genderCell)),
+            age = cellText(ageCell).trim().toIntOrNull(),
             area = areaTag(messageCell),
             message = message(messageCell),
         )
@@ -133,7 +133,10 @@ object RoomListParser {
 
     /** 満室の部屋は広告が表示され、本来の募集文は非表示の span に入っている。 */
     private fun hiddenMessage(cell: Element): Element? =
-        cell.select("span.hearttext").firstOrNull { it.attr("style").replace(" ", "").contains("display:none") }
+        cell.selectFirst("span.hearttext")
+
+    /** 満室時の広告や装飾の文字をプロフィールへ混ぜない。待機中の通常セルはそのまま読む。 */
+    private fun cellText(cell: Element): String = (cell.selectFirst(".hearttext") ?: cell).text()
 
     internal fun parseElapsed(text: String): Duration? {
         val parts = text.trim().split(':').map { it.toIntOrNull() ?: return null }
