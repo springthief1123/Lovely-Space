@@ -134,9 +134,12 @@ data class RoomPageWindow(
      * [old] がこの一覧に無く（消えたばかりで [carried] に残っている間も含めて、まだあるものとみなす）、読んだページの ID の範囲（[closedRange]）に
      * [old] の ID が入っていて閉じたと分かるときだけ探す。読んでいない後ろのページにあるだけかもしれない部屋は追わない。
      * 候補がちょうど 1 つのときだけ返す。2 つ以上なら、別の人の部屋を選ばないよう追わない。[claimed]（ほかの登録が追っている部屋）は候補にしない。
+     * [knownClosed] は、前に読んだ一覧で閉じたと分かっている（ピンの「立て直し待ち」）こと。背景の実行で 1 ページ目しか読んでいないなど、
+     * この一覧だけでは閉じたと分からなくても探す。一覧に [old] が載っていれば閉じていないので探さない。
      */
-    fun rebuildOf(old: Room, claimed: Set<String> = emptySet()): Room? {
-        if (!isClosed(old)) return null
+    fun rebuildOf(old: Room, claimed: Set<String> = emptySet(), knownClosed: Boolean = false): Room? {
+        val closed = if (knownClosed) listedRooms.none { roomIdentity(it) == roomIdentity(old) } else isClosed(old)
+        if (!closed) return null
         return rooms.filter { roomIdentity(it) !in claimed && isRebuildOf(old, it) }.distinctBy(::roomIdentity).singleOrNull()
     }
 

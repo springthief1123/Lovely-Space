@@ -37,9 +37,15 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.github.springthief1123.lovelyspace.core.Genres
 import io.github.springthief1123.lovelyspace.core.PinState
 import io.github.springthief1123.lovelyspace.core.RoomAction
+import io.github.springthief1123.lovelyspace.core.RoomQuery
+import io.github.springthief1123.lovelyspace.core.pinState
+import io.github.springthief1123.lovelyspace.core.roomIdentity
+import io.github.springthief1123.lovelyspace.data.ObservedRoomPage
 import io.github.springthief1123.lovelyspace.data.PinView
+import io.github.springthief1123.lovelyspace.data.genreWindow
 import io.github.springthief1123.lovelyspace.notify.AppNotification
 import io.github.springthief1123.lovelyspace.notify.NotificationKind
 import io.github.springthief1123.lovelyspace.notify.NotificationSamples
@@ -104,6 +110,47 @@ internal fun PinVacancyStatus.action(): PinVacancyAction = when (this) {
 
 internal fun pinVacancyAction(notice: AppNotification, pins: List<PinView>): PinVacancyAction =
     pinVacancyStatus(notice, pins).action()
+
+/**
+ * ピン以外の部屋のお知らせ（条件の新着・以前の順番待ちなど）の部屋が「いま」どうなっているか。取得済みの一覧 [observations] だけで決め、通信はしない。
+ * 部屋の番号は閉じた後に別の人の部屋で使い回されるので、待機メッセージが通知したときと違えば [PinVacancyStatus.CHANGED]、
+ * その部屋の載るページを [ROOM_NOTICE_FRESH_MS] より前に読んだきりなら [PinVacancyStatus.UNCHECKED] にする（古いお知らせから入室させない）。
+ */
+internal fun roomNoticeStatus(notice: AppNotification, observations: Map<RoomQuery, ObservedRoomPage>, now: Long): PinVacancyStatus {
+    val target = notice.target as? NotificationTarget.Room ?: return PinVacancyStatus.GONE
+    val genre = Genres[target.genreKey]?.takeIf { it.host == target.host } ?: return PinVacancyStatus.GONE
+    val room = notice.room?.takeIf { it.genreKey == target.genreKey && it.id == target.roomId } ?: return PinVacancyStatus.UNCHECKED
+    val window = observations.genreWindow(genre)
+    val (state, observed) = window.pinState(room)
+    return when (state) {
+        PinState.CLOSED -> PinVacancyStatus.CLOSED
+        PinState.FULL -> PinVacancyStatus.FILLED
+        PinState.UNSEEN -> PinVacancyStatus.UNCHECKED
+        PinState.OPEN -> {
+            val checkedAt = window.roomPages[roomIdentity(room)]?.let { observations[RoomQuery(genre, page = it)]?.confirmedAt }
+            when {
+                observed == null || checkedAt == null || now - checkedAt > ROOM_NOTICE_FRESH_MS -> PinVacancyStatus.UNCHECKED
+                observed.action != RoomAction.ENTER -> PinVacancyStatus.FILLED
+                observed.message != room.message -> PinVacancyStatus.CHANGED
+                else -> PinVacancyStatus.OPEN
+            }
+        }
+    }
+}
+
+/** ピン以外の部屋のお知らせで、ワンタップで入室させる一覧の新しさ（ミリ秒）。これより前に読んだきりなら入室前画面で確かめる。 */
+internal const val ROOM_NOTICE_FRESH_MS = 60_000L
+
+/**
+ * ベルのカードに出す操作。ピンの空きは [action] のとおり。ピン以外の部屋は、確かめられていなくても入室前画面は開けるので
+ * 「内容を確認」にし、埋まった・閉じたと分かったときだけ押せなくする。
+ */
+internal fun roomNoticeAction(notice: AppNotification, status: PinVacancyStatus): PinVacancyAction = when {
+    isPinVacancyNotice(notice) -> status.action()
+    status == PinVacancyStatus.OPEN -> PinVacancyAction.ENTER
+    status.stale -> PinVacancyAction.UNAVAILABLE
+    else -> PinVacancyAction.REVIEW
+}
 
 // 速報なので最新3件だけ。展開してもスクロールせずに収まる数にする。
 internal const val MAX_FLOATING_PIN_NOTICES = 3

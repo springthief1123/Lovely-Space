@@ -319,4 +319,19 @@ class RoomPageWindowTest {
         val unread = r(-2000)
         assertNull(after.rebuildOf(unread))
     }
+    @Test fun knownClosedRoomIsFollowedFromTheFirstPageAlone() {
+        val base = 900_000_000L
+        fun r(offset: Long, name: String = "合成$offset", message: String = "合成募集文$offset") =
+            Room(base + offset, "zenkoku", RoomStatus.WAITING, RoomAction.ENTER, null, name, Gender.FEMALE, 25, null, message)
+        // 背景の実行で 1 ページ目だけを読んだ。古い部屋（後ろのページにあった）はこの一覧だけでは閉じたと分からない。
+        val old = r(-5000, name = "合成の部屋主", message = "合成の立て直し募集文")
+        val rebuilt = r(900, name = old.name!!, message = old.message)
+        val firstOnly = RoomPageWindow().observe(page(1, listOf(rebuilt, r(700), r(300), r(100))))
+        assertNull(firstOnly.rebuildOf(old))
+        // 前に閉じたと分かっていれば（ピンの「立て直し待ち」）、1 ページ目の立て直しを見つける。
+        assertEquals(rebuilt, firstOnly.rebuildOf(old, knownClosed = true))
+        // 一覧にまだ載っている部屋は、閉じたと記録していても立て直しとみなさない。
+        val stillListed = RoomPageWindow().observe(page(1, listOf(rebuilt, r(700), old)))
+        assertNull(stillListed.rebuildOf(old, knownClosed = true))
+    }
 }

@@ -10,6 +10,7 @@ import io.github.springthief1123.lovelyspace.core.RoomQuery
 import io.github.springthief1123.lovelyspace.core.RoomStatus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.transform
 import kotlinx.coroutines.flow.StateFlow
 import java.util.UUID
@@ -127,8 +128,11 @@ interface RoomPreferenceStore {
     /** 解除した保存を「元に戻す」。解除前の記録 [value] をそのまま戻し、その間に非表示にしていればそれも残す。 */
     suspend fun restoreFavorite(value: RoomPreference)
     suspend fun observe(rooms: List<Room>)
-    /** 保存・非表示の部屋が閉じて立て直されていれば（[RoomPageWindow.rebuildOf]）、記録を新しい部屋へ移す。[window] はジャンル全体の一覧。 */
-    suspend fun followRebuilds(window: RoomPageWindow) {}
+    /**
+     * 保存・非表示の部屋が閉じて立て直されていれば（[RoomPageWindow.rebuildOf]）、記録を新しい部屋へ移す。[window] はジャンル全体の一覧。
+     * [closed] は前に閉じたと分かった部屋（[roomIdentity]。ピンの「立て直し待ち」）で、[window] だけでは閉じたと分からなくても探す。
+     */
+    suspend fun followRebuilds(window: RoomPageWindow, closed: Set<String> = emptySet()) {}
     /** 保存した部屋 [from] を、利用者が同じ人と答えた新しい部屋 [to] へ移す（似た部屋の立て直し）。 */
     suspend fun moveFavorite(from: RoomPreference, to: Room) {}
     /**
@@ -163,6 +167,11 @@ class RoomPreferenceRepository(
         val key = MOVE_PREFIX + UUID.randomUUID().toString()
         db.presets().put(LocalState(key, JSONObject().put("from", from)
             .put("to", pinRoomJson(to)).put("kind", kind.name).toString()))
+    }
+
+    /** ピン記録の移動（[moved]）がすべて済むまで待つ。背景の実行が終わる前に、立て直しの引き継ぎをピンの見張りへ渡し終えるのに使う。 */
+    suspend fun awaitPinMoves() {
+        db.presets().pinMoves().first { it.isEmpty() }
     }
 
     override suspend fun acknowledgePinMove(id: String) {
@@ -244,7 +253,7 @@ class RoomPreferenceRepository(
         }
     }
 
-    override suspend fun followRebuilds(window: RoomPageWindow) {
+    override suspend fun followRebuilds(window: RoomPageWindow, closed: Set<String>) {
         db.withTransaction {
             val all = dao.all()
             val claimed = all.mapTo(HashSet()) { "${it.host}/${it.roomId}" }
@@ -254,7 +263,7 @@ class RoomPreferenceRepository(
                 val snapshot = existing.toRoom()
                 val old = snapshot.copy(name = existing.identityName ?: snapshot.name,
                     gender = existing.identityGender?.let(Gender::valueOf) ?: snapshot.gender, age = existing.identityAge ?: snapshot.age)
-                val rebuilt = window.rebuildOf(old, claimed - key) ?: return@forEach
+                val rebuilt = window.rebuildOf(old, claimed - key, knownClosed = key in closed) ?: return@forEach
                 dao.delete(existing.host, existing.roomId)
                 dao.put(existing.movedTo(rebuilt))
                 claimed -= key

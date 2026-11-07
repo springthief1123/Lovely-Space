@@ -11,6 +11,8 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
+import io.github.springthief1123.lovelyspace.data.ListSync
+import io.github.springthief1123.lovelyspace.data.genreWindow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
@@ -53,7 +55,7 @@ object BackgroundSync {
 
 /**
  * 前面の巡回と同じ `RadarRepository.scan`（＝ ListSync）で、背景で巡回する計画の新着の先頭ページだけを確認し、
- * 新しく一致した部屋を通知する。続けて順番待ちの部屋のページを確認する。
+ * 新しく一致した部屋を通知する。続けて順番待ちの部屋（満室のピン）と空いているピンのページ、立て直しを待つピンのジャンルの 1 ページ目を確認する。
  * 取得できなかったページは次の周期で同じページを確認する（すぐには再試行しない）。
  */
 class RadarSyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
@@ -65,7 +67,13 @@ class RadarSyncWorker(context: Context, params: WorkerParameters) : CoroutineWor
             // 1 回の実行で取得するのは、背景の巡回と順番待ちを合わせて MAX_PAGES まで。
             // 順番待ちがあれば 1 ページは順番待ちに残し、巡回が使わなかった分も順番待ちに回す。
             val attemptsBefore = app.roomLists.fetchAttempts
-            val radarPages = if (app.waitlist.hasActive()) MAX_PAGES - 1 else MAX_PAGES
+            // ピンの様子（記録）を読み込んでから、空いている・立て直しを待つピンの読むページを決める。
+            withTimeoutOrNull(LOAD_TIMEOUT_MS) { app.pins.loaded.first { it } }
+            val rebuildPages = app.pins.rebuildPages()
+            // 満室のピン（順番待ち）と空いているピンのページに 1 ページ、立て直しを待つピンの 1 ページ目に 1 ページを残す。
+            val reserved = (if (app.waitlist.hasActive() || app.pins.openPages().isNotEmpty()) 1 else 0) +
+                (if (rebuildPages.isNotEmpty()) 1 else 0)
+            val radarPages = MAX_PAGES - reserved
             // レーダーを読み込めなかったときも、順番待ちの確認は続ける（順番待ちはレーダーとは別に保存している）。
             if (state != null && state.loaded) {
                 // 前面で巡回中なら、同じページを二重に取らないよう今回の巡回は見送る。計画がすべて止まっていれば取得しない。
@@ -78,7 +86,18 @@ class RadarSyncWorker(context: Context, params: WorkerParameters) : CoroutineWor
             }
             // 順番待ちは待っている部屋のページだけを取得する。空きの通知は WaitlistRepository が出す。
             val used = (app.roomLists.fetchAttempts - attemptsBefore).toInt()
-            app.waitlist.check((MAX_PAGES - used).coerceAtLeast(0))
+            val failed = app.waitlist.check((MAX_PAGES - used - if (rebuildPages.isNotEmpty()) 1 else 0).coerceAtLeast(0))
+            // 立て直しを待つピンのジャンルの 1 ページ目。読めば立て直しの引き継ぎ（保存の記録の移動）とピンの見張りが反映する。
+            // 順番待ちの取得が失敗していれば、障害中に続けて取りに行かない。
+            if (!failed && rebuildPages.isNotEmpty()) {
+                val left = (MAX_PAGES - (app.roomLists.fetchAttempts - attemptsBefore).toInt()).coerceAtLeast(0)
+                ListSync(app.roomLists).sync(rebuildPages, left, force = false, priority = true)
+                // 立て直していれば保存の記録を新しい部屋へ移し、ピンの見張りが引き継ぐのを待ってから知らせる（終わる前に止まらないように）。
+                // 背景では古い部屋の載っていたページを読まないので、ピンの記録で閉じたと分かっている部屋として探す。
+                val closed = app.pins.pins.value.filter { it.state == io.github.springthief1123.lovelyspace.core.PinState.CLOSED }.mapTo(HashSet()) { it.key }
+                rebuildPages.forEach { query -> app.roomPreferences.followRebuilds(app.roomLists.observations.value.genreWindow(query.genre), closed) }
+                withTimeoutOrNull(MOVE_TIMEOUT_MS) { app.roomPreferences.awaitPinMoves() }
+            }
             // 読んだページでピンした部屋が空いた・似た部屋が建ったら、終わる前に知らせる。
             app.pins.refresh()
             if (state == null) Result.retry() else Result.success()
@@ -93,5 +112,6 @@ class RadarSyncWorker(context: Context, params: WorkerParameters) : CoroutineWor
         /** 1 回の実行で取得するページ数の上限。 */
         const val MAX_PAGES = 3
         private const val LOAD_TIMEOUT_MS = 30_000L
+        private const val MOVE_TIMEOUT_MS = 10_000L
     }
 }

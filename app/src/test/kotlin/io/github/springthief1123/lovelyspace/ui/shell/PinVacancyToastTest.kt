@@ -123,6 +123,33 @@ class PinVacancyToastTest {
         assertTrue(PinVacancyStatus.FILLED.stale)
         assertFalse(PinVacancyStatus.UNCHECKED.stale)
     }
+    @Test fun otherRoomNoticesFollowTheLatestListAndRefuseStaleOrReusedRooms() {
+        val genre = Genres["zenkoku"]!!
+        val now = 1_000_000L
+        val radar = AppNotification("radar-1", NotificationKind.RADAR_MATCH, "条件に合う部屋", "全国",
+            NotificationTarget.Room(host, room.genreKey, room.id), at = 2_000L, room = room)
+        fun seen(vararg rooms: Room, at: Long = now - 5_000L) = mapOf(io.github.springthief1123.lovelyspace.core.RoomQuery(genre) to
+            io.github.springthief1123.lovelyspace.data.ObservedRoomPage(io.github.springthief1123.lovelyspace.core.RoomQuery(genre),
+                io.github.springthief1123.lovelyspace.core.RoomListPage("zenkoku", rooms.toList(), null, null, 1, 3, emptyMap(), null), at, 1))
+        assertEquals(PinVacancyStatus.OPEN, roomNoticeStatus(radar, seen(room), now))
+        // 少し前に読んだきりの一覧では、入室まで進めない。
+        assertEquals(PinVacancyStatus.UNCHECKED, roomNoticeStatus(radar, seen(room, at = now - ROOM_NOTICE_FRESH_MS - 1), now))
+        assertEquals(PinVacancyStatus.UNCHECKED, roomNoticeStatus(radar, emptyMap(), now))
+        assertEquals(PinVacancyStatus.FILLED, roomNoticeStatus(radar,
+            seen(room.copy(status = RoomStatus.FULL, action = RoomAction.NONE, name = null, gender = Gender.UNKNOWN)), now))
+        assertEquals(PinVacancyStatus.CHANGED, roomNoticeStatus(radar, seen(room.copy(message = "別の待機メッセージ")), now))
+        // 閉じた後に同じ番号が別の人の部屋に使われた。
+        assertEquals(PinVacancyStatus.CLOSED, roomNoticeStatus(radar, seen(room.copy(name = "合成の別の人", message = "別の待機メッセージ")), now))
+        // 読んだページの範囲にあるのに載っていない部屋は閉じた。
+        val closed = radar.copy(target = NotificationTarget.Room(host, room.genreKey, 700), room = room.copy(id = 700))
+        assertEquals(PinVacancyStatus.CLOSED, roomNoticeStatus(closed,
+            seen(room.copy(id = 1000), room.copy(id = 800), room.copy(id = 600), room.copy(id = 400)), now))
+        // ピン以外は確かめられていなくても入室前画面は開ける。埋まった・閉じたときだけ押せなくする。
+        assertEquals(PinVacancyAction.REVIEW, roomNoticeAction(radar, PinVacancyStatus.UNCHECKED))
+        assertEquals(PinVacancyAction.UNAVAILABLE, roomNoticeAction(radar, PinVacancyStatus.CLOSED))
+        assertEquals(PinVacancyAction.ENTER, roomNoticeAction(radar, PinVacancyStatus.OPEN))
+        assertEquals(PinVacancyAction.UNAVAILABLE, roomNoticeAction(notice, PinVacancyStatus.UNCHECKED))
+    }
 
     @Test fun sameRoomVacancyReplacesTheOldCard() {
         val old = notice.copy(id = "pin-${host}/101-1000", at = 1_000L)
