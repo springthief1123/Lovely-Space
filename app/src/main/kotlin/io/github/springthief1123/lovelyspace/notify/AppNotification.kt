@@ -76,6 +76,13 @@ data class AppNotification(
     fun body(preview: NotificationPreview): String =
         if (preview == NotificationPreview.NO_MESSAGE || message.isNullOrBlank()) text else "$text\n$message"
 
+    /** 折りたたみ表示には募集文を先に出す。改行でカテゴリ・名前だけに見切れないよう1行にする。 */
+    fun compactBody(preview: NotificationPreview): String {
+        if (preview == NotificationPreview.NO_MESSAGE) return text.replace(Regex("\\s+"), " ").trim()
+        val details = room?.message?.takeIf { it.isNotBlank() } ?: message?.takeIf { it.isNotBlank() }
+        return (details?.let { "$it · $text" } ?: text).replace(Regex("\\s+"), " ").trim()
+    }
+
     /** ロック画面に内容を出してよいか。 */
     fun publicOnLockScreen(preview: NotificationPreview): Boolean = preview == NotificationPreview.FULL
 }

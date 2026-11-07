@@ -109,6 +109,18 @@ class PinRepositoryTest {
         assertNull(borrowNamed(room(400, RoomStatus.FULL, name = null), reused))
     }
 
+    @Test fun changingOneAlertsUpdatesItsPublishedCardBeforeReturning() {
+        val first = room(500)
+        val second = room(600)
+        wait { pins.pin(first); pins.pin(second) }
+        awaitPins { it.size == 2 }
+        wait { pins.setAlert(roomIdentity(first), PinAlert.AUTO) }
+        assertEquals(PinAlert.AUTO, pins.pins.value.single { it.key == roomIdentity(first) }.record.alert)
+        assertEquals(PinAlert.NOTIFY, pins.pins.value.single { it.key == roomIdentity(second) }.record.alert)
+        wait { pins.setAlert(roomIdentity(first), PinAlert.NOTIFY) }
+        assertEquals(PinAlert.NOTIFY, pins.pins.value.single { it.key == roomIdentity(first) }.record.alert)
+    }
+
     @Test fun enteringAnAutoPinsRoomByHandTurnsItBackToNotify() {
         val waiting = room(500)
         val other = room(600)
