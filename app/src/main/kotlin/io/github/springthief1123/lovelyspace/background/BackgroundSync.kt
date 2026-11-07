@@ -12,6 +12,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import io.github.springthief1123.lovelyspace.LovelySpaceApp
 import io.github.springthief1123.lovelyspace.data.ListSync
+import io.github.springthief1123.lovelyspace.data.ListSyncOutcome
 import io.github.springthief1123.lovelyspace.data.genreWindow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
@@ -91,7 +92,12 @@ class RadarSyncWorker(context: Context, params: WorkerParameters) : CoroutineWor
             // 順番待ちの取得が失敗していれば、障害中に続けて取りに行かない。
             if (!failed && rebuildPages.isNotEmpty()) {
                 val left = (MAX_PAGES - (app.roomLists.fetchAttempts - attemptsBefore).toInt()).coerceAtLeast(0)
-                ListSync(app.roomLists).sync(rebuildPages, left, force = false, priority = true)
+                // 枠より多いジャンルは、実行ごとに始めるジャンルをずらして順に確かめる（同じジャンルだけを読み続けない）。
+                val start = ((System.currentTimeMillis() / (BackgroundSync.INTERVAL_MINUTES * 60_000L)) % rebuildPages.size).toInt()
+                var rebuildFailed = false
+                // 取得に失敗したら残りは取らず、次の周期に回す（障害中に続けて取りに行かない）。
+                ListSync(app.roomLists).sync(rebuildPages.drop(start) + rebuildPages.take(start), left, force = false, priority = true,
+                    shouldFetch = { !rebuildFailed }, onResult = { _, outcome -> if (outcome is ListSyncOutcome.Failed) rebuildFailed = true })
                 // 立て直していれば保存の記録を新しい部屋へ移し、ピンの見張りが引き継ぐのを待ってから知らせる（終わる前に止まらないように）。
                 // 背景では古い部屋の載っていたページを読まないので、ピンの記録で閉じたと分かっている部屋として探す。
                 val closed = app.pins.pins.value.filter { it.state == io.github.springthief1123.lovelyspace.core.PinState.CLOSED }.mapTo(HashSet()) { it.key }
