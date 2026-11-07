@@ -94,6 +94,7 @@ internal fun NotificationOverlay(
     onMarkAllRead: () -> Unit,
     onOpenSettings: () -> Unit,
     pins: List<PinView>? = null,
+    statusOf: (AppNotification) -> PinVacancyStatus? = { null },
 ) {
     val locked = LocalAppLocked.current
     LaunchedEffect(locked) { if (locked && visible) onDismiss() }
@@ -112,7 +113,7 @@ internal fun NotificationOverlay(
             exit = scaleOut(tween(75), targetScale = 0.8f, transformOrigin = origin) + fadeOut(tween(75)),
             modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = LovelySpacing.topBarHeight + PANEL_GAP),
         ) {
-            NotificationPanel(entries, onOpen, onEnter, onRemove, onMarkAllRead, onOpenSettings, pins)
+            NotificationPanel(entries, onOpen, onEnter, onRemove, onMarkAllRead, onOpenSettings, pins, statusOf)
         }
     }
 }
@@ -127,6 +128,8 @@ internal fun NotificationPanel(
     onMarkAllRead: () -> Unit,
     onOpenSettings: () -> Unit,
     pins: List<PinView>? = null,
+    /** ピン以外の部屋のお知らせの、いまの様子（[roomNoticeStatus]）。分からなければ null（「入室する」を出す）。 */
+    statusOf: (AppNotification) -> PinVacancyStatus? = { null },
 ) {
     val configuration = LocalConfiguration.current
     // 画面の左右に 12dp ずつ残し、タブレット・横向きでは読みやすい幅で止める。
@@ -155,7 +158,7 @@ internal fun NotificationPanel(
                 ) {
                     items(entries, key = { it.id }) { entry ->
                         SwipeToRemove(onRemove = { onRemove(entry) }, modifier = Modifier.animateItem()) {
-                            NotificationCard(entry, onClick = { onOpen(entry) }, onEnter = { onEnter(entry) }, pins = pins)
+                            NotificationCard(entry, onClick = { onOpen(entry) }, onEnter = { onEnter(entry) }, pins = pins, statusOf = statusOf)
                         }
                     }
                 }
@@ -212,7 +215,8 @@ private fun SwipeToRemove(onRemove: () -> Unit, modifier: Modifier = Modifier, c
  * 誰のどんな部屋かを先に見せる。カードを押すと入室前画面（部屋でなければその画面）を開き、「入室する」は確認を飛ばして入る。
  */
 @Composable
-private fun NotificationCard(entry: AppNotification, onClick: () -> Unit, onEnter: () -> Unit, pins: List<PinView>?) {
+private fun NotificationCard(entry: AppNotification, onClick: () -> Unit, onEnter: () -> Unit, pins: List<PinView>?,
+    statusOf: (AppNotification) -> PinVacancyStatus?) {
     val room = entry.room
     val roomTarget = entry.target as? NotificationTarget.Room
     val scheme = MaterialTheme.colorScheme
@@ -258,8 +262,10 @@ private fun NotificationCard(entry: AppNotification, onClick: () -> Unit, onEnte
                     if (roomTarget != null) {
                         // 過去の空き通知で誤って入室を促さない。ピンの最新の観測状態で判定する。
                         // 浮遊カードと同じく、埋まった・閉じたなど今の状態をそのまま書く。
-                        val status = if (pins != null && isPinVacancyNotice(entry)) pinVacancyStatus(entry, pins) else null
-                        when (status?.action()) {
+                        // 条件の新着など、ピン以外の部屋も取得済みの一覧で今の様子を見る（番号の使い回された別の人の部屋に入らないため）。
+                        val status = if (pins != null && isPinVacancyNotice(entry)) pinVacancyStatus(entry, pins)
+                            else if (isPinVacancyNotice(entry)) null else statusOf(entry)
+                        when (status?.let { roomNoticeAction(entry, it) }) {
                             PinVacancyAction.REVIEW -> ActionChip("内容を確認", emphasized = false,
                                 onClick = onClick, modifier = Modifier.minimumInteractiveComponentSize())
                             PinVacancyAction.UNAVAILABLE -> Text(status?.label.orEmpty(),

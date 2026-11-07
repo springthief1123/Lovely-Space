@@ -268,6 +268,15 @@ class PinRepository(
             checked.distinct().map { RoomQuery(genre, page = it) }
         }.distinct()
 
+    /**
+     * 閉じて立て直しを待つピンのジャンルの 1 ページ目。立て直した部屋は 1 ページ目に出るので、背景の実行でここを読んで気づく
+     * （前面では新着の確認が 1 ページ目を読むので使わない）。
+     */
+    fun rebuildPages(): List<RoomQuery> = _pins.value
+        .filter { it.state == PinState.CLOSED }
+        .mapNotNull { Genres[it.room.genreKey] }
+        .distinct().map { RoomQuery(it) }
+
     /** いま手元にある一覧で見張りを進め、起きたことを知らせ終えるまで待つ（背景の実行が終わる前に呼ぶ）。 */
     suspend fun refresh() {
         if (lists.changes != null) {

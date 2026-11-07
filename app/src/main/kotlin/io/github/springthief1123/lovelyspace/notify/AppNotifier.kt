@@ -75,6 +75,13 @@ class AppNotifier(
         manager.cancel(id, NOTIFICATION_ID)
     }
 
+    /** 端末に出ている通知のうち、[predicate] に当たるもの（お知らせの ID で見る）を消す。お知らせ（ベル）には残す。 */
+    fun cancelShown(predicate: (String) -> Boolean) {
+        context.getSystemService(NotificationManager::class.java)?.activeNotifications.orEmpty()
+            .filter { it.id == NOTIFICATION_ID }.mapNotNull { it.tag }
+            .filter(predicate).forEach { manager.cancel(it, NOTIFICATION_ID) }
+    }
+
     /** お知らせを 1 件消す（ベルでスワイプしたとき）。端末に残っている同じ通知も消す。 */
     fun dismiss(id: String) {
         inbox.remove(id)

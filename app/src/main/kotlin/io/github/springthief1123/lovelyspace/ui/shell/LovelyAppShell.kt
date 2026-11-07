@@ -167,6 +167,8 @@ fun LovelyAppShell(
                 val app = LocalContext.current.applicationContext as LovelySpaceApp
                 val notifications by app.notificationInbox.entries.collectAsStateWithLifecycle()
                 val pins by app.pins.pins.collectAsStateWithLifecycle()
+                // ベルのピン以外の部屋のお知らせは、取得済みの一覧が変わるたびに今の様子を描き直す（通信はしない）。
+                val observations by app.roomLists.observations.collectAsStateWithLifecycle()
                 val locked = LocalAppLocked.current
                 // 起動前の履歴は再表示せず、新着の空きだけを最新3件まで前面に保つ。
                 // フリックで消すのは表示だけ。通知ベルの履歴には触れない。
@@ -276,6 +278,7 @@ fun LovelyAppShell(
                     visible = showChrome && notificationsOpen,
                     entries = notifications,
                     pins = pins,
+                    statusOf = { roomNoticeStatus(it, observations, System.currentTimeMillis()) },
                     onDismiss = { notificationsOpen = false },
                     onOpen = { notificationsOpen = false; app.notifier.open(it.id) },
                     onEnter = { notificationsOpen = false; app.notifier.open(it.id, enter = true) },

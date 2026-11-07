@@ -31,6 +31,12 @@ import io.github.springthief1123.lovelyspace.core.Genres
 import io.github.springthief1123.lovelyspace.core.roomIdentity
 import io.github.springthief1123.lovelyspace.ui.chat.ActiveRooms
 import io.github.springthief1123.lovelyspace.background.BackgroundSync
+import io.github.springthief1123.lovelyspace.notify.AppNotification
+import io.github.springthief1123.lovelyspace.notify.NotificationTarget
+import io.github.springthief1123.lovelyspace.ui.shell.PinVacancyStatus
+import io.github.springthief1123.lovelyspace.ui.shell.isPinVacancyNotice
+import io.github.springthief1123.lovelyspace.ui.shell.pinVacancyStatus
+import io.github.springthief1123.lovelyspace.ui.shell.roomNoticeStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -61,6 +67,17 @@ class LovelySpaceApp : Application() {
         appScope.launch { radar.hotGenres.distinctUntilChanged().collect { hotPages.want("radar", it) } }
         appScope.launch { waitlist.genres.distinctUntilChanged().collect { hotPages.want("waitlist", it) } }
         appScope.launch { pins.genres.distinctUntilChanged().collect { hotPages.want("pins", it) } }
+        // 埋まった・閉じた・外したピンの空きの端末通知は消す。押しても入れない通知を残さない（ベルの記録は残し、いまの様子を書く）。
+        appScope.launch {
+            combine(pins.loaded, pins.pins, notificationInbox.entries) { loaded, list, _ -> if (loaded) list else null }
+                .filterNotNull().conflate().collect { list ->
+                    try {
+                        notifier.cancelShown { id ->
+                            notificationInbox[id]?.let { isPinVacancyNotice(it) && pinVacancyStatus(it, list).stale } == true
+                        }
+                    } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { }
+                }
+        }
         // 空いているピンのページも、満室のピンと同じ確認で読み直す（閉じた・満室になったことに気づくため）。
         waitlist.extraQueries = pins::openPages
         // 以前の順番待ち・追跡をピンへ移してから、満室のピンの空きを順番待ちの確認で早く追う。
@@ -97,17 +114,40 @@ class LovelySpaceApp : Application() {
         // 背景で巡回する計画か、待っている（または通知を出し終えていない）順番待ちがあるときだけ周期実行を登録し、
         // どちらも無くなれば解除する。順番待ちがあるときは最短の 15 分ごとに確認する。
         appScope.launch {
-            combine(radar.state, waitlist.entries) { state, _ ->
+            combine(radar.state, waitlist.entries, pins.pins) { state, _, pinned ->
                 // レーダーの読み込み中は判断を待つ。読み込めなかったときは、レーダーの計画は無いものとして順番待ちだけで決める。
                 if (!state.loaded && state.error == null) return@combine null
                 val plans = state.loaded && state.activeBackgroundPlans.isNotEmpty()
-                val waiting = waitlist.hasPendingWork()
+                // 満室のピンは順番待ちに数える。空いている・立て直しを待つピンも、埋まった・立て直したことに背景で気づけるよう含める。
+                val waiting = waitlist.hasPendingWork() || pinned.isNotEmpty()
                 (plans || waiting) to
                     if (waiting || !state.loaded) BackgroundSync.INTERVAL_MINUTES else state.backgroundIntervalMinutes.toLong()
             }.filterNotNull()
                 .distinctUntilChanged()
                 .collect { (enabled, minutes) -> BackgroundSync.update(this@LovelySpaceApp, enabled, minutes) }
         }
+    }
+
+    /** [notification]（ピンの空き）と同じ部屋の、前に出したピンの空きのお知らせを端末通知ごと消す。 */
+    private fun dismissOlderVacancies(notification: AppNotification) {
+        val target = notification.target as? NotificationTarget.Room ?: return
+        notificationInbox.entries.value.filter { old ->
+            val room = old.target as? NotificationTarget.Room
+            old.id != notification.id && isPinVacancyNotice(old) && room != null &&
+                room.host == target.host && room.genreKey == target.genreKey && room.roomId == target.roomId
+        }.forEach { notifier.dismiss(it.id) }
+    }
+
+    /**
+     * 部屋のお知らせの部屋が、いま入室できそうか（通信はしない）。ピンの空きはピンの見張りの最新の様子、
+     * ほかは取得済みの一覧（[roomNoticeStatus]）で見る。部屋のお知らせでなければ null。
+     * 通知・お知らせから入室まで進めるのは [PinVacancyStatus.OPEN] のときだけにする（古い通知から、閉じた後に番号の使い回された別の人の部屋へ入らない）。
+     */
+    internal fun liveNoticeStatus(notification: AppNotification, now: Long = System.currentTimeMillis()): PinVacancyStatus? = when {
+        notification.target !is NotificationTarget.Room -> null
+        isPinVacancyNotice(notification) ->
+            if (pins.loaded.value) pinVacancyStatus(notification, pins.pins.value) else PinVacancyStatus.UNCHECKED
+        else -> roomNoticeStatus(notification, roomLists.observations.value, now)
     }
 
     /** 満室のピン（知らせるもの）を、順番待ちの確認（ピン用の登録）で追う。ピンでなくなった・空いた登録は外す。 */
@@ -241,7 +281,11 @@ class LovelySpaceApp : Application() {
                     try { autoEntry.offerPin(event.pin.key, event.registered, event.pin.room) }
                     catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { }
                 }
-                event.toNotification()?.let { notifier.post(it) }
+                event.toNotification()?.let { notification ->
+                    // 同じ部屋がまた空いたら、前の空きのお知らせと端末通知は消して 1 件に置き換える。
+                    if (event is PinEvent.Opened) dismissOlderVacancies(notification)
+                    notifier.post(notification)
+                }
             },
             moved = roomPreferences.moved,
             named = { roomLists.lastNamed(it) }, namedRevision = roomLists.namedRevision)
