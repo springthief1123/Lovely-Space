@@ -49,4 +49,45 @@ class RoomPreferenceUndoTest {
             assertNotNull(vm.state.value.error)
         } finally { Dispatchers.resetMain() }
     }
+
+    @Test fun unpinFailureRestoresOptimisticCardAndSuccessOffersUndo() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val room = Room(2, Genres.default.key, RoomStatus.WAITING, RoomAction.ENTER, null,
+                "合成の名前", Gender.UNKNOWN, null, null, "合成の本文")
+            val pref = RoomPreference(Genres.default.host, room.id, room.genreKey, true, false,
+                room.status.name, room.action.name, null, room.name, room.gender.name,
+                room.age, room.area, room.message, room.name, room.gender.name, room.age)
+            var fail = true
+            val gate = CompletableDeferred<Unit>()
+            val store = object : RoomPreferenceStore {
+                override val preferences = MutableStateFlow(listOf(pref))
+                override suspend fun setFavorite(room: Room, enabled: Boolean) = Unit
+                override suspend fun setHidden(room: Room, enabled: Boolean) = Unit
+                override suspend fun clearFavorite(host: String, roomId: Long) {
+                    gate.await()
+                    if (fail) throw IOException("合成の保存失敗")
+                }
+                override suspend fun clearHidden(host: String, roomId: Long) = Unit
+                override suspend fun restoreFavorite(value: RoomPreference) = Unit
+                override suspend fun observe(rooms: List<Room>) = Unit
+            }
+            val vm = RoomPreferenceViewModel(store)
+            var failures = 0
+            var undos = 0
+            vm.clearFavorite(pref, onFailure = { failures++ })
+            runCurrent()
+            assertFalse(vm.state.value.canEdit(room))
+            assertEquals(0, failures)
+            gate.complete(Unit); runCurrent()
+            assertEquals(1, failures)
+            assertNotNull(vm.state.value.error)
+            assertTrue(vm.state.value.canEdit(room))
+            fail = false
+            vm.clearFavorite(pref, onFailure = { failures++ }); runCurrent()
+            assertEquals(1, failures)
+            vm.restoreFavorite(pref, onSuccess = { undos++ }); runCurrent()
+            assertEquals(1, undos)
+        } finally { Dispatchers.resetMain() }
+    }
 }

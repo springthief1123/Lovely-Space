@@ -105,13 +105,13 @@ class RoomPreferenceViewModel(private val store: RoomPreferenceStore) : ViewMode
     fun hide(room: Room) = action(roomKey(room), onSuccess = { hiddenEvents.trySend(room) }) { store.setHidden(room, true) }
     fun unhide(room: Room) = action(roomKey(room)) { store.setHidden(room, false) }
 
-    fun clearFavorite(value: RoomPreference) =
-        action(RoomPreferenceUiState.key(value.host, value.roomId), onSuccess = { unfavoritedEvents.trySend(value) }) {
+    fun clearFavorite(value: RoomPreference, onFailure: () -> Unit = {}) =
+        action(RoomPreferenceUiState.key(value.host, value.roomId), onSuccess = { unfavoritedEvents.trySend(value) }, onFailure = onFailure) {
             store.clearFavorite(value.host, value.roomId)
         }
 
-    fun restoreFavorite(value: RoomPreference) =
-        action(RoomPreferenceUiState.key(value.host, value.roomId)) { store.restoreFavorite(value) }
+    fun restoreFavorite(value: RoomPreference, onSuccess: () -> Unit = {}) =
+        action(RoomPreferenceUiState.key(value.host, value.roomId), onSuccess = onSuccess) { store.restoreFavorite(value) }
 
     fun clearHidden(value: RoomPreference) =
         action(RoomPreferenceUiState.key(value.host, value.roomId)) {
@@ -120,7 +120,7 @@ class RoomPreferenceViewModel(private val store: RoomPreferenceStore) : ViewMode
 
     fun clearError() = _state.update { it.copy(error = null) }
 
-    private fun action(key: String, onSuccess: () -> Unit = {}, block: suspend () -> Unit) {
+    private fun action(key: String, onSuccess: () -> Unit = {}, onFailure: () -> Unit = {}, block: suspend () -> Unit) {
         if (key in _state.value.workingKeys) return
         _state.update { it.copy(workingKeys = it.workingKeys + key, error = null) }
         viewModelScope.launch {
@@ -131,6 +131,7 @@ class RoomPreferenceViewModel(private val store: RoomPreferenceStore) : ViewMode
                 throw e
             } catch (e: Exception) {
                 _state.update { it.copy(error = describeError(e)) }
+                onFailure()
             } finally {
                 _state.update { it.copy(workingKeys = it.workingKeys - key) }
             }

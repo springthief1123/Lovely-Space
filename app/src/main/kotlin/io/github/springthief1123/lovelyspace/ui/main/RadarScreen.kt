@@ -72,6 +72,10 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
     val workingKeys = remember { mutableStateMapOf<String, Boolean>() }
     val pendingAlerts = remember { mutableStateMapOf<String, PinAlert>() }
     val working = workingKeys.isNotEmpty()
+    // 永続化とピン一覧の再計算を待たず、操作したカードだけをすぐに隠す。保存失敗なら戻す。
+    var pendingUnpins by remember { mutableStateOf(emptySet<String>()) }
+    LaunchedEffect(pins) { pendingUnpins = pendingUnpins.intersect(pins.mapTo(HashSet()) { it.key }) }
+    val visiblePins = pins.filterNot { it.key in pendingUnpins }
     var error by remember { mutableStateOf<String?>(null) }
     var details by remember { mutableStateOf<Room?>(null) }
     var memoPin by rememberSaveable { mutableStateOf<String?>(null) }
@@ -99,21 +103,22 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
     // ピンを外すのは 1 回の操作で起きるので「元に戻す」を出す。知らせ方・空いた記録は残してあるので、戻せばそのまま続く。
     LaunchedEffect(preferencesVm) {
         preferencesVm.unfavorited.collect { value ->
-            if (snackbar.showSnackbar("ピンを外しました", actionLabel = "元に戻す", withDismissAction = true) == SnackbarResult.ActionPerformed) preferencesVm.restoreFavorite(value)
+            if (snackbar.showSnackbar("ピンを外しました", actionLabel = "元に戻す", withDismissAction = true) == SnackbarResult.ActionPerformed)
+                preferencesVm.restoreFavorite(value, onSuccess = { pendingUnpins = pendingUnpins - "${value.host}/${value.roomId}" })
         }
     }
     val notificationsAllowed = io.github.springthief1123.lovelyspace.notify.rememberNotificationsAllowed(
         io.github.springthief1123.lovelyspace.notify.NotificationKind.WAITLIST)
     val context = LocalContext.current
     // 最後に確かめた時刻は、ピンのあるジャンルの一覧を最後に読んだ時刻（どの画面・確認が読んだものでもよい）。
-    val pinGenres = pins.mapTo(HashSet()) { it.room.genreKey }
+    val pinGenres = visiblePins.mapTo(HashSet()) { it.room.genreKey }
     val checkedAt = observations.values.filter { it.query.genre.key in pinGenres }.maxOfOrNull { it.confirmedAt }
     val sections = listOf(
-        "空いています" to pins.filter { it.state == PinState.OPEN },
-        "立て直しかも" to pins.filter { it.state != PinState.OPEN && it.similar != null },
-        "満室" to pins.filter { it.state == PinState.FULL && it.similar == null },
-        "未確認" to pins.filter { it.state == PinState.UNSEEN && it.similar == null },
-        "立て直し待ち" to pins.filter { it.state == PinState.CLOSED && it.similar == null },
+        "空いています" to visiblePins.filter { it.state == PinState.OPEN },
+        "立て直しかも" to visiblePins.filter { it.state != PinState.OPEN && it.similar != null },
+        "満室" to visiblePins.filter { it.state == PinState.FULL && it.similar == null },
+        "未確認" to visiblePins.filter { it.state == PinState.UNSEEN && it.similar == null },
+        "立て直し待ち" to visiblePins.filter { it.state == PinState.CLOSED && it.similar == null },
     ).filter { it.second.isNotEmpty() }
     QuietPage {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = LovelySpacing.screenHorizontal, end = LovelySpacing.screenHorizontal,
@@ -121,7 +126,7 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
         item(key = "heading") {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
                 Box(Modifier.weight(1f)) { QuietHeading("ピン") }
-                if (pins.isNotEmpty()) Text(pinCheckedText(checkedAt, pacing.waitlistMs), style = MaterialTheme.typography.bodySmall,
+                if (visiblePins.isNotEmpty()) Text(pinCheckedText(checkedAt, pacing.waitlistMs), style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -131,12 +136,12 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                 onAction = retry?.let { run -> { error = null; retry = null; run() } })
         } }
         // ピンはどれも空いたら知らせるので、通知が出せないなら空いても知らせられないことを伝える。
-        if (!notificationsAllowed && pins.isNotEmpty()) item(key = "notice") {
+        if (!notificationsAllowed && visiblePins.isNotEmpty()) item(key = "notice") {
             QuietNotice(pinNoticeText(false), error = true, actionLabel = "通知の設定を開く",
                 onAction = { context.startActivity(io.github.springthief1123.lovelyspace.notify.appNotificationSettingsIntent(context)) })
         }
         if (!pinsLoaded && preferences.loading) item(key = "loading") { CircularProgressIndicator() }
-        if (pinsLoaded && pins.isEmpty()) item(key = "empty") {
+        if (pinsLoaded && visiblePins.isEmpty()) item(key = "empty") {
             RadarEmpty("ピンした部屋はまだありません。見つけるで部屋カードを右へスワイプするか、長押しのメニューから「ピン」を選ぶと加わります。", "部屋を探す", onFindRooms)
         }
         sections.forEach { (title, list) ->
@@ -156,7 +161,10 @@ fun RadarScreen(onFindRooms: () -> Unit, onEnterRoom: (Room) -> Unit, onPeekRoom
                     onPeek = { onPeekRoom(pin.room) },
                     onDetails = { details = pin.room },
                     onMemo = { memoPin = pin.key; error = null },
-                    onUnpin = { preferencesVm.clearFavorite(pin.preference) },
+                    onUnpin = {
+                        pendingUnpins = pendingUnpins + pin.key
+                        preferencesVm.clearFavorite(pin.preference, onFailure = { pendingUnpins = pendingUnpins - pin.key })
+                    },
                     onAdopt = { room -> action(pin.key) { app.pins.adopt(pin, room) } },
                     onDismissSimilar = { room -> action(pin.key) { app.pins.dismiss(pin.key, roomIdentity(room)) } },
                     onEnterSimilar = { room -> if (room.action == RoomAction.ENTER) onEnterRoom(room) else if (room.action == RoomAction.PEEK) onPeekRoom(room) else details = room })
