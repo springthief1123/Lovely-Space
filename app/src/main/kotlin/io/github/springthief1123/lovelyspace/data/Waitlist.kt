@@ -247,15 +247,15 @@ class WaitlistRepository(
      * アプリが前面の間、待っている部屋のページを [interval]（設定の間隔、ミリ秒）ごとに確認する。
      * 背景（WorkManager）は最短でも 15 分ごとなので、空きを争う間はこちらで追う。取得に失敗したら間を空ける。
      */
-    suspend fun monitor(interval: () -> Long, clock: () -> Long = System::currentTimeMillis) {
+    suspend fun monitor(interval: () -> Long) {
         while (currentCoroutineContext().isActive) {
-            val started = clock()
+            val started = now()
             // 待っている部屋が無くても、期限切れの処理と未通知の出し直しは [check] が行う（通信はしない）。
             // 保存の失敗などでアプリを落とさない。取得の失敗と同じく間を空けて続ける。
             val failed = try { check(Int.MAX_VALUE) } catch (e: CancellationException) { throw e } catch (e: Exception) { true }
             // 間隔は確認の始まり同士で数える（以前は終わりから数えていたので、取得にかかった分だけ空きに気づくのが遅れた）。
             // 取得に間隔より長くかかっても、続けて取りに行かないよう最小間隔の下限は空ける。本家への間隔は ShaloveClient が守る。
-            val elapsed = (clock() - started).coerceAtLeast(0)
+            val elapsed = (now() - started).coerceAtLeast(0)
             delay(if (failed) maxOf(interval(), RoomPageSchedule.ERROR_INTERVAL_MS)
                 else (interval() - elapsed).coerceAtLeast(RefreshPacing.FLOOR_MIN_INTERVAL_MS))
         }
