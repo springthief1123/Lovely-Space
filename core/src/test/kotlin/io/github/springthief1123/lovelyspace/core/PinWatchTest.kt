@@ -82,14 +82,20 @@ class PinWatchTest {
         val rewritten = room(900, name = "合成さん", message = "今夜も寝る前にゆるく話そう。通話はなし")
         val other = room(901, name = "別の合成", message = "映画の話がしたいです。最近見たのはミステリー")
         val window = RoomPageWindow().observe(page(1, listOf(other, rewritten)))
-        val found = window.similarRoomOf(old)
+        // 名前・性別が同じで書き換えた募集文が十分似ていれば、確かめずに引き継ぐ立て直し（2026-11-11）なので候補にしない。
+        assertTrue(isRebuildOf(old, rewritten))
+        assertNull(window.similarRoomOf(old))
+        // 性別が分からない（満室の）部屋は名前が同じでも確かめる。
+        val unsure = rewritten.copy(gender = Gender.UNKNOWN)
+        assertFalse(isRebuildOf(old, unsure))
+        val found = RoomPageWindow().observe(page(1, listOf(other, unsure))).similarRoomOf(old)
         assertEquals(900L, found?.room?.id)
         assertTrue(found!!.similarity >= SIMILAR_SAME_NAME)
         // 名前が違えば、ほぼ同じ募集文のときだけ。
         assertNull(RoomPageWindow().observe(page(1, listOf(rewritten.copy(name = "別の名前")))).similarRoomOf(old))
         assertNotNull(RoomPageWindow().observe(page(1, listOf(rewritten.copy(name = "別の名前", message = old.message + "！")))).similarRoomOf(old))
         // 「別の人」と答えた部屋・古い ID・同じ募集文の立て直し（自動で引き継ぐ）は候補にしない。
-        assertNull(window.similarRoomOf(old, skip = setOf(roomIdentity(rewritten))))
+        assertNull(RoomPageWindow().observe(page(1, listOf(other, unsure))).similarRoomOf(old, skip = setOf(roomIdentity(unsure))))
         assertNull(RoomPageWindow().observe(page(1, listOf(rewritten.copy(id = 50)))).similarRoomOf(old))
         assertNull(RoomPageWindow().observe(page(1, listOf(old.copy(id = 902)))).similarRoomOf(old))
         // 短い定型文は照合しない。

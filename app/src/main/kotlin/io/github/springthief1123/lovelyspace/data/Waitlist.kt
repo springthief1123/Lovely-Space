@@ -82,6 +82,11 @@ class WaitlistRepository(
      * 待っている部屋と同じページは 1 回の取得にまとまり、間隔は待っている部屋と同じ（設定の「空き枠の確認」）。
      */
     @Volatile var extraQueries: () -> List<RoomQuery> = { emptyList() }
+    /**
+     * 先に確かめる部屋（[WaitlistEntry.key]）。自動で入室するピンの部屋は、空き枠をほかの入室希望者と取り合うので、
+     * 確認 1 回の中で最初に読む（通信の回数・間隔は変えない）。
+     */
+    @Volatile var urgentKeys: () -> Set<String> = { emptySet() }
     private val mutex = Mutex()
     /** 前面と背景が同じ ListSync の巡回位置を同時に更新しないよう、確認1回を直列にする。 */
     private val checkMutex = Mutex()
@@ -212,7 +217,10 @@ class WaitlistRepository(
     suspend fun check(maxPages: Int): Boolean = checkMutex.withLock {
         expire()
         deliverPending()
-        val waiting = mutex.withLock { _entries.value.filter { it.active(now()) }.map { it.query } }
+        val urgent = runCatching(urgentKeys).getOrDefault(emptySet())
+        val waiting = mutex.withLock {
+            _entries.value.filter { it.active(now()) }.sortedByDescending { it.key in urgent }.map { it.query }
+        }
         val queries = (waiting + runCatching(extraQueries).getOrDefault(emptyList())).distinct()
         if (queries.isEmpty()) return@withLock false
         var failed = false
@@ -239,12 +247,17 @@ class WaitlistRepository(
      * アプリが前面の間、待っている部屋のページを [interval]（設定の間隔、ミリ秒）ごとに確認する。
      * 背景（WorkManager）は最短でも 15 分ごとなので、空きを争う間はこちらで追う。取得に失敗したら間を空ける。
      */
-    suspend fun monitor(interval: () -> Long) {
+    suspend fun monitor(interval: () -> Long, clock: () -> Long = System::currentTimeMillis) {
         while (currentCoroutineContext().isActive) {
+            val started = clock()
             // 待っている部屋が無くても、期限切れの処理と未通知の出し直しは [check] が行う（通信はしない）。
             // 保存の失敗などでアプリを落とさない。取得の失敗と同じく間を空けて続ける。
             val failed = try { check(Int.MAX_VALUE) } catch (e: CancellationException) { throw e } catch (e: Exception) { true }
-            delay(if (failed) maxOf(interval(), RoomPageSchedule.ERROR_INTERVAL_MS) else interval())
+            // 間隔は確認の始まり同士で数える（以前は終わりから数えていたので、取得にかかった分だけ空きに気づくのが遅れた）。
+            // 取得に間隔より長くかかっても、続けて取りに行かないよう最小間隔の下限は空ける。本家への間隔は ShaloveClient が守る。
+            val elapsed = (clock() - started).coerceAtLeast(0)
+            delay(if (failed) maxOf(interval(), RoomPageSchedule.ERROR_INTERVAL_MS)
+                else (interval() - elapsed).coerceAtLeast(RefreshPacing.FLOOR_MIN_INTERVAL_MS))
         }
     }
 

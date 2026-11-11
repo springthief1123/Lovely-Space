@@ -7,7 +7,7 @@ import kotlin.math.roundToInt
 
 /**
  * ピンの見張りで起きたことの通知。空いたら入室画面を、似た部屋が建ったらレーダー（同じ人か確かめる）を開く。
- * 空いた部屋は、待機メッセージがピンしたときと同じときだけ同じ部屋として入室まで進める（順番待ちと同じ）。
+ * 空いた部屋は、ピンしたときと同じ人の部屋（[io.github.springthief1123.lovelyspace.core.isSameRoomOwner]）のときだけ入室まで進める（順番待ちと同じ）。
  * 部屋の名前・待機メッセージは他の利用者の情報なので、ロック画面・本文の設定に従う [AppNotification.message] に入れる。
  */
 fun PinEvent.toNotification(at: Long = System.currentTimeMillis()): AppNotification? {
@@ -15,15 +15,20 @@ fun PinEvent.toNotification(at: Long = System.currentTimeMillis()): AppNotificat
     return when (this) {
         is PinEvent.Opened -> {
             val opened = pin.room
-            val sameMessage = registered.message.isNotBlank() && registered.message == opened.message
+            // 待機メッセージが同じか、書き換えていても名前が見えていて同じなら同じ人の部屋として入室まで進める（2026-11-11）。
+            val sameOwner = io.github.springthief1123.lovelyspace.core.isSameRoomOwner(registered, opened)
             AppNotification(
                 id = noticeId ?: "pin-${pin.key}-${pin.record.stateAt ?: at}",
                 kind = NotificationKind.WAITLIST,
                 title = "ピンした部屋が空きました",
                 namedTitle = opened.ownerLabel()?.let { "${it}の部屋が空きました" },
                 // 同じ待機メッセージなら知らせることは無いので、ジャンルだけにする。違うときだけ確かめるよう添える。
-                text = genre.label + if (sameMessage) "" else "・待機メッセージがピンしたときと違います",
-                target = NotificationTarget.Room(genre.host, opened.genreKey, opened.id, verified = sameMessage),
+                text = genre.label + when {
+                    !sameOwner -> "・待機メッセージがピンしたときと違います"
+                    registered.message != opened.message -> "・待機メッセージが書き換えられています"
+                    else -> ""
+                },
+                target = NotificationTarget.Room(genre.host, opened.genreKey, opened.id, verified = sameOwner),
                 at = noticeAt ?: at,
                 message = listOfNotNull(opened.name, opened.message.takeIf { it.isNotBlank() }).joinToString("\n").ifBlank { null },
                 room = opened,

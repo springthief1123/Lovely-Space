@@ -41,6 +41,7 @@ import io.github.springthief1123.lovelyspace.core.Genres
 import io.github.springthief1123.lovelyspace.core.PinState
 import io.github.springthief1123.lovelyspace.core.RoomAction
 import io.github.springthief1123.lovelyspace.core.RoomQuery
+import io.github.springthief1123.lovelyspace.core.isSameRoomOwner
 import io.github.springthief1123.lovelyspace.core.pinState
 import io.github.springthief1123.lovelyspace.core.roomIdentity
 import io.github.springthief1123.lovelyspace.data.ObservedRoomPage
@@ -66,7 +67,7 @@ internal fun isPinVacancyNotice(notice: AppNotification): Boolean =
 internal enum class PinVacancyStatus(val label: String, val badge: String) {
     /** 待機中で、待機メッセージも通知したときと同じ。ワンタップで入れる。 */
     OPEN("入室できます", "空き"),
-    /** 空いているが、待機メッセージが登録時・通知時と違う。入室前画面で確かめる。 */
+    /** 空いているが、待機メッセージが登録時・通知時と違い、同じ人と言えない（名前が見えない・違う）。入室前画面で確かめる。 */
     CHANGED("待機メッセージが変わりました", "要確認"),
     /** 最新の一覧でまだ確かめていない。 */
     UNCHECKED("空きを確認しています", "確認中"),
@@ -95,7 +96,8 @@ internal fun pinVacancyStatus(notice: AppNotification, pins: List<PinView>): Pin
         pin.state == PinState.FULL -> PinVacancyStatus.FILLED
         !pin.listed || pin.state == PinState.UNSEEN -> PinVacancyStatus.UNCHECKED
         pin.room.action != RoomAction.ENTER -> PinVacancyStatus.FILLED
-        !target.verified || notice.room?.message != pin.room.message -> PinVacancyStatus.CHANGED
+        // 待機メッセージを書き換えていても、名前が見えていて同じなら同じ人の部屋として入れる（[isSameRoomOwner]、2026-11-11）。
+        !target.verified || notice.room?.let { isSameRoomOwner(it, pin.room) } != true -> PinVacancyStatus.CHANGED
         else -> PinVacancyStatus.OPEN
     }
 }
@@ -151,6 +153,25 @@ internal fun roomNoticeAction(notice: AppNotification, status: PinVacancyStatus)
     status.stale -> PinVacancyAction.UNAVAILABLE
     else -> PinVacancyAction.REVIEW
 }
+
+/**
+ * 部屋のお知らせ [notice] の端末通知を消し、ベルで既読にしてよいか（記録は残す）。[status] はいまの様子（[pinVacancyStatus]・[roomNoticeStatus]）。
+ * - 埋まった・閉じた（ピンの空きは、ピンを外した・立て直しで移ったも）部屋は入れないので片付ける
+ * - ピンの空きで、空いたと知らせてから [UNCHECKED_NOTICE_TTL_MS] 経っても一覧で確かめられない部屋も片付ける
+ *   （起動し直した後などに、もう分からない古い空きをいつまでも出さない。空き枠は秒単位で埋まる）
+ * 空いたまま・待機メッセージが変わった部屋は、まだ入れるので残す（残す長さは設定の「お知らせを残す時間」）。
+ */
+internal fun shouldClearRoomNotice(notice: AppNotification, status: PinVacancyStatus?, now: Long): Boolean = when {
+    status == null -> false
+    isPinVacancyNotice(notice) -> status.stale || status == PinVacancyStatus.UNCHECKED && now - notice.at >= UNCHECKED_NOTICE_TTL_MS
+    // ピン以外の GONE は「ジャンルが分からない」なので、入れないとは言えない。
+    else -> status == PinVacancyStatus.FILLED || status == PinVacancyStatus.CLOSED
+}
+
+/** 一覧で確かめられないままのピンの空きを片付けるまでの時間。 */
+internal const val UNCHECKED_NOTICE_TTL_MS = 2 * 60_000L
+/** 端末通知・未読の片付けを時間で見直す間隔（通信はしない）。 */
+internal const val NOTICE_SWEEP_MS = 5_000L
 
 // 速報なので最新3件だけ。展開してもスクロールせずに収まる数にする。
 internal const val MAX_FLOATING_PIN_NOTICES = 3

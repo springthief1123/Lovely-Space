@@ -38,6 +38,8 @@ import io.github.springthief1123.lovelyspace.ui.shell.PinVacancyStatus
 import io.github.springthief1123.lovelyspace.ui.shell.isPinVacancyNotice
 import io.github.springthief1123.lovelyspace.ui.shell.pinVacancyStatus
 import io.github.springthief1123.lovelyspace.ui.shell.roomNoticeStatus
+import io.github.springthief1123.lovelyspace.ui.shell.shouldClearRoomNotice
+import io.github.springthief1123.lovelyspace.ui.shell.NOTICE_SWEEP_MS
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -68,19 +70,32 @@ class LovelySpaceApp : Application() {
         appScope.launch { radar.hotGenres.distinctUntilChanged().collect { hotPages.want("radar", it) } }
         appScope.launch { waitlist.genres.distinctUntilChanged().collect { hotPages.want("waitlist", it) } }
         appScope.launch { pins.genres.distinctUntilChanged().collect { hotPages.want("pins", it) } }
-        // 埋まった・閉じた・外したピンの空きの端末通知は消す。押しても入れない通知を残さない（ベルの記録は残し、いまの様子を書く）。
+        // 入れなくなった部屋のお知らせ（ピンの空き・条件の新着など）の端末通知は消し、少し様子を見せた後に既読にする。
+        // 押しても入れない通知・未読の印を残さない（ベルの記録は残し、いまの様子を書く）。ピンの見張り・一覧の取得のたびと、
+        // 時間で決まる片付け（確かめられないまま時間が経った空き）のために [NOTICE_SWEEP_MS] ごとに見直す。
         appScope.launch {
-            combine(pins.loaded, pins.pins, notificationInbox.entries) { loaded, list, _ -> if (loaded) list else null }
-                .filterNotNull().conflate().collect { list ->
+            val staleSince = HashMap<String, Long>()
+            val ticks = kotlinx.coroutines.flow.flow { while (true) { emit(Unit); kotlinx.coroutines.delay(NOTICE_SWEEP_MS) } }
+            combine(pins.loaded, pins.pins, notificationInbox.entries, roomLists.observations, ticks) { loaded, _, entries, _, _ -> if (loaded) entries else null }
+                .filterNotNull().conflate().collect { entries ->
                     try {
-                        notifier.cancelShown { id ->
-                            notificationInbox[id]?.let { isPinVacancyNotice(it) && pinVacancyStatus(it, list).stale } == true
-                        }
+                        val now = System.currentTimeMillis()
+                        val clear = entries.filter { shouldClearRoomNotice(it, liveNoticeStatus(it, now), now) }
+                        val ids = clear.mapTo(HashSet()) { it.id }
+                        staleSince.keys.retainAll(ids)
+                        ids.forEach { staleSince.putIfAbsent(it, now) }
+                        notifier.cancelShown { it in ids }
+                        // 浮かせたカードが「埋まりました」などを見せ終えてから既読にする（既読にするとカードは消える）。
+                        val read = clear.filter { !it.read && now - staleSince.getValue(it.id) >= io.github.springthief1123.lovelyspace.ui.shell.STALE_LINGER_MS }
+                            .mapTo(HashSet()) { it.id }
+                        if (read.isNotEmpty()) notificationInbox.markRead(read)
                     } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { }
                 }
         }
         // 空いているピンのページも、満室のピンと同じ確認で読み直す（閉じた・満室になったことに気づくため）。
         waitlist.extraQueries = pins::openPages
+        // 自動で入室するピンの部屋は、確認のたびに最初に読む。
+        waitlist.urgentKeys = { pins.pins.value.filter { it.record.autoEnters }.mapTo(HashSet()) { it.key } }
         // 以前の順番待ち・追跡をピンへ移してから、満室のピンの空きを順番待ちの確認で早く追う。
         appScope.launch {
             try { migrateToPins() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { }
@@ -104,7 +119,12 @@ class LovelySpaceApp : Application() {
             }
         }
         // 一覧を読むたびに、保存・非表示の部屋が立て直されていれば新しい部屋へ移す。
-        appScope.launch { roomPreferences.followRebuilds(roomLists.observations) }
+        // 閉じたと分かっているピンは、1 ページ目だけ読んだときでも立て直しを探す（背景の実行と同じ）。
+        appScope.launch {
+            roomPreferences.followRebuilds(roomLists.observations) {
+                pins.pins.value.filter { it.state == io.github.springthief1123.lovelyspace.core.PinState.CLOSED }.mapTo(HashSet()) { it.key }
+            }
+        }
         // 自動で入室した部屋に入れたら、その 1 件の自動入室を終える（ピンは「空いたら知らせる」に戻す）。
         // 追い出されたり退室したりして部屋がまた空いても、入り直し続けない（Yuya の決定、2026-11-05）。
         appScope.launch {

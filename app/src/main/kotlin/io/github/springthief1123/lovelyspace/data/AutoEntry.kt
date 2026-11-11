@@ -5,6 +5,7 @@ import io.github.springthief1123.lovelyspace.core.Room
 import io.github.springthief1123.lovelyspace.core.RoomAction
 import io.github.springthief1123.lovelyspace.core.RoomStatus
 import io.github.springthief1123.lovelyspace.core.chat.ChatRoomRef
+import io.github.springthief1123.lovelyspace.core.isSameRoomOwner
 import io.github.springthief1123.lovelyspace.core.roomIdentity
 import io.github.springthief1123.lovelyspace.notify.NotificationTarget
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -26,7 +27,7 @@ import kotlinx.coroutines.sync.withLock
  *
  * 見ていない間に入室して相手を待たせないよう、どれも次のときだけ依頼を出す。
  * - アプリが前面で一覧などの主画面を見ていて、会話中でもロックもされていない（[ready]、画面側が更新する）
- * - ピン・順番待ちは、満室の間は名前が一覧に出ないので、待機メッセージが登録時と同じ（空でない）部屋
+ * - ピン・順番待ちは、登録時と同じ人の部屋（[isSameRoomOwner]。待機メッセージが同じか、書き換えていても名前が見えていて同じ）
  * - 同じ部屋への依頼から [COOLDOWN_MS] 経っている
  */
 class AutoEntryController(
@@ -62,7 +63,7 @@ class AutoEntryController(
     suspend fun offer(entry: WaitlistEntry): Boolean = mutex.withLock {
         val opened = entry.openedRoom ?: return@withLock false
         if (!entry.autoEnter) return@withLock false
-        if (entry.room.message.isBlank() || entry.room.message != opened.message) return@withLock false
+        if (!isSameRoomOwner(entry.room, opened)) return@withLock false
         request(opened, entry.key, waitlistTarget(entry.key))
     }
 
@@ -78,10 +79,11 @@ class AutoEntryController(
 
     /**
      * 「自動で入室」にしたピン [key] の部屋が空いた（立て直した部屋が待機中で現れたときも）とき。依頼を出したら true。
-     * 順番待ちと同じく、待機メッセージがピンしたとき（[registered]）と同じ部屋に限る。
+     * ピンしたとき（[registered]）と同じ人の部屋（[isSameRoomOwner]）に限る。待機メッセージを書き換えていても、名前が見えていて同じなら入る
+     * （Yuya の決定、2026-11-11）。
      */
     suspend fun offerPin(key: String, registered: Room, opened: Room): Boolean = mutex.withLock {
-        if (registered.message.isBlank() || registered.message != opened.message) return@withLock false
+        if (!isSameRoomOwner(registered, opened)) return@withLock false
         if (opened.status == RoomStatus.FULL || opened.action != RoomAction.ENTER) return@withLock false
         request(opened, roomIdentity(opened), pinTarget(key))
     }

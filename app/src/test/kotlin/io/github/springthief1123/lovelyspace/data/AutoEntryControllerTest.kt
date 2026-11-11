@@ -74,6 +74,15 @@ class AutoEntryControllerTest {
         assertTrue(received.isEmpty())
     }
 
+    @Test fun followsAnEditedWaitingMessageWhenTheNameIsKnown() = runTest {
+        val (c, received) = controller()
+        // 名前を覚えているピン（待機中にピンした・名前が見えていた）は、待機メッセージを書き換えても同じ人として入る（2026-11-11）。
+        val known = full.copy(name = "合成の名前", gender = Gender.FEMALE)
+        assertFalse("名前が違えば入らない", c.offerPin(pinKey, known, open.copy(name = "別の名前", message = "別の募集文")))
+        assertTrue(c.offerPin(pinKey, known, open.copy(message = "書き換えた募集文")))
+        assertEquals(1, received.size)
+    }
+
     @Test fun waitsBeforeTheSameRoomButHasNoAttemptLimit() = runTest {
         val (c, received) = controller()
         assertTrue(c.offerPin(pinKey, full, open))

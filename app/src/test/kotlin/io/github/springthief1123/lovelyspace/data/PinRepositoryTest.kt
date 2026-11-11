@@ -251,7 +251,7 @@ class PinRepositoryTest {
         awaitPins { it.singleOrNull()?.state == PinState.FULL }
 
         val others = (900L downTo 100L step 100).filterNot { it == 500L }.map { room(it) }
-        val similar = room(960, name = "合成さん", message = "今夜も寝る前にゆるく話そう。通話はなし")
+        val similar = room(960, name = "合成ちゃん", message = "寝る前にゆるく話そう。通話はなしでお願いします！")
         lists.publish(genre, listOf(similar) + others)
         val view = awaitPins { it.singleOrNull()?.state == PinState.CLOSED && it.single().similar != null }.single()
         assertEquals(960L, (wait { events.receive() } as PinEvent.Similar).similar.room.id)
@@ -295,7 +295,7 @@ class PinRepositoryTest {
         lists.publish(genre, listOf(room(600), pinned, room(400)))
         awaitPins { it.singleOrNull()?.state == PinState.OPEN }
         val others = (900L downTo 100L step 100).filterNot { it == 500L }.map { room(it) }
-        val rewritten = room(960, name = "合成さん", message = "今夜も寝る前にゆるく話そう。通話はなし")
+        val rewritten = room(960, name = "合成ちゃん", message = "寝る前にゆるく話そう。通話はなしでお願いします！")
         lists.publish(genre, listOf(rewritten) + others)
         val similar = wait { events.receive() } as PinEvent.Similar
         assertEquals(960L, similar.similar.room.id)
@@ -315,7 +315,7 @@ class PinRepositoryTest {
         lists.publish(genre, listOf(room(600), pinned, room(400)))
         awaitPins { it.singleOrNull()?.state == PinState.OPEN }
         val others = (900L downTo 100L step 100).filterNot { it == 500L }.map { room(it) }
-        val rewritten = room(960, name = "合成さん", message = "今夜も寝る前にゆるく話そう。通話はなし")
+        val rewritten = room(960, name = "合成ちゃん", message = "寝る前にゆるく話そう。通話はなしでお願いします！")
         lists.publish(genre, listOf(rewritten) + others)
         val view = awaitPins { it.singleOrNull()?.similar != null }.single()
         // ピンはどれも知らせるので、似た部屋も 1 回だけ知らせる（2026-11-06）。

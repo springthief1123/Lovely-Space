@@ -298,15 +298,17 @@ class RoomPreferenceRepository(
     /**
      * 一覧を読むたびに（どの画面・背景の確認が読んだページでも）、そのジャンルの全体の一覧で [followRebuilds] を行う。
      * 立て直された非表示の部屋がまた出たり、保存した部屋を見失ったりしないようにする。
+     * [closed] は前に閉じたと分かったピン（「立て直し待ち」）。起動し直した後は古い部屋の載っていたページをまだ読んでおらず、
+     * 一覧だけでは閉じたと分からないので、これを渡さないと 1 ページ目に立て直しが出ても新しい部屋へ移らなかった（背景の実行だけが渡していた）。
      */
-    suspend fun followRebuilds(observations: StateFlow<Map<RoomQuery, ObservedRoomPage>>) {
+    suspend fun followRebuilds(observations: StateFlow<Map<RoomQuery, ObservedRoomPage>>, closed: () -> Set<String> = { emptySet() }) {
         var seen = 0L
         observations.collect { all ->
             val fresh = all.values.filter { it.revision > seen && it.query == RoomQuery(it.query.genre, page = it.query.page) }
             seen = maxOf(seen, all.values.maxOfOrNull { it.revision } ?: 0L)
             fresh.map { it.query.genre }.distinct().forEach { genre ->
                 // 保存の失敗などで一覧の監視を止めない。次に読んだページでやり直す。
-                try { followRebuilds(all.genreWindow(genre)) } catch (e: CancellationException) { throw e } catch (e: Exception) { }
+                try { followRebuilds(all.genreWindow(genre), runCatching(closed).getOrDefault(emptySet())) } catch (e: CancellationException) { throw e } catch (e: Exception) { }
             }
         }
     }
