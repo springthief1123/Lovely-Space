@@ -76,8 +76,9 @@ class PinVacancyToastTest {
         assertEquals(PinVacancyAction.UNAVAILABLE, pinVacancyAction(notice, listOf(view(state = PinState.FULL))))
         assertEquals(PinVacancyAction.UNAVAILABLE, pinVacancyAction(notice, listOf(view(listed = false))))
         assertEquals(PinVacancyAction.UNAVAILABLE, pinVacancyAction(notice, listOf(view(live = room.copy(action = RoomAction.NONE)))))
-        // 待機メッセージが変わったら、入室前画面で確かめる（ワンタップでは入らない）。
-        assertEquals(PinVacancyAction.REVIEW, pinVacancyAction(notice, listOf(view(live = room.copy(message = "別人の待機メッセージ")))))
+        // 待機メッセージが変わっても、名前が見えていて同じならワンタップで入る（2026-11-11）。名前が見えなければ入室前画面で確かめる。
+        assertEquals(PinVacancyAction.ENTER, pinVacancyAction(notice, listOf(view(live = room.copy(message = "書き換えた待機メッセージ")))))
+        assertEquals(PinVacancyAction.REVIEW, pinVacancyAction(notice, listOf(view(live = room.copy(message = "書き換えた待機メッセージ", name = null)))))
         assertEquals(PinVacancyAction.UNAVAILABLE, pinVacancyAction(notice, listOf(view(live = room.copy(id = 102)))))
     }
 

@@ -87,6 +87,9 @@ class RoomPageWindowTest {
         // 待機メッセージを書き換えて立て直した部屋（名前・性別が同じ）も同じく古い部屋を出さない。
         val edited = before.observe(page(1, listOf(host(1100).copy(message = "合成の待機メッセージです、今夜も"), room(1000), room(900), room(800)), last = 2))
         assertFalse(edited.rooms.any { it.id == 500L })
+        // 短い募集文は、名前と募集文が同じでも別の人かもしれないので両方出す。
+        val short = RoomPageWindow().observe(page(1, listOf(host(1100).copy(message = "よろしく"), room(1000), old.copy(message = "よろしく")), last = 1))
+        assertEquals(3, short.rooms.size)
         // 名前が違えば立て直しではない。
         val other = before.observe(page(1, listOf(host(1100).copy(name = "別の合成"), room(1000), room(900), room(800)), last = 2))
         assertTrue(other.rooms.any { it.id == 500L })

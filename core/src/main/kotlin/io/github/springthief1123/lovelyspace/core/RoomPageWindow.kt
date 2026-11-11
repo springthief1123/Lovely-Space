@@ -208,6 +208,8 @@ data class RoomPageWindow(
             group.forEach { old ->
                 val key = roomIdentity(old)
                 if (key in result) return@forEach
+                // 「よろしく」のような短い募集文は別の人でも名前ごと重なりうるので、画面から外さない（[SIMILAR_MIN_MESSAGE]）。
+                if (KeywordFolding.fold(old.message).filterNot { it.isWhitespace() }.length < SIMILAR_MIN_MESSAGE) return@forEach
                 if (group.any { new -> roomIdentity(new).let { it != key && it !in carried } && isRebuildOf(old, new) }) result += key
             }
         }
