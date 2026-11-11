@@ -23,6 +23,7 @@ import io.github.springthief1123.lovelyspace.data.AutoEntryController
 import io.github.springthief1123.lovelyspace.data.PinAlert
 import io.github.springthief1123.lovelyspace.data.PinEvent
 import io.github.springthief1123.lovelyspace.data.PinRepository
+import io.github.springthief1123.lovelyspace.data.watchTarget
 import io.github.springthief1123.lovelyspace.data.PinStore
 import io.github.springthief1123.lovelyspace.data.PinView
 import io.github.springthief1123.lovelyspace.data.WaitlistEntry
@@ -157,7 +158,9 @@ class LovelySpaceApp : Application() {
         entries.filter { it.forPin && (it.key !in wanted || !it.active(at)) }.forEach { waitlist.remove(it.key) }
         wanted.values.filter { pin -> entries.none { it.key == pin.key && it.forPin && it.active(at) } }.forEach { pin ->
             val genre = io.github.springthief1123.lovelyspace.core.Genres[pin.room.genreKey] ?: return@forEach
-            runCatching { waitlist.register(pin.room, pin.page?.let { io.github.springthief1123.lovelyspace.core.RoomQuery(genre, page = it) }, forPin = true) }
+            // 起動直後の部屋の姿は保存の記録なので、満室として、最後に見つけたページから登録する（[watchTarget]）。
+            val (room, page) = pin.watchTarget()
+            runCatching { waitlist.register(room, page?.let { io.github.springthief1123.lovelyspace.core.RoomQuery(genre, page = it) }, forPin = true) }
         }
     }
 

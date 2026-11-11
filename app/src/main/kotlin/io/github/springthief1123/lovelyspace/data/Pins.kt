@@ -83,6 +83,16 @@ data class PinView(val preference: RoomPreference, val record: PinRecord, val st
     val name: String get() = room.name ?: preference.identityName ?: preference.snapshotName ?: "名前の見えない部屋"
 }
 
+/**
+ * 満室のピン（[PinRepository.fastWatch]）を順番待ちの確認で追うときの部屋と、最初に確かめるページ。
+ * 起動直後はまだ一覧を読んでおらず、[PinView.room] は保存の記録の姿（ピンしたとき・最後に画面で見たときの様子）になる。
+ * その後にピンの見張りだけが満室を確かめた部屋は記録の様子が待機中のままなので、満室として登録する（順番待ちは満室の部屋しか受け付けない）。
+ * ページも、まだ一覧で見ていなければ最後に見つけたページ（[PinRecord.lastKnownPage]）から探す。1 ページ目から探し直すと、
+ * 後ろのページの古い部屋は見つかるまで何周もかかり、その間ピンの様子が変わらない（2026-11-11 Yuya 報告の不具合）。
+ */
+internal fun PinView.watchTarget(): Pair<Room, Int?> =
+    (if (room.status == RoomStatus.FULL) room else room.copy(status = RoomStatus.FULL)) to (page ?: record.lastKnownPage)
+
 /** ピンの見張りで起きたこと。ピンはどれも知らせる。 */
 sealed interface PinEvent {
     val pin: PinView
