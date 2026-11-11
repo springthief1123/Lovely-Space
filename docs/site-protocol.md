@@ -253,6 +253,12 @@
 
 - `webpush.js`: Service Worker `/sw.js` を登録し、購読情報（endpoint, p256dh, auth）を `GET /Jsapi_SubscribeWebPush?endpoint=..&publicKey=..&authToken=..&room_id=..&pwd=..` で登録。会員は `/Ipush_SetQuick` もある
 - VAPID 公開鍵はページ内に固定値で記載
+- 2026-11-11 に公開の `/sw.js` と `/js/webpush.js` を読んで分かったこと（部屋を作らずに読める範囲。実際の配信は未確認）:
+  - 購読は標準の Web Push（`pushManager.subscribe({userVisibleOnly: true, applicationServerKey: VAPID 公開鍵})`）。登録は `GET /Jsapi_SubscribeWebPush?endpoint=..&publicKey=<p256dh の base64>&authToken=<auth の base64>&room_id=..&pwd=..`、応答は JSON の `true`（それ以外は失敗）。解除は `GET /Jsapi_SubscribeWebPush?room_id=..&pwd=..&unsubscribe=1`
+  - Service Worker が受け取る push の本文は JSON `{title, body, url, room_id, pwd}`。通知を押すと、`room_id`・`pwd` を含む `2shot.php` のタブがあればそれを前に出し、無ければ `url` を開く。**本文に部屋の `pwd` が入る**ので、アプリで受け取る場合も `pwd` として扱う（ログ・通知の本文・route に出さない）
+  - 部屋の画面は、通知が許可済みで Cookie `sbWP` が `0` でなければ、開いたときに自動で購読する（「通知しない」を選ぶと `sbWP=0` を保存して解除）。ページ内の `gRoomVars._wp_endpoint` は登録済みの endpoint
+  - 会員（`gRoomVars.ipushMasterEnabled`）は別の仕組みで、`POST /Ipush_SetQuick`（`csrfid, room_id, pwd, enabled`）でオン・オフを切り替える
+  - 未確認: 配信のきっかけ（入室時だけか、発言でも来るか）、`title`・`body` の文言、endpoint のホストを制限しているか（FCM・Mozilla 以外、たとえば UnifiedPush の配信先を受け付けるか）、部屋が閉じたときに購読が消えるか
 - **アプリへの応用案**: Android アプリでも UnifiedPush（ntfy など）を使えば標準の Web プッシュを受け取れる。購読情報をこの API に渡せば、**アプリがポーリングせずにサーバー側から入室通知を受け取れる**可能性がある（サイト公式機能の利用なので規約面でも有利）。実現性は要検証
 
 ## まだ必要な取得
