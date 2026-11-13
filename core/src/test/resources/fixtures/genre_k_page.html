@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>合成ジャンルの構造見本</title>
+</head>
+<body>
+<!-- /GenreK の構造だけを再現した合成・縮小例。名前・文・ID・時刻等はすべて架空。
+     実際のページ件数・時刻の境界条件は再現しない。リンク先にはアクセスしない。
+     部屋ごとのコンテナは無く、hr と兄弟ノードが行の境界。
+     旧形式 /?action=GenreK の今回の応答には span.listbtime が無かった。 -->
+<b><font size="+1" style="font-size:1.13rem;" color="#ff40ff">合成ジャンル</font></b>
+<font color="#00cc00">待機中</font> 3
+<font color="#ff00cc">満室</font> 2
+<hr>
+<a class="pagereload" href="/GenreK?genre_key=synthetic">最新更新</a>
+<a class="pagernext" href="/GenreK?genre_key=synthetic&amp;bfrid=900002">次&gt;</a>
+&nbsp;1-4/5部屋
+<!-- この例は次ページあり。最終ページの実物は未確認。 -->
+<hr>
+<a href="/PreEnterRoom?room_id=900004&amp;genre_key=synthetic&amp;kct=1000000000&amp;back_uri=%2FGenreK%3Fgenre_key%3Dsynthetic">待機中</a>
+合成あお(28) <font class="male" color="#0000ff">男</font> 東京<span class="listbtime">37秒前</span><br><span class="wrapsoft">これは非公開待機中の合成募集文です。</span>
+<hr>
+<a href="/PreEnterRoom?room_id=900003&amp;genre_key=synthetic&amp;kct=1000000000&amp;back_uri=%2FGenreK%3Fgenre_key%3Dsynthetic">公開待機中</a>
+合成みどり <font class="female" color="#ff0000">女</font> <span class="listbtime">2分19秒前</span><br><span class="wrapsoft">これは年齢と地域を省略した合成募集文です。</span>
+<hr>
+<font color="#ff00cc">満室</font> 非公開<span class="listbtime">4分前</span>
+<!-- 非公開満室には識別用の ID・リンク・名前等を足さない。 -->
+<hr>
+<font color="#ff00cc">満室</font><a href="/PublicRoom?room_id=900002&amp;genre_key=synthetic&amp;pre=1&amp;back_uri=%2FGenreK%3Fgenre_key%3Dsynthetic">覗く</a>
+合成むらさき(見本)(35) <font class="female" color="#ff0000">女</font> 北海道<span class="listbtime">6分前</span><br><span class="wrapsoft">これは公開満室の合成募集文です。</span>
+<hr>
+<a class="pagereload" href="/GenreK?genre_key=synthetic">最新更新</a>
+<a class="pagernext" href="/GenreK?genre_key=synthetic&amp;bfrid=900002">次&gt;</a>
+&nbsp;1-4/5部屋
+</body>
+</html>
