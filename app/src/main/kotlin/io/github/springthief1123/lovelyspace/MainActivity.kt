@@ -147,6 +147,8 @@ class MainActivity : FragmentActivity() {
         (application as LovelySpaceApp).appLock.onForeground()
         // 入室中の部屋は、アプリが前面にある間だけ新着を取りに行く（一覧を見ている間も続ける）。
         (application as LovelySpaceApp).activeRooms.setForeground(true)
+        // 満室の部屋主名をスマホ版の一覧で探すのも前面の間だけ。
+        (application as LovelySpaceApp).roomLists.setForeground(true)
     }
 
     override fun onStop() {
@@ -155,6 +157,7 @@ class MainActivity : FragmentActivity() {
         if (!isChangingConfigurations) {
             (application as LovelySpaceApp).appLock.onBackground()
             (application as LovelySpaceApp).activeRooms.setForeground(false)
+            (application as LovelySpaceApp).roomLists.setForeground(false)
         }
     }
 

@@ -199,23 +199,42 @@ class RoomListRepository(
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>?) = size > MAX_NAMED
     }
     private val lookupRunning = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
-    private val lastLookupAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    /** ジャンルごとの、次に名前を探してよい時刻。成功なら [LOOKUP_GAP_MS]、失敗なら [RoomPageSchedule.ERROR_INTERVAL_MS] 後。 */
+    private val nextLookupAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    @Volatile private var foreground = false
+    /** 名前を探す通信。背景に回ったら取り消す。 */
+    private var lookups = SupervisorJob()
+
+    /**
+     * アプリが前面にあるか。名前を探すのは前面の間だけにする。背景の実行（[io.github.springthief1123.lovelyspace.background]）は
+     * 1 回に読むページ数に上限があるので、そこに数えない通信を足さない。背景に回ったら探している途中の通信も取り消す。
+     */
+    fun setForeground(value: Boolean) {
+        if (foreground == value) return
+        foreground = value
+        if (!value) synchronized(this) {
+            lookups.cancel()
+            lookups = SupervisorJob()
+        }
+    }
 
     /**
      * PC 版の一覧は満室の部屋の名前を出さない。名前の分からない公開の満室（覗ける部屋）が [rooms] にあれば、
      * スマホ版の一覧（[ShaloveClient.fetchGenreKNames]）を、その中でいちばん新しい部屋から 1 ページだけ読み、部屋主の名前を覚える。
      * 補うのは [withLastNames] などと同じく待機メッセージが一致する部屋だけ（[borrowNamed]）。非公開の満室はスマホ版にも名前が無い。
-     * 通信は巡回と同じ自動の扱いで、ジャンルごとに 1 本ずつ、[LOOKUP_GAP_MS] 以上空け、一度探した部屋はもう探さない。
+     * 通信は巡回と同じ自動の扱いで、アプリが前面にある間だけ、ジャンルごとに 1 本ずつ、[LOOKUP_GAP_MS]（失敗後は 20 秒）以上空け、一度探した部屋はもう探さない。
      */
     private fun lookUpFullNames(genre: Genre, rooms: List<Room>) {
         val missing = rooms.filter { room ->
             room.action == RoomAction.PEEK && room.name == null && borrowNamed(room, lastNamed(room)) == null &&
                 synchronized(lookedUp) { roomIdentity(room) !in lookedUp }
         }
-        if (missing.isEmpty()) return
+        if (!foreground || missing.isEmpty()) return
         val key = genre.key
-        if (now() - (lastLookupAt[key] ?: Long.MIN_VALUE / 2) < LOOKUP_GAP_MS || !lookupRunning.add(key)) return
-        scope.launch {
+        if (now() < (nextLookupAt[key] ?: 0L) || !lookupRunning.add(key)) return
+        val job = synchronized(this) { lookups }
+        scope.launch(job) {
+            var gap = RoomPageSchedule.ERROR_INTERVAL_MS
             try {
                 val page = client.fetchGenreKNames(genre, missing.maxOf { it.id } + 1)
                 rememberNamed(page.rooms)
@@ -226,12 +245,13 @@ class RoomListRepository(
                     else -> page.rooms.minOf { it.id }
                 }
                 synchronized(lookedUp) { missing.filter { it.id >= lowest }.forEach { lookedUp[roomIdentity(it)] = true } }
+                if (page.rooms.isNotEmpty()) gap = LOOKUP_GAP_MS
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (_: Exception) {
-                // 読めなければ何もしない。次に一覧を読んだとき、間を空けてもう一度探す。
+                // 読めなければ何もしない。一覧の取得の失敗と同じく 20 秒空けてから、次に一覧を読んだときにもう一度探す。
             } finally {
-                lastLookupAt[key] = now()
+                nextLookupAt[key] = now() + gap
                 lookupRunning.remove(key)
             }
         }
