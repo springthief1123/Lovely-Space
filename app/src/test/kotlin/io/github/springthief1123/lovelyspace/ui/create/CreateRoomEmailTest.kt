@@ -16,18 +16,28 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import kotlin.time.Duration.Companion.seconds
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], application = Application::class)
 class CreateRoomEmailTest {
-    @Test fun optionalEmailSurvivesReloadAndIsIncludedInTheActualPrefill() = runTest {
+    /**
+     * DataStore と Room は実際のスレッドで動くので、実時間で待つ。CI の混んだ実行機では
+     * Robolectric の初回の読み込みが 10 秒を超えたことがあるため、余裕を持たせ、
+     * 待ちきれなかったときはどの段階かを失敗の文言に出す。
+     */
+    private suspend fun <T> awaitReal(step: String, block: suspend () -> T): T =
+        withContext(Dispatchers.Default) { withTimeoutOrNull(WAIT) { block() } }
+            ?: throw AssertionError("$step が $WAIT 待っても終わらなかった")
+
+    @Test fun optionalEmailSurvivesReloadAndIsIncludedInTheActualPrefill() = runTest(timeout = WAIT * 4) {
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         val context = ApplicationProvider.getApplicationContext<Application>()
         val settings = SettingsRepository(context)
@@ -36,16 +46,16 @@ class CreateRoomEmailTest {
             settings.setLastRoomDetails(RoomDetails(null, "合成の募集文", "saved@example.invalid"))
             val presets = PresetRepository(db, settings)
             val vm = CreateRoomViewModel(settings, presets)
-            withContext(Dispatchers.Default) { withTimeout(10_000) { vm.state.first { it.isLoaded } } }
+            awaitReal("最初の読み込み") { vm.state.first { it.isLoaded } }
             assertEquals("saved@example.invalid", vm.state.value.email)
             vm.setName("合成の名前")
             vm.setEmail("  next@example.invalid  ")
             assertEquals("next@example.invalid", vm.state.value.formFields["email"])
             assertTrue(prefillFormScript("makeroom", vm.state.value.formFields).contains("set(\"email\", \"next@example.invalid\")"))
             vm.saveInputs()
-            withContext(Dispatchers.Default) { withTimeout(10_000) { settings.lastRoomDetails.first { it.email == "next@example.invalid" } } }
+            awaitReal("入力の保存") { settings.lastRoomDetails.first { it.email == "next@example.invalid" } }
             val restored = CreateRoomViewModel(SettingsRepository(context), presets)
-            withContext(Dispatchers.Default) { withTimeout(10_000) { restored.state.first { it.isLoaded } } }
+            awaitReal("保存した値の読み込み") { restored.state.first { it.isLoaded } }
             assertEquals("next@example.invalid", restored.state.value.email)
             restored.setEmail("")
             assertTrue(restored.state.value.canContinue)
@@ -54,5 +64,9 @@ class CreateRoomEmailTest {
             db.close()
             Dispatchers.resetMain()
         }
+    }
+
+    private companion object {
+        val WAIT = 30.seconds
     }
 }
