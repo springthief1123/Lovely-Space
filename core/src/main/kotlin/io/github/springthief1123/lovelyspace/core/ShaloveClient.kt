@@ -127,6 +127,17 @@ class ShaloveClient(
         }
     }
 
+    /**
+     * スマホ版の一覧（`/?action=GenreK`）で、番号が [beforeId] より小さい部屋を新しい順に 1 ページ（PC 版と同じ 60 部屋前後）読む。
+     * PC 版の一覧が名前を出さない公開の満室の部屋主名を補うためだけに使う（[GenreKParser]）。UA は PC のまま。
+     * 巡回と同じ自動の通信として、設定の最小間隔を空け、利用者の操作・新着の確認より後に通す。
+     */
+    suspend fun fetchGenreKNames(genre: Genre, beforeId: Long): GenreKParser.Page {
+        val url = genreKUrl(genre, beforeId)
+        val html = gated(automaticHost = genre.host) { request(url) }
+        return parsing { GenreKParser.parse(html, genre.key, url) }
+    }
+
     /** ページャのリンクが同じジャンルの一覧を指しているか。ほかのホスト・ページへは取りに行かない。 */
     private fun isListUrl(url: String, genre: Genre): Boolean {
         val parsed = url.toHttpUrlOrNull() ?: return false
