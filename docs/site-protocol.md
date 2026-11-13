@@ -107,7 +107,7 @@
 
 `/GenreK?genre_key=<genre>` と `/?action=GenreK&genre_key=<genre>` は、今回の応答では**時間表示・件数・スクリプトが異なった**。同じ画面の別名として扱わない。以下の「新形式」は `/GenreK`、「旧形式」は `/?action=GenreK` を指す（サイトの正式名称ではない）。
 
-AGENTS.md・本書・[Lovery-Vivaldi の adapter.js](https://github.com/springthief1123/Lovery-Vivaldi/blob/002b6f4d5fe3a164daea367cdbbc2867a181c684/src/content/adapter.js) を先に確認した。共有 Chrome の操作ツールはこのセッションには無く、HTTP の単発 GET を手動で指示し、応答 HTML をメモリ内で解析した。**ブラウザで描画・実行後の DOM は未確認**。外部 JS・画像・広告等は取得していない。HTML 本文・Cookie・実際の名前・募集文・ID・トークンは保存・出力せず、以下には構造と集計だけを残す。
+取得は HTTP の単発 GET だけで、応答 HTML はその場で構造と集計だけを取り出した（HTML 本文・Cookie・実際の名前・募集文・ID・トークンは保存していない）。外部 JS・画像は取得しておらず、**ブラウザで描画・実行した後の DOM は未確認**。比較に使った既存の解析は [Lovery-Vivaldi の adapter.js](https://github.com/springthief1123/Lovery-Vivaldi/blob/7c463e62437b6e2bf6cc151d6ff8aacd038aca89/src/content/adapter.js)。
 
 | 順 | UTC 時刻 | URL（カーソル実値は省略） | UA | 結果 |
 | --- | --- | --- | --- | --- |
@@ -349,6 +349,7 @@ AGENTS.md・本書・[Lovery-Vivaldi の adapter.js](https://github.com/springth
 | `ajax.php` の作成者側の応答（入室者あり・相手退室・部屋終了） | #31 |
 | 一時 ID・トリップの持続性 | #37 |
 | 会員ログイン・年齢認証、`2shot.` / `lr.` サブドメインの一覧、スマホ UA でのレイアウト差 | #48 |
+| GenreK 新形式の 1 時間以上の時間表示・満室になったときの時間の扱い・最終ページ・同一 URL での UA の対照（「スマホ版一覧（GenreK）」の末尾） | #48 |
 | 画像投稿の実際の通信 | #34 |
 
 `/PublicRoom`（覗き画面）は `#chatarea` 内の `div.hello` を公開ログとして読む（`PublicRoomParser`）。2026-10-17、満室の公開部屋の一部で `#chatarea` の無いページが返り「公開ルームを表示できません」になる例を Yuya が確認（原因は未採取）。アプリは `#chatarea` の外の `div.hello`、同じホスト・同じ `room_id` の枠（frame / iframe）も読み、読めないときは本家の応答の題名・転送先・枠とフォームの数を画面に出す。実際の HTML の採取が必要。2026-10-18、他の利用者に入室されたばかりの部屋を覗くと読めないと Yuya が報告（同じ現象の可能性）。アプリは一度も読めていない部屋を、開いてから 2 分は閉じたと決めずに設定の間隔で読み直し、部屋主の名前・待機メッセージは一覧で名前が見えていたときの姿から出す。
