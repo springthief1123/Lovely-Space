@@ -59,7 +59,7 @@ data class NamedRoom(val room: Room, val seenAt: Long)
  */
 fun borrowNamed(room: Room, named: Room?): Room? {
     if (room.name != null || named?.name == null || roomIdentity(named) != roomIdentity(room)) return null
-    if (room.message.isBlank() || named.message != room.message || roomIdentityEvidence(room, named) == RoomIdentityEvidence.REUSED) return null
+    if (!sameListedMessage(room.message, named.message) || roomIdentityEvidence(room, named) == RoomIdentityEvidence.REUSED) return null
     return room.copy(
         name = named.name,
         gender = if (room.gender == Gender.UNKNOWN) named.gender else room.gender,
@@ -67,6 +67,22 @@ fun borrowNamed(room: Room, named: Room?): Room? {
         area = room.area ?: named.area,
     )
 }
+
+/**
+ * PC 版とスマホ版の一覧で、同じ部屋の待機メッセージに見えるか。空白の並びの違いはそろえ、長い文は片方が途中で省略されていても
+ * 先頭 [MESSAGE_PREFIX_MIN] 文字以上が一致すれば同じとみなす（本家は一覧で長い文を省略する）。
+ */
+internal fun sameListedMessage(a: String, b: String): Boolean {
+    val x = a.replace(SPACES, " ").trim().trimEnd('…', '.').trim()
+    val y = b.replace(SPACES, " ").trim().trimEnd('…', '.').trim()
+    if (x.isEmpty() || y.isEmpty()) return false
+    if (x == y) return true
+    val (short, long) = if (x.length <= y.length) x to y else y to x
+    return short.length >= MESSAGE_PREFIX_MIN && long.startsWith(short)
+}
+
+private val SPACES = Regex("""\s+""")
+private const val MESSAGE_PREFIX_MIN = 40
 
 /** 発見・巡回・追跡が同じ通信結果を使う。キャッシュ再利用を新しい観測とは数えない。 */
 class RoomListRepository(
@@ -173,8 +189,52 @@ class RoomListRepository(
         journal.record(query, result, System.currentTimeMillis()) {
             // キャッシュを再利用した結果は新しい観測ではないので、名前の記録を古い姿へ戻さない。
             rememberNamed(result.rooms)
+            lookUpFullNames(query.genre, result.rooms)
         }
         return result
+    }
+
+    /** 名前をスマホ版の一覧で探した部屋（[roomIdentity]）。同じ部屋を何度も探さない。 */
+    private val lookedUp = object : LinkedHashMap<String, Boolean>(256, 0.75f, false) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>?) = size > MAX_NAMED
+    }
+    private val lookupRunning = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val lastLookupAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /**
+     * PC 版の一覧は満室の部屋の名前を出さない。名前の分からない公開の満室（覗ける部屋）が [rooms] にあれば、
+     * スマホ版の一覧（[ShaloveClient.fetchGenreKNames]）を、その中でいちばん新しい部屋から 1 ページだけ読み、部屋主の名前を覚える。
+     * 補うのは [withLastNames] などと同じく待機メッセージが一致する部屋だけ（[borrowNamed]）。非公開の満室はスマホ版にも名前が無い。
+     * 通信は巡回と同じ自動の扱いで、ジャンルごとに 1 本ずつ、[LOOKUP_GAP_MS] 以上空け、一度探した部屋はもう探さない。
+     */
+    private fun lookUpFullNames(genre: Genre, rooms: List<Room>) {
+        val missing = rooms.filter { room ->
+            room.action == RoomAction.PEEK && room.name == null && borrowNamed(room, lastNamed(room)) == null &&
+                synchronized(lookedUp) { roomIdentity(room) !in lookedUp }
+        }
+        if (missing.isEmpty()) return
+        val key = genre.key
+        if (now() - (lastLookupAt[key] ?: Long.MIN_VALUE / 2) < LOOKUP_GAP_MS || !lookupRunning.add(key)) return
+        scope.launch {
+            try {
+                val page = client.fetchGenreKNames(genre, missing.maxOf { it.id } + 1)
+                rememberNamed(page.rooms)
+                // 読んだページの範囲（最後のページなら下まで）にあった部屋だけを探し終えたことにする。残りと、一覧として読めなかったときは次に一覧を読んだときに探す。
+                val lowest = when {
+                    page.rooms.isEmpty() -> Long.MAX_VALUE
+                    page.nextCursor == null -> Long.MIN_VALUE
+                    else -> page.rooms.minOf { it.id }
+                }
+                synchronized(lookedUp) { missing.filter { it.id >= lowest }.forEach { lookedUp[roomIdentity(it)] = true } }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // 読めなければ何もしない。次に一覧を読んだとき、間を空けてもう一度探す。
+            } finally {
+                lastLookupAt[key] = now()
+                lookupRunning.remove(key)
+            }
+        }
     }
 
     companion object {
@@ -182,6 +242,8 @@ class RoomListRepository(
         /** 名前が見えていた姿を端末に残す間。 */
         const val NAMED_KEEP_MS = 14 * 24 * 60 * 60_000L
         private const val SAVE_DELAY_MS = 5_000L
+        /** スマホ版の一覧で名前を探す通信の、同じジャンルでの間隔。 */
+        const val LOOKUP_GAP_MS = 15_000L
     }
 }
 

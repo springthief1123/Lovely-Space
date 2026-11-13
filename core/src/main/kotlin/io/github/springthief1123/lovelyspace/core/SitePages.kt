@@ -38,6 +38,10 @@ object Prefectures {
     }
 }
 
+/** スマホ版の一覧（旧形式）で、番号が [beforeId] より小さい部屋のページ。`bfrid` は本家の「次>」と同じカーソル。 */
+fun genreKUrl(genre: Genre, beforeId: Long): String =
+    "https://${genre.host}/?action=GenreK&genre_key=${genre.key}&bfrid=$beforeId"
+
 /**
  * アプリ内のブラウザ画面（WebView）で開く本家のページ。
  * ロボット確認が必須の部屋作成や、まだ解析していない覗き画面に使う。
