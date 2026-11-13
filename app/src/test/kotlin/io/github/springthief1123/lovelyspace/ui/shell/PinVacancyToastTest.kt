@@ -76,8 +76,9 @@ class PinVacancyToastTest {
         assertEquals(PinVacancyAction.UNAVAILABLE, pinVacancyAction(notice, listOf(view(state = PinState.FULL))))
         assertEquals(PinVacancyAction.UNAVAILABLE, pinVacancyAction(notice, listOf(view(listed = false))))
         assertEquals(PinVacancyAction.UNAVAILABLE, pinVacancyAction(notice, listOf(view(live = room.copy(action = RoomAction.NONE)))))
-        // 待機メッセージが変わったら、入室前画面で確かめる（ワンタップでは入らない）。
-        assertEquals(PinVacancyAction.REVIEW, pinVacancyAction(notice, listOf(view(live = room.copy(message = "別人の待機メッセージ")))))
+        // 待機メッセージが変わっても、名前が見えていて同じならワンタップで入る（2026-11-11）。名前が見えなければ入室前画面で確かめる。
+        assertEquals(PinVacancyAction.ENTER, pinVacancyAction(notice, listOf(view(live = room.copy(message = "書き換えた待機メッセージ")))))
+        assertEquals(PinVacancyAction.REVIEW, pinVacancyAction(notice, listOf(view(live = room.copy(message = "書き換えた待機メッセージ", name = null)))))
         assertEquals(PinVacancyAction.UNAVAILABLE, pinVacancyAction(notice, listOf(view(live = room.copy(id = 102)))))
     }
 
@@ -119,9 +120,29 @@ class PinVacancyToastTest {
         assertEquals(PinVacancyStatus.UNCHECKED, pinVacancyStatus(notice, listOf(view(state = PinState.UNSEEN))))
         assertEquals(PinVacancyStatus.UNCHECKED, pinVacancyStatus(notice, listOf(view(listed = false))))
         assertEquals(PinVacancyStatus.GONE, pinVacancyStatus(notice, emptyList()))
-        assertEquals(PinVacancyStatus.CHANGED, pinVacancyStatus(notice, listOf(view(live = room.copy(message = "別の待機メッセージ")))))
+        // 待機メッセージを書き換えても、名前が見えていて同じなら入室できる（2026-11-11）。名前が見えない・違えば確かめる。
+        assertEquals(PinVacancyStatus.OPEN, pinVacancyStatus(notice, listOf(view(live = room.copy(message = "別の待機メッセージ")))))
+        assertEquals(PinVacancyStatus.CHANGED, pinVacancyStatus(notice, listOf(view(live = room.copy(message = "別の待機メッセージ", name = null)))))
         assertTrue(PinVacancyStatus.FILLED.stale)
         assertFalse(PinVacancyStatus.UNCHECKED.stale)
+    }
+    @Test fun unusableNoticesAreClearedFromTheTrayAndBadge() {
+        val at = notice.at
+        // ピンの空き: 埋まった・閉じた・見当たらないものはすぐ、確かめられないものは時間が経ってから片付ける。空いているものは残す。
+        assertTrue(shouldClearRoomNotice(notice, PinVacancyStatus.FILLED, at + 1))
+        assertTrue(shouldClearRoomNotice(notice, PinVacancyStatus.CLOSED, at + 1))
+        assertTrue(shouldClearRoomNotice(notice, PinVacancyStatus.GONE, at + 1))
+        assertFalse(shouldClearRoomNotice(notice, PinVacancyStatus.UNCHECKED, at + UNCHECKED_NOTICE_TTL_MS - 1))
+        assertTrue(shouldClearRoomNotice(notice, PinVacancyStatus.UNCHECKED, at + UNCHECKED_NOTICE_TTL_MS))
+        assertFalse(shouldClearRoomNotice(notice, PinVacancyStatus.OPEN, at + 60 * 60_000L))
+        assertFalse(shouldClearRoomNotice(notice, PinVacancyStatus.CHANGED, at + 60 * 60_000L))
+        assertFalse(shouldClearRoomNotice(notice, null, at + 60 * 60_000L))
+        // ほかの部屋のお知らせ: 埋まった・閉じたときだけ。
+        val radar = notice.copy(id = "radar-1", kind = NotificationKind.RADAR_MATCH)
+        assertTrue(shouldClearRoomNotice(radar, PinVacancyStatus.FILLED, at + 1))
+        assertTrue(shouldClearRoomNotice(radar, PinVacancyStatus.CLOSED, at + 1))
+        assertFalse(shouldClearRoomNotice(radar, PinVacancyStatus.GONE, at + 1))
+        assertFalse(shouldClearRoomNotice(radar, PinVacancyStatus.UNCHECKED, at + 60 * 60_000L))
     }
     @Test fun otherRoomNoticesFollowTheLatestListAndRefuseStaleOrReusedRooms() {
         val genre = Genres["zenkoku"]!!

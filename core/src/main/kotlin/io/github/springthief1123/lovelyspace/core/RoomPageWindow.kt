@@ -22,8 +22,8 @@ import kotlin.time.Duration.Companion.hours
  *
  * 同じ人が部屋を閉じて作り直す「立て直し」（[isRebuildOf]）では、新しい部屋は 1 ページ目に出るが、古い部屋は後ろのページに載ったまま、
  * そのページを読み直すまで（後ろのページは周に 1 つずつなので、大きいジャンルでは数十秒から数分）残ってしまう。本家では古い部屋はもう無いので、
- * 古い部屋の載るページを最後に読んだ後に立て直しの部屋が初めて見えたら、古い部屋は [rooms] に出さない（[superseded]）。
- * そのページを読み直して古い部屋がまだあれば（同じ人が 2 部屋立てている）、本家と同じく両方を出す。
+ * 立て直しの部屋が見えたら、古い部屋は [rooms] に出さない（[superseded]）。そのページを読み直して古い部屋がまだあっても、
+ * 同じ人の部屋を二重に並べないよう新しい部屋だけを出す（Yuya の決定、2026-11-11）。
  */
 data class RoomPageWindow(
     val pages: Map<Int, List<Room>> = emptyMap(),
@@ -140,7 +140,8 @@ data class RoomPageWindow(
     fun rebuildOf(old: Room, claimed: Set<String> = emptySet(), knownClosed: Boolean = false): Room? {
         val closed = if (knownClosed) listedRooms.none { roomIdentity(it) == roomIdentity(old) } else isClosed(old)
         if (!closed) return null
-        return rooms.filter { roomIdentity(it) !in claimed && isRebuildOf(old, it) }.distinctBy(::roomIdentity).singleOrNull()
+        // 画面からは外した同じ人の古い部屋（[superseded]）も候補に数え、2 つ以上なら決めない。
+        return listedRooms.filter { roomIdentity(it) !in claimed && isRebuildOf(old, it) }.distinctBy(::roomIdentity).singleOrNull()
     }
 
     /**
@@ -188,28 +189,28 @@ data class RoomPageWindow(
     }
 
     /**
-     * 立て直しで本家からはもう消えたと見られる古い部屋（[roomIdentity]）。[listedRooms] にはあるが [rooms] には出さない。
+     * 立て直された古い部屋（[roomIdentity]）。[listedRooms] にはあるが [rooms] には出さない。
      *
-     * 古い部屋の載るページを最後に読んだ観測より後に、その部屋の立て直し（[isRebuildOf]）が初めて見えたもの。
-     * 取り直したページから消えて残している部屋（[carried]）は、消える前に最後に載っていた観測（[CarriedRoom.seenAt]）と比べる。
-     * 同じページの同じ観測で両方が見えていれば、本家にも両方あるので外さない。
+     * 同じ人の新しい部屋（[isRebuildOf]。待機メッセージを書き換えた立て直しを含む）が一覧に載っていれば、古い部屋は画面に出さない。
+     * 以前は古い部屋のページを読み直してまだ載っていれば本家と同じく両方出していたが、同じ人の部屋が一覧に二重に並ばないよう、
+     * 新しい部屋だけを出す（Yuya の決定、2026-11-11）。取り直したページから消えて残している新しい部屋（[carried]）は閉じたかもしれないので数えない。
+     * 閉じたとは決めないので、ピン・順番待ちは閉じたと分かってから移る（[rebuildOf]）。
      */
     val superseded: Set<String> get() = supersededIn(listedRooms)
 
     private fun supersededIn(all: List<Room>): Set<String> {
         val result = HashSet<String>()
-        val pageOf by lazy { roomPages }
-        // 立て直しは募集文の完全一致（表記の揺れをそろえる）が前提なので、募集文ごとに分けて照合する。
-        all.groupBy { KeywordFolding.fold(it.message).trim() }.forEach { (message, group) ->
-            if (message.isEmpty() || group.size < 2) return@forEach
+        // 全部屋の組を比べると重いので、立て直しの候補になりうる組（募集文が同じ・名前が同じ）ごとに照合する。
+        val groups = all.groupBy { KeywordFolding.fold(it.message).trim() }.filterKeys { it.isNotEmpty() }.values +
+            all.filter { foldedName(it) != null }.groupBy { foldedName(it) }.values
+        groups.forEach { group ->
+            if (group.size < 2) return@forEach
             group.forEach { old ->
                 val key = roomIdentity(old)
-                val confirmed = carried[key]?.seenAt ?: revisions[pageOf[key]] ?: return@forEach
-                val replaced = group.any { new ->
-                    val newKey = roomIdentity(new)
-                    newKey != key && newKey !in carried && isRebuildOf(old, new) && (firstSeen[newKey] ?: Long.MIN_VALUE) > confirmed
-                }
-                if (replaced) result += key
+                if (key in result) return@forEach
+                // 「よろしく」のような短い募集文は別の人でも名前ごと重なりうるので、画面から外さない（[SIMILAR_MIN_MESSAGE]）。
+                if (KeywordFolding.fold(old.message).filterNot { it.isWhitespace() }.length < SIMILAR_MIN_MESSAGE) return@forEach
+                if (group.any { new -> roomIdentity(new).let { it != key && it !in carried } && isRebuildOf(old, new) }) result += key
             }
         }
         return result

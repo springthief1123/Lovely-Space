@@ -34,6 +34,35 @@ class RoomTrackingTest {
         assertFalse(isRebuildOf(old, rebuilt.copy(genreKey = "talk")))
         assertFalse(isRebuildOf(old.copy(message = " "), rebuilt.copy(message = "")))
     }
+    @Test fun sameNameRebuildWithAnEditedMessageIsARebuild() {
+        // 待機メッセージを書き換えて立て直した（2026-11-11 から追従する）。名前・性別が見えていて同じで、募集文が十分似ていること。
+        val old = target.copy(message = "寝る前にゆるく話そう。通話はなしでお願いします")
+        val edited = old.copy(id = 50, message = "今夜も寝る前にゆるく話そう。通話はなし")
+        assertTrue(isRebuildOf(old, edited))
+        assertFalse(isRebuildOf(old, edited.copy(name = "別の合成")))
+        assertFalse(isRebuildOf(old, edited.copy(name = null, gender = Gender.UNKNOWN)))
+        assertFalse(isRebuildOf(old, edited.copy(gender = Gender.UNKNOWN)))
+        assertFalse(isRebuildOf(old, edited.copy(message = "映画の話がしたいです。最近見たのはミステリー")))
+        assertFalse(isRebuildOf(old, edited.copy(age = 30)))
+        assertFalse(isRebuildOf(old, edited.copy(id = 41)))
+        // 短い定型文は書き換えの照合に使わない。
+        assertFalse(isRebuildOf(old.copy(message = "よろしく"), edited.copy(message = "よろしくね")))
+    }
+    @Test fun sameOwnerFollowsAnEditedMessageOnlyWhenTheNameIsVisible() {
+        val registered = target.copy(status = RoomStatus.FULL, message = "合成の募集文です、よろしく")
+        // 同じ待機メッセージなら同じ人（満室の間に名前が見えなくても）。
+        assertTrue(isSameRoomOwner(registered, registered.copy(status = RoomStatus.WAITING, name = null)))
+        // 書き換えても、名前が見えていて同じなら同じ人。
+        assertTrue(isSameRoomOwner(registered, registered.copy(message = "書き換えた募集文")))
+        // 名前が見えない・違う・性別が違う部屋は、書き換えたのか番号の使い回しか分からない。
+        assertFalse(isSameRoomOwner(registered, registered.copy(message = "書き換えた募集文", name = null)))
+        assertFalse(isSameRoomOwner(registered, registered.copy(message = "書き換えた募集文", name = "別の合成")))
+        assertFalse(isSameRoomOwner(registered, registered.copy(name = "別の合成")))
+        assertFalse(isSameRoomOwner(registered, registered.copy(message = "書き換えた募集文", gender = Gender.MALE)))
+        // 別の ID は立て直しのときだけ。
+        assertTrue(isSameRoomOwner(registered, registered.copy(id = 99)))
+        assertFalse(isSameRoomOwner(registered, registered.copy(id = 99, name = "別の合成")))
+    }
     @Test fun withoutANameOnlyALongMessageIdentifiesARebuild() {
         // 満室の部屋は名前が出ない。短い定型文は別の人と重なりやすいので、名前が分からなければ長い募集文のときだけ照合する。
         val full = target.copy(status = RoomStatus.FULL, name = null, gender = Gender.UNKNOWN)

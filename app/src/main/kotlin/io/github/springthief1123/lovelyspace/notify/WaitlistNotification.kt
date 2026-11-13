@@ -11,14 +11,18 @@ fun WaitlistEntry.toOpenedNotification(): AppNotification? {
     val opened = openedRoom ?: return null
     val host = Genres[opened.genreKey]?.host ?: return null
     val genre = Genres[opened.genreKey]?.label ?: opened.genreKey
-    val sameMessage = room.message.isNotBlank() && room.message == opened.message
+    val sameOwner = io.github.springthief1123.lovelyspace.core.isSameRoomOwner(room, opened)
     return AppNotification(
         id = "waitlist-$key-${changedAt ?: registeredAt}",
         kind = NotificationKind.WAITLIST,
         title = "順番待ちの部屋に空きが出ました",
         namedTitle = opened.ownerLabel()?.let { "${it}の部屋が空きました" },
-        text = genre + (if (rebuilds > 0) "・立て直した新しい部屋" else "") + if (sameMessage) "" else "・待機メッセージが登録時と違います",
-        target = NotificationTarget.Room(host, opened.genreKey, opened.id, verified = sameMessage),
+        text = genre + (if (rebuilds > 0) "・立て直した新しい部屋" else "") + when {
+            !sameOwner -> "・待機メッセージが登録時と違います"
+            room.message != opened.message -> "・待機メッセージが書き換えられています"
+            else -> ""
+        },
+        target = NotificationTarget.Room(host, opened.genreKey, opened.id, verified = sameOwner),
         at = changedAt ?: System.currentTimeMillis(),
         message = listOfNotNull(opened.name, opened.message.takeIf { it.isNotBlank() }).joinToString("\n").ifBlank { null },
         room = opened,

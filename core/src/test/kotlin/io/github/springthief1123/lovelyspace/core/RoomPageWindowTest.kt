@@ -71,18 +71,25 @@ class RoomPageWindowTest {
         assertTrue(rebuilt.listedRooms.any { it.id == 500L })
         assertFalse(rebuilt.isClosed(old))
         assertEquals(PinState.OPEN, rebuilt.pinState(old).first)
-        // 2 ページ目を読み直して古い部屋がまだあれば、同じ人が 2 部屋立てているので本家と同じく両方出す。
+        // 2 ページ目を読み直して古い部屋がまだあっても、同じ人の部屋を二重に並べず新しい部屋だけを出す（2026-11-11）。
         val both = rebuilt.observe(page(2, listOf(old, room(400)), last = 2))
-        assertEquals(listOf(1100L, 1000L, 900L, 800L, 500L, 400L), both.rooms.map { it.id })
+        assertEquals(listOf(1100L, 1000L, 900L, 800L, 400L), both.rooms.map { it.id })
+        assertTrue(both.listedRooms.any { it.id == 500L })
         // 読み直して無ければ、出さないまま。前のページも読んで、その間に無ければ閉じた部屋として外れる。
         val vanished = rebuilt.observe(page(2, listOf(room(400)), last = 2))
         assertFalse(vanished.rooms.any { it.id == 500L })
         val closed = vanished.observe(page(1, listOf(host(1100), room(1000), room(900), room(800)), last = 2))
         assertFalse(closed.listedRooms.any { it.id == 500L })
         assertTrue(closed.superseded.isEmpty())
-        // 同じページを同じときに読んで両方載っていれば、本家にも両方あるので外さない。
+        // 同じページを同じときに読んで両方載っていても、古い部屋は出さない。
         val sameRead = RoomPageWindow().observe(page(1, listOf(host(1100), room(1000), old), last = 1))
-        assertEquals(3, sameRead.rooms.size)
+        assertEquals(listOf(1100L, 1000L), sameRead.rooms.map { it.id })
+        // 待機メッセージを書き換えて立て直した部屋（名前・性別が同じ）も同じく古い部屋を出さない。
+        val edited = before.observe(page(1, listOf(host(1100).copy(message = "合成の待機メッセージです、今夜も"), room(1000), room(900), room(800)), last = 2))
+        assertFalse(edited.rooms.any { it.id == 500L })
+        // 短い募集文は、名前と募集文が同じでも別の人かもしれないので両方出す。
+        val short = RoomPageWindow().observe(page(1, listOf(host(1100).copy(message = "よろしく"), room(1000), old.copy(message = "よろしく")), last = 1))
+        assertEquals(3, short.rooms.size)
         // 名前が違えば立て直しではない。
         val other = before.observe(page(1, listOf(host(1100).copy(name = "別の合成"), room(1000), room(900), room(800)), last = 2))
         assertTrue(other.rooms.any { it.id == 500L })
@@ -92,12 +99,13 @@ class RoomPageWindowTest {
             .observe(page(1, listOf(host(1100), room(1000)), last = 2))
         assertTrue(edge.carried.containsKey(roomIdentity(old)))
         assertEquals(listOf(1100L, 1000L, 400L), edge.rooms.map { it.id })
-        // 両方が同じときに載っていた後、古い部屋だけが新着に押されてページから消えても、立て直しではないので出し続ける。
+        // 両方が同じときに載っていた後、古い部屋だけが新着に押されてページから消えても、同じ人の新しい部屋があるので古い部屋は出さない。
         val pushed = RoomPageWindow().observe(page(1, listOf(host(1100), room(1000), old), last = 2))
             .observe(page(2, listOf(room(400)), last = 2))
             .observe(page(1, listOf(room(1200), host(1100), room(1000)), last = 2))
         assertTrue(pushed.carried.containsKey(roomIdentity(old)))
-        assertTrue(pushed.rooms.any { it.id == 500L })
+        assertFalse(pushed.rooms.any { it.id == 500L })
+        assertTrue(pushed.listedRooms.any { it.id == 500L })
     }
     @Test fun eachRoomKnowsThePageItWasLastSeenOn() {
         // 1 は 1 ページ目から 2 ページ目へ移った。2 は 1 ページ目から消えたので、消えたページのまま残る。
